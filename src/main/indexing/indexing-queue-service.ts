@@ -69,7 +69,7 @@ export class IndexingQueueService {
   private async runTask(task: IndexingTaskRecord): Promise<void> {
     try {
       const result = await this.executor.run(task);
-      this.store.completeIndexingTask(task.id, result);
+      await this.store.completeIndexingTask(task.id, result);
     } catch (error) {
       this.store.failIndexingTask(task.id, error instanceof Error ? error.message : String(error));
     }

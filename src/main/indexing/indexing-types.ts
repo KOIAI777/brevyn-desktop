@@ -59,5 +59,6 @@ export interface IndexingWorkerResult {
   byteCount: number;
   sample: string;
   warnings: string[];
+  chunks: string[];
   metadata?: Record<string, string | number | boolean>;
 }

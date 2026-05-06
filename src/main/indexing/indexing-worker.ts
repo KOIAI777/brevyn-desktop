@@ -23,6 +23,7 @@ function run(task: IndexingTaskRecord): IndexingWorkerResult {
       byteCount: stats.size,
       sample: "",
       warnings: [`${payload.kind.toUpperCase()} parser is not enabled yet; queued worker support is ready for the parser adapter.`],
+      chunks: [],
       metadata: {
         parser: "unsupported-binary-placeholder",
         kind: payload.kind,
@@ -45,6 +46,7 @@ function run(task: IndexingTaskRecord): IndexingWorkerResult {
     byteCount: stats.size,
     sample: chunks[0]?.slice(0, 900) || text.slice(0, 900),
     warnings: truncated ? [`Read first ${MAX_TEXT_BYTES} bytes only; full-file parsing will move to streaming parser mode.`] : [],
+    chunks,
     metadata: {
       parser: "plain-text",
       kind: payload.kind,

@@ -170,7 +170,7 @@ function createRagSearchTool(store: LocalStore): Tool {
     execute: async (input) => {
       const args = parseRagSearchInput(input);
       const maxResults = clamp(args.maxResults ?? 6, 1, 12);
-      const results = store.searchRag(args.query, args.courseId).slice(0, maxResults);
+      const results = (await store.searchRag(args.query, args.courseId)).slice(0, maxResults);
       return JSON.stringify({
         query: args.query,
         courseId: args.courseId,

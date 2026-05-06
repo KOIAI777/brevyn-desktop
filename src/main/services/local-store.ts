@@ -38,6 +38,7 @@ import type {
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import { SQLiteBusinessStore, type BusinessSnapshot } from "../storage";
 import { ProviderSecretStore } from "./provider-secret-store";
+import { RagIndexService } from "./rag-index-service";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
 
@@ -496,6 +497,7 @@ function initialStore(): StoreShape {
 
 export class LocalStore {
   private data: StoreShape;
+  private readonly ragIndex: RagIndexService;
 
   constructor(
     private readonly filePath: string,
@@ -503,6 +505,11 @@ export class LocalStore {
     private readonly providerSecrets?: ProviderSecretStore,
   ) {
     this.data = this.load();
+    this.ragIndex = new RagIndexService({
+      dbPath: join(dirname(this.filePath), "indexes", "rag"),
+      resolveEmbeddingProvider: () => this.embeddingProvider(),
+      resolveApiKey: (provider) => this.providerApiKey(provider.id) || envApiKeyForProvider(provider),
+    });
   }
 
   listSemesters(): SemesterWorkspace[] {
@@ -743,31 +750,17 @@ export class LocalStore {
     return { ...skill };
   }
 
-  searchRag(query: string, courseId?: string): RagSearchResult[] {
-    const normalized = query.trim() || "course materials";
-    const courses = this.data.courses.filter(
-      (course) => course.id !== SEMESTER_HOME_COURSE_ID && (!courseId || courseId === SEMESTER_HOME_COURSE_ID || course.id === courseId),
-    ).filter((course) => course.semesterId === this.data.semester.id);
-    return courses.slice(0, 2).flatMap((course, courseIndex) => [
-      {
-        id: `rag-${course.id}-rubric`,
-        courseId: course.id,
-        title: `${course.code} rubric notes`,
-        source: "rubric.md",
-        citation: `${course.code} rubric, p.${courseIndex + 2}`,
-        excerpt: `Rubric evidence for "${normalized}": identify the governing rule, compare policy tradeoffs, and cite at least two course readings.`,
-        score: 0.91 - courseIndex * 0.08,
-      },
-      {
-        id: `rag-${course.id}-lecture`,
-        courseId: course.id,
-        title: `${course.name} lecture brief`,
-        source: "week-06-lecture.pdf",
-        citation: `Week 6 lecture, slide ${courseIndex + 9}`,
-        excerpt: `The lecture frames "${normalized}" as a conflict between institutional incentives, factual uncertainty, and remedy design.`,
-        score: 0.84 - courseIndex * 0.05,
-      },
-    ]);
+  async searchRag(query: string, courseId?: string): Promise<RagSearchResult[]> {
+    try {
+      return await this.ragIndex.search(
+        query,
+        this.data.semester.id,
+        courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
+      );
+    } catch (error) {
+      console.warn("[rag] Search failed", error);
+      return [];
+    }
   }
 
   contextReport(threadId: string): ContextWindowReport {
@@ -1066,10 +1059,19 @@ export class LocalStore {
     this.refreshIndexingJobs();
   }
 
-  completeIndexingTask(taskId: string, result: IndexingWorkerResult): IndexingJob | null {
-    const job = this.businessStore.completeIndexingTask(taskId, result);
+  async completeIndexingTask(taskId: string, result: IndexingWorkerResult): Promise<IndexingJob | null> {
+    const task = this.businessStore.getIndexingTask(taskId);
+    if (!task) return null;
+    const job = this.businessStore.getIndexingJob(task.jobId);
+    if (job?.status === "cancelled") {
+      const cancelled = this.businessStore.completeIndexingTask(taskId, result);
+      this.refreshIndexingJobs();
+      return cancelled;
+    }
+    await this.ragIndex.ingestTask(task, result);
+    const completed = this.businessStore.completeIndexingTask(taskId, result);
     this.refreshIndexingJobs();
-    return job;
+    return completed;
   }
 
   failIndexingTask(taskId: string, message: string): IndexingJob | null {
@@ -1292,9 +1294,9 @@ export class LocalStore {
 
   private embeddingProvider(): ModelProviderConfig | undefined {
     return (
-      this.data.providers.find((item) => item.embeddingEnabled && item.embeddingModel) ||
-      this.data.providers.find((item) => item.enabled && item.embeddingModel) ||
-      this.data.providers.find((item) => item.enabled)
+      this.data.providers.find((item) => item.embeddingEnabled && item.embeddingModel && item.protocol !== "anthropic_messages") ||
+      this.data.providers.find((item) => item.enabled && item.embeddingModel && item.protocol !== "anthropic_messages") ||
+      this.data.providers.find((item) => item.enabled && item.protocol !== "anthropic_messages")
     );
   }
 

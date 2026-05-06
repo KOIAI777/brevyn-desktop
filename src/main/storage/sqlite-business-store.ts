@@ -178,6 +178,11 @@ export class SQLiteBusinessStore {
     return this.getIndexingJob(job.id) || job;
   }
 
+  getIndexingTask(taskId: string): IndexingTaskRecord | null {
+    const row = this.db.prepare("select * from indexing_tasks where id = ?").get(taskId) as Row | undefined;
+    return row ? rowToIndexingTask(row) : null;
+  }
+
   claimNextIndexingTask(workerId: string, lockMs: number): IndexingTaskRecord | null {
     const timestamp = now();
     const lockedUntil = new Date(Date.now() + lockMs).toISOString();
@@ -294,18 +299,27 @@ export class SQLiteBusinessStore {
              locked_by = null,
              locked_until = null,
              progress = 100,
-             error = ?,
+             error = null,
              payload_json = ?,
              updated_at = ?
          where id = ?`,
-        result.warnings.length > 0 ? result.warnings.join("\n") : null,
-        json({ ...task.payload, result }),
+        json({
+          ...task.payload,
+          result: {
+            fileId: result.fileId,
+            sourcePath: result.sourcePath,
+            chunkCount: result.chunkCount,
+            charCount: result.charCount,
+            byteCount: result.byteCount,
+            sample: result.sample,
+            warnings: result.warnings,
+            metadata: result.metadata,
+          },
+        }),
         timestamp,
         taskId,
       );
-      if (result.chunkCount > 0) {
-        this.run("update workspace_files set indexed_at = ?, updated_at = ? where id = ?", timestamp, timestamp, task.fileId);
-      }
+      this.run("update workspace_files set indexed_at = ?, updated_at = ? where id = ?", timestamp, timestamp, task.fileId);
       const updated = this.refreshIndexingJob(task.jobId);
       this.db.exec("commit;");
       return updated;
@@ -596,14 +610,9 @@ export class SQLiteBusinessStore {
     );
   }
 
-  private getIndexingJob(jobId: string): IndexingJob | null {
+  getIndexingJob(jobId: string): IndexingJob | null {
     const row = this.db.prepare("select * from indexing_jobs where id = ?").get(jobId) as Row | undefined;
     return row ? rowToIndexingJob(row) : null;
-  }
-
-  private getIndexingTask(taskId: string): IndexingTaskRecord | null {
-    const row = this.db.prepare("select * from indexing_tasks where id = ?").get(taskId) as Row | undefined;
-    return row ? rowToIndexingTask(row) : null;
   }
 
   private refreshIndexingJob(jobId: string): IndexingJob | null {
