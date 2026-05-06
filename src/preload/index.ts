@@ -68,6 +68,7 @@ const api: UclawAPI = {
     estimate: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.contextEstimate, threadId),
   },
   agent: {
+    runtimeStatus: () => ipcRenderer.invoke(IPC_CHANNELS.agentRuntimeStatus),
     run: (input: AgentRunInput) => ipcRenderer.invoke(IPC_CHANNELS.agentRun, input),
     stop: (runId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentStop, runId),
     approve: (approvalId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentApprove, approvalId),

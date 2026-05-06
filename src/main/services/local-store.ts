@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type {
   ChatMessage,
@@ -35,6 +35,9 @@ import type {
   UclawTask,
   WorkspaceFileNode,
 } from "../../types/domain";
+import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
+import { SQLiteBusinessStore, type BusinessSnapshot } from "../storage";
+import { ProviderSecretStore } from "./provider-secret-store";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
 
@@ -478,7 +481,7 @@ function initialStore(): StoreShape {
         name: "OpenAI",
         protocol: "openai_responses",
         baseUrl: "https://api.openai.com/v1",
-        apiKeyMasked: "sk-...local",
+        apiKeyMasked: "",
         chatModel: "gpt-5.1",
         embeddingModel: "text-embedding-3-large",
         multimodalModel: "gpt-5.1",
@@ -494,7 +497,11 @@ function initialStore(): StoreShape {
 export class LocalStore {
   private data: StoreShape;
 
-  constructor(private readonly filePath: string) {
+  constructor(
+    private readonly filePath: string,
+    private readonly businessStore: SQLiteBusinessStore,
+    private readonly providerSecrets?: ProviderSecretStore,
+  ) {
     this.data = this.load();
   }
 
@@ -777,7 +784,7 @@ export class LocalStore {
       compressedMessages: Math.max(0, messages.length - 6),
       sections: ["course", "task", "thread", "enabled skills"],
       files: ["rubric.md", "week-06-lecture.pdf", "draft-outline.md"],
-      tools: ["search_course_materials", "read_workspace_file", "apply_workspace_patch", "git_diff"],
+      tools: ["context_report", "rag_search", "ask_user", "shell", "apply_patch"],
       skills: this.data.skills.filter((skill) => skill.enabled).map((skill) => skill.name),
     };
   }
@@ -918,9 +925,9 @@ export class LocalStore {
       return file;
     });
 
+    this.save();
     const sectionId = this.sectionIdForImport(input);
     const indexingJob = this.indexCourseFiles(input.courseId, sectionId);
-    this.save();
     return {
       files: cloneFiles(importedFiles),
       tree: this.listFiles(input.courseId),
@@ -929,6 +936,7 @@ export class LocalStore {
   }
 
   courseFileSections(courseId: string): CourseFileSection[] {
+    this.refreshIndexingJobs();
     if (courseId === SEMESTER_HOME_COURSE_ID) {
       const files = this.listFiles(courseId);
       const leafFiles = flattenFiles(files);
@@ -993,37 +1001,81 @@ export class LocalStore {
     const sections = this.courseFileSections(courseId);
     const files = sectionId ? sections.find((section) => section.id === sectionId)?.files || [] : sections.flatMap((section) => section.files);
     const provider = this.embeddingProvider();
+    const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
+    const timestamp = now();
     const job: IndexingJob = {
-      id: `index-${Date.now().toString(36)}`,
+      id: `index-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       semesterId: this.data.semester.id,
       courseId,
       sectionId,
-      status: "indexed",
+      status: localFiles.length > 0 ? "queued" : "indexed",
+      stage: localFiles.length > 0 ? "queued" : "empty",
       embeddingModel: provider?.embeddingModel || "text-embedding-3-large",
-      indexedFiles: flattenFiles(files).length,
-      progress: 100,
-      createdAt: now(),
-      updatedAt: now(),
+      indexedFiles: 0,
+      totalFiles: localFiles.length,
+      completedFiles: 0,
+      progress: localFiles.length > 0 ? 0 : 100,
+      error: localFiles.length > 0 ? undefined : "No local source files are available for indexing in this section.",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
-    this.data.indexingJobs.unshift(job);
-    this.save();
-    return { ...job };
+    const tasks: IndexingTaskInsert[] = localFiles.map((file, index) => ({
+      id: `idx-task-${job.id}-${index + 1}`,
+      jobId: job.id,
+      semesterId: this.data.semester.id,
+      courseId,
+      sectionId,
+      fileId: file.id,
+      kind: "parse_chunk",
+      payload: {
+        semesterId: this.data.semester.id,
+        courseId,
+        sectionId,
+        fileId: file.id,
+        taskId: file.taskId,
+        name: file.name,
+        path: file.path,
+        sourcePath: file.sourcePath,
+        kind: file.kind,
+        weekNumber: file.weekNumber,
+        taskFileBucket: file.taskFileBucket,
+      },
+    }));
+    const created = this.businessStore.createIndexingJob(job, tasks);
+    this.refreshIndexingJobs();
+    return { ...created };
   }
 
   listIndexingJobs(courseId?: string): IndexingJob[] {
-    return this.data.indexingJobs
-      .filter((job) => job.semesterId === this.data.semester.id && (!courseId || job.courseId === courseId))
-      .slice()
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    this.refreshIndexingJobs();
+    return this.data.indexingJobs.filter((job) => job.semesterId === this.data.semester.id && (!courseId || job.courseId === courseId));
   }
 
   cancelIndexingJob(jobId: string): IndexingJob | null {
-    const job = this.data.indexingJobs.find((item) => item.id === jobId);
-    if (!job) return null;
-    job.status = "cancelled";
-    job.updatedAt = now();
-    this.save();
-    return { ...job };
+    const job = this.businessStore.cancelIndexingJob(jobId);
+    this.refreshIndexingJobs();
+    return job ? { ...job } : null;
+  }
+
+  claimNextIndexingTask(workerId: string, lockMs: number): IndexingTaskRecord | null {
+    return this.businessStore.claimNextIndexingTask(workerId, lockMs);
+  }
+
+  recoverExpiredIndexingTasks(): void {
+    this.businessStore.recoverExpiredIndexingTasks();
+    this.refreshIndexingJobs();
+  }
+
+  completeIndexingTask(taskId: string, result: IndexingWorkerResult): IndexingJob | null {
+    const job = this.businessStore.completeIndexingTask(taskId, result);
+    this.refreshIndexingJobs();
+    return job;
+  }
+
+  failIndexingTask(taskId: string, message: string): IndexingJob | null {
+    const job = this.businessStore.failIndexingTask(taskId, message);
+    this.refreshIndexingJobs();
+    return job;
   }
 
   listProviders(): ModelProviderConfig[] {
@@ -1033,12 +1085,18 @@ export class LocalStore {
   saveProvider(input: ProviderDraftInput): ModelProviderConfig {
     const timestamp = now();
     const existing = input.id ? this.data.providers.find((provider) => provider.id === input.id) : undefined;
+    const providerId = input.id || `provider-${Date.now().toString(36)}`;
+    const apiKey = input.apiKey.trim();
+    const apiKeySecretRef = apiKey
+      ? this.providerSecrets?.saveApiKey(providerId, apiKey)
+      : existing?.apiKeySecretRef || this.providerSecrets?.secretRef(providerId);
     const next: ModelProviderConfig = {
-      id: input.id || `provider-${Date.now().toString(36)}`,
+      id: providerId,
       name: input.name.trim() || "Custom Provider",
       protocol: input.protocol,
       baseUrl: input.baseUrl.trim(),
-      apiKeyMasked: input.apiKey.trim() ? maskApiKey(input.apiKey) : existing?.apiKeyMasked || "",
+      apiKeyMasked: apiKey ? maskApiKey(apiKey) : existing?.apiKeyMasked || "",
+      apiKeySecretRef,
       chatModel: input.chatModel,
       embeddingModel: input.embeddingModel,
       multimodalModel: input.multimodalModel,
@@ -1058,30 +1116,69 @@ export class LocalStore {
     return next;
   }
 
-  providerModels(providerId: string): ProviderModel[] {
+  async providerModels(providerId: string): Promise<ProviderModel[]> {
     const provider = this.data.providers.find((item) => item.id === providerId);
-    if (provider?.protocol === "anthropic_messages") {
-      return [
-        { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", type: "chat" },
-        { id: "claude-opus-4.1", name: "Claude Opus 4.1", type: "chat" },
-      ];
+    if (!provider) return [];
+    const apiKey = this.providerApiKey(provider.id) || envApiKeyForProvider(provider);
+    if (!apiKey || provider.protocol === "custom_http") {
+      return defaultModelsForProvider(provider);
     }
-    return [
-      { id: "gpt-5.1", name: "GPT-5.1", type: "chat" },
-      { id: "gpt-5.1-mini", name: "GPT-5.1 mini", type: "chat" },
-      { id: "text-embedding-3-large", name: "text-embedding-3-large", type: "embedding" },
-      { id: "text-embedding-3-small", name: "text-embedding-3-small", type: "embedding" },
-      { id: "gpt-5.1", name: "GPT-5.1 multimodal", type: "multimodal" },
-    ];
+    try {
+      const models = await fetchProviderModels(provider, apiKey);
+      return models.length > 0 ? models : defaultModelsForProvider(provider);
+    } catch (error) {
+      console.warn(`[providers] Failed to fetch models for ${provider.id}`, error);
+      return defaultModelsForProvider(provider);
+    }
   }
 
-  testProvider(providerId: string): ProviderTestResult {
+  async testProvider(providerId: string): Promise<ProviderTestResult> {
+    const startedAt = Date.now();
     const provider = this.data.providers.find((item) => item.id === providerId);
-    return {
-      ok: Boolean(provider),
-      latencyMs: 128,
-      message: provider ? `${provider.name} mock connection is reachable.` : "Provider not found.",
-    };
+    if (!provider) {
+      return { ok: false, latencyMs: 0, message: "Provider not found." };
+    }
+    if (provider.protocol === "custom_http") {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        message: "Custom HTTP providers need a runtime adapter before connection testing.",
+      };
+    }
+    const apiKey = this.providerApiKey(provider.id) || envApiKeyForProvider(provider);
+    if (!apiKey) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        message: "No API key is stored for this provider. Paste a key and save, or set the matching environment variable.",
+      };
+    }
+    try {
+      await fetchProviderModels(provider, apiKey, { limit: 1 });
+      return {
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        message: `${provider.name} connected via ${normalizeBaseUrl(provider.baseUrl, defaultBaseUrlForProvider(provider))}.`,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        message: error instanceof Error ? error.message : "Connection test failed.",
+      };
+    }
+  }
+
+  providerApiKey(providerId: string): string | undefined {
+    return this.providerSecrets?.readApiKey(providerId);
+  }
+
+  providerHasApiKey(providerId: string): boolean {
+    return Boolean(this.providerSecrets?.hasApiKey(providerId));
+  }
+
+  providerSecretStorageAvailable(): boolean {
+    return Boolean(this.providerSecrets?.isEncryptionAvailable());
   }
 
   listTimetableEvents(query: TimetableRangeQuery): TimetableEvent[] {
@@ -1133,15 +1230,22 @@ export class LocalStore {
   }
 
   private load(): StoreShape {
-    if (!existsSync(this.filePath)) {
-      const data = normalizeStore(initialStore());
-      this.write(data);
-      return data;
+    const snapshot = this.businessStore.loadSnapshot();
+    if (snapshot) {
+      return this.withJsonlTranscript(normalizeStore({ ...snapshot, messages: [], events: [] }));
     }
+
+    const data = normalizeStore(this.loadLegacyJsonStore() || initialStore());
+    this.businessStore.saveSnapshot(toBusinessSnapshot(data));
+    return this.withJsonlTranscript(data);
+  }
+
+  private loadLegacyJsonStore(): StoreShape | null {
+    if (!existsSync(this.filePath)) return null;
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<StoreShape>;
       const initial = initialStore();
-      const data: StoreShape = {
+      return {
         ...initial,
         ...parsed,
         courses: parsed.courses ?? initial.courses,
@@ -1158,15 +1262,32 @@ export class LocalStore {
         providers: normalizeProviders(parsed.providers ?? initial.providers),
         indexingJobs: parsed.indexingJobs ?? initial.indexingJobs,
       };
-      return normalizeStore(data);
     } catch (error) {
-      console.warn("[store] Failed to read local store, using seed data", error);
-      return initialStore();
+      console.warn("[store] Failed to migrate legacy JSON store; using SQLite seed data", error);
+      return null;
     }
   }
 
   private save(): void {
-    this.write(this.data);
+    this.businessStore.saveSnapshot(toBusinessSnapshot(this.data));
+  }
+
+  private withJsonlTranscript(data: StoreShape): StoreShape {
+    const messages: ChatMessage[] = [];
+    const events: UclawRunStreamItem[] = [];
+    const messageIdsFromJsonl = new Set<string>();
+    for (const thread of data.threads) {
+      const transcript = this.readThreadJsonlTranscript(thread);
+      messages.push(...transcript.messages);
+      events.push(...transcript.events);
+      for (const message of transcript.messages) messageIdsFromJsonl.add(message.id);
+    }
+    const fallbackMessages = data.messages.filter((message) => !messageIdsFromJsonl.has(message.id));
+    return {
+      ...data,
+      messages: [...fallbackMessages, ...messages].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
+      events: events.sort((a, b) => a.seq - b.seq),
+    };
   }
 
   private embeddingProvider(): ModelProviderConfig | undefined {
@@ -1175,6 +1296,11 @@ export class LocalStore {
       this.data.providers.find((item) => item.enabled && item.embeddingModel) ||
       this.data.providers.find((item) => item.enabled)
     );
+  }
+
+  private refreshIndexingJobs(): IndexingJob[] {
+    this.data.indexingJobs = this.businessStore.listIndexingJobs(this.data.semester.id);
+    return this.data.indexingJobs;
   }
 
   private ensureCourseFolder(courseId: string): WorkspaceFileNode {
@@ -1305,8 +1431,46 @@ export class LocalStore {
     }
   }
 
+  private readThreadJsonlTranscript(thread: Thread): { messages: ChatMessage[]; events: UclawRunStreamItem[] } {
+    const logPath = this.threadJsonlPathFor(thread.id, thread.semesterId || this.data?.semester.id);
+    if (!existsSync(logPath)) return { messages: [], events: [] };
+    const messages = new Map<string, ChatMessage>();
+    const events: UclawRunStreamItem[] = [];
+    try {
+      const raw = readFileSync(logPath, "utf8");
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        const parsed = parseJsonlLine(line);
+        if (!parsed) continue;
+        if ((parsed.type === "user_message" || parsed.type === "assistant_message" || parsed.type === "system_message") && isRecord(parsed.message)) {
+          const message = parsed.message as unknown as ChatMessage;
+          messages.set(message.id, { ...message });
+          continue;
+        }
+        if (parsed.type !== "run_item" || !isRecord(parsed.item)) continue;
+        const item = parsed.item as unknown as UclawRunStreamItem;
+        events.push(item);
+        if (item.type === "assistant_message_delta" && item.messageId && typeof item.delta === "string") {
+          const message = messages.get(item.messageId);
+          if (message) message.content += item.delta;
+        }
+        if (item.type === "assistant_message_done" && item.messageId && typeof item.content === "string") {
+          const message = messages.get(item.messageId);
+          if (message) message.content = item.content;
+        }
+      }
+    } catch (error) {
+      console.warn(`[store] Failed to read thread transcript: ${thread.id}`, error);
+    }
+    return { messages: [...messages.values()], events };
+  }
+
   private threadJsonlPath(threadId: string): string {
     const semesterId = this.threadSemesterId(threadId);
+    return this.threadJsonlPathFor(threadId, semesterId);
+  }
+
+  private threadJsonlPathFor(threadId: string, semesterId = this.data.semester.id): string {
     return join(dirname(this.filePath), "semesters", semesterId, "threads", `${threadId}.jsonl`);
   }
 
@@ -1315,10 +1479,6 @@ export class LocalStore {
     return thread?.semesterId || this.data.semester.id;
   }
 
-  private write(data: StoreShape): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(data, null, 2), "utf8");
-  }
 }
 
 function cloneFile(file: WorkspaceFileNode): WorkspaceFileNode {
@@ -1350,6 +1510,100 @@ function maskApiKey(apiKey: string): string {
   if (!trimmed) return "";
   if (trimmed.length <= 8) return "••••";
   return `${trimmed.slice(0, 3)}...${trimmed.slice(-4)}`;
+}
+
+function defaultBaseUrlForProvider(provider: ModelProviderConfig): string {
+  if (provider.protocol === "anthropic_messages") return "https://api.anthropic.com/v1";
+  return "https://api.openai.com/v1";
+}
+
+function normalizeBaseUrl(baseUrl: string, fallback: string): string {
+  return (baseUrl.trim() || fallback).replace(/\/+$/, "");
+}
+
+function envApiKeyForProvider(provider: ModelProviderConfig): string | undefined {
+  if (provider.protocol === "anthropic_messages") {
+    return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+  }
+  return process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+}
+
+function defaultModelsForProvider(provider?: ModelProviderConfig): ProviderModel[] {
+  if (provider?.protocol === "anthropic_messages") {
+    return [
+      { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", type: "chat" },
+      { id: "claude-opus-4.1", name: "Claude Opus 4.1", type: "chat" },
+    ];
+  }
+  return [
+    { id: "gpt-5.1", name: "GPT-5.1", type: "chat" },
+    { id: "gpt-5.1-mini", name: "GPT-5.1 mini", type: "chat" },
+    { id: "text-embedding-3-large", name: "text-embedding-3-large", type: "embedding" },
+    { id: "text-embedding-3-small", name: "text-embedding-3-small", type: "embedding" },
+    { id: "gpt-5.1", name: "GPT-5.1 multimodal", type: "multimodal" },
+  ];
+}
+
+async function fetchProviderModels(
+  provider: ModelProviderConfig,
+  apiKey: string,
+  options: { limit?: number } = {},
+): Promise<ProviderModel[]> {
+  const baseUrl = normalizeBaseUrl(provider.baseUrl, defaultBaseUrlForProvider(provider));
+  const response = await fetchWithTimeout(`${baseUrl}/models`, {
+    headers:
+      provider.protocol === "anthropic_messages"
+        ? {
+            "anthropic-version": "2023-06-01",
+            "x-api-key": apiKey,
+          }
+        : {
+            authorization: `Bearer ${apiKey}`,
+          },
+  });
+  if (!response.ok) {
+    throw new Error(`Connection failed (${response.status}) ${await responseShortText(response)}`);
+  }
+  const payload = (await response.json()) as { data?: Array<{ id?: string; display_name?: string; name?: string }> };
+  const models = (payload.data || []).flatMap((item) => providerModelsFromId(item.id || "", item.display_name || item.name));
+  return typeof options.limit === "number" ? models.slice(0, options.limit) : models;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Connection timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function providerModelsFromId(id: string, displayName?: string): ProviderModel[] {
+  if (!id) return [];
+  const lower = id.toLowerCase();
+  const name = displayName || id;
+  if (lower.includes("embedding")) {
+    return [{ id, name, type: "embedding" }];
+  }
+  const models: ProviderModel[] = [{ id, name, type: "chat" }];
+  if (lower.includes("gpt-4o") || lower.includes("gpt-5") || lower.includes("vision") || lower.includes("multimodal")) {
+    models.push({ id, name: `${name} multimodal`, type: "multimodal" });
+  }
+  return models;
+}
+
+async function responseShortText(response: Response): Promise<string> {
+  try {
+    return (await response.text()).replace(/\s+/g, " ").slice(0, 180);
+  } catch {
+    return "";
+  }
 }
 
 function formatSize(bytes: number): string {
@@ -1761,10 +2015,45 @@ function slugify(value: string): string {
 function normalizeProviders(providers: ModelProviderConfig[]): ModelProviderConfig[] {
   return providers.map((provider) => ({
     ...provider,
+    apiKeyMasked: provider.apiKeyMasked === "sk-...local" ? "" : provider.apiKeyMasked,
+    apiKeySecretRef: provider.apiKeySecretRef ?? `provider-secret:${provider.id}`,
     embeddingEnabled: provider.embeddingEnabled ?? Boolean(provider.embeddingModel),
   }));
 }
 
+function toBusinessSnapshot(data: StoreShape): BusinessSnapshot {
+  return {
+    semester: data.semester,
+    semesters: data.semesters,
+    currentSemesterId: data.currentSemesterId,
+    courses: data.courses,
+    tasks: data.tasks,
+    threads: data.threads,
+    skills: data.skills,
+    files: data.files,
+    timetableEvents: data.timetableEvents,
+    providers: data.providers,
+    indexingJobs: data.indexingJobs,
+  };
+}
+
+function parseJsonlLine(line: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function createLocalStore(userDataPath: string): LocalStore {
-  return new LocalStore(join(userDataPath, "uclaw-state.json"));
+  return new LocalStore(
+    join(userDataPath, "uclaw-state.json"),
+    new SQLiteBusinessStore(join(userDataPath, "indexes", "uclaw.sqlite")),
+    new ProviderSecretStore(join(userDataPath, "provider-secrets.json")),
+  );
 }

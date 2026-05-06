@@ -118,7 +118,7 @@ export function CourseFilesUploadDialog({
               </button>
               {lastResult?.indexingJob && (
                 <div className="mt-4 rounded-md bg-muted/55 px-3 py-2 text-[11px] text-muted-foreground">
-                  Indexed {lastResult.indexingJob.indexedFiles} files with {lastResult.indexingJob.embeddingModel}
+                  Queued {lastResult.indexingJob.totalFiles ?? lastResult.indexingJob.indexedFiles} files with {lastResult.indexingJob.embeddingModel}
                 </div>
               )}
             </div>

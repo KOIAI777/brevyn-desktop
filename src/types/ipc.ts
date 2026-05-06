@@ -28,6 +28,7 @@ export const IPC_CHANNELS = {
   timetableRange: "uclaw:timetable:range",
   timetableAnalyzeImage: "uclaw:timetable:analyze-image",
   contextEstimate: "uclaw:context:estimate",
+  agentRuntimeStatus: "uclaw:agent:runtime-status",
   agentRun: "uclaw:agent:run",
   agentStop: "uclaw:agent:stop",
   agentApprove: "uclaw:agent:approve",

@@ -163,6 +163,14 @@ export interface AgentPendingRequests {
   askUsers: AskUserRequest[];
 }
 
+export interface AgentRuntimeStatus {
+  configured: boolean;
+  source: "env" | "provider_secret" | "none";
+  title: string;
+  detail: string;
+  actionLabel?: string;
+}
+
 export interface UclawRunStreamItem {
   id: string;
   type: UclawRunStreamItemType;
@@ -392,9 +400,13 @@ export interface IndexingJob {
   courseId: string;
   sectionId?: string;
   status: IndexingStatus;
+  stage?: string;
   embeddingModel: string;
   indexedFiles: number;
+  totalFiles?: number;
+  completedFiles?: number;
   progress: number;
+  error?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -422,6 +434,7 @@ export interface ModelProviderConfig {
   protocol: ProviderProtocol;
   baseUrl: string;
   apiKeyMasked: string;
+  apiKeySecretRef?: string;
   chatModel?: string;
   embeddingModel?: string;
   multimodalModel?: string;
@@ -509,6 +522,7 @@ export interface UclawAPI {
     estimate: (threadId: string) => Promise<ContextWindowReport>;
   };
   agent: {
+    runtimeStatus: () => Promise<AgentRuntimeStatus>;
     run: (input: AgentRunInput) => Promise<{ runId: string }>;
     stop: (runId: string) => Promise<void>;
     approve: (approvalId: string) => Promise<void>;

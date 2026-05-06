@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ContextWindowReport,
   Course,
+  AgentRuntimeStatus,
   FileImportInput,
   FileImportResult,
   FilePreview,
@@ -46,6 +47,7 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [agentRuntimeStatus, setAgentRuntimeStatus] = useState<AgentRuntimeStatus | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileNode[]>([]);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
@@ -105,12 +107,13 @@ function App() {
   const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId), [threads, activeThreadId]);
 
   async function bootstrap() {
-    const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
+    const [semesterList, currentSemester, courseList, skillList, git, runtime] = await Promise.all([
       window.uclaw.semester.list(),
       window.uclaw.semester.current(),
       window.uclaw.courses.list(),
       window.uclaw.skills.list(),
       window.uclaw.git.status(),
+      window.uclaw.agent.runtimeStatus(),
     ]);
     const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
     const threadList = await window.uclaw.threads.list();
@@ -120,6 +123,7 @@ function App() {
     setCourses(courseList);
     setSkills(skillList);
     setGitStatus(git);
+    setAgentRuntimeStatus(runtime);
     setTasksByCourse(Object.fromEntries(taskEntries));
     setThreads(threadList);
 
@@ -485,7 +489,14 @@ function App() {
                   {messages.map((message) => (
                     <MessageBubble key={message.id} message={message} />
                   ))}
-                  {messages.length === 0 && <EmptyThreadPanel course={activeCourse} task={activeTask} />}
+                  {messages.length === 0 && (
+                    <EmptyThreadPanel
+                      course={activeCourse}
+                      task={activeTask}
+                      runtimeStatus={agentRuntimeStatus}
+                      onOpenSettings={() => setSettingsOpen(true)}
+                    />
+                  )}
                   <TaskAgentTimeline
                     items={liveTimeline}
                     runStatus={runStatus}
@@ -501,7 +512,12 @@ function App() {
 
               <Composer
                 value={composer}
-                disabled={!activeThreadId || isRunning(runStatus)}
+                disabled={!activeThreadId || isRunning(runStatus) || agentRuntimeStatus?.configured === false}
+                placeholder={
+                  agentRuntimeStatus?.configured === false
+                    ? "Configure an OpenAI API key before starting a real Agent run..."
+                    : "Ask about this course, search materials, plan a draft, or request a file/Git action..."
+                }
                 runStatus={runStatus}
                 permissionMode={permissionMode}
                 contextReport={contextReport}
@@ -533,8 +549,10 @@ function App() {
           semesters={semesters}
           skills={skills}
           gitStatus={gitStatus}
+          agentRuntimeStatus={agentRuntimeStatus}
           onSelectSemester={(semesterId) => void selectSemester(semesterId)}
           onSkillsChange={setSkills}
+          onAgentRuntimeStatusChange={setAgentRuntimeStatus}
           onClose={() => setSettingsOpen(false)}
         />
       )}

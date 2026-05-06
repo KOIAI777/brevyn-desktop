@@ -13,10 +13,11 @@ import type {
   TimetableRangeQuery,
 } from "../types/domain";
 import { IPC_CHANNELS } from "../types/ipc";
+import type { IndexingQueueService } from "./indexing";
 import { AgentOrchestrator } from "./services/agent-orchestrator";
 import { LocalStore } from "./services/local-store";
 
-export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator): void {
+export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator, indexingQueue?: IndexingQueueService): void {
   ipcMain.handle(IPC_CHANNELS.semesterList, () => store.listSemesters());
   ipcMain.handle(IPC_CHANNELS.semesterCurrent, () => store.currentSemester());
   ipcMain.handle(IPC_CHANNELS.semesterSelect, (_event, semesterId: string) => store.selectSemester(semesterId));
@@ -56,12 +57,16 @@ export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator)
       }
       sourcePaths = result.filePaths;
     }
-    return store.importFiles({ ...input, sourcePaths });
+    const result = store.importFiles({ ...input, sourcePaths });
+    if (result.indexingJob) indexingQueue?.poke();
+    return result;
   });
   ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: string) => store.courseFileSections(courseId));
-  ipcMain.handle(IPC_CHANNELS.filesIndex, (_event, courseId: string, sectionId?: string) =>
-    store.indexCourseFiles(courseId, sectionId),
-  );
+  ipcMain.handle(IPC_CHANNELS.filesIndex, (_event, courseId: string, sectionId?: string) => {
+    const job = store.indexCourseFiles(courseId, sectionId);
+    indexingQueue?.poke();
+    return job;
+  });
   ipcMain.handle(IPC_CHANNELS.filesIndexingJobs, (_event, courseId?: string) => store.listIndexingJobs(courseId));
   ipcMain.handle(IPC_CHANNELS.filesIndexingCancel, (_event, jobId: string) => store.cancelIndexingJob(jobId));
   ipcMain.handle(IPC_CHANNELS.providersList, () => store.listProviders());
@@ -73,6 +78,7 @@ export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator)
     store.analyzeTimetableImage(input),
   );
   ipcMain.handle(IPC_CHANNELS.contextEstimate, (_event, threadId: string) => store.contextReport(threadId));
+  ipcMain.handle(IPC_CHANNELS.agentRuntimeStatus, () => agent.runtimeStatus());
   ipcMain.handle(IPC_CHANNELS.agentRun, (_event, input: AgentRunInput) => agent.run(input));
   ipcMain.handle(IPC_CHANNELS.agentStop, (_event, runId: string) => agent.stop(runId));
   ipcMain.handle(IPC_CHANNELS.agentApprove, (_event, approvalId: string) => agent.approve(approvalId));

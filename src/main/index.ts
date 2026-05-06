@@ -2,11 +2,13 @@ import { app, BrowserWindow, Menu, nativeTheme, shell } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc";
+import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { AgentAskUserService } from "./services/agent-ask-user-service";
 import { AgentEventBus } from "./services/agent-event-bus";
 import { AgentEventLog } from "./services/agent-event-log";
 import { AgentOrchestrator } from "./services/agent-orchestrator";
 import { AgentPermissionService } from "./services/agent-permission-service";
+import { OpenAIAgentsAdapter } from "./services/agent-runtime-adapter";
 import { createLocalStore } from "./services/local-store";
 import { RunEventStream } from "./services/run-event-stream";
 
@@ -22,12 +24,14 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow: BrowserWindow | null = null;
 const runStream = new RunEventStream();
 const store = createLocalStore(app.getPath("userData"));
+const indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
 const agentEventLog = new AgentEventLog(store);
 const agentEventBus = new AgentEventBus(agentEventLog);
 const agentPermissionService = new AgentPermissionService();
 const agentAskUserService = new AgentAskUserService();
+const openAIAgentsAdapter = new OpenAIAgentsAdapter(store, agentPermissionService, agentAskUserService, { cwd: process.cwd() });
 agentEventBus.on((item) => runStream.emitRunItem(item));
-const agent = new AgentOrchestrator(store, agentEventBus, agentPermissionService, agentAskUserService);
+const agent = new AgentOrchestrator(store, agentEventBus, agentPermissionService, agentAskUserService, openAIAgentsAdapter);
 
 function createWindow(): void {
   const preloadPath = join(__dirname, "preload.cjs");
@@ -87,7 +91,8 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  registerIpcHandlers(store, agent);
+  registerIpcHandlers(store, agent, indexingQueue);
+  indexingQueue.start();
   createWindow();
 
   app.on("activate", () => {
@@ -97,4 +102,8 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  indexingQueue.stop();
 });

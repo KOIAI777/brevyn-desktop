@@ -7,6 +7,7 @@ import { ContextTokenRing, RunStatusBadge } from "@/components/status/RunIndicat
 export function Composer({
   value,
   disabled,
+  placeholder = "Ask about this course, search materials, plan a draft, or request a file/Git action...",
   runStatus,
   permissionMode,
   contextReport,
@@ -17,6 +18,7 @@ export function Composer({
 }: {
   value: string;
   disabled: boolean;
+  placeholder?: string;
   runStatus: RunStatus;
   permissionMode: PermissionMode;
   contextReport: ContextWindowReport | null;
@@ -30,7 +32,7 @@ export function Composer({
       <div className="mx-auto max-w-3xl rounded-lg border bg-background/85 p-2 shadow-sm ring-1 ring-border/60 transition-shadow duration-200 focus-within:shadow-md">
         <textarea
           className="min-h-[76px] w-full resize-none bg-transparent px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground"
-          placeholder="Ask about this course, search materials, plan a draft, or request a file/Git action..."
+          placeholder={placeholder}
           value={value}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}

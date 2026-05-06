@@ -8,11 +8,12 @@
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,green \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --host 127.0.0.1",
-    "dev:electron": "npm run build:main && npm run build:preload && wait-on tcp:5174 && electron .",
+    "dev:electron": "npm run build:main && npm run build:indexing-worker && npm run build:preload && wait-on tcp:5174 && electron .",
     "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --external:@openai/agents",
+    "build:indexing-worker": "esbuild src/main/indexing/indexing-worker.ts --bundle --platform=node --format=cjs --outfile=dist/indexing-worker.cjs",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs --external:electron",
     "build:renderer": "vite build",
-    "build": "npm run build:main && npm run build:preload && npm run build:renderer",
+    "build": "npm run build:main && npm run build:indexing-worker && npm run build:preload && npm run build:renderer",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

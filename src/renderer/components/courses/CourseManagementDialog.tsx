@@ -234,7 +234,9 @@ export function CourseManagementDialog({
                   <section className="rounded-lg border bg-card p-3 text-[11px] text-muted-foreground">
                     <div className="font-semibold text-foreground">Last indexing job</div>
                     <div className="mt-1">{lastJob.embeddingModel}</div>
-                    <div className="mt-1">{lastJob.indexedFiles} files · {lastJob.status}</div>
+                    <div className="mt-1">
+                      {lastJob.indexedFiles}/{lastJob.totalFiles ?? lastJob.indexedFiles} files · {lastJob.status}
+                    </div>
                   </section>
                 )}
               </aside>

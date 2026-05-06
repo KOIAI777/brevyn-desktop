@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Course, GitStatus, ModelProviderConfig, ProviderDraftInput, ProviderModel, ProviderProtocol, SemesterWorkspace, SkillItem } from "@/types/domain";
+import type { AgentRuntimeStatus, Course, GitStatus, ModelProviderConfig, ProviderDraftInput, ProviderModel, ProviderProtocol, SemesterWorkspace, SkillItem } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
 type SettingsPage = "providers" | "skills";
@@ -61,8 +61,10 @@ export function SettingsDialog({
   semesters,
   skills,
   gitStatus,
+  agentRuntimeStatus,
   onSelectSemester,
   onSkillsChange,
+  onAgentRuntimeStatusChange,
   onClose,
 }: {
   course?: Course;
@@ -70,8 +72,10 @@ export function SettingsDialog({
   semesters: SemesterWorkspace[];
   skills: SkillItem[];
   gitStatus: GitStatus | null;
+  agentRuntimeStatus: AgentRuntimeStatus | null;
   onSelectSemester: (semesterId: string) => void;
   onSkillsChange: (skills: SkillItem[]) => void;
+  onAgentRuntimeStatusChange: (status: AgentRuntimeStatus) => void;
   onClose: () => void;
 }) {
   const [activePage, setActivePage] = useState<SettingsPage>("providers");
@@ -146,7 +150,10 @@ export function SettingsDialog({
       const next = await window.uclaw.providers.list();
       setProviders(next);
       selectProvider(saved);
-      setStatusLine("Saved provider profile.");
+      const runtime = await refreshRuntimeStatus();
+      setStatusLine(`Saved provider profile. ${runtime.configured ? "Agent runtime is ready." : runtime.detail}`);
+    } catch (error) {
+      setStatusLine(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -160,23 +167,35 @@ export function SettingsDialog({
       setProviders(next);
       selectEmbeddingProvider(saved);
       setEmbeddingStatusLine("Saved embedding provider.");
+    } catch (error) {
+      setEmbeddingStatusLine(errorMessage(error));
     } finally {
       setBusy(false);
     }
   }
 
   async function toggleProvider(provider: ModelProviderConfig) {
-    const saved = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
-    const next = await window.uclaw.providers.list();
-    setProviders(next);
-    if (provider.id === selectedProviderId) selectProvider(saved);
+    try {
+      const saved = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const next = await window.uclaw.providers.list();
+      setProviders(next);
+      if (provider.id === selectedProviderId) selectProvider(saved);
+      await refreshRuntimeStatus();
+    } catch (error) {
+      setStatusLine(errorMessage(error));
+    }
   }
 
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
-    const saved = await window.uclaw.providers.save(toProviderDraft(provider, { embeddingEnabled: !(provider.embeddingEnabled ?? Boolean(provider.embeddingModel)) }));
-    const next = await window.uclaw.providers.list();
-    setProviders(next);
-    if (provider.id === selectedEmbeddingProviderId) selectEmbeddingProvider(saved);
+    try {
+      const saved = await window.uclaw.providers.save(toProviderDraft(provider, { embeddingEnabled: !(provider.embeddingEnabled ?? Boolean(provider.embeddingModel)) }));
+      const next = await window.uclaw.providers.list();
+      setProviders(next);
+      if (provider.id === selectedEmbeddingProviderId) selectEmbeddingProvider(saved);
+      await refreshRuntimeStatus();
+    } catch (error) {
+      setEmbeddingStatusLine(errorMessage(error));
+    }
   }
 
   async function fetchModels() {
@@ -216,6 +235,8 @@ export function SettingsDialog({
     try {
       const result = await window.uclaw.providers.test(selectedProviderId);
       setStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
+    } catch (error) {
+      setStatusLine(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -230,9 +251,17 @@ export function SettingsDialog({
     try {
       const result = await window.uclaw.providers.test(selectedEmbeddingProviderId);
       setEmbeddingStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
+    } catch (error) {
+      setEmbeddingStatusLine(errorMessage(error));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function refreshRuntimeStatus(): Promise<AgentRuntimeStatus> {
+    const runtime = await window.uclaw.agent.runtimeStatus();
+    onAgentRuntimeStatusChange(runtime);
+    return runtime;
   }
 
   async function toggleSkill(skill: SkillItem) {
@@ -313,6 +342,7 @@ export function SettingsDialog({
                 embeddingModels={embeddingModels}
                 statusLine={statusLine}
                 embeddingStatusLine={embeddingStatusLine}
+                agentRuntimeStatus={agentRuntimeStatus}
                 busy={busy}
                 onSelectProvider={selectProvider}
                 onSelectEmbeddingProvider={selectEmbeddingProvider}
@@ -349,6 +379,7 @@ function ProviderSettingsPage({
   embeddingModels,
   statusLine,
   embeddingStatusLine,
+  agentRuntimeStatus,
   busy,
   onSelectProvider,
   onSelectEmbeddingProvider,
@@ -374,6 +405,7 @@ function ProviderSettingsPage({
   embeddingModels: ProviderModel[];
   statusLine: string;
   embeddingStatusLine: string;
+  agentRuntimeStatus: AgentRuntimeStatus | null;
   busy: boolean;
   onSelectProvider: (provider: ModelProviderConfig) => void;
   onSelectEmbeddingProvider: (provider: ModelProviderConfig) => void;
@@ -390,8 +422,28 @@ function ProviderSettingsPage({
   onSaveProvider: () => void;
   onSaveEmbeddingProvider: () => void;
 }) {
+  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
+  const selectedEmbeddingProvider = providers.find((provider) => provider.id === selectedEmbeddingProviderId);
+
   return (
     <div className="space-y-4">
+      {agentRuntimeStatus && (
+        <div
+          className={cx(
+            "rounded-lg border px-3 py-3 text-xs",
+            agentRuntimeStatus.configured
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-amber-200 bg-amber-50 text-amber-950",
+          )}
+        >
+          <div className="flex items-center gap-2 font-semibold">
+            <KeyRound className="h-3.5 w-3.5" />
+            {agentRuntimeStatus.title}
+          </div>
+          <div className="mt-1 leading-5 opacity-85">{agentRuntimeStatus.detail}</div>
+        </div>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
         <section className="rounded-lg border bg-background/70 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -436,7 +488,14 @@ function ProviderSettingsPage({
             <Field label="Profile name" value={draft.name} onChange={(value) => onDraftChange({ ...draft, name: value })} />
             <SelectField label="Protocol" value={draft.protocol} onChange={(value) => onDraftChange({ ...draft, protocol: value })} />
             <Field label="Base URL" value={draft.baseUrl} onChange={(value) => onDraftChange({ ...draft, baseUrl: value })} />
-            <Field label="API Key" value={draft.apiKey} onChange={(value) => onDraftChange({ ...draft, apiKey: value })} type="password" icon={<KeyRound className="h-3 w-3" />} />
+            <Field
+              label="API Key"
+              value={draft.apiKey}
+              onChange={(value) => onDraftChange({ ...draft, apiKey: value })}
+              type="password"
+              placeholder={selectedProvider?.apiKeyMasked ? `Stored ${selectedProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
+              icon={<KeyRound className="h-3 w-3" />}
+            />
             <Field label="Chat model" value={draft.chatModel || ""} onChange={(value) => onDraftChange({ ...draft, chatModel: value })} />
             <Field label="Multimodal model" value={draft.multimodalModel || ""} onChange={(value) => onDraftChange({ ...draft, multimodalModel: value })} />
           </div>
@@ -494,7 +553,14 @@ function ProviderSettingsPage({
               <Field label="Profile name" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
               <SelectField label="Protocol" value={embeddingDraft.protocol} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, protocol: value })} />
               <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
-              <Field label="API Key" value={embeddingDraft.apiKey} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value })} type="password" icon={<KeyRound className="h-3 w-3" />} />
+              <Field
+                label="API Key"
+                value={embeddingDraft.apiKey}
+                onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value })}
+                type="password"
+                placeholder={selectedEmbeddingProvider?.apiKeyMasked ? `Stored ${selectedEmbeddingProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
+                icon={<KeyRound className="h-3 w-3" />}
+              />
               <Field label="Embedding model" value={embeddingDraft.embeddingModel || ""} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, embeddingModel: value })} />
               <div className="flex items-end">
                 <TogglePill enabled={Boolean(embeddingDraft.embeddingEnabled)} labelOn="Embedding on" labelOff="Embedding off" onClick={() => onEmbeddingDraftChange({ ...embeddingDraft, embeddingEnabled: !embeddingDraft.embeddingEnabled })} />
@@ -655,13 +721,33 @@ function ProviderProfileRow({
   );
 }
 
-function Field({ label, value, onChange, type = "text", icon }: { label: string; value: string; onChange: (value: string) => void; type?: string; icon?: ReactNode }) {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  icon,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+  icon?: ReactNode;
+}) {
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
       <span>{label}</span>
       <div className="flex h-8 items-center gap-1 rounded-md border bg-card px-2">
         {icon}
-        <input className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+        <input
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/55"
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
       </div>
     </label>
   );
@@ -753,4 +839,8 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
 
 function protocolLabel(protocol: ProviderProtocol): string {
   return protocols.find((item) => item.value === protocol)?.label || protocol;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Operation failed.";
 }

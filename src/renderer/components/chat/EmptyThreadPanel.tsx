@@ -1,7 +1,47 @@
-import { Bot } from "lucide-react";
-import type { Course, UclawTask } from "@/types/domain";
+import { Bot, KeyRound } from "lucide-react";
+import type { AgentRuntimeStatus, Course, UclawTask } from "@/types/domain";
 
-export function EmptyThreadPanel({ course, task }: { course?: Course; task?: UclawTask }) {
+export function EmptyThreadPanel({
+  course,
+  task,
+  runtimeStatus,
+  onOpenSettings,
+}: {
+  course?: Course;
+  task?: UclawTask;
+  runtimeStatus?: AgentRuntimeStatus | null;
+  onOpenSettings?: () => void;
+}) {
+  if (runtimeStatus && !runtimeStatus.configured) {
+    return (
+      <div className="mx-auto mt-[12vh] w-full max-w-2xl rounded-lg border bg-card/80 px-5 py-4 shadow-sm ring-1 ring-border/60">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-500 text-white">
+            <KeyRound className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">{runtimeStatus.title}</div>
+            <div className="mt-1 text-sm leading-6 text-muted-foreground">{runtimeStatus.detail}</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background"
+                  onClick={onOpenSettings}
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {runtimeStatus.actionLabel || "Open settings"}
+                </button>
+              )}
+              <span className="rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">UCLAW_OPENAI_API_KEY</span>
+              <span className="rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">OPENAI_API_KEY</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto mt-[12vh] w-full max-w-2xl rounded-lg border bg-card/80 px-5 py-4 shadow-sm ring-1 ring-border/60">
       <div className="flex items-start gap-3">
