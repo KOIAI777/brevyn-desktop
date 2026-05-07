@@ -8,6 +8,8 @@ import type {
   ProviderDraftInput,
   RunStreamEnvelope,
   SemesterImageAnalyzeInput,
+  SkillImportInput,
+  SkillWriteInput,
   SkillUpdateInput,
   TimetableImageAnalyzeInput,
   TimetableRangeQuery,
@@ -38,6 +40,10 @@ const api: UclawAPI = {
   skills: {
     list: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsList, courseId),
     update: (input: SkillUpdateInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsUpdate, input),
+    readContent: (skillId: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsReadContent, skillId),
+    writeContent: (input: SkillWriteInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsWriteContent, input),
+    importFolder: (input: SkillImportInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsImportFolder, input),
+    openFolder: (skillId: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsOpenFolder, skillId),
   },
   rag: {
     search: (query: string, courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.ragSearch, query, courseId),

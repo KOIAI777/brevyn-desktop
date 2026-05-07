@@ -214,9 +214,6 @@ export function compactToolLine(item: TaskAgentTimelineItem): string {
   if (tool.tool_name === "rag_search") {
     return result.count ? `${String(args.query || "course materials")} · ${String(result.count)} results` : String(args.query || item.detail);
   }
-  if (tool.tool_name === "list_taskagent_skills") {
-    return result.count ? `${String(result.count)} enabled` : "enabled skills";
-  }
   return item.detail || tool.tool_name.replace(/_/g, " ");
 }
 
@@ -226,13 +223,11 @@ function summarizeToolTimeline(tool: ToolCallPayload, phase: "start" | "result")
   const result = tool.result || {};
   if (phase === "start") {
     if (name === "rag_search") return { title: "正在检索知识库", detail: String(args.query || "course materials") };
-    if (name === "list_taskagent_skills") return { title: "Loading skills", detail: "enabled skills" };
     if (name.includes("git")) return { title: "正在查看 Git", detail: String(args.path || "workspace") };
     if (name.includes("patch") || name.includes("write")) return { title: "正在编辑", detail: String(args.path || "workspace") };
     return { title: "正在调用工具", detail: name.replace(/_/g, " ") };
   }
   if (name === "rag_search") return { title: "已检索知识库", detail: `${String(result.count || 0)} 个结果` };
-  if (name === "list_taskagent_skills") return { title: "Loaded skills", detail: `${String(result.count || 0)} enabled` };
   return { title: `已调用 ${name.replace(/_/g, " ")}`, detail: itemResultDetail(result) };
 }
 

@@ -11,38 +11,23 @@ import {
   type Tool,
 } from "@openai/agents";
 import type { JsonObjectSchemaNonStrict } from "@openai/agents-core/types";
-import type { AskUserRequest, PermissionMode } from "../../types/domain";
+import { dirname } from "node:path";
+import type { AgentHostedMcpServerConfig, AgentHostedToolSettings, AskUserRequest, PermissionMode, SkillItem } from "../../types/domain";
 import type { AgentAskUserService } from "../services/agent-ask-user-service";
 import type { AgentRunItemDraft } from "../services/agent-event-log";
 import { LocalStore } from "../services/local-store";
 import { UclawEditor } from "./uclaw-editor";
 import { UclawShell } from "./uclaw-shell";
 
-export interface UclawHostedToolOptions {
-  webSearch?: boolean;
-  fileSearchVectorStoreIds?: string[];
-  codeInterpreter?: boolean;
-  imageGeneration?: boolean;
-  toolSearch?: boolean;
-  hostedMcpServers?: UclawHostedMcpToolConfig[];
-}
-
-export interface UclawHostedMcpToolConfig {
-  serverLabel: string;
-  serverUrl?: string;
-  connectorId?: string;
-  authorization?: string;
-  headers?: Record<string, string>;
-  allowedTools?: string[];
-  deferLoading?: boolean;
-  requireApproval?: "never" | "always";
-}
+export type UclawHostedToolOptions = AgentHostedToolSettings;
+export type UclawHostedMcpToolConfig = AgentHostedMcpServerConfig;
 
 export interface UclawToolRegistryOptions {
   store: LocalStore;
   cwd: string;
   permissionMode: PermissionMode;
   hostedTools?: UclawHostedToolOptions;
+  skills?: SkillItem[];
   runContext?: {
     runId: string;
     threadId: string;
@@ -97,6 +82,16 @@ export function createUclawToolRegistry(options: UclawToolRegistryOptions): Ucla
     askUserTool,
     shellTool({
       name: "shell",
+      environment: {
+        type: "local",
+        skills: (options.skills || [])
+          .filter((skill) => skill.sourcePath)
+          .map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+            path: dirname(skill.sourcePath!),
+          })),
+      },
       shell,
       needsApproval: async (_runContext, action) => {
         const policy = shell.classifyAction(action);
@@ -108,7 +103,7 @@ export function createUclawToolRegistry(options: UclawToolRegistryOptions): Ucla
     applyPatchTool({
       name: "apply_patch",
       editor,
-      needsApproval: options.permissionMode === "review",
+      needsApproval: false,
     }),
     ...createOpenAIHostedTools(options.hostedTools),
   ];
@@ -118,12 +113,42 @@ export function createUclawToolRegistry(options: UclawToolRegistryOptions): Ucla
 
 export function createOpenAIHostedTools(options: UclawHostedToolOptions = {}): Tool[] {
   const tools: Tool[] = [];
-  const needsToolSearch = Boolean(options.toolSearch || options.hostedMcpServers?.some((server) => server.deferLoading));
+  const needsToolSearch = Boolean(options.toolSearch?.enabled || options.hostedMcpServers?.some((server) => server.deferLoading));
   if (needsToolSearch) tools.push(toolSearchTool());
-  if (options.webSearch) tools.push(webSearchTool());
-  if (options.fileSearchVectorStoreIds?.length) tools.push(fileSearchTool(options.fileSearchVectorStoreIds));
-  if (options.codeInterpreter) tools.push(codeInterpreterTool());
-  if (options.imageGeneration) tools.push(imageGenerationTool());
+  if (options.webSearch?.enabled) {
+    tools.push(
+      webSearchTool({
+        searchContextSize: options.webSearch.searchContextSize || "medium",
+        filters: options.webSearch.allowedDomains?.length ? { allowedDomains: options.webSearch.allowedDomains } : undefined,
+        externalWebAccess: options.webSearch.externalWebAccess,
+      }),
+    );
+  }
+  if (options.fileSearch?.enabled && options.fileSearch.vectorStoreIds?.length) {
+    tools.push(
+      fileSearchTool(options.fileSearch.vectorStoreIds, {
+        maxNumResults: options.fileSearch.maxNumResults,
+        includeSearchResults: options.fileSearch.includeSearchResults,
+      }),
+    );
+  }
+  if (options.codeInterpreter?.enabled) {
+    tools.push(
+      codeInterpreterTool({
+        includeOutputs: options.codeInterpreter.includeOutputs,
+        container: options.codeInterpreter.container || undefined,
+      }),
+    );
+  }
+  if (options.imageGeneration?.enabled) {
+    tools.push(
+      imageGenerationTool({
+        model: options.imageGeneration.model || undefined,
+        size: options.imageGeneration.size || undefined,
+        quality: options.imageGeneration.quality || undefined,
+      }),
+    );
+  }
   for (const server of options.hostedMcpServers ?? []) {
     tools.push(createHostedMcpTool(server));
   }
@@ -231,7 +256,7 @@ function createContextReportTool(store: LocalStore, threadId?: string): Tool {
         course,
         task,
         context,
-        enabledSkills: store.listSkills().filter((skill) => skill.enabled),
+        enabledSkills: store.listSkills(course?.id).filter((skill) => skill.enabled),
         workspaceFiles: {
           totalShown: leafFiles.length,
           files: leafFiles,

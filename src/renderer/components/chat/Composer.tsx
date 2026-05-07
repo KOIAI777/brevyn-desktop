@@ -52,10 +52,10 @@ export function Composer({
                     permissionMode === mode ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={() => onPermissionModeChange(mode)}
-                  title={mode === "review" ? "Review write, shell, and Git actions" : "Allow workspace actions"}
+                  title={mode === "review" ? "Review risky shell commands" : "Full access inside the current workspace"}
                 >
                   {mode === "review" && <ShieldCheck className="h-3 w-3" />}
-                  {mode === "review" ? "review" : "full"}
+                  {mode === "review" ? "review" : "full access"}
                 </button>
               ))}
             </div>

@@ -6,7 +6,6 @@ import type {
   IndexingJob,
   ModelProviderConfig,
   SemesterWorkspace,
-  SkillItem,
   TaskStatus,
   TaskType,
   Thread,
@@ -47,7 +46,6 @@ export interface BusinessSnapshot {
   courses: Course[];
   tasks: UclawTask[];
   threads: Thread[];
-  skills: SkillItem[];
   files: WorkspaceFileNode[];
   timetableEvents: TimetableEvent[];
   providers: ModelProviderConfig[];
@@ -57,7 +55,7 @@ export interface BusinessSnapshot {
 type Row = Record<string, unknown>;
 
 const require = createRequire(__filename);
-const BUSINESS_SCHEMA_VERSION = 3;
+const BUSINESS_SCHEMA_VERSION = 4;
 const now = () => new Date().toISOString();
 
 export class SQLiteBusinessStore {
@@ -98,7 +96,6 @@ export class SQLiteBusinessStore {
       courses: this.all("select * from courses order by name").map(rowToCourse),
       tasks: this.all("select * from tasks order by updated_at desc").map(rowToTask),
       threads: this.all("select * from threads order by updated_at desc").map(rowToThread),
-      skills: this.all("select * from skills order by name").map(rowToSkill),
       files: rowsToFileTree(this.all("select * from workspace_files order by path, name")),
       timetableEvents: this.all("select * from timetable_events order by starts_at").map(rowToTimetableEvent),
       providers: this.all("select * from providers order by updated_at desc").map(rowToProvider),
@@ -112,7 +109,6 @@ export class SQLiteBusinessStore {
       this.db.exec(`
         delete from timetable_events;
         delete from workspace_files;
-        delete from skills;
         delete from threads;
         delete from tasks;
         delete from courses;
@@ -127,7 +123,6 @@ export class SQLiteBusinessStore {
       for (const course of snapshot.courses) this.insertCourse(course);
       for (const task of snapshot.tasks) this.insertTask(task);
       for (const thread of snapshot.threads) this.insertThread(thread);
-      for (const skill of snapshot.skills) this.insertSkill(skill);
       for (const file of flattenFileTree(snapshot.files)) this.insertFile(file.node, file.parentId);
       for (const event of snapshot.timetableEvents) this.insertTimetableEvent(event);
       for (const provider of snapshot.providers) this.insertProvider(provider);
@@ -485,22 +480,6 @@ export class SQLiteBusinessStore {
     );
   }
 
-  private insertSkill(skill: SkillItem): void {
-    const timestamp = now();
-    this.run(
-      `insert into skills(id, name, description, enabled, scope, config_json, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?)`,
-      skill.id,
-      skill.name,
-      skill.description,
-      intBool(skill.enabled),
-      skill.scope,
-      json({ version: skill.version }),
-      timestamp,
-      timestamp,
-    );
-  }
-
   private insertFile(file: WorkspaceFileNode, parentId?: string): void {
     const raw = { ...file, children: undefined };
     this.run(
@@ -551,8 +530,8 @@ export class SQLiteBusinessStore {
 
   private insertProvider(provider: ModelProviderConfig): void {
     this.run(
-      `insert into providers(id, name, protocol, base_url, api_key_masked, api_key_secret_ref, chat_model, embedding_model, multimodal_model, enabled, embedding_enabled, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert into providers(id, name, protocol, base_url, api_key_masked, api_key_secret_ref, chat_model, embedding_model, multimodal_model, enabled, embedding_enabled, config_json, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       provider.id,
       provider.name,
       provider.protocol,
@@ -564,6 +543,7 @@ export class SQLiteBusinessStore {
       provider.multimodalModel ?? null,
       intBool(provider.enabled),
       intBool(Boolean(provider.embeddingEnabled)),
+      json({ agentTools: provider.agentTools }),
       provider.createdAt,
       provider.updatedAt,
     );
@@ -868,6 +848,7 @@ export class SQLiteBusinessStore {
     this.ensureColumn("indexing_jobs", "stage", "text");
     this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
+    this.ensureColumn("providers", "config_json", "text not null default '{}'");
     this.db.exec(`
       create table if not exists indexing_tasks (
         id text primary key,
@@ -897,7 +878,7 @@ export class SQLiteBusinessStore {
       this.run(
         "insert or ignore into schema_migrations(version, name, applied_at) values (?, ?, datetime('now'))",
         BUSINESS_SCHEMA_VERSION,
-        "indexing_queue_v3",
+        "provider_agent_tools_v4",
       );
     }
   }
@@ -976,18 +957,6 @@ function rowToThread(row: Row): Thread {
   };
 }
 
-function rowToSkill(row: Row): SkillItem {
-  const config = rawJson<{ version?: string }>(row.config_json, {});
-  return {
-    id: stringValue(row.id),
-    name: stringValue(row.name),
-    description: stringValue(row.description),
-    enabled: boolValue(row.enabled),
-    scope: stringValue(row.scope) as SkillItem["scope"],
-    version: config.version || "1.0.0",
-  };
-}
-
 function rowsToFileTree(rows: Row[]): WorkspaceFileNode[] {
   const entries = rows.map((row) => {
     const raw = rawJson<WorkspaceFileNode>(row.raw_json, {});
@@ -1041,6 +1010,7 @@ function rowToTimetableEvent(row: Row): TimetableEvent {
 }
 
 function rowToProvider(row: Row): ModelProviderConfig {
+  const config = rawJson<{ agentTools?: ModelProviderConfig["agentTools"] }>(row.config_json, {});
   return {
     id: stringValue(row.id),
     name: stringValue(row.name),
@@ -1053,6 +1023,7 @@ function rowToProvider(row: Row): ModelProviderConfig {
     multimodalModel: nullableString(row.multimodal_model),
     enabled: boolValue(row.enabled),
     embeddingEnabled: boolValue(row.embedding_enabled),
+    agentTools: config.agentTools,
     createdAt: stringValue(row.created_at),
     updatedAt: stringValue(row.updated_at),
   };

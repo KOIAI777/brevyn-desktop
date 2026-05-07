@@ -29,7 +29,7 @@ const agentEventLog = new AgentEventLog(store);
 const agentEventBus = new AgentEventBus(agentEventLog);
 const agentPermissionService = new AgentPermissionService();
 const agentAskUserService = new AgentAskUserService();
-const openAIAgentsAdapter = new OpenAIAgentsAdapter(store, agentPermissionService, agentAskUserService, { cwd: process.cwd() });
+const openAIAgentsAdapter = new OpenAIAgentsAdapter(store, agentPermissionService, agentAskUserService);
 agentEventBus.on((item) => runStream.emitRunItem(item));
 const agent = new AgentOrchestrator(store, agentEventBus, agentPermissionService, agentAskUserService, openAIAgentsAdapter);
 

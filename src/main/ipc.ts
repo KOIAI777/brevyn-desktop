@@ -8,6 +8,8 @@ import type {
   FileImportInput,
   ProviderDraftInput,
   SemesterImageAnalyzeInput,
+  SkillImportInput,
+  SkillWriteInput,
   SkillUpdateInput,
   TimetableImageAnalyzeInput,
   TimetableRangeQuery,
@@ -33,8 +35,30 @@ export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator,
   ipcMain.handle(IPC_CHANNELS.threadsList, (_event, courseId?: string) => store.listThreads(courseId));
   ipcMain.handle(IPC_CHANNELS.threadsCreate, (_event, input: CreateThreadInput) => store.createThread(input));
   ipcMain.handle(IPC_CHANNELS.threadsMessages, (_event, threadId: string) => store.messages(threadId));
-  ipcMain.handle(IPC_CHANNELS.skillsList, () => store.listSkills());
+  ipcMain.handle(IPC_CHANNELS.skillsList, (_event, courseId?: string) => store.listSkills(courseId));
   ipcMain.handle(IPC_CHANNELS.skillsUpdate, (_event, input: SkillUpdateInput) => store.updateSkill(input));
+  ipcMain.handle(IPC_CHANNELS.skillsReadContent, (_event, skillId: string) => store.readSkillContent(skillId));
+  ipcMain.handle(IPC_CHANNELS.skillsWriteContent, (_event, input: SkillWriteInput) => store.writeSkillContent(input));
+  ipcMain.handle(IPC_CHANNELS.skillsImportFolder, async (event, input: SkillImportInput) => {
+    let sourcePath = input.sourcePath?.trim();
+    if (!sourcePath) {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const options: OpenDialogOptions = {
+        title: "Import skill folder",
+        properties: ["openDirectory"],
+      };
+      const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length === 0) {
+        throw new Error("Skill import was cancelled.");
+      }
+      sourcePath = result.filePaths[0];
+    }
+    return store.importSkillFolder({ ...input, sourcePath });
+  });
+  ipcMain.handle(IPC_CHANNELS.skillsOpenFolder, async (_event, skillId: string) => {
+    const result = await shell.openPath(store.skillFolderPath(skillId));
+    if (result) throw new Error(result);
+  });
   ipcMain.handle(IPC_CHANNELS.ragSearch, (_event, query: string, courseId?: string) => store.searchRag(query, courseId));
   ipcMain.handle(IPC_CHANNELS.gitStatus, () => store.gitStatus());
   ipcMain.handle(IPC_CHANNELS.filesTree, (_event, courseId?: string) => store.listFiles(courseId));

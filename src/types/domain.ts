@@ -251,11 +251,26 @@ export interface SkillItem {
   scope: "default" | "course";
   description: string;
   version: string;
+  instructions?: string;
+  slug?: string;
+  courseId?: string;
+  sourcePath?: string;
 }
 
 export interface SkillUpdateInput {
   id: string;
   enabled: boolean;
+}
+
+export interface SkillWriteInput {
+  id: string;
+  content: string;
+}
+
+export interface SkillImportInput {
+  courseId?: string;
+  sourcePath?: string;
+  enabled?: boolean;
 }
 
 export interface RagSearchResult {
@@ -445,6 +460,49 @@ export interface FileImportResult {
 
 export type ProviderProtocol = "openai_responses" | "anthropic_messages" | "openai_compatible" | "custom_http";
 
+export type WebSearchContextSize = "low" | "medium" | "high";
+
+export interface AgentHostedMcpServerConfig {
+  serverLabel: string;
+  serverUrl?: string;
+  connectorId?: string;
+  authorization?: string;
+  headers?: Record<string, string>;
+  allowedTools?: string[];
+  deferLoading?: boolean;
+  requireApproval?: "never" | "always";
+}
+
+export interface AgentHostedToolSettings {
+  webSearch?: {
+    enabled: boolean;
+    searchContextSize?: WebSearchContextSize;
+    allowedDomains?: string[];
+    externalWebAccess?: boolean;
+  };
+  fileSearch?: {
+    enabled: boolean;
+    vectorStoreIds?: string[];
+    maxNumResults?: number;
+    includeSearchResults?: boolean;
+  };
+  codeInterpreter?: {
+    enabled: boolean;
+    includeOutputs?: boolean;
+    container?: string;
+  };
+  imageGeneration?: {
+    enabled: boolean;
+    model?: string;
+    size?: string;
+    quality?: string;
+  };
+  toolSearch?: {
+    enabled: boolean;
+  };
+  hostedMcpServers?: AgentHostedMcpServerConfig[];
+}
+
 export interface ModelProviderConfig {
   id: string;
   name: string;
@@ -457,6 +515,7 @@ export interface ModelProviderConfig {
   multimodalModel?: string;
   enabled: boolean;
   embeddingEnabled?: boolean;
+  agentTools?: AgentHostedToolSettings;
   createdAt: string;
   updatedAt: string;
 }
@@ -472,6 +531,7 @@ export interface ProviderDraftInput {
   multimodalModel?: string;
   enabled?: boolean;
   embeddingEnabled?: boolean;
+  agentTools?: AgentHostedToolSettings;
 }
 
 export interface ProviderModel {
@@ -509,6 +569,10 @@ export interface UclawAPI {
   skills: {
     list: (courseId?: string) => Promise<SkillItem[]>;
     update: (input: SkillUpdateInput) => Promise<SkillItem>;
+    readContent: (skillId: string) => Promise<string>;
+    writeContent: (input: SkillWriteInput) => Promise<SkillItem>;
+    importFolder: (input: SkillImportInput) => Promise<SkillItem>;
+    openFolder: (skillId: string) => Promise<void>;
   };
   rag: {
     search: (query: string, courseId?: string) => Promise<RagSearchResult[]>;

@@ -107,6 +107,7 @@ function App() {
   const courseTasks = activeCourse ? tasksByCourse[activeCourse.id] || [] : [];
   const activeTask = useMemo(() => courseTasks.find((task) => task.id === activeTaskId), [courseTasks, activeTaskId]);
   const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId), [threads, activeThreadId]);
+  const workspaceScope = useMemo(() => describeWorkspaceScope(activeCourse, activeTask, activeThread), [activeCourse, activeTask, activeThread]);
 
   async function bootstrap() {
     const [semesterList, currentSemester, courseList, skillList, git, runtime] = await Promise.all([
@@ -484,7 +485,7 @@ function App() {
         />
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
-          <TopBar course={activeCourse} task={activeTask} thread={activeThread} />
+          <TopBar course={activeCourse} task={activeTask} thread={activeThread} workspaceScope={workspaceScope} />
 
           <div className="flex min-h-0 flex-1">
             <section className="flex min-w-0 flex-1 flex-col bg-card/70">
@@ -587,3 +588,10 @@ function App() {
 }
 
 export default App;
+
+function describeWorkspaceScope(course?: Course, task?: UclawTask, thread?: Thread): string {
+  if (task || thread?.taskId) return "Task workspace shared across sessions";
+  if (course?.workspaceKind === "semester_home" || thread?.threadType === "semester_home") return "Semester workspace";
+  if (course) return "Course workspace";
+  return "Workspace scope pending";
+}

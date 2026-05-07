@@ -4,6 +4,8 @@ import {
   Check,
   Circle,
   Database,
+  FileText,
+  FolderOpen,
   GitBranch,
   KeyRound,
   Layers3,
@@ -15,11 +17,24 @@ import {
   TerminalSquare,
   ToggleLeft,
   ToggleRight,
+  Upload,
   Wrench,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { AgentRuntimeStatus, Course, GitStatus, ModelProviderConfig, ProviderDraftInput, ProviderModel, ProviderProtocol, SemesterWorkspace, SkillItem } from "@/types/domain";
+import type {
+  AgentHostedMcpServerConfig,
+  AgentHostedToolSettings,
+  AgentRuntimeStatus,
+  Course,
+  GitStatus,
+  ModelProviderConfig,
+  ProviderDraftInput,
+  ProviderModel,
+  ProviderProtocol,
+  SemesterWorkspace,
+  SkillItem,
+} from "@/types/domain";
 import { cx } from "@/lib/cn";
 
 type SettingsPage = "providers" | "skills";
@@ -41,6 +56,7 @@ const emptyDraft: ProviderDraftInput = {
   multimodalModel: "",
   enabled: true,
   embeddingEnabled: false,
+  agentTools: defaultAgentTools(),
 };
 
 const emptyEmbeddingDraft: ProviderDraftInput = {
@@ -53,6 +69,7 @@ const emptyEmbeddingDraft: ProviderDraftInput = {
   multimodalModel: "",
   enabled: false,
   embeddingEnabled: true,
+  agentTools: defaultAgentTools(),
 };
 
 export function SettingsDialog({
@@ -90,6 +107,10 @@ export function SettingsDialog({
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
   const [busy, setBusy] = useState(false);
   const [localSkills, setLocalSkills] = useState(skills);
+  const [selectedSkillId, setSelectedSkillId] = useState("");
+  const [skillContent, setSkillContent] = useState("");
+  const [skillStatusLine, setSkillStatusLine] = useState("");
+  const [skillBusy, setSkillBusy] = useState(false);
 
   const enabledSkills = localSkills.filter((skill) => skill.enabled).length;
   const enabledProviders = providers.filter((provider) => provider.enabled).length;
@@ -105,6 +126,40 @@ export function SettingsDialog({
   useEffect(() => {
     setLocalSkills(skills);
   }, [skills]);
+
+  useEffect(() => {
+    void window.uclaw.skills.list(course?.id).then(setLocalSkills);
+  }, [course?.id]);
+
+  useEffect(() => {
+    setSelectedSkillId((current) => (localSkills.some((skill) => skill.id === current) ? current : (localSkills[0]?.id ?? "")));
+  }, [localSkills]);
+
+  useEffect(() => {
+    if (!selectedSkillId) {
+      setSkillContent("");
+      return;
+    }
+    let cancelled = false;
+    setSkillBusy(true);
+    void window.uclaw.skills
+      .readContent(selectedSkillId)
+      .then((content) => {
+        if (cancelled) return;
+        setSkillContent(content);
+        setSkillStatusLine("");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSkillStatusLine(errorMessage(error));
+      })
+      .finally(() => {
+        if (!cancelled) setSkillBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSkillId]);
 
   async function loadProviders() {
     const result = await window.uclaw.providers.list();
@@ -271,6 +326,48 @@ export function SettingsDialog({
     onSkillsChange(next);
   }
 
+  async function saveSkillContent() {
+    if (!selectedSkillId) return;
+    setSkillBusy(true);
+    try {
+      const updated = await window.uclaw.skills.writeContent({ id: selectedSkillId, content: skillContent });
+      const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
+      setLocalSkills(next);
+      onSkillsChange(next);
+      setSkillStatusLine("Saved SKILL.md.");
+    } catch (error) {
+      setSkillStatusLine(errorMessage(error));
+    } finally {
+      setSkillBusy(false);
+    }
+  }
+
+  async function importSkillFolder() {
+    setSkillBusy(true);
+    try {
+      const imported = await window.uclaw.skills.importFolder({ courseId: course?.id });
+      const next = await window.uclaw.skills.list(course?.id);
+      setLocalSkills(next);
+      onSkillsChange(next);
+      setSelectedSkillId(imported.id);
+      setSkillStatusLine(`Imported ${imported.name}.`);
+    } catch (error) {
+      setSkillStatusLine(errorMessage(error));
+    } finally {
+      setSkillBusy(false);
+    }
+  }
+
+  async function openSkillFolder(skillId: string) {
+    if (!skillId) return;
+    try {
+      await window.uclaw.skills.openFolder(skillId);
+      setSkillStatusLine("Opened skill folder.");
+    } catch (error) {
+      setSkillStatusLine(errorMessage(error));
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
@@ -360,7 +457,21 @@ export function SettingsDialog({
                 onSaveEmbeddingProvider={saveEmbeddingProvider}
               />
             ) : (
-              <SkillSettingsPage skills={localSkills} enabledSkills={enabledSkills} gitStatus={gitStatus} onToggleSkill={toggleSkill} />
+              <SkillSettingsPage
+                skills={localSkills}
+                enabledSkills={enabledSkills}
+                gitStatus={gitStatus}
+                selectedSkillId={selectedSkillId}
+                skillContent={skillContent}
+                skillBusy={skillBusy}
+                skillStatusLine={skillStatusLine}
+                onSelectSkill={setSelectedSkillId}
+                onSkillContentChange={setSkillContent}
+                onSaveSkill={saveSkillContent}
+                onImportSkill={importSkillFolder}
+                onOpenSkillFolder={openSkillFolder}
+                onToggleSkill={toggleSkill}
+              />
             )}
           </main>
         </div>
@@ -510,6 +621,8 @@ function ProviderSettingsPage({
             />
           )}
 
+          <HostedToolsSettings value={draft.agentTools || defaultAgentTools()} onChange={(agentTools) => onDraftChange({ ...draft, agentTools })} />
+
           <div className="mt-3 flex flex-wrap gap-2">
             <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", busy && "animate-spin")} />} label="Get models" onClick={onFetchModels} />
             <ActionButton icon={<PlugZap className="h-3.5 w-3.5" />} label="Test" onClick={onTestProvider} />
@@ -591,27 +704,56 @@ function SkillSettingsPage({
   skills,
   enabledSkills,
   gitStatus,
+  selectedSkillId,
+  skillContent,
+  skillBusy,
+  skillStatusLine,
+  onSelectSkill,
+  onSkillContentChange,
+  onSaveSkill,
+  onImportSkill,
+  onOpenSkillFolder,
   onToggleSkill,
 }: {
   skills: SkillItem[];
   enabledSkills: number;
   gitStatus: GitStatus | null;
+  selectedSkillId: string;
+  skillContent: string;
+  skillBusy: boolean;
+  skillStatusLine: string;
+  onSelectSkill: (skillId: string) => void;
+  onSkillContentChange: (content: string) => void;
+  onSaveSkill: () => void;
+  onImportSkill: () => void;
+  onOpenSkillFolder: (skillId: string) => void;
   onToggleSkill: (skill: SkillItem) => void;
 }) {
+  const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+    <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       <section className="rounded-lg border bg-background/70 p-3">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Sparkles className="h-3.5 w-3.5" />
             Skill Profiles
           </div>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{enabledSkills} enabled</span>
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{enabledSkills} enabled</span>
+            <ActionButton icon={<Upload className="h-3.5 w-3.5" />} label="Import" onClick={onImportSkill} />
+          </div>
         </div>
 
         <div className="space-y-2">
           {skills.map((skill) => (
-            <div key={skill.id} className="flex items-start gap-3 rounded-lg border bg-card px-3 py-3">
+            <div
+              key={skill.id}
+              className={cx(
+                "flex w-full cursor-pointer items-start gap-3 rounded-lg border bg-card px-3 py-3 text-left transition",
+                skill.id === selectedSkillId ? "border-foreground/30 ring-1 ring-foreground/15" : "hover:border-border/80",
+              )}
+              onClick={() => onSelectSkill(skill.id)}
+            >
               <span className={cx("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", skill.enabled ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-border text-muted-foreground")}>
                 {skill.enabled ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-2 w-2 fill-current" />}
               </span>
@@ -622,6 +764,9 @@ function SkillSettingsPage({
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.version}</span>
                 </div>
                 <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{skill.description}</div>
+                {skill.instructions && (
+                  <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground/70">{skill.instructions}</div>
+                )}
               </div>
               <TogglePill enabled={skill.enabled} onClick={() => onToggleSkill(skill)} />
             </div>
@@ -630,6 +775,46 @@ function SkillSettingsPage({
       </section>
 
       <aside className="space-y-4">
+        <section className="rounded-lg border bg-background/70 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+              <FileText className="h-3.5 w-3.5" />
+              <span className="truncate">{selectedSkill?.name || "Skill content"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ActionButton
+                icon={<FolderOpen className="h-3.5 w-3.5" />}
+                label="Open"
+                onClick={() => selectedSkill && onOpenSkillFolder(selectedSkill.id)}
+              />
+              <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save" onClick={onSaveSkill} primary />
+            </div>
+          </div>
+
+          {selectedSkill ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 uppercase">{selectedSkill.scope}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.version}</span>
+                {selectedSkill.sourcePath && <span className="truncate rounded bg-muted px-1.5 py-0.5">{selectedSkill.sourcePath}</span>}
+              </div>
+              <textarea
+                className="min-h-[320px] w-full rounded-lg border bg-background px-3 py-3 font-mono text-[12px] leading-5 text-foreground outline-none"
+                value={skillContent}
+                onChange={(event) => onSkillContentChange(event.target.value)}
+                spellCheck={false}
+              />
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed px-3 py-8 text-center text-[12px] text-muted-foreground">
+              Select a skill to inspect or edit its `SKILL.md`.
+            </div>
+          )}
+
+          {skillStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{skillStatusLine}</div>}
+          {skillBusy && !skillStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">Working with skill files...</div>}
+        </section>
+
         <section className="rounded-lg border bg-background/70 p-3">
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
             <Layers3 className="h-3.5 w-3.5" />
@@ -753,6 +938,30 @@ function Field({
   );
 }
 
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="mt-3 block space-y-1 text-[11px] text-muted-foreground">
+      <span>{label}</span>
+      <textarea
+        className="min-h-20 w-full resize-y rounded-md border bg-card px-2 py-2 font-mono text-[11px] leading-4 text-foreground outline-none placeholder:text-muted-foreground/55"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
 function SelectField({ label, value, onChange }: { label: string; value: ProviderProtocol; onChange: (value: ProviderProtocol) => void }) {
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
@@ -791,6 +1000,135 @@ function ModelPicker({ models, onPick }: { models: ProviderModel[]; onPick: (mod
         </button>
       ))}
     </div>
+  );
+}
+
+function HostedToolsSettings({ value, onChange }: { value: AgentHostedToolSettings; onChange: (value: AgentHostedToolSettings) => void }) {
+  const tools = withDefaultAgentTools(value);
+  const update = (patch: Partial<AgentHostedToolSettings>) => onChange(withDefaultAgentTools({ ...tools, ...patch }));
+  const [mcpText, setMcpText] = useState(stringifyMcpServers(tools.hostedMcpServers));
+
+  useEffect(() => {
+    setMcpText(stringifyMcpServers(tools.hostedMcpServers));
+  }, [tools.hostedMcpServers]);
+
+  return (
+    <section className="mt-3 rounded-lg border bg-card p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-xs font-semibold">OpenAI Hosted Tools</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Used by Responses providers; local shell, patch, RAG, and ask-user stay separate.</div>
+        </div>
+        <TogglePill
+          enabled={Boolean(tools.toolSearch?.enabled)}
+          labelOn="Tool search"
+          labelOff="Tool search off"
+          onClick={() => update({ toolSearch: { enabled: !tools.toolSearch?.enabled } })}
+        />
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-2">
+        <ToolToggle
+          title="Web search"
+          detail="Live web search with optional domain filters."
+          enabled={Boolean(tools.webSearch?.enabled)}
+          onToggle={() => update({ webSearch: { ...tools.webSearch, enabled: !tools.webSearch?.enabled } })}
+        />
+        <ToolToggle
+          title="File search"
+          detail="OpenAI vector store search; local LanceDB RAG remains default."
+          enabled={Boolean(tools.fileSearch?.enabled)}
+          onToggle={() => update({ fileSearch: { ...tools.fileSearch, enabled: !tools.fileSearch?.enabled } })}
+        />
+        <ToolToggle
+          title="Code interpreter"
+          detail="Hosted container for code/data artifacts."
+          enabled={Boolean(tools.codeInterpreter?.enabled)}
+          onToggle={() => update({ codeInterpreter: { ...tools.codeInterpreter, enabled: !tools.codeInterpreter?.enabled } })}
+        />
+        <ToolToggle
+          title="Image generation"
+          detail="Hosted image_generation tool for generated visuals."
+          enabled={Boolean(tools.imageGeneration?.enabled)}
+          onToggle={() => update({ imageGeneration: { ...tools.imageGeneration, enabled: !tools.imageGeneration?.enabled } })}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <Field
+          label="Web allowed domains"
+          value={listToCsv(tools.webSearch?.allowedDomains)}
+          placeholder="openai.com, law.edu"
+          onChange={(text) => update({ webSearch: { ...tools.webSearch, enabled: Boolean(tools.webSearch?.enabled), allowedDomains: csvToList(text) } })}
+        />
+        <label className="space-y-1 text-[11px] text-muted-foreground">
+          <span>Web context size</span>
+          <select
+            className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none"
+            value={tools.webSearch?.searchContextSize || "medium"}
+            onChange={(event) =>
+              update({
+                webSearch: {
+                  ...tools.webSearch,
+                  enabled: Boolean(tools.webSearch?.enabled),
+                  searchContextSize: event.target.value as "low" | "medium" | "high",
+                },
+              })
+            }
+          >
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+        <Field
+          label="File search vector stores"
+          value={listToCsv(tools.fileSearch?.vectorStoreIds)}
+          placeholder="vs_..., vs_..."
+          onChange={(text) => update({ fileSearch: { ...tools.fileSearch, enabled: Boolean(tools.fileSearch?.enabled), vectorStoreIds: csvToList(text) } })}
+        />
+        <Field
+          label="Image model"
+          value={tools.imageGeneration?.model || ""}
+          placeholder="gpt-image-1.5"
+          onChange={(model) => update({ imageGeneration: { ...tools.imageGeneration, enabled: Boolean(tools.imageGeneration?.enabled), model } })}
+        />
+      </div>
+
+      <TextAreaField
+        label="Hosted MCP servers JSON"
+        value={mcpText}
+        placeholder='[{"serverLabel":"github","serverUrl":"https://...","allowedTools":["search"]}]'
+        onChange={(text) => {
+          setMcpText(text);
+          const parsed = parseMcpServers(text);
+          if (!text.trim() || parsed.length > 0) update({ hostedMcpServers: parsed });
+        }}
+      />
+    </section>
+  );
+}
+
+function ToolToggle({
+  title,
+  detail,
+  enabled,
+  onToggle,
+}: {
+  title: string;
+  detail: string;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cx("rounded-lg border p-2 text-left transition", enabled ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground")}
+      onClick={onToggle}
+    >
+      <span className="block text-xs font-semibold">{title}</span>
+      <span className="mt-0.5 block text-[10px] leading-4 opacity-80">{detail}</span>
+    </button>
   );
 }
 
@@ -833,8 +1171,68 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
     multimodalModel: provider.multimodalModel || "",
     enabled: provider.enabled,
     embeddingEnabled: provider.embeddingEnabled ?? Boolean(provider.embeddingModel),
+    agentTools: withDefaultAgentTools(provider.agentTools),
     ...overrides,
   };
+}
+
+function defaultAgentTools(): AgentHostedToolSettings {
+  return {
+    webSearch: { enabled: false, searchContextSize: "medium", allowedDomains: [] },
+    fileSearch: { enabled: false, vectorStoreIds: [] },
+    codeInterpreter: { enabled: false },
+    imageGeneration: { enabled: false },
+    toolSearch: { enabled: false },
+    hostedMcpServers: [],
+  };
+}
+
+function withDefaultAgentTools(value?: AgentHostedToolSettings): AgentHostedToolSettings {
+  const base = defaultAgentTools();
+  return {
+    ...base,
+    ...value,
+    webSearch: { ...base.webSearch, ...value?.webSearch, enabled: Boolean(value?.webSearch?.enabled) },
+    fileSearch: { ...base.fileSearch, ...value?.fileSearch, enabled: Boolean(value?.fileSearch?.enabled) },
+    codeInterpreter: { ...base.codeInterpreter, ...value?.codeInterpreter, enabled: Boolean(value?.codeInterpreter?.enabled) },
+    imageGeneration: { ...base.imageGeneration, ...value?.imageGeneration, enabled: Boolean(value?.imageGeneration?.enabled) },
+    toolSearch: { ...base.toolSearch, ...value?.toolSearch, enabled: Boolean(value?.toolSearch?.enabled) },
+    hostedMcpServers: value?.hostedMcpServers || [],
+  };
+}
+
+function csvToList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function listToCsv(value?: string[]): string {
+  return (value || []).join(", ");
+}
+
+function stringifyMcpServers(value?: AgentHostedMcpServerConfig[]): string {
+  if (!value || value.length === 0) return "";
+  return JSON.stringify(value, null, 2);
+}
+
+function parseMcpServers(value: string): AgentHostedMcpServerConfig[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isMcpServerConfig);
+  } catch {
+    return [];
+  }
+}
+
+function isMcpServerConfig(value: unknown): value is AgentHostedMcpServerConfig {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.serverLabel === "string" && (typeof record.serverUrl === "string" || typeof record.connectorId === "string");
 }
 
 function protocolLabel(protocol: ProviderProtocol): string {

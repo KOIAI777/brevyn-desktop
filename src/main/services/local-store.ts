@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
+import type { AgentInputItem } from "@openai/agents";
 import type {
   ChatMessage,
   ContextWindowReport,
@@ -24,6 +25,8 @@ import type {
   SemesterImageAnalyzeResult,
   SemesterWorkspace,
   SkillItem,
+  SkillImportInput,
+  SkillWriteInput,
   SkillUpdateInput,
   TaskFileBucket,
   TaskType,
@@ -41,6 +44,8 @@ import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } fro
 import { SQLiteBusinessStore, type BusinessSnapshot } from "../storage";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { RagIndexService } from "./rag-index-service";
+import { SkillFileStore } from "../skills/skill-file-store";
+import { BUILTIN_SKILL_BLUEPRINTS } from "../skills/skill-registry";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
 
@@ -53,7 +58,6 @@ interface StoreShape {
   threads: Thread[];
   messages: ChatMessage[];
   events: UclawRunStreamItem[];
-  skills: SkillItem[];
   files: WorkspaceFileNode[];
   timetableEvents: TimetableEvent[];
   providers: ModelProviderConfig[];
@@ -274,40 +278,6 @@ function initialStore(): StoreShape {
       },
     ],
     events: [],
-    skills: [
-      {
-        id: "assignment-coach",
-        name: "Assignment Coach",
-        enabled: true,
-        scope: "default",
-        version: "0.1.0",
-        description: "Turn specs and rubrics into outlines, checklists, and revision passes.",
-      },
-      {
-        id: "citation-helper",
-        name: "Citation Helper",
-        enabled: true,
-        scope: "default",
-        version: "0.1.0",
-        description: "Keep claims tied to source snippets and citation anchors.",
-      },
-      {
-        id: "exam-review",
-        name: "Exam Review",
-        enabled: false,
-        scope: "default",
-        version: "0.1.0",
-        description: "Generate issue spotter drills and spaced review plans.",
-      },
-      {
-        id: "file-librarian",
-        name: "File Librarian",
-        enabled: true,
-        scope: "course",
-        version: "0.1.0",
-        description: "Classify course files and suggest task/file links.",
-      },
-    ],
     files: [
       {
         id: "folder-ai-law-materials",
@@ -502,6 +472,14 @@ function initialStore(): StoreShape {
         multimodalModel: "gpt-5.1",
         enabled: true,
         embeddingEnabled: true,
+        agentTools: {
+          webSearch: { enabled: false, searchContextSize: "medium" },
+          fileSearch: { enabled: false, vectorStoreIds: [] },
+          codeInterpreter: { enabled: false },
+          imageGeneration: { enabled: false },
+          toolSearch: { enabled: false },
+          hostedMcpServers: [],
+        },
         createdAt: timestamp,
         updatedAt: timestamp,
       },
@@ -512,6 +490,7 @@ function initialStore(): StoreShape {
 export class LocalStore {
   private data: StoreShape;
   private readonly ragIndex: RagIndexService;
+  private readonly skillFiles: SkillFileStore;
 
   constructor(
     private readonly filePath: string,
@@ -519,6 +498,8 @@ export class LocalStore {
     private readonly providerSecrets?: ProviderSecretStore,
   ) {
     this.data = this.load();
+    this.skillFiles = new SkillFileStore(dirname(this.filePath));
+    this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
     this.ragIndex = new RagIndexService({
       dbPath: join(dirname(this.filePath), "indexes", "rag"),
       resolveEmbeddingProvider: () => this.embeddingProvider(),
@@ -747,21 +728,115 @@ export class LocalStore {
       .sort((a, b) => a.seq - b.seq);
   }
 
+  openAISessionItems(threadId: string, limit?: number): AgentInputItem[] {
+    const items = this.readThreadOpenAISessionItems(threadId);
+    return typeof limit === "number" ? items.slice(-Math.max(0, limit)) : items;
+  }
+
+  appendOpenAISessionItems(threadId: string, items: AgentInputItem[]): void {
+    for (const item of items) {
+      this.appendThreadJsonl(threadId, {
+        type: "sdk_session_item",
+        item,
+      });
+    }
+    this.touchThread(threadId);
+    this.save();
+  }
+
+  popOpenAISessionItem(threadId: string): AgentInputItem | undefined {
+    const item = this.openAISessionItems(threadId).pop();
+    if (!item) return undefined;
+    this.appendThreadJsonl(threadId, { type: "sdk_session_pop" });
+    this.touchThread(threadId);
+    this.save();
+    return item;
+  }
+
+  clearOpenAISession(threadId: string): void {
+    this.appendThreadJsonl(threadId, { type: "sdk_session_clear" });
+    this.touchThread(threadId);
+    this.save();
+  }
+
   nextEventSeq(threadId: string): number {
     const maxSeq = this.events(threadId).reduce((max, item) => Math.max(max, item.seq), 0);
     return maxSeq + 1;
   }
 
-  listSkills(): SkillItem[] {
-    return [...this.data.skills];
+  listSkills(courseId?: string): SkillItem[] {
+    return mergeSkills(
+      this.skillFiles.listSkills({
+        semesterId: this.data.semester.id,
+        courseId: courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
+      }),
+    );
+  }
+
+  skillsForThread(threadId: string): SkillItem[] {
+    const thread = this.data.threads.find((item) => item.id === threadId);
+    return this.listSkills(thread?.courseId);
   }
 
   updateSkill(input: SkillUpdateInput): SkillItem {
-    const skill = this.data.skills.find((item) => item.id === input.id);
-    if (!skill) throw new Error(`Skill not found: ${input.id}`);
-    skill.enabled = input.enabled;
-    this.save();
-    return { ...skill };
+    const fileSkill = this.skillFiles.toggleSkill(input.id, input.enabled, { semesterId: this.data.semester.id });
+    if (fileSkill) return fileSkill;
+    throw new Error(`File skill not found: ${input.id}`);
+  }
+
+  readSkillContent(skillId: string): string {
+    const content = this.skillFiles.readSkillContent(skillId, { semesterId: this.data.semester.id });
+    if (content == null) throw new Error(`Skill content not found: ${skillId}`);
+    return content;
+  }
+
+  writeSkillContent(input: SkillWriteInput): SkillItem {
+    const updated = this.skillFiles.writeSkillContent(input.id, input.content, { semesterId: this.data.semester.id });
+    if (!updated) throw new Error(`Skill content not found: ${input.id}`);
+    return updated;
+  }
+
+  importSkillFolder(input: SkillImportInput): SkillItem {
+    if (!input.sourcePath?.trim()) throw new Error("Skill import requires a source folder.");
+    const courseId = input.courseId && input.courseId !== SEMESTER_HOME_COURSE_ID ? input.courseId : undefined;
+    return this.skillFiles.importSkillFolder(
+      input.sourcePath,
+      { semesterId: this.data.semester.id, courseId },
+      input.enabled ?? true,
+    );
+  }
+
+  skillFolderPath(skillId: string): string {
+    const dir = this.skillFiles.skillFolderPath(skillId, { semesterId: this.data.semester.id });
+    if (!dir) throw new Error(`Skill folder not found: ${skillId}`);
+    return dir;
+  }
+
+  workspacePathForRunScope(threadId: string): string {
+    const thread = this.data.threads.find((item) => item.id === threadId);
+    if (!thread) {
+      throw new Error(`Workspace resolution failed: thread not found: ${threadId}`);
+    }
+    const semesterId = thread?.semesterId || this.data.semester.id;
+    const semesterDir = this.ensureSemesterWorkspaceDir(semesterId);
+    if (thread.courseId === SEMESTER_HOME_COURSE_ID || thread.threadType === "semester_home") {
+      mkdirSync(join(semesterDir, "Semester shared"), { recursive: true });
+      mkdirSync(join(semesterDir, "courses"), { recursive: true });
+      return semesterDir;
+    }
+
+    const courseDir = this.ensureCourseWorkspaceDir(thread.courseId, semesterId);
+    if (!thread.taskId) return courseDir;
+
+    const task = this.data.tasks.find((item) => item.id === thread.taskId);
+    if (!task) return courseDir;
+
+    const taskDir = join(courseDir, "Task", taskTypeLabel(task.taskType), sanitizeFsSegment(task.title));
+    mkdirSync(taskDir, { recursive: true });
+    for (const bucket of Object.keys(TASK_FILE_BUCKET_LABELS) as TaskFileBucket[]) {
+      mkdirSync(join(taskDir, taskBucketLabel(bucket)), { recursive: true });
+    }
+    return taskDir;
   }
 
   async searchRag(query: string, courseId?: string): Promise<RagSearchResult[]> {
@@ -792,7 +867,9 @@ export class LocalStore {
       sections: ["course", "task", "thread", "enabled skills"],
       files: ["rubric.md", "week-06-lecture.pdf", "draft-outline.md"],
       tools: ["context_report", "rag_search", "ask_user", "shell", "apply_patch"],
-      skills: this.data.skills.filter((skill) => skill.enabled).map((skill) => skill.name),
+      skills: this.skillsForThread(threadId)
+        .filter((skill) => skill.enabled)
+        .map((skill) => skill.name),
     };
   }
 
@@ -948,9 +1025,12 @@ export class LocalStore {
     const timestamp = now();
     const root = this.ensureCourseFolder(input.courseId);
     const targetFolder = this.ensureTargetFolder(root, input);
+    const managedTargetDir = this.ensureImportTargetDir(input);
     const importedFiles = sourcePaths.map((sourcePath) => {
       const stats = statSync(sourcePath);
-      const name = basename(sourcePath);
+      const managedPath = uniqueFilePath(managedTargetDir, basename(sourcePath));
+      copyFileSync(sourcePath, managedPath);
+      const name = basename(managedPath);
       const file: WorkspaceFileNode = {
         id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
         semesterId: this.data.semester.id,
@@ -960,10 +1040,10 @@ export class LocalStore {
         taskFileBucket: input.targetSection === "task" ? input.taskFileBucket || "materials" : undefined,
         sectionKind: input.targetSection,
         weekNumber: input.targetSection === "week" ? input.weekNumber || 1 : undefined,
-        sourcePath,
+        sourcePath: managedPath,
         name,
         path: `${targetFolder.path}/${name}`,
-        kind: kindForPath(sourcePath),
+        kind: kindForPath(managedPath),
         sizeLabel: formatSize(stats.size),
         updatedAt: timestamp,
       };
@@ -1157,6 +1237,7 @@ export class LocalStore {
       multimodalModel: input.multimodalModel,
       enabled: input.enabled ?? true,
       embeddingEnabled: input.embeddingEnabled ?? existing?.embeddingEnabled ?? Boolean(input.embeddingModel),
+      agentTools: normalizeAgentToolSettings(input.agentTools ?? existing?.agentTools),
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -1311,7 +1392,6 @@ export class LocalStore {
         threads: parsed.threads ?? initial.threads,
         messages: parsed.messages ?? initial.messages,
         events: parsed.events ?? initial.events,
-        skills: parsed.skills ?? initial.skills,
         files: parsed.files ?? initial.files,
         timetableEvents: parsed.timetableEvents ?? initial.timetableEvents,
         providers: normalizeProviders(parsed.providers ?? initial.providers),
@@ -1486,6 +1566,34 @@ export class LocalStore {
     }
   }
 
+  private readThreadOpenAISessionItems(threadId: string): AgentInputItem[] {
+    const logPath = this.threadJsonlPath(threadId);
+    if (!existsSync(logPath)) return [];
+    const items: AgentInputItem[] = [];
+    try {
+      const raw = readFileSync(logPath, "utf8");
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        const parsed = parseJsonlLine(line);
+        if (!parsed) continue;
+        if (parsed.type === "sdk_session_clear") {
+          items.length = 0;
+          continue;
+        }
+        if (parsed.type === "sdk_session_pop") {
+          items.pop();
+          continue;
+        }
+        if (parsed.type === "sdk_session_item" && parsed.item) {
+          items.push(parsed.item as AgentInputItem);
+        }
+      }
+    } catch (error) {
+      console.warn(`[store] Failed to read OpenAI session items: ${threadId}`, error);
+    }
+    return items;
+  }
+
   private readThreadJsonlTranscript(thread: Thread): { messages: ChatMessage[]; events: UclawRunStreamItem[] } {
     const logPath = this.threadJsonlPathFor(thread.id, thread.semesterId || this.data?.semester.id);
     if (!existsSync(logPath)) return { messages: [], events: [] };
@@ -1532,6 +1640,54 @@ export class LocalStore {
   private threadSemesterId(threadId: string): string {
     const thread = this.data.threads.find((item) => item.id === threadId);
     return thread?.semesterId || this.data.semester.id;
+  }
+
+  private rootDataDir(): string {
+    return dirname(this.filePath);
+  }
+
+  private ensureSemesterWorkspaceDir(semesterId: string): string {
+    const dir = join(this.rootDataDir(), "semesters", semesterId);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  private ensureCourseWorkspaceDir(courseId: string, semesterId = this.data.semester.id): string {
+    const dir = join(this.ensureSemesterWorkspaceDir(semesterId), "courses", courseId);
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(join(dir, "Course shared"), { recursive: true });
+    mkdirSync(join(dir, "Week"), { recursive: true });
+    mkdirSync(join(dir, "Task"), { recursive: true });
+    return dir;
+  }
+
+  private ensureImportTargetDir(input: FileImportInput): string {
+    const semesterId = this.data.semester.id;
+    if (input.courseId === SEMESTER_HOME_COURSE_ID) {
+      const dir = join(this.ensureSemesterWorkspaceDir(semesterId), "Semester shared");
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+
+    const courseDir = this.ensureCourseWorkspaceDir(input.courseId, semesterId);
+    if (input.targetSection === "course_shared") {
+      const dir = join(courseDir, "Course shared");
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+
+    if (input.targetSection === "week") {
+      const dir = join(courseDir, "Week", `Week ${input.weekNumber || 1}`);
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+
+    const task = input.taskId ? this.data.tasks.find((item) => item.id === input.taskId) : undefined;
+    const taskType = task?.taskType || "assignment";
+    const taskDir = join(courseDir, "Task", taskTypeLabel(taskType), sanitizeFsSegment(task?.title || "Task workspace"));
+    const bucketDir = join(taskDir, taskBucketLabel(input.taskFileBucket || "materials"));
+    mkdirSync(bucketDir, { recursive: true });
+    return bucketDir;
   }
 
 }
@@ -1581,6 +1737,64 @@ function envApiKeyForProvider(provider: ModelProviderConfig): string | undefined
     return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
   }
   return process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+}
+
+function normalizeAgentToolSettings(value?: ModelProviderConfig["agentTools"]): ModelProviderConfig["agentTools"] {
+  if (!value) {
+    return {
+      webSearch: { enabled: false, searchContextSize: "medium" },
+      fileSearch: { enabled: false, vectorStoreIds: [] },
+      codeInterpreter: { enabled: false },
+      imageGeneration: { enabled: false },
+      toolSearch: { enabled: false },
+      hostedMcpServers: [],
+    };
+  }
+  return {
+    webSearch: {
+      enabled: Boolean(value.webSearch?.enabled),
+      searchContextSize: value.webSearch?.searchContextSize || "medium",
+      allowedDomains: cleanStringList(value.webSearch?.allowedDomains),
+      externalWebAccess: value.webSearch?.externalWebAccess,
+    },
+    fileSearch: {
+      enabled: Boolean(value.fileSearch?.enabled),
+      vectorStoreIds: cleanStringList(value.fileSearch?.vectorStoreIds),
+      maxNumResults: value.fileSearch?.maxNumResults,
+      includeSearchResults: value.fileSearch?.includeSearchResults,
+    },
+    codeInterpreter: {
+      enabled: Boolean(value.codeInterpreter?.enabled),
+      includeOutputs: value.codeInterpreter?.includeOutputs,
+      container: value.codeInterpreter?.container?.trim() || undefined,
+    },
+    imageGeneration: {
+      enabled: Boolean(value.imageGeneration?.enabled),
+      model: value.imageGeneration?.model?.trim() || undefined,
+      size: value.imageGeneration?.size?.trim() || undefined,
+      quality: value.imageGeneration?.quality?.trim() || undefined,
+    },
+    toolSearch: {
+      enabled: Boolean(value.toolSearch?.enabled),
+    },
+    hostedMcpServers: (value.hostedMcpServers || [])
+      .filter((server) => server.serverLabel?.trim() && (server.serverUrl?.trim() || server.connectorId?.trim()))
+      .map((server) => ({
+        serverLabel: server.serverLabel.trim(),
+        serverUrl: server.serverUrl?.trim() || undefined,
+        connectorId: server.connectorId?.trim() || undefined,
+        authorization: server.authorization?.trim() || undefined,
+        headers: server.headers,
+        allowedTools: cleanStringList(server.allowedTools),
+        deferLoading: Boolean(server.deferLoading),
+        requireApproval: server.requireApproval === "never" ? "never" : "always",
+      })),
+  };
+}
+
+function cleanStringList(value?: string[]): string[] | undefined {
+  const list = (value || []).map((item) => item.trim()).filter(Boolean);
+  return list.length > 0 ? list : undefined;
 }
 
 function defaultModelsForProvider(provider?: ModelProviderConfig): ProviderModel[] {
@@ -2067,13 +2281,43 @@ function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "folder";
 }
 
+function sanitizeFsSegment(value: string): string {
+  const cleaned = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim();
+  return cleaned || "workspace";
+}
+
+function uniqueFilePath(dir: string, fileName: string): string {
+  const safeName = sanitizeFsSegment(fileName);
+  const extension = extname(safeName);
+  const baseName = extension ? safeName.slice(0, -extension.length) : safeName;
+  let candidate = join(dir, safeName);
+  let index = 2;
+  while (existsSync(candidate)) {
+    candidate = join(dir, `${baseName} (${index})${extension}`);
+    index += 1;
+  }
+  return candidate;
+}
+
 function normalizeProviders(providers: ModelProviderConfig[]): ModelProviderConfig[] {
   return providers.map((provider) => ({
     ...provider,
     apiKeyMasked: provider.apiKeyMasked === "sk-...local" ? "" : provider.apiKeyMasked,
     apiKeySecretRef: provider.apiKeySecretRef ?? `provider-secret:${provider.id}`,
     embeddingEnabled: provider.embeddingEnabled ?? Boolean(provider.embeddingModel),
+    agentTools: normalizeAgentToolSettings(provider.agentTools),
   }));
+}
+
+function mergeSkills(skills: SkillItem[]): SkillItem[] {
+  const seen = new Set<string>();
+  const merged: SkillItem[] = [];
+  for (const skill of skills) {
+    if (seen.has(skill.id)) continue;
+    seen.add(skill.id);
+    merged.push({ ...skill });
+  }
+  return merged;
 }
 
 function toBusinessSnapshot(data: StoreShape): BusinessSnapshot {
@@ -2084,7 +2328,6 @@ function toBusinessSnapshot(data: StoreShape): BusinessSnapshot {
     courses: data.courses,
     tasks: data.tasks,
     threads: data.threads,
-    skills: data.skills,
     files: data.files,
     timetableEvents: data.timetableEvents,
     providers: data.providers,

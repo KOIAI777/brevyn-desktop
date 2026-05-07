@@ -19,10 +19,13 @@ import type {
   UclawRunStreamItem,
 } from "../../types/domain";
 import { createUclawToolRegistry, type UclawHostedToolOptions } from "../tools";
+import { classifyShellCommand } from "../tools/uclaw-shell";
 import { AgentAskUserService } from "./agent-ask-user-service";
 import type { AgentRunItemDraft } from "./agent-event-log";
 import { AgentPermissionService } from "./agent-permission-service";
 import { LocalStore, SEMESTER_HOME_COURSE_ID } from "./local-store";
+import { UclawOpenAISession } from "./uclaw-openai-session";
+import { formatEnabledSkillPrompt } from "../skills/skill-registry";
 
 export type AgentRuntimeEmit = (item: AgentRunItemDraft) => UclawRunStreamItem;
 
@@ -49,7 +52,6 @@ export interface AgentRuntimeAdapter {
 }
 
 export interface OpenAIAgentsAdapterOptions {
-  cwd: string;
   hostedTools?: UclawHostedToolOptions;
 }
 
@@ -66,6 +68,7 @@ interface ResolvedRuntimeConfig {
   model: string;
   baseURL?: string;
   useResponses: boolean;
+  hostedTools?: UclawHostedToolOptions;
 }
 
 const DEFAULT_MODEL = "gpt-4.1";
@@ -76,7 +79,7 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
     private readonly store: LocalStore,
     private readonly permissionService: AgentPermissionService,
     private readonly askUserService: AgentAskUserService,
-    private readonly options: OpenAIAgentsAdapterOptions,
+    private readonly options: OpenAIAgentsAdapterOptions = {},
   ) {}
 
   isConfigured(): boolean {
@@ -129,6 +132,8 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
       throw new Error("OpenAI Agents SDK runtime is not configured. Save a provider API key or set OPENAI_API_KEY / UCLAW_OPENAI_API_KEY.");
     }
 
+    const workspaceCwd = this.store.workspacePathForRunScope(input.threadId);
+    const enabledSkills = this.store.skillsForThread(input.threadId).filter((skill) => skill.enabled);
     const model = runtime.model;
     const modelProvider = new OpenAIProvider({
       apiKey: runtime.apiKey,
@@ -137,9 +142,10 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
     });
     const registry = createUclawToolRegistry({
       store: this.store,
-      cwd: this.options.cwd,
+      cwd: workspaceCwd,
       permissionMode: input.permissionMode,
-      hostedTools: this.options.hostedTools,
+      hostedTools: runtime.useResponses ? (runtime.hostedTools ?? this.options.hostedTools) : undefined,
+      skills: enabledSkills,
       runContext: {
         runId: input.runId,
         threadId: input.threadId,
@@ -151,7 +157,7 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
     const agent = new Agent({
       name: "UCLAW TaskAgent",
       model,
-      instructions: this.buildInstructions(input),
+      instructions: this.buildInstructions(input, workspaceCwd),
       tools: registry.tools,
       modelSettings: {
         parallelToolCalls: true,
@@ -167,6 +173,7 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
     let state: RunState<unknown, RuntimeAgent> | undefined;
     const approvals = new Map<string, PendingSdkApproval>();
     const startedAt = Date.now();
+    const session = new UclawOpenAISession(this.store, input.threadId);
     const runner = new Runner({
       modelProvider,
       tracingDisabled: true,
@@ -180,6 +187,7 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
           stream: true,
           signal: input.signal,
           maxTurns: MAX_TURNS,
+          session,
         });
 
         await this.consumeStream(stream, input, callbacks, approvals, (delta) => {
@@ -411,15 +419,16 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
     return pending;
   }
 
-  private buildInstructions(input: AgentRuntimeRunInput): string {
+  private buildInstructions(input: AgentRuntimeRunInput, workspaceCwd: string): string {
     const thread = this.store.listThreads().find((item) => item.id === input.threadId);
     const courses = this.store.listCourses();
     const course = courses.find((item) => item.id === thread?.courseId);
     const tasks = course ? this.store.listTasks(course.id) : [];
     const task = tasks.find((item) => item.id === thread?.taskId);
-    const skills = this.store.listSkills().filter((skill) => skill.enabled);
+    const skills = this.store.skillsForThread(input.threadId).filter((skill) => skill.enabled);
     const context = this.store.contextReport(input.threadId);
     const recent = this.recentMessages(input.threadId);
+    const skillPrompt = formatEnabledSkillPrompt(skills);
 
     return [
       "You are UCLAW TaskAgent, a local-first course workspace agent inside an Electron app.",
@@ -427,19 +436,20 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
       "Use context_report when you need the current course/task/thread, file list, enabled skills, or context-window estimate.",
       "Use rag_search before answering questions about course materials, assignments, exams, rubrics, readings, or uploaded files.",
       "Use ask_user only when a missing preference or required detail blocks the next useful action.",
-      "Use shell for local read-only inspection, Git status/diff/log, and build checks. Write-like shell commands require approval and dangerous commands are blocked.",
-      "Use apply_patch for workspace edits. Keep edits scoped to the current semester/course/task workspace.",
+      "Use shell for local inspection, Git status/diff/log, and build checks. In review mode, only risky shell commands require approval; blocked commands stay blocked in every mode.",
+      "Use apply_patch for workspace edits. It does not ask for approval, but it must stay inside the current semester/course/task workspace.",
       "Return concise answers in the user's language. The user often writes Chinese; answer Chinese unless the task clearly needs English output.",
       "",
       "Current scope:",
       `- Thread: ${thread?.title || input.threadId}`,
       `- Course: ${course ? `${course.name} (${course.code})` : "unknown"}`,
       `- Task: ${task ? `${task.title} (${task.taskType})` : course?.id === SEMESTER_HOME_COURSE_ID ? "semester home" : "course home"}`,
+      `- Workspace cwd: ${workspaceCwd}`,
       `- Permission mode: ${input.permissionMode}`,
       `- Context estimate: ${context.tokens}/${context.budget} tokens`,
       "",
       "Enabled skills:",
-      skills.length ? skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n") : "- none",
+      skillPrompt,
       "",
       "Recent thread messages:",
       recent.length ? recent.map((message) => `- ${message.role}: ${message.content}`).join("\n") : "- none",
@@ -469,6 +479,7 @@ export class OpenAIAgentsAdapter implements AgentRuntimeAdapter {
       source: providerSecret ? "provider_secret" : envSecret ? "env" : "none",
       baseURL,
       useResponses: provider?.protocol !== "openai_compatible",
+      hostedTools: provider?.agentTools,
     };
   }
 }
@@ -627,6 +638,7 @@ function collectMetrics(stream: StreamedRunResult<unknown, Agent<unknown, any>>,
 
 function approvalTitle(approval: RunToolApprovalItem, rawItem: Record<string, unknown> | null): string {
   const name = approval.name || toolNameFromRawItem(rawItem) || "tool";
+  if (name === "shell") return "允许 Agent 运行风险较高的 shell 命令？";
   return `允许 Agent 调用 ${name}？`;
 }
 
@@ -635,8 +647,16 @@ function approvalDetail(rawItem: Record<string, unknown> | null): string {
   const type = stringField(rawItem, "type");
   if (type === "shell_call") {
     const action = asRecord(rawItem.action);
-    const commands = Array.isArray(action?.commands) ? action.commands.join("\n") : "";
-    return commands || "Shell command requires approval.";
+    const commands = Array.isArray(action?.commands) ? action.commands.map(String) : [];
+    const detail = commands.join("\n");
+    const policy = commands.reduce<{ risk: "allow" | "review" | "deny"; reason: string }>(
+      (current, command) => {
+        const next = classifyShellCommand(command);
+        return next.risk === "review" ? next : current;
+      },
+      { risk: "allow" as const, reason: "Shell command requires approval." },
+    );
+    return [detail || "Shell command requires approval.", `Reason: ${policy.reason}`].join("\n\n");
   }
   if (type === "apply_patch_call") {
     const operation = asRecord(rawItem.operation);

@@ -5,10 +5,12 @@ export function TopBar({
   course,
   task,
   thread,
+  workspaceScope,
 }: {
   course?: Course;
   task?: UclawTask;
   thread?: Thread;
+  workspaceScope: string;
 }) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/75 px-4 backdrop-blur transition-colors duration-200">
@@ -22,7 +24,7 @@ export function TopBar({
             </>
           )}
         </div>
-        <div className="truncate text-[11px] text-muted-foreground">{thread?.title || "No thread"} · Electron local-first · Agents SDK adapter boundary</div>
+        <div className="truncate text-[11px] text-muted-foreground">{thread?.title || "No thread"} · {workspaceScope} · Electron local-first</div>
       </div>
     </header>
   );

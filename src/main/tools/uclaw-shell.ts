@@ -44,6 +44,8 @@ const REVIEW_PATTERNS = [
   /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add|remove|update|upgrade|exec|dlx)\b/,
   /\bgit\s+(?:add|commit|push|pull|fetch|reset|clean|rebase|merge|checkout|switch|restore|tag)\b/,
   /\b(?:curl|wget)\b/,
+  /\b(?:bash|sh|zsh)\s+[^\s-]/,
+  /\b(?:node|python|python3|ruby|perl|php)\s+[^\s-]/,
   /\b(?:node|python|python3|ruby|perl|php)\s+(?:-e|-c)\b/,
 ];
 
