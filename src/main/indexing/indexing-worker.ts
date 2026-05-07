@@ -1,67 +1,34 @@
-import { readFileSync, statSync } from "node:fs";
 import { parentPort, workerData } from "node:worker_threads";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "./indexing-types";
+import { parseIndexingFile } from "./file-parser-adapter";
 
-const TEXT_KINDS = new Set(["markdown", "code", "text"]);
-const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 const CHUNK_SIZE = 3_600;
 const CHUNK_OVERLAP = 300;
 
-function run(task: IndexingTaskRecord): IndexingWorkerResult {
+async function run(task: IndexingTaskRecord): Promise<IndexingWorkerResult> {
   const payload = task.payload;
   if (!payload.sourcePath) {
     throw new Error(`No local source path is available for ${payload.name}. Re-import the file before indexing.`);
   }
 
-  const stats = statSync(payload.sourcePath);
-  if (!TEXT_KINDS.has(payload.kind)) {
-    return {
-      fileId: payload.fileId,
-      sourcePath: payload.sourcePath,
-      chunkCount: 0,
-      charCount: 0,
-      byteCount: stats.size,
-      sample: "",
-      warnings: [`${payload.kind.toUpperCase()} parser is not enabled yet; queued worker support is ready for the parser adapter.`],
-      chunks: [],
-      metadata: {
-        parser: "unsupported-binary-placeholder",
-        kind: payload.kind,
-      },
-    };
-  }
-
-  const bytesToRead = Math.min(stats.size, MAX_TEXT_BYTES);
-  const buffer = readFileSync(payload.sourcePath);
-  const raw = buffer.subarray(0, bytesToRead).toString("utf8");
-  const text = normalizeText(raw);
+  const parsed = await parseIndexingFile({
+    sourcePath: payload.sourcePath,
+    kind: payload.kind,
+  });
+  const text = parsed.text;
   const chunks = chunkText(text);
-  const truncated = stats.size > MAX_TEXT_BYTES;
 
   return {
     fileId: payload.fileId,
     sourcePath: payload.sourcePath,
     chunkCount: chunks.length,
     charCount: text.length,
-    byteCount: stats.size,
+    byteCount: parsed.byteCount,
     sample: chunks[0]?.slice(0, 900) || text.slice(0, 900),
-    warnings: truncated ? [`Read first ${MAX_TEXT_BYTES} bytes only; full-file parsing will move to streaming parser mode.`] : [],
+    warnings: parsed.warnings,
     chunks,
-    metadata: {
-      parser: "plain-text",
-      kind: payload.kind,
-      truncated,
-    },
+    metadata: parsed.metadata,
   };
-}
-
-function normalizeText(value: string): string {
-  return value
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/\u0000/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
 }
 
 function chunkText(text: string): string[] {
@@ -91,12 +58,13 @@ function findSoftBoundary(text: string, start: number, hardEnd: number): number 
   return hardEnd;
 }
 
-try {
-  const result = run(workerData as IndexingTaskRecord);
-  parentPort?.postMessage({ ok: true, result });
-} catch (error) {
-  parentPort?.postMessage({
-    ok: false,
-    error: error instanceof Error ? error.message : String(error),
+void run(workerData as IndexingTaskRecord)
+  .then((result) => {
+    parentPort?.postMessage({ ok: true, result });
+  })
+  .catch((error) => {
+    parentPort?.postMessage({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
-}

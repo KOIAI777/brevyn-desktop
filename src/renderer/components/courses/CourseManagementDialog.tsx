@@ -1,6 +1,24 @@
-import { BookOpen, Check, FileText, FolderOpen, GraduationCap, Image, Layers3, Loader2, Plus, Sparkles, Upload, X } from "lucide-react";
+import {
+  AlertCircle,
+  BookOpen,
+  Check,
+  CircleStop,
+  Database,
+  FileText,
+  FolderOpen,
+  GraduationCap,
+  Image,
+  Layers3,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Course, CourseFileSection, IndexingJob, TaskType, UclawTask } from "@/types/domain";
+import type { Course, CourseFileSection, IndexingJob, RagSearchResult, TaskType, UclawTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
@@ -29,17 +47,47 @@ export function CourseManagementDialog({
   const [sections, setSections] = useState<CourseFileSection[]>([]);
   const [recognizing, setRecognizing] = useState(false);
   const [indexingSectionId, setIndexingSectionId] = useState("");
-  const [lastJob, setLastJob] = useState<IndexingJob | null>(null);
+  const [indexingJobs, setIndexingJobs] = useState<IndexingJob[]>([]);
+  const [loadingIndexingJobs, setLoadingIndexingJobs] = useState(false);
+  const [ragQuery, setRagQuery] = useState("");
+  const [ragResults, setRagResults] = useState<RagSearchResult[]>([]);
+  const [ragSearching, setRagSearching] = useState(false);
+  const [ragError, setRagError] = useState("");
   const [taskName, setTaskName] = useState("");
   const [taskType, setTaskType] = useState<TaskType>("assignment");
 
   useEffect(() => {
     if (!activeCourse?.id) return;
-    void loadSections(activeCourse.id);
+    setRagResults([]);
+    setRagError("");
+    void loadCourseView(activeCourse.id);
   }, [activeCourse?.id]);
+
+  useEffect(() => {
+    if (!activeCourse?.id) return;
+    const hasActiveJob = indexingJobs.some((job) => job.status === "queued" || job.status === "indexing");
+    if (!hasActiveJob) return;
+    const timer = window.setInterval(() => {
+      void loadCourseView(activeCourse.id);
+    }, 1600);
+    return () => window.clearInterval(timer);
+  }, [activeCourse?.id, indexingJobs]);
+
+  async function loadCourseView(courseId: string) {
+    await Promise.all([loadSections(courseId), loadIndexingJobs(courseId)]);
+  }
 
   async function loadSections(courseId: string) {
     setSections(await window.uclaw.files.sections(courseId));
+  }
+
+  async function loadIndexingJobs(courseId: string) {
+    setLoadingIndexingJobs(true);
+    try {
+      setIndexingJobs(await window.uclaw.files.indexingJobs(courseId));
+    } finally {
+      setLoadingIndexingJobs(false);
+    }
   }
 
   async function recognizeCourse() {
@@ -71,10 +119,34 @@ export function CourseManagementDialog({
   async function indexSection(sectionId?: string) {
     if (!activeCourse?.id) return;
     setIndexingSectionId(sectionId || "all");
-    const job = await window.uclaw.files.index(activeCourse.id, sectionId);
-    setLastJob(job);
-    await loadSections(activeCourse.id);
-    setIndexingSectionId("");
+    try {
+      await window.uclaw.files.index(activeCourse.id, sectionId);
+      await loadCourseView(activeCourse.id);
+    } finally {
+      setIndexingSectionId("");
+    }
+  }
+
+  async function cancelIndexing(jobId: string) {
+    if (!activeCourse?.id) return;
+    await window.uclaw.files.cancelIndexing(jobId);
+    await loadCourseView(activeCourse.id);
+  }
+
+  async function searchRag() {
+    if (!activeCourse?.id) return;
+    const query = ragQuery.trim();
+    if (!query) return;
+    setRagSearching(true);
+    setRagError("");
+    try {
+      setRagResults(await window.uclaw.rag.search(query, activeCourse.id));
+    } catch (error) {
+      setRagError(error instanceof Error ? error.message : "RAG search failed.");
+      setRagResults([]);
+    } finally {
+      setRagSearching(false);
+    }
   }
 
   return (
@@ -167,7 +239,7 @@ export function CourseManagementDialog({
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-[1fr_260px]">
+            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_340px]">
               <div className="space-y-2">
                 {sections.map((section) => (
                   <SectionCard
@@ -218,6 +290,23 @@ export function CourseManagementDialog({
                   </button>
                 </section>
 
+                <IndexingProgressPanel
+                  jobs={indexingJobs}
+                  loading={loadingIndexingJobs}
+                  sections={sections}
+                  onRefresh={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
+                  onCancel={(jobId) => void cancelIndexing(jobId)}
+                />
+
+                <RagDebugPanel
+                  query={ragQuery}
+                  results={ragResults}
+                  searching={ragSearching}
+                  error={ragError}
+                  onQueryChange={setRagQuery}
+                  onSearch={() => void searchRag()}
+                />
+
                 <section className="rounded-lg border bg-card p-3">
                   <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
                     <Upload className="h-3.5 w-3.5" />
@@ -229,22 +318,167 @@ export function CourseManagementDialog({
                     <div className="rounded-md bg-muted/55 px-2 py-2">Course files use Course shared, Week / Week N, and Task / Assignment or Exam / Drafts / Submitted.</div>
                   </div>
                 </section>
-
-                {lastJob && (
-                  <section className="rounded-lg border bg-card p-3 text-[11px] text-muted-foreground">
-                    <div className="font-semibold text-foreground">Last indexing job</div>
-                    <div className="mt-1">{lastJob.embeddingModel}</div>
-                    <div className="mt-1">
-                      {lastJob.indexedFiles}/{lastJob.totalFiles ?? lastJob.indexedFiles} files · {lastJob.status}
-                    </div>
-                  </section>
-                )}
               </aside>
             </div>
           </section>
         </div>
       </div>
     </div>
+  );
+}
+
+function IndexingProgressPanel({
+  jobs,
+  loading,
+  sections,
+  onRefresh,
+  onCancel,
+}: {
+  jobs: IndexingJob[];
+  loading: boolean;
+  sections: CourseFileSection[];
+  onRefresh: () => void;
+  onCancel: (jobId: string) => void;
+}) {
+  const sectionTitles = new Map(sections.map((section) => [section.id, section.title]));
+  const activeCount = jobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
+
+  return (
+    <section className="rounded-lg border bg-card p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+          <Database className="h-3.5 w-3.5" />
+          <span className="truncate">Indexing</span>
+          {activeCount > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{activeCount} active</span>}
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
+          onClick={onRefresh}
+          title="Refresh indexing jobs"
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+
+      {jobs.length === 0 ? (
+        <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">No indexing jobs</div>
+      ) : (
+        <div className="space-y-2">
+          {jobs.slice(0, 5).map((job) => {
+            const progress = Math.max(0, Math.min(100, job.progress || 0));
+            const cancellable = job.status === "queued" || job.status === "indexing";
+            return (
+              <div key={job.id} className="rounded-md border bg-background/70 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] font-semibold text-foreground">{job.sectionId ? sectionTitles.get(job.sectionId) || "Section" : "All sections"}</div>
+                    <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                      {job.indexedFiles}/{job.totalFiles ?? 0} files · {job.stage || job.status} · {formatJobTime(job.updatedAt)}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(job.status))}>{job.status}</span>
+                    {cancellable && (
+                      <button
+                        type="button"
+                        className="flex h-6 w-6 items-center justify-center rounded-md border bg-card text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        onClick={() => onCancel(job.id)}
+                        title="Cancel indexing"
+                      >
+                        <CircleStop className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className={cx("h-full rounded-full transition-all duration-300", job.status === "failed" ? "bg-red-500" : "bg-foreground")} style={{ width: `${progress}%` }} />
+                </div>
+                {job.error && (
+                  <div className="mt-2 flex gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-700">
+                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span className="min-w-0 break-words">{job.error}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RagDebugPanel({
+  query,
+  results,
+  searching,
+  error,
+  onQueryChange,
+  onSearch,
+}: {
+  query: string;
+  results: RagSearchResult[];
+  searching: boolean;
+  error: string;
+  onQueryChange: (query: string) => void;
+  onSearch: () => void;
+}) {
+  return (
+    <section className="rounded-lg border bg-card p-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+        <Search className="h-3.5 w-3.5" />
+        RAG Debug
+      </div>
+      <form
+        className="flex gap-1.5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSearch();
+        }}
+      >
+        <input
+          className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search indexed chunks"
+        />
+        <button
+          type="submit"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={searching || !query.trim()}
+          title="Run RAG search"
+        >
+          {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+        </button>
+      </form>
+
+      {error && (
+        <div className="mt-2 flex gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-700">
+          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="min-w-0 break-words">{error}</span>
+        </div>
+      )}
+
+      <div className="mt-2 space-y-2">
+        {results.length === 0 ? (
+          <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">
+            {query.trim() ? "No chunks returned" : "No query"}
+          </div>
+        ) : (
+          results.map((result) => (
+            <div key={result.id} className="rounded-md border bg-background/70 p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 truncate text-[11px] font-semibold">{result.title}</div>
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{Math.round(result.score * 100)}%</span>
+              </div>
+              <div className="mt-1 line-clamp-3 break-words text-[11px] leading-5 text-muted-foreground">{result.excerpt}</div>
+              <div className="mt-1 truncate text-[10px] text-muted-foreground/80">{result.citation || result.source}</div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -290,4 +524,19 @@ function SectionCard({
       )}
     </div>
   );
+}
+
+function statusTone(status: IndexingJob["status"]): string {
+  if (status === "indexed") return "bg-emerald-50 text-emerald-800";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  if (status === "cancelled") return "bg-muted text-muted-foreground";
+  if (status === "queued") return "bg-amber-50 text-amber-700";
+  if (status === "indexing") return "bg-blue-50 text-blue-700";
+  return "bg-muted text-muted-foreground";
+}
+
+function formatJobTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }

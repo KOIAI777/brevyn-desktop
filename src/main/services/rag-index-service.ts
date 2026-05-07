@@ -47,6 +47,10 @@ export class RagIndexService {
   }
 
   async ingestTask(task: IndexingTaskRecord, result: IndexingWorkerResult): Promise<void> {
+    if (result.chunks.length === 0) {
+      await this.deleteFile(task.payload.fileId);
+      return;
+    }
     const provider = this.resolveEmbeddingProvider();
     if (!provider) {
       throw new Error("No embedding provider is configured. Save an embedding-enabled provider before indexing files.");
@@ -54,10 +58,6 @@ export class RagIndexService {
     const apiKey = this.options.resolveApiKey(provider);
     if (!apiKey) {
       throw new Error(`No API key is available for embedding provider ${provider.name}.`);
-    }
-    if (result.chunks.length === 0) {
-      await this.deleteFile(task.payload.fileId);
-      return;
     }
 
     const vectors = await this.embedTexts(result.chunks, provider, apiKey);
