@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ContextWindowReport,
   Course,
+  FileStats,
   AgentRuntimeStatus,
   FileImportInput,
   FileImportResult,
@@ -49,6 +50,7 @@ function App() {
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = useState<AgentRuntimeStatus | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileNode[]>([]);
+  const [fileStats, setFileStats] = useState<FileStats | null>(null);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
   const [contextReport, setContextReport] = useState<ContextWindowReport | null>(null);
@@ -163,8 +165,9 @@ function App() {
   }
 
   async function loadCourseFiles(courseId: string) {
-    const tree = await window.uclaw.files.tree(courseId);
+    const [tree, stats] = await Promise.all([window.uclaw.files.tree(courseId), window.uclaw.files.stats(courseId)]);
     setFileTree(tree);
+    setFileStats(stats);
 
     const current = selectedFileId ? findFileNode(tree, selectedFileId) : null;
     const next = current?.kind !== "folder" ? current : firstPreviewableFile(tree);
@@ -193,6 +196,7 @@ function App() {
           ? result.tree
           : await window.uclaw.files.tree(activeCourseId);
     setFileTree(tree);
+    setFileStats(await window.uclaw.files.stats(activeCourseId));
     setFileRailCollapsed(false);
 
     const next = result.files.find((file) => file.kind !== "folder") || firstPreviewableFile(tree);
@@ -530,12 +534,13 @@ function App() {
           </div>
         </main>
 
-        <FileBrowserRail
-          collapsed={fileRailCollapsed}
-          course={activeCourse}
-          files={fileTree}
-          selectedFileId={selectedFileId}
-          onSelectFile={selectFile}
+          <FileBrowserRail
+            collapsed={fileRailCollapsed}
+            course={activeCourse}
+            stats={fileStats}
+            files={fileTree}
+            selectedFileId={selectedFileId}
+            onSelectFile={selectFile}
           onOpenUpload={() => setCourseFilesUploadOpen(true)}
         />
 

@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   filesPreview: "uclaw:files:preview",
   filesImport: "uclaw:files:import",
   filesSections: "uclaw:files:sections",
+  filesStats: "uclaw:files:stats",
   filesIndex: "uclaw:files:index",
   filesIndexingJobs: "uclaw:files:indexing-jobs",
   filesIndexingCancel: "uclaw:files:indexing-cancel",

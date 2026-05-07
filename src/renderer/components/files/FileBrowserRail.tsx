@@ -1,10 +1,11 @@
 import { FolderOpen, Upload } from "lucide-react";
-import type { Course, WorkspaceFileNode } from "@/types/domain";
+import type { Course, FileStats, WorkspaceFileNode } from "@/types/domain";
 import { FileTreeNode } from "./FileTreeNode";
 
 export function FileBrowserRail({
   collapsed,
   course,
+  stats,
   files,
   selectedFileId,
   onSelectFile,
@@ -12,6 +13,7 @@ export function FileBrowserRail({
 }: {
   collapsed: boolean;
   course?: Course;
+  stats?: FileStats | null;
   files: WorkspaceFileNode[];
   selectedFileId: string;
   onSelectFile: (file: WorkspaceFileNode) => void;
@@ -27,9 +29,16 @@ export function FileBrowserRail({
             <FolderOpen className="h-3.5 w-3.5" />
             Course Files
           </div>
-          <div className="truncate text-[11px] text-muted-foreground">{course?.name || "Workspace"} · local preview</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {course?.name || "Workspace"} · {stats?.totalFiles ?? files.reduce((count, node) => count + countLeafFiles(node), 0)} files
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          {stats && (
+            <span className="rounded-md bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+              {stats.sectionCount} sections
+            </span>
+          )}
           <button
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md border bg-background/70 px-2 text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
@@ -55,4 +64,9 @@ export function FileBrowserRail({
       </div>
     </aside>
   );
+}
+
+function countLeafFiles(node: WorkspaceFileNode): number {
+  if (node.kind !== "folder") return 1;
+  return (node.children || []).reduce((count, child) => count + countLeafFiles(child), 0);
 }

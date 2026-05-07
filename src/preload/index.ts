@@ -50,6 +50,7 @@ const api: UclawAPI = {
     preview: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesPreview, fileId),
     import: (input: FileImportInput) => ipcRenderer.invoke(IPC_CHANNELS.filesImport, input),
     sections: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesSections, courseId),
+    stats: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesStats, courseId),
     index: (courseId: string, sectionId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndex, courseId, sectionId),
     indexingJobs: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingJobs, courseId),
     cancelIndexing: (jobId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingCancel, jobId),

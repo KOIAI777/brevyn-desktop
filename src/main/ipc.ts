@@ -62,6 +62,7 @@ export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator,
     return result;
   });
   ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: string) => store.courseFileSections(courseId));
+  ipcMain.handle(IPC_CHANNELS.filesStats, (_event, courseId?: string) => store.fileStats(courseId));
   ipcMain.handle(IPC_CHANNELS.filesIndex, (_event, courseId: string, sectionId?: string) => {
     const job = store.indexCourseFiles(courseId, sectionId);
     indexingQueue?.poke();

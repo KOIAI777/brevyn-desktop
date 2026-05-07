@@ -11,6 +11,7 @@ import type {
   CreateThreadInput,
   FileImportInput,
   FileImportResult,
+  FileStats,
   GitStatus,
   FilePreview,
   IndexingJob,
@@ -33,6 +34,7 @@ import type {
   Thread,
   UclawRunStreamItem,
   UclawTask,
+  WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
@@ -309,6 +311,7 @@ function initialStore(): StoreShape {
     files: [
       {
         id: "folder-ai-law-materials",
+        semesterId: "semester-2026-spring",
         courseId: "course-ai-law",
         name: "AI and Law",
         path: "AI and Law",
@@ -317,6 +320,7 @@ function initialStore(): StoreShape {
         children: [
           {
             id: "file-ai-rubric",
+            semesterId: "semester-2026-spring",
             courseId: "course-ai-law",
             taskId: "task-ai-policy-brief",
             name: "policy-brief-rubric.md",
@@ -327,6 +331,7 @@ function initialStore(): StoreShape {
           },
           {
             id: "file-ai-lecture",
+            semesterId: "semester-2026-spring",
             courseId: "course-ai-law",
             name: "week-06-liability.pdf",
             path: "AI and Law/week-06-liability.pdf",
@@ -336,6 +341,7 @@ function initialStore(): StoreShape {
           },
           {
             id: "file-ai-deck",
+            semesterId: "semester-2026-spring",
             courseId: "course-ai-law",
             name: "product-duty-slides.pptx",
             path: "AI and Law/product-duty-slides.pptx",
@@ -345,6 +351,7 @@ function initialStore(): StoreShape {
           },
           {
             id: "file-ai-diagram",
+            semesterId: "semester-2026-spring",
             courseId: "course-ai-law",
             name: "liability-flow.png",
             path: "AI and Law/liability-flow.png",
@@ -354,6 +361,7 @@ function initialStore(): StoreShape {
           },
           {
             id: "file-ai-agent-tool",
+            semesterId: "semester-2026-spring",
             courseId: "course-ai-law",
             name: "rag-tools.ts",
             path: "AI and Law/rag-tools.ts",
@@ -365,6 +373,7 @@ function initialStore(): StoreShape {
       },
       {
         id: "folder-evidence-materials",
+        semesterId: "semester-2026-spring",
         courseId: "course-evidence",
         name: "Evidence",
         path: "Evidence",
@@ -373,6 +382,7 @@ function initialStore(): StoreShape {
         children: [
           {
             id: "file-evidence-hearsay",
+            semesterId: "semester-2026-spring",
             courseId: "course-evidence",
             taskId: "task-evidence-hearsay",
             name: "hearsay-exceptions.docx",
@@ -383,6 +393,7 @@ function initialStore(): StoreShape {
           },
           {
             id: "file-evidence-outline",
+            semesterId: "semester-2026-spring",
             courseId: "course-evidence",
             name: "exam-outline.md",
             path: "Evidence/exam-outline.md",
@@ -394,6 +405,7 @@ function initialStore(): StoreShape {
       },
       {
         id: "folder-writing-materials",
+        semesterId: "semester-2026-spring",
         courseId: "course-writing",
         name: "Legal Writing Studio",
         path: "Legal Writing Studio",
@@ -402,6 +414,7 @@ function initialStore(): StoreShape {
         children: [
           {
             id: "file-writing-memo",
+            semesterId: "semester-2026-spring",
             courseId: "course-writing",
             taskId: "task-writing-memo",
             name: "research-memo-draft.docx",
@@ -412,6 +425,7 @@ function initialStore(): StoreShape {
           },
           {
             id: "file-writing-citations",
+            semesterId: "semester-2026-spring",
             courseId: "course-writing",
             name: "bluebook-checklist.md",
             path: "Legal Writing Studio/bluebook-checklist.md",
@@ -806,6 +820,45 @@ export class LocalStore {
       ];
     }
     return cloneFiles(this.data.files.filter((file) => file.semesterId === this.data.semester.id && (!courseId || file.courseId === courseId)));
+  }
+
+  fileStats(courseId?: string): FileStats {
+    const scope: FileStats["scope"] = !courseId || courseId === SEMESTER_HOME_COURSE_ID ? "semester" : "course";
+    const effectiveCourseId = scope === "course" ? courseId : undefined;
+    const files = scope === "semester" ? this.listFiles(SEMESTER_HOME_COURSE_ID) : this.listFiles(effectiveCourseId);
+    const leafFiles = flattenFiles(files);
+    const sections = this.courseFileSections(scope === "semester" ? SEMESTER_HOME_COURSE_ID : courseId || SEMESTER_HOME_COURSE_ID);
+    const byKind: Record<WorkspaceFileKind, number> = leafFiles.reduce(
+      (counts, file) => {
+        counts[file.kind] = (counts[file.kind] || 0) + 1;
+        return counts;
+      },
+      {
+        folder: 0,
+        pdf: 0,
+        docx: 0,
+        pptx: 0,
+        image: 0,
+        markdown: 0,
+        code: 0,
+        text: 0,
+        unknown: 0,
+      },
+    );
+    return {
+      semesterId: this.data.semester.id,
+      courseId: effectiveCourseId,
+      scope,
+      totalFiles: leafFiles.length,
+      sectionCount: sections.length,
+      sections: sections.map((section) => ({
+        id: section.id,
+        kind: section.kind,
+        title: section.title,
+        fileCount: section.files.length,
+      })),
+      byKind,
+    };
   }
 
   previewFile(fileId: string): FilePreview | null {

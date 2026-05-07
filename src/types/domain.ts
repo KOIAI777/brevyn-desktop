@@ -288,7 +288,7 @@ export type WorkspaceFileKind =
 
 export interface WorkspaceFileNode {
   id: string;
-  semesterId?: string;
+  semesterId: string;
   courseId: string;
   taskId?: string;
   taskType?: TaskType;
@@ -314,6 +314,23 @@ export interface FilePreview {
   summary?: string;
   pages?: string[];
   metadata?: Record<string, string | number | boolean>;
+}
+
+export interface FileSectionStat {
+  id: string;
+  kind: CourseFileSectionKind;
+  title: string;
+  fileCount: number;
+}
+
+export interface FileStats {
+  semesterId: string;
+  courseId?: string;
+  scope: "semester" | "course";
+  totalFiles: number;
+  sectionCount: number;
+  sections: FileSectionStat[];
+  byKind: Record<WorkspaceFileKind, number>;
 }
 
 export type TimetableViewMode = "week" | "month" | "year";
@@ -504,6 +521,7 @@ export interface UclawAPI {
     preview: (fileId: string) => Promise<FilePreview | null>;
     import: (input: FileImportInput) => Promise<FileImportResult>;
     sections: (courseId: string) => Promise<CourseFileSection[]>;
+    stats: (courseId?: string) => Promise<FileStats>;
     index: (courseId: string, sectionId?: string) => Promise<IndexingJob>;
     indexingJobs: (courseId?: string) => Promise<IndexingJob[]>;
     cancelIndexing: (jobId: string) => Promise<IndexingJob | null>;
