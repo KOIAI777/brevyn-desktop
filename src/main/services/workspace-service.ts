@@ -117,7 +117,7 @@ export class WorkspaceService {
     const archivedAt = now();
     const archived = this.options.businessStore.archiveSemester(semesterId, archivedAt) || semester;
     if (selectedSemesterId === semesterId) {
-      this.options.businessStore.setCurrentSemester(this.options.businessStore.firstActiveSemester()?.id || null);
+      this.options.businessStore.setCurrentSemester(null);
     }
     return { ...archived };
   }
@@ -141,7 +141,7 @@ export class WorkspaceService {
     const deleted = this.options.businessStore.deleteSemesterDeep(semesterId);
     if (!deleted) return false;
     if (selectedSemesterId === semesterId) {
-      this.options.businessStore.setCurrentSemester(this.options.businessStore.firstActiveSemester()?.id || null);
+      this.options.businessStore.setCurrentSemester(null);
     }
     this.deleteThreadMessageFiles(threads);
     this.deleteSemesterDir(semesterId);

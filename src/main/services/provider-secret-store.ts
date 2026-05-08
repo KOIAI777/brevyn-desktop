@@ -1,6 +1,6 @@
 import { safeStorage } from "electron";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync } from "node:fs";
+import { readJsonFileSafe, writeJsonFileAtomic } from "./safe-json-file";
 
 interface ProviderSecretRecord {
   ciphertext: string;
@@ -11,6 +11,8 @@ interface ProviderSecretFile {
   version: 1;
   providers: Record<string, ProviderSecretRecord>;
 }
+
+export type ProviderSecretSnapshot = ProviderSecretFile;
 
 const now = () => new Date().toISOString();
 
@@ -33,6 +35,14 @@ export class ProviderSecretStore {
     return Boolean(this.data.providers[providerId] && this.isEncryptionAvailable());
   }
 
+  snapshot(): ProviderSecretSnapshot {
+    return cloneSecretFile(this.data);
+  }
+
+  restore(snapshot: ProviderSecretSnapshot): void {
+    this.writeData(cloneSecretFile(snapshot));
+  }
+
   saveApiKey(providerId: string, apiKey: string): string {
     const trimmed = apiKey.trim();
     if (!trimmed) return this.secretRef(providerId);
@@ -40,18 +50,20 @@ export class ProviderSecretStore {
       throw new Error("Secure key storage is unavailable on this system. UCLAW will not save plaintext provider keys.");
     }
 
-    this.data.providers[providerId] = {
+    const next = cloneSecretFile(this.data);
+    next.providers[providerId] = {
       ciphertext: safeStorage.encryptString(trimmed).toString("base64"),
       updatedAt: now(),
     };
-    this.write();
+    this.writeData(next);
     return this.secretRef(providerId);
   }
 
   deleteApiKey(providerId: string): void {
     if (!this.data.providers[providerId]) return;
-    delete this.data.providers[providerId];
-    this.write();
+    const next = cloneSecretFile(this.data);
+    delete next.providers[providerId];
+    this.writeData(next);
   }
 
   readApiKey(providerId: string): string | undefined {
@@ -69,25 +81,43 @@ export class ProviderSecretStore {
     if (!existsSync(this.filePath)) {
       return { version: 1, providers: {} };
     }
-    try {
-      const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<ProviderSecretFile>;
-      return {
-        version: 1,
-        providers: parsed.providers ?? {},
-      };
-    } catch (error) {
-      console.warn("[provider-secrets] Failed to read provider secret store; starting empty", error);
-      return { version: 1, providers: {} };
+    const parsed = readJsonFileSafe<Partial<ProviderSecretFile>>(this.filePath);
+    if (!parsed || !parsed.providers || typeof parsed.providers !== "object" || Array.isArray(parsed.providers)) {
+      throw new Error(`Provider secret store is unreadable: ${this.filePath}. Fix or remove the file before saving providers.`);
     }
+    return {
+      version: 1,
+      providers: cloneProviders(parsed.providers as Record<string, ProviderSecretRecord>),
+    };
   }
 
-  private write(): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
-    try {
-      chmodSync(this.filePath, 0o600);
-    } catch {
-      // Best effort on filesystems that do not support POSIX modes.
-    }
+  private writeData(data: ProviderSecretFile): void {
+    const next = cloneSecretFile(data);
+    writeJsonFileAtomic(this.filePath, next);
+    this.data = next;
   }
+}
+
+function cloneSecretFile(data: ProviderSecretFile): ProviderSecretFile {
+  return {
+    version: 1,
+    providers: cloneProviders(data.providers),
+  };
+}
+
+function cloneProviders(providers: Record<string, ProviderSecretRecord>): Record<string, ProviderSecretRecord> {
+  return Object.fromEntries(
+    Object.entries(providers).flatMap(([providerId, record]) => {
+      if (!record || typeof record !== "object") return [];
+      const ciphertext = typeof record.ciphertext === "string" ? record.ciphertext.trim() : "";
+      if (!ciphertext) return [];
+      return [[
+        providerId,
+        {
+          ciphertext,
+          updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+        },
+      ]];
+    }),
+  );
 }

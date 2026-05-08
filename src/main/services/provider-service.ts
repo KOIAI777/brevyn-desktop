@@ -42,55 +42,82 @@ export class ProviderService {
     const apiKey = draft.apiKey;
     let apiKeySecretRef = existing?.apiKeySecretRef;
     let apiKeyMasked = existing?.apiKeyMasked || "";
-    if (draft.clearApiKey) {
-      this.secrets?.deleteApiKey(providerId);
-      apiKeySecretRef = undefined;
-      apiKeyMasked = "";
-    } else if (apiKey) {
-      apiKeySecretRef = this.secrets?.saveApiKey(providerId, apiKey);
-      apiKeyMasked = maskApiKey(apiKey);
-    } else if (!apiKeySecretRef && this.secrets?.hasApiKey(providerId)) {
-      apiKeySecretRef = this.secrets.secretRef(providerId);
+    const secretSnapshot = this.secrets?.snapshot();
+    let secretChanged = false;
+    try {
+      if (draft.clearApiKey) {
+        this.secrets?.deleteApiKey(providerId);
+        secretChanged = Boolean(this.secrets);
+        apiKeySecretRef = undefined;
+        apiKeyMasked = "";
+      } else if (apiKey) {
+        apiKeySecretRef = this.secrets?.saveApiKey(providerId, apiKey);
+        secretChanged = Boolean(this.secrets);
+        apiKeyMasked = maskApiKey(apiKey);
+      }
+      const next: ModelProviderConfig = {
+        id: providerId,
+        purpose,
+        name: uniqueProviderName(draft.name || nextProviderName(providers, purpose, providerId), providers, purpose, providerId),
+        protocol,
+        baseUrl: normalizeBaseUrl(draft.baseUrl),
+        apiKeyMasked,
+        apiKeySecretRef,
+        authMode: normalizeProviderAuthMode(draft.authMode, purpose),
+        models: normalizeProviderModels(draft.models || existing?.models || [], selectedModel),
+        selectedModel,
+        enabled: draft.enabled ?? existing?.enabled ?? false,
+        createdAt: existing?.createdAt || timestamp,
+        updatedAt: timestamp,
+      };
+      const nextProviders = upsertProvider(providers, next).map((provider) =>
+        next.enabled && provider.purpose === next.purpose && provider.id !== next.id
+          ? { ...provider, enabled: false, updatedAt: timestamp }
+          : provider,
+      );
+      this.configs.replaceProviders(nextProviders);
+      const embeddingFingerprintAfter = activeEmbeddingProviderFingerprint(nextProviders);
+      return {
+        provider: cloneProvider(next),
+        embeddingIndexMayBeStale: Boolean(
+          embeddingFingerprintBefore &&
+          embeddingFingerprintAfter &&
+          embeddingFingerprintBefore !== embeddingFingerprintAfter,
+        ),
+      };
+    } catch (error) {
+      if (secretChanged && secretSnapshot && this.secrets) {
+        try {
+          this.secrets.restore(secretSnapshot);
+        } catch (rollbackError) {
+          console.warn("[providers] Failed to roll back provider secret mutation", rollbackError);
+        }
+      }
+      throw error;
     }
-    const next: ModelProviderConfig = {
-      id: providerId,
-      purpose,
-      name: uniqueProviderName(draft.name || nextProviderName(providers, purpose, providerId), providers, purpose, providerId),
-      protocol,
-      baseUrl: normalizeBaseUrl(draft.baseUrl),
-      apiKeyMasked,
-      apiKeySecretRef,
-      authMode: normalizeProviderAuthMode(draft.authMode, purpose),
-      models: normalizeProviderModels(draft.models || existing?.models || [], selectedModel),
-      selectedModel,
-      enabled: draft.enabled ?? existing?.enabled ?? false,
-      createdAt: existing?.createdAt || timestamp,
-      updatedAt: timestamp,
-    };
-    const provider = this.configs.saveProvider(next);
-    const embeddingFingerprintAfter = activeEmbeddingProviderFingerprint(normalizeProviders(this.configs.listProviders()));
-    return {
-      provider,
-      embeddingIndexMayBeStale: Boolean(
-        embeddingFingerprintBefore &&
-        embeddingFingerprintAfter &&
-        embeddingFingerprintBefore !== embeddingFingerprintAfter,
-      ),
-    };
   }
 
   delete(providerId: string): boolean {
     const id = stringValue(providerId).trim();
     if (!id) return false;
-    const existedInMemory = this.configs.listProviders().some((provider) => provider.id === id);
-    const deleted = this.configs.deleteProvider(id);
-    if (!deleted && !existedInMemory) return false;
+    const providers = normalizeProviders(this.configs.listProviders());
+    const existedInMemory = providers.some((provider) => provider.id === id);
+    if (!existedInMemory) return false;
+    const secretSnapshot = this.secrets?.snapshot();
     try {
       this.secrets?.deleteApiKey(id);
+      this.configs.replaceProviders(providers.filter((provider) => provider.id !== id));
+      return true;
     } catch (error) {
-      console.warn(`[providers] Failed to delete secret for ${id}`, error);
+      if (secretSnapshot && this.secrets) {
+        try {
+          this.secrets.restore(secretSnapshot);
+        } catch (rollbackError) {
+          console.warn("[providers] Failed to roll back provider secret deletion", rollbackError);
+        }
+      }
+      throw error;
     }
-    return true;
   }
 
   async models(providerId: string): Promise<ProviderModel[]> {
@@ -134,11 +161,18 @@ export class ProviderService {
       };
     }
     try {
-      await fetchProviderModels(provider, apiKey, { limit: 1 });
+      const embeddingDimension = provider.purpose === "embedding"
+        ? await testEmbeddingProvider(provider, apiKey)
+        : undefined;
+      if (provider.purpose === "agent") {
+        await fetchProviderModels(provider, apiKey, { limit: 1 });
+      }
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
-        message: `${provider.name} connected via ${provider.baseUrl}.`,
+        message: embeddingDimension
+          ? `${provider.name} embedding endpoint connected via ${provider.baseUrl} (dim=${embeddingDimension}).`
+          : `${provider.name} connected via ${provider.baseUrl}.`,
       };
     } catch (error) {
       return {
@@ -163,27 +197,27 @@ export class ProviderService {
     return Boolean(this.secrets?.isEncryptionAvailable());
   }
 
-  /** First provider that is allowed to serve agent requests. */
+  /** Unique enabled provider that is allowed to serve agent requests. */
   agentProvider(): ModelProviderConfig | undefined {
-    return this.list().find((provider) =>
+    return singleActiveProvider(this.list().filter((provider) =>
       provider.purpose === "agent" &&
       provider.protocol === "anthropic_messages" &&
       provider.enabled &&
       Boolean(provider.selectedModel) &&
       Boolean(provider.baseUrl) &&
       Boolean(this.apiKey(provider.id) || envApiKeyForProvider(provider)),
-    );
+    ));
   }
 
-  /** First provider that is allowed to serve embedding requests. */
+  /** Unique enabled provider that is allowed to serve embedding requests. */
   embeddingProvider(): ModelProviderConfig | undefined {
-    return this.list().find((provider) =>
+    return singleActiveProvider(this.list().filter((provider) =>
       provider.purpose === "embedding" &&
       provider.protocol === "openai_compatible" &&
       provider.enabled &&
       Boolean(provider.selectedModel) &&
       Boolean(provider.baseUrl),
-    );
+    ));
   }
 
   envApiKeyFor(provider: ModelProviderConfig): string | undefined {
@@ -297,15 +331,27 @@ function normalizeProviderEnabled(provider: LegacyProviderConfig): boolean {
 }
 
 function activeEmbeddingProviderFingerprint(providers: ModelProviderConfig[]): string | undefined {
-  const provider = providers.find((item) =>
+  const provider = singleActiveProvider(providers.filter((item) =>
     item.purpose === "embedding" &&
     item.protocol === "openai_compatible" &&
     item.enabled &&
     Boolean(item.selectedModel) &&
     Boolean(item.baseUrl),
-  );
+  ));
   if (!provider) return undefined;
   return [provider.id, normalizeBaseUrl(provider.baseUrl), provider.selectedModel.trim()].join("|");
+}
+
+function singleActiveProvider(providers: ModelProviderConfig[]): ModelProviderConfig | undefined {
+  return providers.length === 1 ? providers[0] : undefined;
+}
+
+function upsertProvider(providers: ModelProviderConfig[], provider: ModelProviderConfig): ModelProviderConfig[] {
+  const next = providers.map(cloneProvider);
+  const index = next.findIndex((item) => item.id === provider.id);
+  if (index >= 0) next[index] = cloneProvider(provider);
+  else next.push(cloneProvider(provider));
+  return next;
 }
 
 function normalizeProviderModels(models: unknown, selectedModel: string): ProviderModel[] {
@@ -359,6 +405,32 @@ async function fetchProviderModels(
   }
   const models = (modelsPayload.data || []).flatMap((item) => providerModelFromId(item.id || "", item.display_name || item.name));
   return typeof options.limit === "number" ? models.slice(0, options.limit) : models;
+}
+
+async function testEmbeddingProvider(provider: ModelProviderConfig, apiKey: string): Promise<number> {
+  const model = provider.selectedModel.trim();
+  if (!model) throw new Error("Embedding model is required before testing the provider.");
+  const response = await fetchWithTimeout(`${normalizeBaseUrl(provider.baseUrl)}/embeddings`, {
+    method: "POST",
+    headers: {
+      ...authHeadersForProvider(provider, apiKey),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      input: ["test"],
+      model,
+      encoding_format: "float",
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Embedding request failed (${response.status}): ${await responseShortText(response)}`);
+  }
+  const payload = (await responseJson(response)) as { data?: Array<{ embedding?: unknown }> } | null;
+  const embedding = payload?.data?.[0]?.embedding;
+  if (!Array.isArray(embedding) || embedding.length === 0 || embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+    throw new Error("Embedding endpoint returned an invalid embedding payload.");
+  }
+  return embedding.length;
 }
 
 function authHeadersForProvider(provider: ModelProviderConfig, apiKey: string): Record<string, string> {

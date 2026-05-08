@@ -1,4 +1,4 @@
-import { FolderOpen, Upload } from "lucide-react";
+import { FolderOpen, Loader2, Upload } from "lucide-react";
 import type { Course, FileStats, WorkspaceFileNode } from "@/types/domain";
 import { FileTreeNode } from "./FileTreeNode";
 
@@ -7,6 +7,7 @@ export function FileBrowserRail({
   course,
   stats,
   files,
+  loading,
   selectedFileId,
   onSelectFile,
   onOpenUpload,
@@ -15,6 +16,7 @@ export function FileBrowserRail({
   course?: Course;
   stats?: FileStats | null;
   files: WorkspaceFileNode[];
+  loading?: boolean;
   selectedFileId: string;
   onSelectFile: (file: WorkspaceFileNode) => void;
   onOpenUpload: () => void;
@@ -54,7 +56,12 @@ export function FileBrowserRail({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2 uclaw-scrollbar">
-        {files.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading course files...
+          </div>
+        ) : files.length === 0 ? (
           <div className="rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">No course files yet.</div>
         ) : (
           <div className="space-y-0.5">

@@ -28,6 +28,10 @@ const SEMESTER_HOME_COURSE_ID = "semester-home";
 
 function App() {
   const mountedRef = useRef(true);
+  const activeCourseIdRef = useRef("");
+  const selectedFileIdRef = useRef("");
+  const fileLoadRequestRef = useRef(0);
+  const filePreviewRequestRef = useRef(0);
   const [courses, setCourses] = useState<Course[]>([]);
   const [semesters, setSemesters] = useState<SemesterWorkspace[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
@@ -37,6 +41,7 @@ function App() {
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileNode[]>([]);
   const [fileStats, setFileStats] = useState<FileStats | null>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
   const [activeCourseId, setActiveCourseId] = useState("");
@@ -51,7 +56,10 @@ function App() {
   const [courseFilesUploadOpen, setCourseFilesUploadOpen] = useState(false);
   const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
   const [bootError, setBootError] = useState("");
-  const [archiveError, setArchiveError] = useState("");
+  const [workspaceError, setWorkspaceError] = useState("");
+
+  activeCourseIdRef.current = activeCourseId;
+  selectedFileIdRef.current = selectedFileId;
 
   useEffect(() => {
     void bootstrap();
@@ -64,7 +72,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!activeCourseId) return;
+    if (!activeCourseId) {
+      fileLoadRequestRef.current += 1;
+      setFilesLoading(false);
+      setFileTree([]);
+      setFileStats(null);
+      commitSelectedFileId("");
+      setFilePreview(null);
+      return;
+    }
     void loadCourseFiles(activeCourseId);
   }, [activeCourseId]);
 
@@ -73,11 +89,37 @@ function App() {
   const activeTask = useMemo(() => courseTasks.find((task) => task.id === activeTaskId), [courseTasks, activeTaskId]);
   const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId), [threads, activeThreadId]);
   const workspaceScope = useMemo(() => describeWorkspaceScope(activeCourse, activeTask, activeThread), [activeCourse, activeTask, activeThread]);
+  const needsSemesterSelection = !semester && semesters.length > 0;
+
+  function commitActiveCourseId(courseId: string) {
+    activeCourseIdRef.current = courseId;
+    setActiveCourseId(courseId);
+  }
+
+  function commitSelectedFileId(fileId: string) {
+    selectedFileIdRef.current = fileId;
+    setSelectedFileId(fileId);
+  }
+
+  function clearFileState() {
+    fileLoadRequestRef.current += 1;
+    filePreviewRequestRef.current += 1;
+    setFilesLoading(false);
+    setFileTree([]);
+    setFileStats(null);
+    commitSelectedFileId("");
+    setFilePreview(null);
+  }
+
+  function isLatestFileLoad(requestId: number, courseId: string) {
+    return mountedRef.current && fileLoadRequestRef.current === requestId && activeCourseIdRef.current === courseId;
+  }
 
   async function bootstrap() {
     if (!mountedRef.current) return;
     setBootState("loading");
     setBootError("");
+    setWorkspaceError("");
     try {
       const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
         window.uclaw.semester.list(),
@@ -90,6 +132,8 @@ function App() {
       const threadList = await window.uclaw.threads.list();
 
       if (!mountedRef.current) return;
+      const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
+      const selection = pickWorkspaceSelection(courseList, visibleThreads);
 
       setSemesters(semesterList);
       setSemester(currentSemester);
@@ -97,21 +141,20 @@ function App() {
       setSkills(skillList);
       setGitStatus(git);
       setTasksByCourse(Object.fromEntries(taskEntries));
-      setThreads(dedupeThreads(threadList));
+      setThreads(visibleThreads);
 
-      if (courseList.length === 0 && threadList.length === 0) {
-        setActiveCourseId("");
+      if (courseList.length === 0 && visibleThreads.length === 0) {
+        commitActiveCourseId("");
         setActiveTaskId(undefined);
         setActiveThreadId("");
+        clearFileState();
         setBootState("ready");
         return;
       }
 
-      const firstThread = threadList.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threadList[0];
-      const firstCourse = firstThread ? courseList.find((course) => course.id === firstThread.courseId) : courseList[0];
-      setActiveCourseId(firstCourse?.id || "");
-      setActiveTaskId(firstThread?.taskId);
-      setActiveThreadId(firstThread?.id || "");
+      commitActiveCourseId(selection.courseId);
+      setActiveTaskId(selection.taskId);
+      setActiveThreadId(selection.threadId);
       setBootState("ready");
     } catch (error) {
       if (!mountedRef.current) return;
@@ -120,97 +163,170 @@ function App() {
     }
   }
 
-  async function reloadWorkspace(preferredThreadId?: string) {
-    const [semesterList, currentSemester, courseList, threadList] = await Promise.all([
-      window.uclaw.semester.list(),
-      window.uclaw.semester.current(),
-      window.uclaw.courses.list(),
-      window.uclaw.threads.list(),
-    ]);
-    const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
-    setSemesters(semesterList);
-    setSemester(currentSemester);
-    setCourses(courseList);
-    setTasksByCourse(Object.fromEntries(taskEntries));
-    setThreads(dedupeThreads(threadList));
+  async function reloadWorkspace(preferredThreadId?: string): Promise<boolean> {
+    setWorkspaceError("");
+    try {
+      const [semesterList, currentSemester, courseList, threadList] = await Promise.all([
+        window.uclaw.semester.list(),
+        window.uclaw.semester.current(),
+        window.uclaw.courses.list(),
+        window.uclaw.threads.list(),
+      ]);
+      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
 
-    if (courseList.length === 0 && threadList.length === 0) {
-      setActiveCourseId("");
-      setActiveTaskId(undefined);
-      setActiveThreadId("");
-      setFileTree([]);
-      setFileStats(null);
-      setSelectedFileId("");
-      setFilePreview(null);
-      return;
+      if (!mountedRef.current) return false;
+
+      const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
+      const selection = pickWorkspaceSelection(courseList, visibleThreads, preferredThreadId);
+      const previousCourseId = activeCourseIdRef.current;
+
+      setSemesters(semesterList);
+      setSemester(currentSemester);
+      setCourses(courseList);
+      setTasksByCourse(Object.fromEntries(taskEntries));
+      setThreads(visibleThreads);
+
+      if (courseList.length === 0 && visibleThreads.length === 0) {
+        commitActiveCourseId("");
+        setActiveTaskId(undefined);
+        setActiveThreadId("");
+        clearFileState();
+        return true;
+      }
+
+      commitActiveCourseId(selection.courseId);
+      setActiveTaskId(selection.taskId);
+      setActiveThreadId(selection.threadId);
+      if (selection.courseId && previousCourseId === selection.courseId) void loadCourseFiles(selection.courseId);
+      return true;
+    } catch (error) {
+      if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to reload workspace."));
+      return false;
     }
-
-    const nextThread = (preferredThreadId && threadList.find((thread) => thread.id === preferredThreadId)) || threadList.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threadList[0];
-    const nextCourse = nextThread ? courseList.find((course) => course.id === nextThread.courseId) : courseList[0];
-    setActiveCourseId(nextCourse?.id || "");
-    setActiveTaskId(nextThread?.taskId);
-    setActiveThreadId(nextThread?.id || "");
-    if (nextCourse?.id) await loadCourseFiles(nextCourse.id);
   }
 
   async function selectSemester(semesterId: string) {
-    const next = await window.uclaw.semester.select(semesterId);
-    setSemester(next);
-    await reloadWorkspace();
+    setWorkspaceError("");
+    try {
+      await window.uclaw.semester.select(semesterId);
+      await reloadWorkspace();
+    } catch (error) {
+      if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to switch semester."));
+    }
   }
 
-  async function loadCourseFiles(courseId: string) {
-    const [tree, stats] = await Promise.all([window.uclaw.files.tree(courseId), window.uclaw.files.stats(courseId)]);
-    setFileTree(tree);
-    setFileStats(stats);
+  async function loadCourseFiles(courseId: string): Promise<boolean> {
+    const requestId = fileLoadRequestRef.current + 1;
+    fileLoadRequestRef.current = requestId;
+    setFilesLoading(true);
+    try {
+      const [tree, stats] = await Promise.all([window.uclaw.files.tree(courseId), window.uclaw.files.stats(courseId)]);
+      if (!isLatestFileLoad(requestId, courseId)) return false;
 
-    const current = selectedFileId ? findFileNode(tree, selectedFileId) : null;
-    const next = current?.kind !== "folder" ? current : firstPreviewableFile(tree);
-    if (next) {
-      setSelectedFileId(next.id);
-      setFilePreview(await window.uclaw.files.preview(next.id));
-    } else {
-      setSelectedFileId("");
-      setFilePreview(null);
+      const current = selectedFileIdRef.current ? findFileNode(tree, selectedFileIdRef.current) : null;
+      const next = current?.kind !== "folder" ? current : firstPreviewableFile(tree);
+      const previewRequestId = filePreviewRequestRef.current + 1;
+      filePreviewRequestRef.current = previewRequestId;
+      let preview: FilePreview | null = null;
+      if (next) {
+        try {
+          preview = await window.uclaw.files.preview(next.id);
+        } catch (error) {
+          if (isLatestFileLoad(requestId, courseId) && filePreviewRequestRef.current === previewRequestId) {
+            setWorkspaceError(errorMessage(error, "Failed to preview file."));
+          }
+        }
+      }
+
+      if (!isLatestFileLoad(requestId, courseId) || filePreviewRequestRef.current !== previewRequestId) return false;
+      setFileTree(tree);
+      setFileStats(stats);
+      commitSelectedFileId(next?.id || "");
+      setFilePreview(preview);
+      return true;
+    } catch (error) {
+      if (isLatestFileLoad(requestId, courseId)) {
+        setWorkspaceError(errorMessage(error, "Failed to load course files."));
+        setFileTree([]);
+        setFileStats(null);
+        commitSelectedFileId("");
+        setFilePreview(null);
+      }
+      return false;
+    } finally {
+      if (fileLoadRequestRef.current === requestId) setFilesLoading(false);
     }
   }
 
   async function selectFile(file: WorkspaceFileNode) {
-    setSelectedFileId(file.id);
+    const requestId = filePreviewRequestRef.current + 1;
+    filePreviewRequestRef.current = requestId;
+    commitSelectedFileId(file.id);
     if (file.kind === "folder") {
       setFilePreview(null);
       return;
     }
-    setFilePreview(await window.uclaw.files.preview(file.id));
-    setPreviewRailCollapsed(false);
+    try {
+      const preview = await window.uclaw.files.preview(file.id);
+      if (!mountedRef.current || filePreviewRequestRef.current !== requestId || selectedFileIdRef.current !== file.id) return;
+      setFilePreview(preview);
+      setPreviewRailCollapsed(false);
+    } catch (error) {
+      if (!mountedRef.current || filePreviewRequestRef.current !== requestId) return;
+      setFilePreview(null);
+      setWorkspaceError(errorMessage(error, "Failed to preview file."));
+    }
   }
 
   async function importCourseFiles(input: FileImportInput): Promise<FileImportResult | null> {
-    const result = await window.uclaw.files.import(input);
-    const tree =
-      activeCourseId === SEMESTER_HOME_COURSE_ID
-        ? await window.uclaw.files.tree(SEMESTER_HOME_COURSE_ID)
-        : activeCourseId === input.courseId
-          ? result.tree
-          : await window.uclaw.files.tree(activeCourseId);
-    setFileTree(tree);
-    setFileStats(await window.uclaw.files.stats(activeCourseId));
-    setFileRailCollapsed(false);
+    const targetCourseId = input.courseId;
+    setWorkspaceError("");
+    try {
+      const result = await window.uclaw.files.import(input);
+      if (!mountedRef.current || activeCourseIdRef.current !== targetCourseId) return result;
 
-    const next = result.files.find((file) => file.kind !== "folder") || firstPreviewableFile(tree);
-    if (next) {
-      setSelectedFileId(next.id);
-      setFilePreview(await window.uclaw.files.preview(next.id));
-      setPreviewRailCollapsed(false);
+      const requestId = fileLoadRequestRef.current + 1;
+      fileLoadRequestRef.current = requestId;
+      const stats = await window.uclaw.files.stats(targetCourseId);
+      const next = result.files.find((file) => file.kind !== "folder") || firstPreviewableFile(result.tree);
+      const previewRequestId = filePreviewRequestRef.current + 1;
+      filePreviewRequestRef.current = previewRequestId;
+      let preview: FilePreview | null = null;
+      if (next) {
+        try {
+          preview = await window.uclaw.files.preview(next.id);
+        } catch (error) {
+          if (isLatestFileLoad(requestId, targetCourseId) && filePreviewRequestRef.current === previewRequestId) {
+            setWorkspaceError(errorMessage(error, "Imported files, but preview failed."));
+          }
+        }
+      }
+      if (!isLatestFileLoad(requestId, targetCourseId) || filePreviewRequestRef.current !== previewRequestId) return result;
+
+      setFileTree(result.tree);
+      setFileStats(stats);
+      setFileRailCollapsed(false);
+      commitSelectedFileId(next?.id || "");
+      setFilePreview(preview);
+      if (next) setPreviewRailCollapsed(false);
+      return result;
+    } catch (error) {
+      const message = errorMessage(error, "Failed to import files.");
+      if (mountedRef.current) setWorkspaceError(message);
+      throw new Error(message);
     }
-    return result;
   }
 
   async function refreshThreads(): Promise<Thread[]> {
-    const next = await window.uclaw.threads.list();
-    const deduped = dedupeThreads(next);
-    setThreads(deduped);
-    return deduped;
+    try {
+      const next = await window.uclaw.threads.list();
+      const deduped = filterThreadsForSemester(dedupeThreads(next), semester?.id);
+      if (mountedRef.current) setThreads(deduped);
+      return deduped;
+    } catch (error) {
+      if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to refresh sessions."));
+      throw error;
+    }
   }
 
   function threadTitleForScope(courseId: string, taskId?: string): string {
@@ -221,8 +337,8 @@ function App() {
 
   function pickThreadAfterArchive(threadList: Thread[], archivedThread: Thread): Thread | undefined {
     return (
-      threadList.find((item) => item.courseId === archivedThread.courseId && item.taskId === archivedThread.taskId) ||
-      threadList.find((item) => item.courseId === SEMESTER_HOME_COURSE_ID) ||
+      threadList.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === archivedThread.courseId && item.taskId === archivedThread.taskId) ||
+      threadList.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === SEMESTER_HOME_COURSE_ID) ||
       threadList[0]
     );
   }
@@ -230,27 +346,28 @@ function App() {
   async function createThread(courseId = activeCourse?.id || "", taskId?: string) {
     if (!courseId) return;
     if (courseId !== SEMESTER_HOME_COURSE_ID && !taskId) {
-      setArchiveError("Create sessions from a task, not the course container.");
+      setWorkspaceError("Create sessions from a task, not the course container.");
       return;
     }
-    setArchiveError("");
+    setWorkspaceError("");
     try {
       const thread = await window.uclaw.threads.create({
         courseId,
         taskId,
         title: threadTitleForScope(courseId, taskId),
       });
+      if (!threadBelongsToSemester(thread, semester?.id)) throw new Error("Created session does not belong to the selected semester.");
       setThreads((current) => dedupeThreads([thread, ...current]));
-      setActiveCourseId(thread.courseId);
+      commitActiveCourseId(thread.courseId);
       setActiveTaskId(thread.taskId);
       setActiveThreadId(thread.id);
     } catch (error) {
-      setArchiveError(errorMessage(error, "Create session failed."));
+      setWorkspaceError(errorMessage(error, "Create session failed."));
     }
   }
 
   async function archiveThread(thread: Thread) {
-    setArchiveError("");
+    setWorkspaceError("");
     try {
       await window.uclaw.threads.archive(thread.id);
       const nextThreads = await refreshThreads();
@@ -258,7 +375,7 @@ function App() {
 
       const nextThread = pickThreadAfterArchive(nextThreads, thread);
       if (nextThread) {
-        setActiveCourseId(nextThread.courseId);
+        commitActiveCourseId(nextThread.courseId);
         setActiveTaskId(nextThread.taskId);
         setActiveThreadId(nextThread.id);
         return;
@@ -266,34 +383,45 @@ function App() {
 
       const courseStillExists = courses.some((course) => course.id === thread.courseId);
       const taskStillExists = !thread.taskId || (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId);
-      setActiveCourseId(courseStillExists ? thread.courseId : activeCourse?.id || "");
+      commitActiveCourseId(courseStillExists ? thread.courseId : activeCourse?.id || "");
       setActiveTaskId(courseStillExists && taskStillExists ? thread.taskId : undefined);
       setActiveThreadId("");
     } catch (error) {
-      setArchiveError(errorMessage(error, "Archive session failed."));
+      setWorkspaceError(errorMessage(error, "Archive session failed."));
     }
   }
 
-  async function selectCourseHome(courseId: string) {
-    setActiveCourseId(courseId);
+  function selectCourseHome(courseId: string) {
+    commitActiveCourseId(courseId);
     setActiveTaskId(undefined);
-    const thread = courseId === SEMESTER_HOME_COURSE_ID ? threads.find((item) => item.courseId === courseId && !item.taskId) : undefined;
+    const thread = courseId === SEMESTER_HOME_COURSE_ID ? threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && !item.taskId) : undefined;
     setActiveThreadId(thread?.id || "");
   }
 
-  async function selectTask(courseId: string, taskId: string) {
-    setActiveCourseId(courseId);
+  function selectTask(courseId: string, taskId: string) {
+    commitActiveCourseId(courseId);
     setActiveTaskId(taskId);
-    const thread = threads.find((item) => item.courseId === courseId && item.taskId === taskId);
+    const thread = threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && item.taskId === taskId);
     setActiveThreadId(thread?.id || "");
+  }
+
+  function selectThread(thread: Thread) {
+    if (!threadBelongsToSemester(thread, semester?.id)) {
+      setWorkspaceError("This session belongs to a different semester. Select that semester first.");
+      return;
+    }
+    setWorkspaceError("");
+    commitActiveCourseId(thread.courseId);
+    setActiveTaskId(thread.taskId);
+    setActiveThreadId(thread.id);
   }
 
   function handleCourseCreated(course: Course) {
     setCourses((current) => (current.some((item) => item.id === course.id) ? current : [...current, course]));
     setTasksByCourse((current) => ({ ...current, [course.id]: current[course.id] || [] }));
-    setActiveCourseId(course.id);
+    commitActiveCourseId(course.id);
     setActiveTaskId(undefined);
-    void selectCourseHome(course.id);
+    selectCourseHome(course.id);
   }
 
   function handleTaskCreated(task: UclawTask) {
@@ -337,14 +465,8 @@ function App() {
           activeThreadId={activeThreadId}
           onToggle={() => setSidebarCollapsed((value) => !value)}
           onSelectHome={selectCourseHome}
-          onSelectTask={(courseId, taskId) => {
-            void selectTask(courseId, taskId);
-          }}
-          onSelectThread={(thread) => {
-            setActiveCourseId(thread.courseId);
-            setActiveTaskId(thread.taskId);
-            setActiveThreadId(thread.id);
-          }}
+          onSelectTask={selectTask}
+          onSelectThread={selectThread}
           onArchiveThread={(thread) => {
             void archiveThread(thread);
           }}
@@ -356,9 +478,9 @@ function App() {
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
           <TopBar course={activeCourse} task={activeTask} thread={activeThread} workspaceScope={workspaceScope} />
-          {archiveError && (
+          {workspaceError && (
             <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
-              {archiveError}
+              {workspaceError}
             </div>
           )}
 
@@ -368,16 +490,24 @@ function App() {
             ) : (
               <div className="flex flex-col items-center gap-3 text-center">
                 <div>
-                  <p className="font-medium text-foreground">{threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Workspace files are ready. Create a session when you want to start chatting.</p>
+                  <p className="font-medium text-foreground">{needsSemesterSelection ? "No semester selected." : threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {needsSemesterSelection ? "Choose a semester explicitly before loading courses, sessions, and files." : "Workspace files are ready. Create a session when you want to start chatting."}
+                  </p>
                 </div>
                 <button
                   type="button"
                   className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={(!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask)}
-                  onClick={() => void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id)}
+                  disabled={!needsSemesterSelection && ((!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask))}
+                  onClick={() => {
+                    if (needsSemesterSelection) {
+                      setTimetableOpen(true);
+                      return;
+                    }
+                    void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id);
+                  }}
                 >
-                  {activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
+                  {needsSemesterSelection ? "Select semester" : activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
                 </button>
               </div>
             )}
@@ -389,6 +519,7 @@ function App() {
           course={activeCourse}
           stats={fileStats}
           files={fileTree}
+          loading={filesLoading}
           selectedFileId={selectedFileId}
           onSelectFile={selectFile}
           onOpenUpload={() => {
@@ -407,7 +538,9 @@ function App() {
           skills={skills}
           gitStatus={gitStatus}
           onSkillsChange={setSkills}
-          onWorkspaceChanged={() => reloadWorkspace(activeThreadId)}
+          onWorkspaceChanged={async () => {
+            await reloadWorkspace(activeThreadId);
+          }}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -427,7 +560,9 @@ function App() {
           course={activeCourse}
           semesters={semesters}
           onSelectSemester={selectSemester}
-          onWorkspaceChanged={() => reloadWorkspace()}
+          onWorkspaceChanged={async () => {
+            await reloadWorkspace();
+          }}
           onClose={() => setTimetableOpen(false)}
         />
       )}
@@ -469,6 +604,35 @@ function dedupeThreads(threads: Thread[]): Thread[] {
     result.push(thread);
   }
   return result;
+}
+
+function threadBelongsToSemester(thread: Thread, semesterId?: string) {
+  return Boolean(semesterId && thread.semesterId === semesterId);
+}
+
+function filterThreadsForSemester(threads: Thread[], semesterId?: string) {
+  return threads.filter((thread) => threadBelongsToSemester(thread, semesterId));
+}
+
+function pickWorkspaceSelection(courses: Course[], threads: Thread[], preferredThreadId?: string) {
+  const preferredThread = preferredThreadId ? threads.find((thread) => thread.id === preferredThreadId) : undefined;
+  const nextThread = preferredThread || threads.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threads[0];
+  if (nextThread) {
+    const threadCourse = courses.find((course) => course.id === nextThread.courseId);
+    if (threadCourse) {
+      return {
+        courseId: threadCourse.id,
+        taskId: nextThread.taskId,
+        threadId: nextThread.id,
+      };
+    }
+  }
+
+  return {
+    courseId: courses[0]?.id || "",
+    taskId: undefined,
+    threadId: "",
+  };
 }
 
 function AppLoadingScreen() {

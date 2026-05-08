@@ -230,7 +230,7 @@ export class FileService {
     }
 
     const timestamp = now();
-    const roots = this.viewCourseRoots(input.courseId, semesterId);
+    const roots = this.writableCourseRoots(input.courseId, semesterId);
     const root = roots[0];
     if (!root) throw new Error("Course file tree is not available.");
     const task = input.targetSection === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
@@ -556,6 +556,14 @@ export class FileService {
   }
 
   private viewCourseRoots(courseId: string, semesterId: string): WorkspaceFileNode[] {
+    const roots = this.loadCourseRoots(courseId, semesterId);
+    const semester = this.options.businessStore.getSemester(semesterId);
+    const course = courseId === SEMESTER_HOME_COURSE_ID ? undefined : this.options.businessStore.getCourse(courseId);
+    if (!semester || (courseId !== SEMESTER_HOME_COURSE_ID && (!course || course.semesterId !== semesterId))) return [];
+    return roots;
+  }
+
+  private writableCourseRoots(courseId: string, semesterId: string): WorkspaceFileNode[] {
     const roots = this.loadCourseRoots(courseId, semesterId);
     const semester = this.options.businessStore.getSemester(semesterId);
     const course = courseId === SEMESTER_HOME_COURSE_ID ? undefined : this.options.businessStore.getCourse(courseId);

@@ -182,6 +182,7 @@ export function TimetableDialog({
                     disabled={semesterLoading}
                     onChange={(event) => void selectSemester(event.target.value)}
                   >
+                    {!semester && <option value="">Select a semester</option>}
                     {semesters.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.term}
