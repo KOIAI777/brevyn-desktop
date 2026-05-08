@@ -1,17 +1,3 @@
-export type PermissionMode = "review" | "full";
-
-export type RunStatus =
-  | "idle"
-  | "queued"
-  | "starting"
-  | "running"
-  | "waiting_tool"
-  | "waiting_approval"
-  | "cancelling"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
 export interface Course {
   id: string;
   semesterId?: string;
@@ -24,6 +10,7 @@ export interface Course {
   location?: string;
   color: string;
   description: string;
+  archivedAt?: string;
 }
 
 export interface SemesterWorkspace {
@@ -33,41 +20,35 @@ export interface SemesterWorkspace {
   folderName: string;
   startsAt?: string;
   endsAt?: string;
-  source: "seed" | "multimodal_timetable" | "manual";
+  source: "seed" | "manual";
   recognizedAt?: string;
+  archivedAt?: string;
 }
 
-export interface SemesterImageAnalyzeInput {
-  imageIds?: string[];
-  imagePaths?: string[];
-  instruction?: string;
+export interface CreateSemesterInput {
+  term: string;
+  folderName?: string;
+  semesterNo?: string;
+  startsAt?: string;
+  endsAt?: string;
 }
 
-export interface SemesterImageAnalyzeResult {
-  id: string;
-  status: "completed" | "failed";
-  source: "multimodal_timetable";
-  semester: SemesterWorkspace;
-  createdEvents: TimetableEvent[];
-  warnings: string[];
+export interface CreateCourseInput {
+  name: string;
+  code: string;
+  instructor?: string;
+  meetingTime?: string;
+  location?: string;
+  color?: string;
+  description?: string;
 }
 
-export interface CourseImageAnalyzeInput {
-  imageIds?: string[];
-  imagePaths?: string[];
-  instruction?: string;
-}
-
-export interface CourseImageAnalyzeResult {
-  id: string;
-  status: "completed" | "failed";
-  source: "multimodal_image";
-  course: Course;
-  confidence: number;
-  warnings: string[];
-}
-
-export type TaskType = "assignment" | "project" | "exam" | "lecture";
+/**
+ * Task type is user-defined free-form string (e.g. "assignment", "exam", "读书报告", "小组项目").
+ * It's used as a folder name segment when generating the workspace path:
+ *   <courseDir>/Task/<taskType>/<taskTitle>/{Materials, Drafts, Submitted}
+ */
+export type TaskType = string;
 export type TaskStatus = "not_started" | "in_progress" | "due_soon" | "done";
 export type TaskFileBucket = "materials" | "drafts" | "submitted";
 
@@ -91,169 +72,29 @@ export interface Thread {
   title: string;
   createdAt: string;
   updatedAt: string;
-  latestRunStatus: RunStatus;
-  latestEventSeq: number;
-  pendingApprovalCount: number;
+  archivedAt?: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  threadId: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  createdAt: string;
-  timeline?: TaskAgentTimelineItem[];
-}
-
-export type UclawRunStreamItemType =
-  | "turn_started"
-  | "context_snapshot"
-  | "attachments_loaded"
-  | "assistant_message_delta"
-  | "assistant_message_done"
-  | "tool_call_started"
-  | "tool_call_completed"
-  | "tool_approval_required"
-  | "tool_approval_resolved"
-  | "tool_output_delta"
-  | "reasoning_summary_delta"
-  | "reasoning_summary_done"
-  | "context_compaction"
-  | "response_metrics"
-  | "run_status_changed"
-  | "ask_user_requested"
-  | "ask_user_resolved"
-  | "error";
-
-export interface ToolCallPayload {
-  call_id: string;
-  tool_name: string;
-  arguments?: Record<string, unknown>;
-  result?: Record<string, unknown>;
-  output_delta?: {
-    stream: "stdout" | "stderr";
-    chunk: string;
-  };
-}
-
-export interface ApprovalRequest {
-  id: string;
-  runId?: string;
-  threadId?: string;
-  title: string;
-  detail: string;
-  toolName: string;
-  arguments?: Record<string, unknown>;
-}
-
-export interface AskUserRequest {
-  id: string;
-  runId: string;
-  threadId: string;
-  title: string;
-  question: string;
-  detail?: string;
-  placeholder?: string;
-  toolName?: string;
-  arguments?: Record<string, unknown>;
-}
-
-export interface AgentPendingRequests {
-  approvals: ApprovalRequest[];
-  askUsers: AskUserRequest[];
-}
-
-export interface AgentRuntimeStatus {
-  configured: boolean;
-  source: "env" | "provider_secret" | "none";
-  title: string;
-  detail: string;
-  actionLabel?: string;
-}
-
-export interface UclawRunStreamItem {
-  id: string;
-  type: UclawRunStreamItemType;
-  seq: number;
-  runId: string;
-  threadId: string;
-  messageId?: string;
-  status?: RunStatus;
+export interface CreateThreadInput {
+  courseId: string;
+  taskId?: string;
   title?: string;
-  detail?: string;
-  delta?: string;
-  content?: string;
-  tool_call?: ToolCallPayload;
-  approval?: ApprovalRequest;
-  ask_user?: AskUserRequest;
-  metrics?: Record<string, unknown>;
-  context?: ContextWindowReport;
-  createdAt: string;
 }
 
-export interface RunStreamEnvelope {
-  event: "uclaw_run_item" | "uclaw_runtime_event" | "uclaw_runtime_ping";
-  data: UclawRunStreamItem | RuntimeEvent;
-}
-
-export interface RuntimeEvent {
-  id: string;
-  type: "git_state_changed" | "context_report" | "run_state_changed";
-  detail?: string;
-  createdAt: string;
-}
-
-export interface TaskAgentTimelineItem {
-  id: string;
-  kind: string;
-  phase?: string;
+export interface CreateTaskInput {
+  courseId: string;
   title: string;
-  detail: string;
-  status?: string;
-  tone: "context" | "thinking" | "tool" | "final" | "meta";
-  toolCall?: ToolCallPayload;
-  approval?: ApprovalRequest;
-  askUser?: AskUserRequest;
-  payload?: Record<string, unknown>;
-}
-
-export type TimelineActivityKind = "thinking" | "explore" | "skill" | "edit" | "run" | "approval" | "meta";
-
-export type TimelineDisplayEntry =
-  | { type: "item"; item: TaskAgentTimelineItem }
-  | {
-      type: "group";
-      id: string;
-      kind: TimelineActivityKind;
-      title: string;
-      detail: string;
-      items: TaskAgentTimelineItem[];
-      defaultOpen?: boolean;
-    };
-
-export interface ContextWindowReport {
-  tokens: number;
-  budget: number;
-  percent: number;
-  thresholdPercent: number;
-  summaryMessageCount: number;
-  compressedMessages: number;
-  sections: string[];
-  files: string[];
-  tools: string[];
-  skills: string[];
+  taskType?: TaskType;
 }
 
 export interface SkillItem {
   id: string;
   name: string;
   enabled: boolean;
-  scope: "default" | "course";
   description: string;
   version: string;
   instructions?: string;
   slug?: string;
-  courseId?: string;
   sourcePath?: string;
 }
 
@@ -268,7 +109,6 @@ export interface SkillWriteInput {
 }
 
 export interface SkillImportInput {
-  courseId?: string;
   sourcePath?: string;
   enabled?: boolean;
 }
@@ -350,7 +190,7 @@ export interface FileStats {
 
 export type TimetableViewMode = "week" | "month" | "year";
 export type TimetableEventKind = "course_session" | "deadline" | "school_event";
-export type TimetableEventSource = "manual" | "course" | "school_calendar" | "multimodal_image";
+export type TimetableEventSource = "manual" | "course" | "school_calendar";
 
 export interface TimetableRangeQuery {
   viewMode: TimetableViewMode;
@@ -376,40 +216,7 @@ export interface TimetableEvent {
   confidence?: number;
 }
 
-export interface TimetableImageAnalyzeInput {
-  courseId?: string;
-  imageIds?: string[];
-  imagePaths?: string[];
-  instruction?: string;
-}
-
-export interface TimetableImageAnalyzeResult {
-  id: string;
-  status: "queued" | "completed" | "failed";
-  source: "multimodal_image";
-  createdEvents: TimetableEvent[];
-  warnings: string[];
-}
-
-export interface AgentRunInput {
-  threadId: string;
-  message: string;
-  permissionMode: PermissionMode;
-}
-
-export interface CreateThreadInput {
-  courseId: string;
-  taskId?: string;
-  title?: string;
-}
-
-export interface CreateTaskInput {
-  courseId: string;
-  title: string;
-  taskType?: TaskType;
-}
-
-export type CourseFileSectionKind = "course_shared" | "week" | "task";
+export type CourseFileSectionKind = "course_shared" | "lecture" | "task";
 export type IndexingStatus = "idle" | "queued" | "indexing" | "indexed" | "failed" | "cancelled";
 
 export interface CourseFileSection {
@@ -458,86 +265,52 @@ export interface FileImportResult {
   indexingJob: IndexingJob | null;
 }
 
-export type ProviderProtocol = "openai_responses" | "anthropic_messages" | "openai_compatible" | "custom_http";
+export type ProviderPurpose = "agent" | "embedding";
+export type AgentProtocol = "anthropic_messages";
+export type EmbeddingProtocol = "openai_compatible";
+export type ProviderProtocol = AgentProtocol | EmbeddingProtocol;
+export type ProviderKind = "anthropic" | "openai" | "dashscope" | "siliconflow" | "voyage" | "custom";
+export type ProviderAuthMode = "api_key" | "auth_token" | "bearer";
 
-export type WebSearchContextSize = "low" | "medium" | "high";
-
-export interface AgentHostedMcpServerConfig {
-  serverLabel: string;
-  serverUrl?: string;
-  connectorId?: string;
-  authorization?: string;
-  headers?: Record<string, string>;
-  allowedTools?: string[];
-  deferLoading?: boolean;
-  requireApproval?: "never" | "always";
-}
-
-export interface AgentHostedToolSettings {
-  webSearch?: {
-    enabled: boolean;
-    searchContextSize?: WebSearchContextSize;
-    allowedDomains?: string[];
-    externalWebAccess?: boolean;
-  };
-  fileSearch?: {
-    enabled: boolean;
-    vectorStoreIds?: string[];
-    maxNumResults?: number;
-    includeSearchResults?: boolean;
-  };
-  codeInterpreter?: {
-    enabled: boolean;
-    includeOutputs?: boolean;
-    container?: string;
-  };
-  imageGeneration?: {
-    enabled: boolean;
-    model?: string;
-    size?: string;
-    quality?: string;
-  };
-  toolSearch?: {
-    enabled: boolean;
-  };
-  hostedMcpServers?: AgentHostedMcpServerConfig[];
+export interface ProviderModel {
+  id: string;
+  name: string;
+  enabled: boolean;
 }
 
 export interface ModelProviderConfig {
   id: string;
+  purpose: ProviderPurpose;
   name: string;
+  kind: ProviderKind;
   protocol: ProviderProtocol;
   baseUrl: string;
   apiKeyMasked: string;
   apiKeySecretRef?: string;
-  chatModel?: string;
-  embeddingModel?: string;
-  multimodalModel?: string;
+  authMode: ProviderAuthMode;
+  models: ProviderModel[];
+  selectedModel: string;
   enabled: boolean;
-  embeddingEnabled?: boolean;
-  agentTools?: AgentHostedToolSettings;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ProviderDraftInput {
   id?: string;
+  purpose: ProviderPurpose;
   name: string;
+  kind: ProviderKind;
   protocol: ProviderProtocol;
   baseUrl: string;
   apiKey: string;
-  chatModel?: string;
-  embeddingModel?: string;
-  multimodalModel?: string;
+  authMode: ProviderAuthMode;
+  models?: ProviderModel[];
+  selectedModel: string;
   enabled?: boolean;
-  embeddingEnabled?: boolean;
-  agentTools?: AgentHostedToolSettings;
 }
 
-export interface ProviderModel {
+export interface ProviderDeleteInput {
   id: string;
-  name: string;
-  type: "chat" | "embedding" | "multimodal";
 }
 
 export interface ProviderTestResult {
@@ -549,13 +322,21 @@ export interface ProviderTestResult {
 export interface UclawAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
-    current: () => Promise<SemesterWorkspace>;
+    listArchived: () => Promise<SemesterWorkspace[]>;
+    current: () => Promise<SemesterWorkspace | null>;
+    create: (input: CreateSemesterInput) => Promise<SemesterWorkspace>;
     select: (semesterId: string) => Promise<SemesterWorkspace>;
-    analyzeImage: (input: SemesterImageAnalyzeInput) => Promise<SemesterImageAnalyzeResult>;
+    archive: (semesterId: string) => Promise<SemesterWorkspace>;
+    restore: (semesterId: string) => Promise<SemesterWorkspace>;
+    delete: (semesterId: string) => Promise<boolean>;
   };
   courses: {
     list: () => Promise<Course[]>;
-    analyzeImage: (input: CourseImageAnalyzeInput) => Promise<CourseImageAnalyzeResult>;
+    listArchived: () => Promise<Course[]>;
+    create: (input: CreateCourseInput) => Promise<Course>;
+    archive: (courseId: string) => Promise<Course>;
+    restore: (courseId: string) => Promise<Course>;
+    delete: (courseId: string) => Promise<boolean>;
   };
   tasks: {
     list: (courseId: string) => Promise<UclawTask[]>;
@@ -564,10 +345,10 @@ export interface UclawAPI {
   threads: {
     list: (courseId?: string) => Promise<Thread[]>;
     create: (input: CreateThreadInput) => Promise<Thread>;
-    messages: (threadId: string) => Promise<ChatMessage[]>;
+    archive: (threadId: string) => Promise<boolean>;
   };
   skills: {
-    list: (courseId?: string) => Promise<SkillItem[]>;
+    list: () => Promise<SkillItem[]>;
     update: (input: SkillUpdateInput) => Promise<SkillItem>;
     readContent: (skillId: string) => Promise<string>;
     writeContent: (input: SkillWriteInput) => Promise<SkillItem>;
@@ -589,30 +370,18 @@ export interface UclawAPI {
     index: (courseId: string, sectionId?: string) => Promise<IndexingJob>;
     indexingJobs: (courseId?: string) => Promise<IndexingJob[]>;
     cancelIndexing: (jobId: string) => Promise<IndexingJob | null>;
+    delete: (fileId: string) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
+    reveal: (fileId: string) => Promise<void>;
   };
   providers: {
     list: () => Promise<ModelProviderConfig[]>;
     save: (input: ProviderDraftInput) => Promise<ModelProviderConfig>;
+    delete: (providerId: string) => Promise<boolean>;
     models: (providerId: string) => Promise<ProviderModel[]>;
     test: (providerId: string) => Promise<ProviderTestResult>;
   };
   timetable: {
     range: (query: TimetableRangeQuery) => Promise<TimetableEvent[]>;
-    analyzeImage: (input: TimetableImageAnalyzeInput) => Promise<TimetableImageAnalyzeResult>;
-  };
-  context: {
-    estimate: (threadId: string) => Promise<ContextWindowReport>;
-  };
-  agent: {
-    runtimeStatus: () => Promise<AgentRuntimeStatus>;
-    run: (input: AgentRunInput) => Promise<{ runId: string }>;
-    stop: (runId: string) => Promise<void>;
-    approve: (approvalId: string) => Promise<void>;
-    reject: (approvalId: string) => Promise<void>;
-    respondAskUser: (requestId: string, response: string) => Promise<void>;
-    events: (threadId: string, afterSeq?: number) => Promise<UclawRunStreamItem[]>;
-    pendingRequests: () => Promise<AgentPendingRequests>;
-    onEvent: (handler: (envelope: RunStreamEnvelope) => void) => () => void;
   };
   app: {
     openExternal: (url: string) => Promise<void>;

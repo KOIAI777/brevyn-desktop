@@ -71,7 +71,13 @@ export class RagIndexService {
       .execute(rows);
   }
 
-  async search(query: string, semesterId: string, courseId?: string, maxResults = DEFAULT_TOP_K): Promise<RagSearchResult[]> {
+  async search(
+    query: string,
+    semesterId: string,
+    courseId?: string,
+    maxResults = DEFAULT_TOP_K,
+    excludeCourseIds: string[] = [],
+  ): Promise<RagSearchResult[]> {
     const table = await this.getReadableTable();
     if (!table) return [];
 
@@ -82,7 +88,14 @@ export class RagIndexService {
 
     const normalized = query.trim() || "course materials";
     const [queryVector] = await this.embedTexts([normalized], provider, apiKey);
-    const filter = courseId && courseId !== SEMESTER_HOME_COURSE_ID ? `semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}'` : `semester_id = '${escapeSql(semesterId)}'`;
+    const filterParts = [`semester_id = '${escapeSql(semesterId)}'`];
+    if (courseId && courseId !== SEMESTER_HOME_COURSE_ID) {
+      filterParts.push(`course_id = '${escapeSql(courseId)}'`);
+    }
+    for (const archivedCourseId of excludeCourseIds) {
+      filterParts.push(`course_id != '${escapeSql(archivedCourseId)}'`);
+    }
+    const filter = filterParts.join(" AND ");
 
     const rows = await table
       .search(Float32Array.from(queryVector))
@@ -116,10 +129,21 @@ export class RagIndexService {
     });
   }
 
+  async deleteChunksByCourse(semesterId: string, courseId: string): Promise<void> {
+    const table = await this.getReadableTable();
+    if (!table) return;
+    await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}'`);
+  }
+
+  async deleteChunksBySemester(semesterId: string): Promise<void> {
+    const table = await this.getReadableTable();
+    if (!table) return;
+    await table.delete(`semester_id = '${escapeSql(semesterId)}'`);
+  }
+
   private resolveEmbeddingProvider(): ModelProviderConfig | undefined {
     const provider = this.options.resolveEmbeddingProvider();
-    if (!provider || !provider.embeddingModel || !provider.enabled) return undefined;
-    if (provider.protocol === "anthropic_messages") return undefined;
+    if (!provider || provider.purpose !== "embedding" || provider.protocol !== "openai_compatible" || !provider.enabled || !provider.selectedModel || !provider.baseUrl) return undefined;
     return provider;
   }
 
@@ -130,15 +154,12 @@ export class RagIndexService {
     const batches = chunkArray(filtered, EMBEDDING_BATCH_SIZE);
     const vectors: number[][] = [];
     for (const batch of batches) {
-      const response = await fetch(`${normalizeBaseUrl(provider.baseUrl || "https://api.openai.com/v1")}/embeddings`, {
+      const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/embeddings`, {
         method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
+        headers: embeddingAuthHeaders(provider, apiKey),
         body: JSON.stringify({
           input: batch,
-          model: provider.embeddingModel,
+          model: provider.selectedModel,
           encoding_format: "float",
         }),
       });
@@ -223,7 +244,20 @@ function chunkArray<T>(values: T[], size: number): T[][] {
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
-  return (baseUrl.trim() || "https://api.openai.com/v1").replace(/\/+$/, "");
+  return baseUrl.trim().replace(/\/+$/, "");
+}
+
+function embeddingAuthHeaders(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
+  if (provider.authMode === "api_key") {
+    return {
+      "x-api-key": apiKey,
+      "content-type": "application/json",
+    };
+  }
+  return {
+    authorization: `Bearer ${apiKey}`,
+    "content-type": "application/json",
+  };
 }
 
 function escapeSql(value: string): string {

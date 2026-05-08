@@ -1,17 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
-  AgentRunInput,
-  CourseImageAnalyzeInput,
+  CreateSemesterInput,
+  CreateCourseInput,
   CreateTaskInput,
   CreateThreadInput,
   FileImportInput,
   ProviderDraftInput,
-  RunStreamEnvelope,
-  SemesterImageAnalyzeInput,
   SkillImportInput,
   SkillWriteInput,
   SkillUpdateInput,
-  TimetableImageAnalyzeInput,
   TimetableRangeQuery,
   UclawAPI,
 } from "../types/domain";
@@ -20,13 +17,21 @@ import { IPC_CHANNELS } from "../types/ipc";
 const api: UclawAPI = {
   semester: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.semesterList),
+    listArchived: () => ipcRenderer.invoke(IPC_CHANNELS.semesterListArchived),
     current: () => ipcRenderer.invoke(IPC_CHANNELS.semesterCurrent),
+    create: (input: CreateSemesterInput) => ipcRenderer.invoke(IPC_CHANNELS.semesterCreate, input),
     select: (semesterId: string) => ipcRenderer.invoke(IPC_CHANNELS.semesterSelect, semesterId),
-    analyzeImage: (input: SemesterImageAnalyzeInput) => ipcRenderer.invoke(IPC_CHANNELS.semesterAnalyzeImage, input),
+    archive: (semesterId: string) => ipcRenderer.invoke(IPC_CHANNELS.semesterArchive, semesterId),
+    restore: (semesterId: string) => ipcRenderer.invoke(IPC_CHANNELS.semesterRestore, semesterId),
+    delete: (semesterId: string) => ipcRenderer.invoke(IPC_CHANNELS.semesterDelete, semesterId),
   },
   courses: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.coursesList),
-    analyzeImage: (input: CourseImageAnalyzeInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesAnalyzeImage, input),
+    listArchived: () => ipcRenderer.invoke(IPC_CHANNELS.coursesListArchived),
+    create: (input: CreateCourseInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesCreate, input),
+    archive: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesArchive, courseId),
+    restore: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesRestore, courseId),
+    delete: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesDelete, courseId),
   },
   tasks: {
     list: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksList, courseId),
@@ -35,10 +40,10 @@ const api: UclawAPI = {
   threads: {
     list: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsList, courseId),
     create: (input: CreateThreadInput) => ipcRenderer.invoke(IPC_CHANNELS.threadsCreate, input),
-    messages: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsMessages, threadId),
+    archive: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsArchive, threadId),
   },
   skills: {
-    list: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsList, courseId),
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.skillsList),
     update: (input: SkillUpdateInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsUpdate, input),
     readContent: (skillId: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsReadContent, skillId),
     writeContent: (input: SkillWriteInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsWriteContent, input),
@@ -60,35 +65,18 @@ const api: UclawAPI = {
     index: (courseId: string, sectionId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndex, courseId, sectionId),
     indexingJobs: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingJobs, courseId),
     cancelIndexing: (jobId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingCancel, jobId),
+    delete: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesDelete, fileId),
+    reveal: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesReveal, fileId),
   },
   providers: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.providersList),
     save: (input: ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersSave, input),
+    delete: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersDelete, providerId),
     models: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersModels, providerId),
     test: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersTest, providerId),
   },
   timetable: {
     range: (query: TimetableRangeQuery) => ipcRenderer.invoke(IPC_CHANNELS.timetableRange, query),
-    analyzeImage: (input: TimetableImageAnalyzeInput) => ipcRenderer.invoke(IPC_CHANNELS.timetableAnalyzeImage, input),
-  },
-  context: {
-    estimate: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.contextEstimate, threadId),
-  },
-  agent: {
-    runtimeStatus: () => ipcRenderer.invoke(IPC_CHANNELS.agentRuntimeStatus),
-    run: (input: AgentRunInput) => ipcRenderer.invoke(IPC_CHANNELS.agentRun, input),
-    stop: (runId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentStop, runId),
-    approve: (approvalId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentApprove, approvalId),
-    reject: (approvalId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentReject, approvalId),
-    respondAskUser: (requestId: string, response: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.agentRespondAskUser, requestId, response),
-    events: (threadId: string, afterSeq?: number) => ipcRenderer.invoke(IPC_CHANNELS.agentEvents, threadId, afterSeq),
-    pendingRequests: () => ipcRenderer.invoke(IPC_CHANNELS.agentPendingRequests),
-    onEvent: (handler: (envelope: RunStreamEnvelope) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, envelope: RunStreamEnvelope) => handler(envelope);
-      ipcRenderer.on(IPC_CHANNELS.agentEvent, listener);
-      return () => ipcRenderer.off(IPC_CHANNELS.agentEvent, listener);
-    },
   },
   app: {
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, url),

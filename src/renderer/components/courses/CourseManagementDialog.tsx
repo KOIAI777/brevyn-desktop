@@ -1,32 +1,29 @@
 import {
   AlertCircle,
+  Archive,
   BookOpen,
   Check,
+  ChevronRight,
   CircleStop,
   Database,
   FileText,
   FolderOpen,
   GraduationCap,
-  Image,
   Layers3,
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
-  Sparkles,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Course, CourseFileSection, IndexingJob, RagSearchResult, TaskType, UclawTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
-const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  assignment: "Assignment",
-  project: "Project",
-  exam: "Exam",
-  lecture: "Lecture",
-};
+const DEFAULT_TASK_TYPE = "Assignment";
 
 export function CourseManagementDialog({
   courses,
@@ -34,6 +31,7 @@ export function CourseManagementDialog({
   onSelectCourse,
   onCourseCreated,
   onTaskCreated,
+  onWorkspaceChanged,
   onClose,
 }: {
   courses: Course[];
@@ -41,11 +39,17 @@ export function CourseManagementDialog({
   onSelectCourse: (courseId: string) => void;
   onCourseCreated: (course: Course) => void;
   onTaskCreated: (task: UclawTask) => void;
+  onWorkspaceChanged?: () => void;
   onClose: () => void;
 }) {
-  const activeCourse = courses.find((course) => course.id === activeCourseId) || courses[0];
+  const [archivedCourses, setArchivedCourses] = useState<Course[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [courseBusyId, setCourseBusyId] = useState("");
+  const archivedCourseIds = useMemo(() => new Set(archivedCourses.map((course) => course.id)), [archivedCourses]);
+  const activeCourses = useMemo(() => courses.filter((course) => !course.archivedAt && !archivedCourseIds.has(course.id)), [archivedCourseIds, courses]);
+  const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
+  const activeCourse = displayedCourses.find((course) => course.id === activeCourseId) || displayedCourses[0];
   const [sections, setSections] = useState<CourseFileSection[]>([]);
-  const [recognizing, setRecognizing] = useState(false);
   const [indexingSectionId, setIndexingSectionId] = useState("");
   const [indexingJobs, setIndexingJobs] = useState<IndexingJob[]>([]);
   const [loadingIndexingJobs, setLoadingIndexingJobs] = useState(false);
@@ -54,7 +58,26 @@ export function CourseManagementDialog({
   const [ragSearching, setRagSearching] = useState(false);
   const [ragError, setRagError] = useState("");
   const [taskName, setTaskName] = useState("");
-  const [taskType, setTaskType] = useState<TaskType>("assignment");
+  const [taskType, setTaskType] = useState<TaskType>(DEFAULT_TASK_TYPE);
+  const [newCourseName, setNewCourseName] = useState("");
+  const [newCourseCode, setNewCourseCode] = useState("");
+  const [newCourseInstructor, setNewCourseInstructor] = useState("");
+  const [creatingCourse, setCreatingCourse] = useState(false);
+  const [newCourseError, setNewCourseError] = useState("");
+  const [uploadingSectionId, setUploadingSectionId] = useState("");
+
+  const existingTaskTypes = useMemo(() => {
+    const seen = new Set<string>();
+    for (const section of sections) {
+      if (section.kind !== "task" || !section.taskType) continue;
+      seen.add(section.taskType);
+    }
+    return Array.from(seen);
+  }, [sections]);
+
+  useEffect(() => {
+    void loadArchivedCourses();
+  }, []);
 
   useEffect(() => {
     if (!activeCourse?.id) return;
@@ -77,6 +100,10 @@ export function CourseManagementDialog({
     await Promise.all([loadSections(courseId), loadIndexingJobs(courseId)]);
   }
 
+  async function loadArchivedCourses() {
+    setArchivedCourses(await window.uclaw.courses.listArchived());
+  }
+
   async function loadSections(courseId: string) {
     setSections(await window.uclaw.files.sections(courseId));
   }
@@ -90,17 +117,32 @@ export function CourseManagementDialog({
     }
   }
 
-  async function recognizeCourse() {
-    setRecognizing(true);
+  async function createCourse() {
+    const name = newCourseName.trim();
+    const code = newCourseCode.trim();
+    if (!name || !code) {
+      setNewCourseError("Course name and code are required.");
+      return;
+    }
+    setNewCourseError("");
+    setCreatingCourse(true);
     try {
-      const result = await window.uclaw.courses.analyzeImage({
-        instruction: "Recognize course name, course code, term, meeting time, instructor, and school metadata from uploaded course images.",
+      const created = await window.uclaw.courses.create({
+        name,
+        code,
+        instructor: newCourseInstructor.trim() || undefined,
       });
-      onCourseCreated(result.course);
-      onSelectCourse(result.course.id);
-      await loadSections(result.course.id);
+      onCourseCreated(created);
+      onSelectCourse(created.id);
+      await loadArchivedCourses();
+      setNewCourseName("");
+      setNewCourseCode("");
+      setNewCourseInstructor("");
+      await loadSections(created.id);
+    } catch (error) {
+      setNewCourseError(error instanceof Error ? error.message : "Failed to create course.");
     } finally {
-      setRecognizing(false);
+      setCreatingCourse(false);
     }
   }
 
@@ -127,6 +169,22 @@ export function CourseManagementDialog({
     }
   }
 
+  async function uploadToSection(section: CourseFileSection) {
+    if (!activeCourse?.id) return;
+    setUploadingSectionId(section.id);
+    try {
+      await window.uclaw.files.import({
+        courseId: activeCourse.id,
+        targetSection: section.kind,
+        taskId: section.taskId,
+        taskFileBucket: section.kind === "task" ? "materials" : undefined,
+      });
+      await loadCourseView(activeCourse.id);
+    } finally {
+      setUploadingSectionId("");
+    }
+  }
+
   async function cancelIndexing(jobId: string) {
     if (!activeCourse?.id) return;
     await window.uclaw.files.cancelIndexing(jobId);
@@ -146,6 +204,48 @@ export function CourseManagementDialog({
       setRagResults([]);
     } finally {
       setRagSearching(false);
+    }
+  }
+
+  async function archiveCourse(course: Course) {
+    if (!window.confirm(`Archive "${course.name}"? It will disappear from the main workspace until restored.`)) return;
+    setCourseBusyId(course.id);
+    try {
+      await window.uclaw.courses.archive(course.id);
+      await loadArchivedCourses();
+      onWorkspaceChanged?.();
+    } finally {
+      setCourseBusyId("");
+    }
+  }
+
+  async function restoreCourse(course: Course) {
+    setCourseBusyId(course.id);
+    try {
+      const restored = await window.uclaw.courses.restore(course.id);
+      await loadArchivedCourses();
+      onCourseCreated(restored);
+      onSelectCourse(restored.id);
+      onWorkspaceChanged?.();
+    } finally {
+      setCourseBusyId("");
+    }
+  }
+
+  async function deleteCourse(course: Course) {
+    if (!course.archivedAt) {
+      window.alert("Archive this course before deleting it permanently.");
+      return;
+    }
+    const typed = window.prompt(`This permanently deletes "${course.name}", all files, and indexed data.\n\nType the course name to confirm:`);
+    if (typed !== course.name) return;
+    setCourseBusyId(course.id);
+    try {
+      await window.uclaw.courses.delete(course.id);
+      await loadArchivedCourses();
+      onWorkspaceChanged?.();
+    } finally {
+      setCourseBusyId("");
     }
   }
 
@@ -172,48 +272,101 @@ export function CourseManagementDialog({
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[360px_1fr] uclaw-scrollbar">
           <aside className="min-h-0 space-y-3">
+            <section className="rounded-lg border bg-background/70 p-2">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={() => setShowArchived((value) => !value)}
+              >
+                <span>{showArchived ? "Showing archived courses" : "Active courses only"}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} archived</span>
+              </button>
+            </section>
             <section className="space-y-2">
-              {courses.map((course) => (
-                <button
+              {displayedCourses.map((course) => (
+                <div
                   key={course.id}
-                  type="button"
                   className={cx(
-                    "flex w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 px-3 py-3 text-left transition",
+                    "flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-3 text-left transition",
+                    course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
                     course.id === activeCourseId ? "border-border shadow-sm ring-1 ring-border/60" : "border-border/60 hover:bg-accent/55",
                   )}
-                  onClick={() => onSelectCourse(course.id)}
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
-                    <GraduationCap className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">{course.name}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {course.code} · {course.term}
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => !course.archivedAt && onSelectCourse(course.id)}>
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
+                      <GraduationCap className="h-4 w-4" />
                     </span>
-                    <span className="block truncate text-[10px] text-muted-foreground/80">{course.meetingTime || course.instructor}</span>
-                  </span>
-                  {course.id === activeCourseId && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
-                </button>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="block truncate text-sm font-semibold">{course.name}</span>
+                        {course.archivedAt && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase">Archived</span>}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {course.code} · {course.term}
+                      </span>
+                      <span className="block truncate text-[10px] text-muted-foreground/80">{course.meetingTime || course.instructor}</span>
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {course.archivedAt ? (
+                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="Restore course" disabled={courseBusyId === course.id} onClick={() => void restoreCourse(course)}>
+                        {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                      </button>
+                    ) : (
+                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="Archive course" disabled={courseBusyId === course.id} onClick={() => void archiveCourse(course)}>
+                        {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+                      </button>
+                    )}
+                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "Delete permanently" : "Archive before deleting"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    {course.id === activeCourseId && !course.archivedAt && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
+                  </div>
+                </div>
               ))}
             </section>
 
             <section className="rounded-lg border bg-background/70 p-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
-                <Sparkles className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" />
                 New Course
               </div>
-              <div className="rounded-md border border-dashed bg-card px-3 py-4 text-center text-xs leading-5 text-muted-foreground">
-                Upload a syllabus or course handout after semester recognition. Multimodal AI creates the course folder; tasks stay manual.
-              </div>
+              <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
+                <span>Course name</span>
+                <input
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                  value={newCourseName}
+                  onChange={(event) => setNewCourseName(event.target.value)}
+                  placeholder="e.g. Constitutional Law"
+                />
+              </label>
+              <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
+                <span>Course code</span>
+                <input
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                  value={newCourseCode}
+                  onChange={(event) => setNewCourseCode(event.target.value)}
+                  placeholder="e.g. LAW 200"
+                />
+              </label>
+              <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
+                <span>Instructor (optional)</span>
+                <input
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                  value={newCourseInstructor}
+                  onChange={(event) => setNewCourseInstructor(event.target.value)}
+                  placeholder="e.g. Prof. Lee"
+                />
+              </label>
+              {newCourseError && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
               <button
                 type="button"
-                className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={recognizeCourse}
-                disabled={recognizing}
+                className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={createCourse}
+                disabled={creatingCourse}
               >
-                {recognizing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Image className="h-3.5 w-3.5" />}
-                {recognizing ? "Recognizing..." : "Recognize from image"}
+                {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                {creatingCourse ? "Creating..." : "Create course"}
               </button>
             </section>
           </aside>
@@ -247,6 +400,9 @@ export function CourseManagementDialog({
                     section={section}
                     indexing={indexingSectionId === section.id}
                     onIndex={() => indexSection(section.id)}
+                    onUpload={() => uploadToSection(section)}
+                    uploading={uploadingSectionId === section.id}
+                    onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
                   />
                 ))}
               </div>
@@ -259,17 +415,18 @@ export function CourseManagementDialog({
                   </div>
                   <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
                     <span>Task type</span>
-                    <select
+                    <input
                       className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={taskType}
-                      onChange={(event) => setTaskType(event.target.value as TaskType)}
-                    >
-                      {(["assignment", "exam", "project", "lecture"] as TaskType[]).map((item) => (
-                        <option key={item} value={item}>
-                          {TASK_TYPE_LABELS[item]}
-                        </option>
+                      onChange={(event) => setTaskType(event.target.value)}
+                      placeholder="e.g. Assignment, Exam, Reading Report"
+                      list="task-type-suggestions"
+                    />
+                    <datalist id="task-type-suggestions">
+                      {existingTaskTypes.map((item) => (
+                        <option key={item} value={item} />
                       ))}
-                    </select>
+                    </datalist>
                   </label>
                   <input
                     className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
@@ -315,7 +472,7 @@ export function CourseManagementDialog({
                   <div className="space-y-2 text-[11px] leading-5 text-muted-foreground">
                     <div className="rounded-md bg-muted/55 px-2 py-2">Semester recognition creates the semester folder first.</div>
                     <div className="rounded-md bg-muted/55 px-2 py-2">Course recognition creates each course folder inside the semester workspace.</div>
-                    <div className="rounded-md bg-muted/55 px-2 py-2">Course files use Course shared, Week / Week N, and Task / Assignment or Exam / Drafts / Submitted.</div>
+                    <div className="rounded-md bg-muted/55 px-2 py-2">Course files use Course shared, Lecture, and Task / Assignment or Exam / Drafts / Submitted.</div>
                   </div>
                 </section>
               </aside>
@@ -486,39 +643,112 @@ function SectionCard({
   section,
   indexing,
   onIndex,
+  onUpload,
+  uploading,
+  onFileDeleted,
 }: {
   section: CourseFileSection;
   indexing: boolean;
   onIndex: () => void;
+  onUpload: () => void;
+  uploading: boolean;
+  onFileDeleted: () => void;
 }) {
-  const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "week" ? BookOpen : FileText;
+  const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "lecture" ? BookOpen : FileText;
+  const [open, setOpen] = useState(false);
+  const [deletingFileId, setDeletingFileId] = useState("");
+
+  async function deleteFile(fileId: string, fileName: string) {
+    if (!window.confirm(`Delete "${fileName}"? The local copy will be removed.`)) return;
+    setDeletingFileId(fileId);
+    try {
+      await window.uclaw.files.delete(fileId);
+      onFileDeleted();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Delete failed");
+    } finally {
+      setDeletingFileId("");
+    }
+  }
+
+  async function revealFile(fileId: string) {
+    try {
+      await window.uclaw.files.reveal(fileId);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Reveal failed");
+    }
+  }
+
   return (
     <div className="rounded-lg border bg-card px-3 py-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-start gap-2 text-left"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ChevronRight className={cx("mt-1 h-3.5 w-3.5 shrink-0 transition-transform text-muted-foreground", open && "rotate-90")} />
           <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">{section.title}</div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {section.files.length} files · {section.embeddingModel || "embedding model not set"}
+              {section.files.length} files · {section.embeddingModel || "no embedding provider"}
             </div>
           </div>
-        </div>
+        </button>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className={cx("rounded px-1.5 py-0.5 text-[10px]", section.indexingStatus === "indexed" ? "bg-emerald-50 text-emerald-800" : "bg-muted text-muted-foreground")}>
+          <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
             {section.indexingStatus}
           </span>
-          <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onIndex}>
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            onClick={onUpload}
+            disabled={uploading}
+            title="Upload files into this section"
+          >
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onIndex}
+            title="Re-index this section"
+          >
             {indexing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
-      {section.files.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {section.files.slice(0, 5).map((file) => (
-            <span key={file.id} className="max-w-[180px] truncate rounded-md bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-              {file.name}
-            </span>
+      {open && section.files.length === 0 && (
+        <div className="mt-3 rounded-md border border-dashed bg-background px-3 py-3 text-center text-[11px] text-muted-foreground">
+          No files yet. Click the upload button to add some.
+        </div>
+      )}
+      {open && section.files.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {section.files.map((file) => (
+            <div key={file.id} className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-[12px]">{file.name}</span>
+              {file.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground">{file.sizeLabel}</span>}
+              <button
+                type="button"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => void revealFile(file.id)}
+                title="Show in Finder"
+              >
+                <FolderOpen className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
+                onClick={() => void deleteFile(file.id, file.name)}
+                disabled={deletingFileId === file.id}
+                title="Delete file"
+              >
+                {deletingFileId === file.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+              </button>
+            </div>
           ))}
         </div>
       )}

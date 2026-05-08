@@ -1,29 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
-  ChatMessage,
-  ContextWindowReport,
   Course,
-  FileStats,
-  AgentRuntimeStatus,
   FileImportInput,
   FileImportResult,
   FilePreview,
+  FileStats,
   GitStatus,
-  PermissionMode,
-  RunStatus,
-  RunStreamEnvelope,
   SemesterWorkspace,
   SkillItem,
-  TaskAgentTimelineItem,
   Thread,
-  UclawRunStreamItem,
   UclawTask,
   WorkspaceFileNode,
 } from "@/types/domain";
-import { Composer } from "@/components/chat/Composer";
-import { EmptyThreadPanel } from "@/components/chat/EmptyThreadPanel";
-import { MessageBubble } from "@/components/chat/MessageBubble";
-import { TaskAgentTimeline } from "@/components/chat/TaskAgentTimeline";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { CourseFilesUploadDialog } from "@/components/files/CourseFilesUploadDialog";
 import { FileBrowserRail } from "@/components/files/FileBrowserRail";
@@ -33,8 +21,6 @@ import { AppTitleBar } from "@/components/shell/AppTitleBar";
 import { TopBar } from "@/components/shell/TopBar";
 import { WorkspaceSidebar } from "@/components/shell/WorkspaceSidebar";
 import { TimetableDialog } from "@/components/timetable/TimetableDialog";
-import { isRunning } from "@/lib/run-status";
-import { mergeTimelineItem, normalizeTimelineItem } from "@/lib/timeline";
 import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
@@ -45,20 +31,15 @@ function App() {
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
   const [tasksByCourse, setTasksByCourse] = useState<Record<string, UclawTask[]>>({});
   const [threads, setThreads] = useState<Thread[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
-  const [agentRuntimeStatus, setAgentRuntimeStatus] = useState<AgentRuntimeStatus | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileNode[]>([]);
   const [fileStats, setFileStats] = useState<FileStats | null>(null);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
-  const [contextReport, setContextReport] = useState<ContextWindowReport | null>(null);
   const [activeCourseId, setActiveCourseId] = useState("");
   const [activeTaskId, setActiveTaskId] = useState<string | undefined>();
   const [activeThreadId, setActiveThreadId] = useState("");
-  const [composer, setComposer] = useState("");
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("review");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [fileRailCollapsed, setFileRailCollapsed] = useState(false);
   const [previewRailCollapsed, setPreviewRailCollapsed] = useState(true);
@@ -66,42 +47,16 @@ function App() {
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [courseFilesUploadOpen, setCourseFilesUploadOpen] = useState(false);
-  const [runStatus, setRunStatus] = useState<RunStatus>("idle");
-  const [activeRunId, setActiveRunId] = useState("");
-  const [liveTimeline, setLiveTimeline] = useState<TaskAgentTimelineItem[]>([]);
-  const [timelineCollapsed, setTimelineCollapsed] = useState(false);
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const liveTimelineRef = useRef<TaskAgentTimelineItem[]>([]);
+  const [archiveError, setArchiveError] = useState("");
 
   useEffect(() => {
     void bootstrap();
   }, []);
 
   useEffect(() => {
-    if (!activeThreadId) return;
-    void loadThread(activeThreadId);
-  }, [activeThreadId]);
-
-  useEffect(() => {
     if (!activeCourseId) return;
     void loadCourseFiles(activeCourseId);
   }, [activeCourseId]);
-
-  useEffect(() => {
-    const off = window.uclaw.agent.onEvent((envelope) => {
-      handleRunEnvelope(envelope);
-    });
-    return off;
-  }, [activeThreadId]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, liveTimeline.length, runStatus]);
-
-  useEffect(() => {
-    liveTimelineRef.current = liveTimeline;
-  }, [liveTimeline]);
 
   const activeCourse = useMemo(() => courses.find((course) => course.id === activeCourseId) || courses[0], [courses, activeCourseId]);
   const courseTasks = activeCourse ? tasksByCourse[activeCourse.id] || [] : [];
@@ -110,13 +65,12 @@ function App() {
   const workspaceScope = useMemo(() => describeWorkspaceScope(activeCourse, activeTask, activeThread), [activeCourse, activeTask, activeThread]);
 
   async function bootstrap() {
-    const [semesterList, currentSemester, courseList, skillList, git, runtime] = await Promise.all([
+    const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
       window.uclaw.semester.list(),
       window.uclaw.semester.current(),
       window.uclaw.courses.list(),
       window.uclaw.skills.list(),
       window.uclaw.git.status(),
-      window.uclaw.agent.runtimeStatus(),
     ]);
     const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
     const threadList = await window.uclaw.threads.list();
@@ -126,9 +80,15 @@ function App() {
     setCourses(courseList);
     setSkills(skillList);
     setGitStatus(git);
-    setAgentRuntimeStatus(runtime);
     setTasksByCourse(Object.fromEntries(taskEntries));
-    setThreads(threadList);
+    setThreads(dedupeThreads(threadList));
+
+    if (courseList.length === 0 && threadList.length === 0) {
+      setActiveCourseId("");
+      setActiveTaskId(undefined);
+      setActiveThreadId("");
+      return;
+    }
 
     const firstThread = threadList.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threadList[0];
     const firstCourse = firstThread ? courseList.find((course) => course.id === firstThread.courseId) : courseList[0];
@@ -149,7 +109,18 @@ function App() {
     setSemester(currentSemester);
     setCourses(courseList);
     setTasksByCourse(Object.fromEntries(taskEntries));
-    setThreads(threadList);
+    setThreads(dedupeThreads(threadList));
+
+    if (courseList.length === 0 && threadList.length === 0) {
+      setActiveCourseId("");
+      setActiveTaskId(undefined);
+      setActiveThreadId("");
+      setFileTree([]);
+      setFileStats(null);
+      setSelectedFileId("");
+      setFilePreview(null);
+      return;
+    }
 
     const nextThread = (preferredThreadId && threadList.find((thread) => thread.id === preferredThreadId)) || threadList.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threadList[0];
     const nextCourse = nextThread ? courseList.find((course) => course.id === nextThread.courseId) : courseList[0];
@@ -209,175 +180,91 @@ function App() {
     return result;
   }
 
-  async function loadThread(threadId: string) {
-    const [threadMessages, context, replayedEvents] = await Promise.all([
-      window.uclaw.threads.messages(threadId),
-      window.uclaw.context.estimate(threadId),
-      window.uclaw.agent.events(threadId),
-    ]);
-    setMessages(threadMessages);
-    setContextReport(context);
-
-    const selected = threads.find((thread) => thread.id === threadId);
-    if (selected) {
-      setRunStatus(selected.latestRunStatus || "idle");
-      setActiveCourseId(selected.courseId);
-      setActiveTaskId(selected.taskId);
-    }
-
-    const replayStatus = selected?.latestRunStatus || replayedEvents[replayedEvents.length - 1]?.status || "idle";
-    if (isRunning(replayStatus)) {
-      const lastRunId = replayedEvents[replayedEvents.length - 1]?.runId;
-      const latestRunEvents = lastRunId ? replayedEvents.filter((item) => item.runId === lastRunId) : replayedEvents;
-      const replayTimeline = latestRunEvents.reduce<TaskAgentTimelineItem[]>((current, item) => {
-        const timelineItem = normalizeTimelineItem(item);
-        return timelineItem ? mergeTimelineItem(current, timelineItem) : current;
-      }, []);
-      setLiveTimeline(replayTimeline);
-      const latest = latestRunEvents[latestRunEvents.length - 1];
-      if (latest?.runId) setActiveRunId(latest.runId);
-      if (latest?.status) setRunStatus(latest.status);
-    } else {
-      setLiveTimeline([]);
-    }
-    setTimelineCollapsed(false);
-  }
-
-  function handleRunEnvelope(envelope: RunStreamEnvelope) {
-    if (envelope.event !== "uclaw_run_item") return;
-
-    const item = envelope.data as UclawRunStreamItem;
-    if (item.threadId !== activeThreadId) {
-      patchThreadRuntime(item);
-      return;
-    }
-
-    patchThreadRuntime(item);
-    if (item.status) setRunStatus(item.status);
-    if (item.runId) setActiveRunId(item.runId);
-    if (item.context) setContextReport(item.context);
-
-    const timelineItem = normalizeTimelineItem(item);
-    if (timelineItem) {
-      setLiveTimeline((current) => mergeTimelineItem(current, timelineItem));
-    }
-
-    if (item.type === "turn_started" && item.messageId) {
-      setMessages((current) =>
-        current.some((message) => message.id === item.messageId)
-          ? current
-          : [
-              ...current,
-              {
-                id: item.messageId || "",
-                threadId: item.threadId,
-                role: "assistant",
-                content: "",
-                createdAt: item.createdAt,
-              },
-            ],
-      );
-    }
-
-    if (item.type === "assistant_message_delta" && item.messageId) {
-      setTimelineCollapsed(true);
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === item.messageId
-            ? {
-                ...message,
-                content: `${message.content}${item.delta || ""}`,
-                timeline: liveTimelineRef.current.length > 0 ? liveTimelineRef.current : message.timeline,
-              }
-            : message,
-        ),
-      );
-    }
-
-    if (item.type === "assistant_message_done" && item.messageId) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === item.messageId
-            ? {
-                ...message,
-                content: item.content || message.content,
-                timeline: liveTimelineRef.current,
-              }
-            : message,
-        ),
-      );
-      setTimelineCollapsed(true);
-      void refreshThreads();
-    }
-  }
-
-  function patchThreadRuntime(item: UclawRunStreamItem) {
-    const status = item.status;
-    if (!status) return;
-
-    setThreads((current) =>
-      current.map((thread) =>
-        thread.id === item.threadId
-          ? {
-              ...thread,
-              latestRunStatus: status,
-              latestEventSeq: item.seq,
-              pendingApprovalCount:
-                item.type === "tool_approval_resolved"
-                  ? 0
-                  : status === "waiting_approval"
-                    ? 1
-                    : ["completed", "failed", "cancelled"].includes(status)
-                      ? 0
-                      : thread.pendingApprovalCount,
-              updatedAt: item.createdAt,
-            }
-          : thread,
-      ),
-    );
-  }
-
-  async function refreshThreads() {
+  async function refreshThreads(): Promise<Thread[]> {
     const next = await window.uclaw.threads.list();
-    setThreads(next);
+    const deduped = dedupeThreads(next);
+    setThreads(deduped);
+    return deduped;
+  }
+
+  function threadTitleForScope(courseId: string, taskId?: string): string {
+    const task = taskId ? (tasksByCourse[courseId] || []).find((item) => item.id === taskId) : undefined;
+    const course = courses.find((item) => item.id === courseId);
+    return task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "Home session" : "Course home session";
+  }
+
+  function pickThreadAfterArchive(threadList: Thread[], archivedThread: Thread): Thread | undefined {
+    return (
+      threadList.find((item) => item.courseId === archivedThread.courseId && item.taskId === archivedThread.taskId) ||
+      threadList.find((item) => item.courseId === archivedThread.courseId && !item.taskId) ||
+      threadList.find((item) => item.courseId === SEMESTER_HOME_COURSE_ID) ||
+      threadList[0]
+    );
   }
 
   async function createThread(courseId = activeCourse?.id || "", taskId?: string) {
     if (!courseId) return;
-    const task = taskId ? (tasksByCourse[courseId] || []).find((item) => item.id === taskId) : undefined;
-    const course = courses.find((item) => item.id === courseId);
-
     const thread = await window.uclaw.threads.create({
       courseId,
       taskId,
-      title: task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "Home TaskAgent session" : "Course home session",
+      title: threadTitleForScope(courseId, taskId),
     });
-    setThreads((current) => [thread, ...current]);
+    setThreads((current) => dedupeThreads([thread, ...current]));
     setActiveCourseId(thread.courseId);
     setActiveTaskId(thread.taskId);
     setActiveThreadId(thread.id);
+  }
+
+  async function archiveThread(thread: Thread) {
+    setArchiveError("");
+    try {
+      await window.uclaw.threads.archive(thread.id);
+      const nextThreads = await refreshThreads();
+      if (thread.id !== activeThreadId) return;
+
+      const nextThread = pickThreadAfterArchive(nextThreads, thread);
+      if (nextThread) {
+        setActiveCourseId(nextThread.courseId);
+        setActiveTaskId(nextThread.taskId);
+        setActiveThreadId(nextThread.id);
+        return;
+      }
+
+      const fallbackCourse = courses.find((course) => course.id === thread.courseId) || activeCourse || courses[0];
+      const taskStillExists = Boolean(thread.taskId && (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId));
+      if (!fallbackCourse) {
+        setActiveCourseId("");
+        setActiveTaskId(undefined);
+        setActiveThreadId("");
+        return;
+      }
+
+      const created = await window.uclaw.threads.create({
+        courseId: fallbackCourse.id,
+        taskId: taskStillExists ? thread.taskId : undefined,
+        title: threadTitleForScope(fallbackCourse.id, taskStillExists ? thread.taskId : undefined),
+      });
+      setThreads(dedupeThreads([created, ...nextThreads]));
+      setActiveCourseId(created.courseId);
+      setActiveTaskId(created.taskId);
+      setActiveThreadId(created.id);
+    } catch (error) {
+      setArchiveError(errorMessage(error, "Archive session failed."));
+    }
   }
 
   async function selectCourseHome(courseId: string) {
     setActiveCourseId(courseId);
     setActiveTaskId(undefined);
     const thread = threads.find((item) => item.courseId === courseId && !item.taskId);
-    if (thread) {
-      setActiveThreadId(thread.id);
-      return;
-    }
-    await createThread(courseId);
+    setActiveThreadId(thread?.id || "");
   }
 
   async function selectTask(courseId: string, taskId: string) {
     setActiveCourseId(courseId);
     setActiveTaskId(taskId);
     const thread = threads.find((item) => item.courseId === courseId && item.taskId === taskId);
-    if (thread) {
-      setActiveThreadId(thread.id);
-      return;
-    }
-    await createThread(courseId, taskId);
+    setActiveThreadId(thread?.id || "");
   }
 
   function handleCourseCreated(course: Course) {
@@ -393,55 +280,6 @@ function App() {
       ...current,
       [task.courseId]: [...(current[task.courseId] || []), task],
     }));
-  }
-
-  async function handleSemesterUpdated(_semester: SemesterWorkspace) {
-    await reloadWorkspace();
-  }
-
-  async function sendMessage() {
-    const text = composer.trim();
-    if (!text || !activeThreadId || isRunning(runStatus)) return;
-
-    const localUser: ChatMessage = {
-      id: `local-${Date.now()}`,
-      threadId: activeThreadId,
-      role: "user",
-      content: text,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((current) => [...current, localUser]);
-    setComposer("");
-    setLiveTimeline([]);
-    setRunStatus("queued");
-
-    const { runId } = await window.uclaw.agent.run({
-      threadId: activeThreadId,
-      message: text,
-      permissionMode,
-    });
-    setActiveRunId(runId);
-  }
-
-  async function stopRun() {
-    if (!activeRunId) return;
-    setRunStatus("cancelling");
-    await window.uclaw.agent.stop(activeRunId);
-  }
-
-  async function approveTool(approvalId: string) {
-    if (!approvalId) return;
-    await window.uclaw.agent.approve(approvalId);
-  }
-
-  async function rejectTool(approvalId: string) {
-    if (!approvalId) return;
-    await window.uclaw.agent.reject(approvalId);
-  }
-
-  async function respondAskUser(requestId: string, response: string) {
-    if (!requestId || !response.trim()) return;
-    await window.uclaw.agent.respondAskUser(requestId, response.trim());
   }
 
   return (
@@ -478,6 +316,9 @@ function App() {
             setActiveTaskId(thread.taskId);
             setActiveThreadId(thread.id);
           }}
+          onArchiveThread={(thread) => {
+            void archiveThread(thread);
+          }}
           onCreateThread={createThread}
           onOpenCourses={() => setCoursesOpen(true)}
           onOpenTimetable={() => setTimetableOpen(true)}
@@ -486,62 +327,28 @@ function App() {
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
           <TopBar course={activeCourse} task={activeTask} thread={activeThread} workspaceScope={workspaceScope} />
+          {archiveError && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+              {archiveError}
+            </div>
+          )}
 
-          <div className="flex min-h-0 flex-1">
-            <section className="flex min-w-0 flex-1 flex-col bg-card/70">
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 uclaw-scrollbar">
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-                  {messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
-                  ))}
-                  {messages.length === 0 && (
-                    <EmptyThreadPanel
-                      course={activeCourse}
-                      task={activeTask}
-                      runtimeStatus={agentRuntimeStatus}
-                      onOpenSettings={() => setSettingsOpen(true)}
-                    />
-                  )}
-                  <TaskAgentTimeline
-                    items={liveTimeline}
-                    runStatus={runStatus}
-                    collapsed={timelineCollapsed}
-                    onToggle={() => setTimelineCollapsed((value) => !value)}
-                    onApprove={(approvalId) => void approveTool(approvalId)}
-                    onReject={(approvalId) => void rejectTool(approvalId)}
-                    onAskUserResponse={(requestId, response) => void respondAskUser(requestId, response)}
-                  />
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-
-              <Composer
-                value={composer}
-                disabled={!activeThreadId || isRunning(runStatus) || agentRuntimeStatus?.configured === false}
-                placeholder={
-                  agentRuntimeStatus?.configured === false
-                    ? "Configure an OpenAI API key before starting a real Agent run..."
-                    : "Ask about this course, search materials, plan a draft, or request a file/Git action..."
-                }
-                runStatus={runStatus}
-                permissionMode={permissionMode}
-                contextReport={contextReport}
-                onChange={setComposer}
-                onPermissionModeChange={setPermissionMode}
-                onSend={sendMessage}
-                onStop={stopRun}
-              />
-            </section>
+          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+            {activeThread ? (
+              <p>Thread: {activeThread.title}</p>
+            ) : (
+              <p>Select a course or task to get started.</p>
+            )}
           </div>
         </main>
 
-          <FileBrowserRail
-            collapsed={fileRailCollapsed}
-            course={activeCourse}
-            stats={fileStats}
-            files={fileTree}
-            selectedFileId={selectedFileId}
-            onSelectFile={selectFile}
+        <FileBrowserRail
+          collapsed={fileRailCollapsed}
+          course={activeCourse}
+          stats={fileStats}
+          files={fileTree}
+          selectedFileId={selectedFileId}
+          onSelectFile={selectFile}
           onOpenUpload={() => setCourseFilesUploadOpen(true)}
         />
 
@@ -552,13 +359,9 @@ function App() {
         <SettingsDialog
           course={activeCourse}
           semester={semester}
-          semesters={semesters}
           skills={skills}
           gitStatus={gitStatus}
-          agentRuntimeStatus={agentRuntimeStatus}
-          onSelectSemester={(semesterId) => void selectSemester(semesterId)}
           onSkillsChange={setSkills}
-          onAgentRuntimeStatusChange={setAgentRuntimeStatus}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -569,10 +372,19 @@ function App() {
           onSelectCourse={selectCourseHome}
           onCourseCreated={handleCourseCreated}
           onTaskCreated={handleTaskCreated}
+          onWorkspaceChanged={() => void reloadWorkspace()}
           onClose={() => setCoursesOpen(false)}
         />
       )}
-      {timetableOpen && <TimetableDialog course={activeCourse} onSemesterUpdated={handleSemesterUpdated} onClose={() => setTimetableOpen(false)} />}
+      {timetableOpen && (
+        <TimetableDialog
+          course={activeCourse}
+          semesters={semesters}
+          onSelectSemester={(semesterId) => void selectSemester(semesterId)}
+          onWorkspaceChanged={() => void reloadWorkspace()}
+          onClose={() => setTimetableOpen(false)}
+        />
+      )}
       {courseFilesUploadOpen && (
         <CourseFilesUploadDialog
           course={activeCourse}
@@ -594,4 +406,20 @@ function describeWorkspaceScope(course?: Course, task?: UclawTask, thread?: Thre
   if (course?.workspaceKind === "semester_home" || thread?.threadType === "semester_home") return "Semester workspace";
   if (course) return "Course workspace";
   return "Workspace scope pending";
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.trim() || fallback;
+}
+
+function dedupeThreads(threads: Thread[]): Thread[] {
+  const seen = new Set<string>();
+  const result: Thread[] = [];
+  for (const thread of threads) {
+    if (seen.has(thread.id)) continue;
+    seen.add(thread.id);
+    result.push(thread);
+  }
+  return result;
 }

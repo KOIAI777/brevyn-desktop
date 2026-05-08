@@ -48,6 +48,12 @@ export class ProviderSecretStore {
     return this.secretRef(providerId);
   }
 
+  deleteApiKey(providerId: string): void {
+    if (!this.data.providers[providerId]) return;
+    delete this.data.providers[providerId];
+    this.write();
+  }
+
   readApiKey(providerId: string): string | undefined {
     const record = this.data.providers[providerId];
     if (!record || !this.isEncryptionAvailable()) return undefined;

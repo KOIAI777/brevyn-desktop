@@ -1,15 +1,19 @@
 import {
+  ArrowLeft,
   Bot,
-  CalendarDays,
   Check,
   Circle,
   Database,
+  Eye,
+  EyeOff,
   FileText,
   FolderOpen,
+  Copy,
   GitBranch,
   KeyRound,
   Layers3,
   PlugZap,
+  Plus,
   RefreshCw,
   Save,
   Settings,
@@ -18,20 +22,21 @@ import {
   ToggleLeft,
   ToggleRight,
   Upload,
+  Trash2,
   Wrench,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
-  AgentHostedMcpServerConfig,
-  AgentHostedToolSettings,
-  AgentRuntimeStatus,
   Course,
   GitStatus,
   ModelProviderConfig,
+  ProviderAuthMode,
   ProviderDraftInput,
+  ProviderKind,
   ProviderModel,
   ProviderProtocol,
+  ProviderPurpose,
   SemesterWorkspace,
   SkillItem,
 } from "@/types/domain";
@@ -39,66 +44,80 @@ import { cx } from "@/lib/cn";
 
 type SettingsPage = "providers" | "skills";
 
-const protocols: Array<{ value: ProviderProtocol; label: string }> = [
-  { value: "openai_responses", label: "OpenAI Responses" },
+const agentProtocols: Array<{ value: ProviderProtocol; label: string }> = [
   { value: "anthropic_messages", label: "Anthropic Messages" },
+];
+
+const embeddingProtocols: Array<{ value: ProviderProtocol; label: string }> = [
   { value: "openai_compatible", label: "OpenAI-compatible" },
-  { value: "custom_http", label: "Custom HTTP" },
+];
+
+const authModes: Array<{ value: ProviderAuthMode; label: string }> = [
+  { value: "api_key", label: "API key" },
+  { value: "auth_token", label: "Auth token" },
+  { value: "bearer", label: "Bearer token" },
+];
+
+const agentKinds: Array<{ value: ProviderKind; label: string }> = [
+  { value: "anthropic", label: "Anthropic" },
+  { value: "custom", label: "Custom" },
+];
+
+const embeddingKinds: Array<{ value: ProviderKind; label: string }> = [
+  { value: "openai", label: "OpenAI-compatible" },
+  { value: "dashscope", label: "DashScope" },
+  { value: "siliconflow", label: "SiliconFlow" },
+  { value: "voyage", label: "Voyage" },
+  { value: "custom", label: "Custom" },
 ];
 
 const emptyDraft: ProviderDraftInput = {
-  name: "Custom Provider",
-  protocol: "openai_responses",
-  baseUrl: "https://api.openai.com/v1",
+  purpose: "agent",
+  name: "",
+  kind: "anthropic",
+  protocol: "anthropic_messages",
+  authMode: "api_key",
+  baseUrl: "",
   apiKey: "",
-  chatModel: "",
-  embeddingModel: "",
-  multimodalModel: "",
-  enabled: true,
-  embeddingEnabled: false,
-  agentTools: defaultAgentTools(),
+  models: [],
+  selectedModel: "",
+  enabled: false,
 };
 
 const emptyEmbeddingDraft: ProviderDraftInput = {
-  name: "Embedding Provider",
+  purpose: "embedding",
+  name: "",
+  kind: "custom",
   protocol: "openai_compatible",
-  baseUrl: "https://api.openai.com/v1",
+  authMode: "bearer",
+  baseUrl: "",
   apiKey: "",
-  chatModel: "",
-  embeddingModel: "text-embedding-3-large",
-  multimodalModel: "",
+  models: [],
+  selectedModel: "",
   enabled: false,
-  embeddingEnabled: true,
-  agentTools: defaultAgentTools(),
 };
 
 export function SettingsDialog({
   course,
   semester,
-  semesters,
   skills,
   gitStatus,
-  agentRuntimeStatus,
-  onSelectSemester,
   onSkillsChange,
-  onAgentRuntimeStatusChange,
   onClose,
 }: {
   course?: Course;
   semester?: SemesterWorkspace | null;
-  semesters: SemesterWorkspace[];
   skills: SkillItem[];
   gitStatus: GitStatus | null;
-  agentRuntimeStatus: AgentRuntimeStatus | null;
-  onSelectSemester: (semesterId: string) => void;
   onSkillsChange: (skills: SkillItem[]) => void;
-  onAgentRuntimeStatusChange: (status: AgentRuntimeStatus) => void;
   onClose: () => void;
 }) {
   const [activePage, setActivePage] = useState<SettingsPage>("providers");
   const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedEmbeddingProviderId, setSelectedEmbeddingProviderId] = useState("");
+  const [creatingProvider, setCreatingProvider] = useState(false);
+  const [creatingEmbeddingProvider, setCreatingEmbeddingProvider] = useState(false);
   const [draft, setDraft] = useState<ProviderDraftInput>(emptyDraft);
   const [embeddingDraft, setEmbeddingDraft] = useState<ProviderDraftInput>(emptyEmbeddingDraft);
   const [models, setModels] = useState<ProviderModel[]>([]);
@@ -113,10 +132,12 @@ export function SettingsDialog({
   const [skillBusy, setSkillBusy] = useState(false);
 
   const enabledSkills = localSkills.filter((skill) => skill.enabled).length;
-  const enabledProviders = providers.filter((provider) => provider.enabled).length;
+  const chatProviders = providers.filter((provider) => provider.purpose === "agent");
+  const embeddingProviders = providers.filter((provider) => provider.purpose === "embedding");
+  const enabledProviders = chatProviders.filter((provider) => provider.enabled).length;
   const activeEmbeddingProvider = useMemo(
-    () => providers.find((provider) => provider.id === selectedEmbeddingProviderId) || providers.find((provider) => provider.embeddingEnabled) || providers[0],
-    [providers, selectedEmbeddingProviderId],
+    () => embeddingProviders.find((provider) => provider.id === selectedEmbeddingProviderId) || embeddingProviders.find((provider) => provider.enabled) || embeddingProviders[0],
+    [embeddingProviders, selectedEmbeddingProviderId],
   );
 
   useEffect(() => {
@@ -128,8 +149,8 @@ export function SettingsDialog({
   }, [skills]);
 
   useEffect(() => {
-    void window.uclaw.skills.list(course?.id).then(setLocalSkills);
-  }, [course?.id]);
+    void window.uclaw.skills.list().then(setLocalSkills);
+  }, []);
 
   useEffect(() => {
     setSelectedSkillId((current) => (localSkills.some((skill) => skill.id === current) ? current : (localSkills[0]?.id ?? "")));
@@ -164,13 +185,13 @@ export function SettingsDialog({
   async function loadProviders() {
     const result = await window.uclaw.providers.list();
     setProviders(result);
-    const selected = result.find((provider) => provider.enabled) || result[0];
-    const embeddingSelected = result.find((provider) => provider.embeddingEnabled) || result.find((provider) => provider.embeddingModel) || result[0];
-    if (selected) selectProvider(selected);
-    if (embeddingSelected) selectEmbeddingProvider(embeddingSelected);
+    closeProviderEditor();
+    closeEmbeddingEditor();
   }
 
   function selectProvider(provider: ModelProviderConfig) {
+    closeEmbeddingEditor();
+    setCreatingProvider(false);
     setSelectedProviderId(provider.id);
     setDraft(toProviderDraft(provider));
     setModels([]);
@@ -178,37 +199,94 @@ export function SettingsDialog({
   }
 
   function selectEmbeddingProvider(provider: ModelProviderConfig) {
+    closeProviderEditor();
+    setCreatingEmbeddingProvider(false);
     setSelectedEmbeddingProviderId(provider.id);
-    setEmbeddingDraft(toProviderDraft(provider, { embeddingEnabled: provider.embeddingEnabled ?? Boolean(provider.embeddingModel) }));
+    setEmbeddingDraft(toProviderDraft(provider));
     setEmbeddingModels([]);
     setEmbeddingStatusLine("");
   }
 
   function newProvider() {
+    closeEmbeddingEditor();
+    setCreatingProvider(true);
     setSelectedProviderId("");
-    setDraft({ ...emptyDraft });
+    setDraft({ ...emptyDraft, name: nextProviderDraftName(providers) });
     setModels([]);
     setStatusLine("");
   }
 
   function newEmbeddingProvider() {
+    closeProviderEditor();
+    setCreatingEmbeddingProvider(true);
+    setSelectedEmbeddingProviderId("");
+    setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers) });
+    setEmbeddingModels([]);
+    setEmbeddingStatusLine("");
+  }
+
+  function closeProviderEditor() {
+    setCreatingProvider(false);
+    setSelectedProviderId("");
+    setDraft({ ...emptyDraft });
+    setModels([]);
+  }
+
+  function closeEmbeddingEditor() {
+    setCreatingEmbeddingProvider(false);
     setSelectedEmbeddingProviderId("");
     setEmbeddingDraft({ ...emptyEmbeddingDraft });
     setEmbeddingModels([]);
-    setEmbeddingStatusLine("");
   }
 
   async function saveProvider() {
     setBusy(true);
     try {
-      const saved = await window.uclaw.providers.save({ ...draft, embeddingEnabled: draft.embeddingEnabled ?? false });
+      const saved = await window.uclaw.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
       const next = await window.uclaw.providers.list();
       setProviders(next);
-      selectProvider(saved);
-      const runtime = await refreshRuntimeStatus();
-      setStatusLine(`Saved provider profile. ${runtime.configured ? "Agent runtime is ready." : runtime.detail}`);
+      closeProviderEditor();
+      setStatusLine(`Saved "${saved.name}".`);
     } catch (error) {
-      setStatusLine(errorMessage(error));
+      setStatusLine(`Failed to save provider profile: ${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicateProvider(provider: ModelProviderConfig) {
+    setBusy(true);
+    try {
+      const duplicateName = provider.name.endsWith(" Copy") ? `${provider.name} 2` : `${provider.name} Copy`;
+      const saved = await window.uclaw.providers.save({
+        ...toProviderDraft(provider),
+        id: undefined,
+        name: duplicateName,
+        apiKey: "",
+      });
+      const next = await window.uclaw.providers.list();
+      setProviders(next);
+      closeProviderEditor();
+      setStatusLine(`Duplicated "${saved.name}".`);
+    } catch (error) {
+      setStatusLine(`Failed to duplicate provider profile: ${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProvider(provider: ModelProviderConfig) {
+    const ok = window.confirm(`Delete provider profile "${provider.name}"?`);
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await window.uclaw.providers.delete(provider.id);
+      const next = await window.uclaw.providers.list();
+      setProviders(next);
+      closeProviderEditor();
+      setStatusLine(`Deleted provider profile "${provider.name}".`);
+    } catch (error) {
+      setStatusLine(`Failed to delete provider profile: ${errorMessage(error)}`);
     } finally {
       setBusy(false);
     }
@@ -217,13 +295,51 @@ export function SettingsDialog({
   async function saveEmbeddingProvider() {
     setBusy(true);
     try {
-      const saved = await window.uclaw.providers.save({ ...embeddingDraft, embeddingEnabled: embeddingDraft.embeddingEnabled ?? true });
+      const saved = await window.uclaw.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
       const next = await window.uclaw.providers.list();
       setProviders(next);
-      selectEmbeddingProvider(saved);
-      setEmbeddingStatusLine("Saved embedding provider.");
+      closeEmbeddingEditor();
+      setEmbeddingStatusLine(`Saved embedding provider "${saved.name}".`);
     } catch (error) {
-      setEmbeddingStatusLine(errorMessage(error));
+      setEmbeddingStatusLine(`Failed to save embedding provider: ${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicateEmbeddingProvider(provider: ModelProviderConfig) {
+    setBusy(true);
+    try {
+      const duplicateName = provider.name.endsWith(" Copy") ? `${provider.name} 2` : `${provider.name} Copy`;
+      const saved = await window.uclaw.providers.save({
+        ...toProviderDraft(provider),
+        id: undefined,
+        name: duplicateName,
+        apiKey: "",
+      });
+      const next = await window.uclaw.providers.list();
+      setProviders(next);
+      closeEmbeddingEditor();
+      setEmbeddingStatusLine(`Duplicated embedding provider "${saved.name}".`);
+    } catch (error) {
+      setEmbeddingStatusLine(`Failed to duplicate embedding provider: ${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteEmbeddingProvider(provider: ModelProviderConfig) {
+    const ok = window.confirm(`Delete embedding provider profile "${provider.name}"?`);
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await window.uclaw.providers.delete(provider.id);
+      const next = await window.uclaw.providers.list();
+      setProviders(next);
+      closeEmbeddingEditor();
+      setEmbeddingStatusLine(`Deleted embedding provider profile "${provider.name}".`);
+    } catch (error) {
+      setEmbeddingStatusLine(`Failed to delete embedding provider: ${errorMessage(error)}`);
     } finally {
       setBusy(false);
     }
@@ -235,7 +351,6 @@ export function SettingsDialog({
       const next = await window.uclaw.providers.list();
       setProviders(next);
       if (provider.id === selectedProviderId) selectProvider(saved);
-      await refreshRuntimeStatus();
     } catch (error) {
       setStatusLine(errorMessage(error));
     }
@@ -243,11 +358,10 @@ export function SettingsDialog({
 
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
     try {
-      const saved = await window.uclaw.providers.save(toProviderDraft(provider, { embeddingEnabled: !(provider.embeddingEnabled ?? Boolean(provider.embeddingModel)) }));
+      const saved = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
       const next = await window.uclaw.providers.list();
       setProviders(next);
       if (provider.id === selectedEmbeddingProviderId) selectEmbeddingProvider(saved);
-      await refreshRuntimeStatus();
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
     }
@@ -313,12 +427,6 @@ export function SettingsDialog({
     }
   }
 
-  async function refreshRuntimeStatus(): Promise<AgentRuntimeStatus> {
-    const runtime = await window.uclaw.agent.runtimeStatus();
-    onAgentRuntimeStatusChange(runtime);
-    return runtime;
-  }
-
   async function toggleSkill(skill: SkillItem) {
     const updated = await window.uclaw.skills.update({ id: skill.id, enabled: !skill.enabled });
     const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
@@ -345,8 +453,8 @@ export function SettingsDialog({
   async function importSkillFolder() {
     setSkillBusy(true);
     try {
-      const imported = await window.uclaw.skills.importFolder({ courseId: course?.id });
-      const next = await window.uclaw.skills.list(course?.id);
+      const imported = await window.uclaw.skills.importFolder({});
+      const next = await window.uclaw.skills.list();
       setLocalSkills(next);
       onSkillsChange(next);
       setSelectedSkillId(imported.id);
@@ -370,14 +478,14 @@ export function SettingsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
+      <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Settings className="h-4 w-4" />
               Settings
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "semester"} · providers, embeddings, skills</div>
+            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "no semester selected"} · providers, embeddings, skills</div>
           </div>
           <button
             type="button"
@@ -391,30 +499,12 @@ export function SettingsDialog({
 
         <div className="grid min-h-0 flex-1 md:grid-cols-[220px_1fr]">
           <aside className="border-r bg-background/45 p-3">
-            <section className="mb-3 rounded-lg border bg-card p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
-                <CalendarDays className="h-3.5 w-3.5" />
-                Current Semester
-              </div>
-              <select
-                className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none"
-                value={semester?.id || ""}
-                onChange={(event) => onSelectSemester(event.target.value)}
-              >
-                {semesters.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.term}
-                  </option>
-                ))}
-              </select>
-              <div className="mt-2 truncate text-[11px] text-muted-foreground">{semester?.folderName || "folder pending"}</div>
-            </section>
             <div className="space-y-1.5">
               <SettingsNavButton
                 active={activePage === "providers"}
                 icon={<PlugZap className="h-4 w-4" />}
                 title="Provider"
-                detail={`${enabledProviders} enabled · ${activeEmbeddingProvider?.embeddingModel || "embedding TBD"}`}
+                detail={`${enabledProviders} enabled · ${activeEmbeddingProvider?.selectedModel || "embedding TBD"}`}
                 onClick={() => setActivePage("providers")}
               />
               <SettingsNavButton
@@ -433,20 +523,27 @@ export function SettingsDialog({
                 providers={providers}
                 selectedProviderId={selectedProviderId}
                 selectedEmbeddingProviderId={selectedEmbeddingProviderId}
+                creatingProvider={creatingProvider}
+                creatingEmbeddingProvider={creatingEmbeddingProvider}
                 draft={draft}
                 embeddingDraft={embeddingDraft}
                 models={models}
                 embeddingModels={embeddingModels}
                 statusLine={statusLine}
                 embeddingStatusLine={embeddingStatusLine}
-                agentRuntimeStatus={agentRuntimeStatus}
                 busy={busy}
                 onSelectProvider={selectProvider}
                 onSelectEmbeddingProvider={selectEmbeddingProvider}
                 onNewProvider={newProvider}
                 onNewEmbeddingProvider={newEmbeddingProvider}
+                onCloseProviderEditor={closeProviderEditor}
+                onCloseEmbeddingEditor={closeEmbeddingEditor}
                 onToggleProvider={toggleProvider}
                 onToggleEmbeddingProvider={toggleEmbeddingProvider}
+                onDuplicateProvider={(provider) => void duplicateProvider(provider)}
+                onDeleteProvider={(provider) => void deleteProvider(provider)}
+                onDuplicateEmbeddingProvider={(provider) => void duplicateEmbeddingProvider(provider)}
+                onDeleteEmbeddingProvider={(provider) => void deleteEmbeddingProvider(provider)}
                 onDraftChange={setDraft}
                 onEmbeddingDraftChange={setEmbeddingDraft}
                 onFetchModels={fetchModels}
@@ -484,20 +581,27 @@ function ProviderSettingsPage({
   providers,
   selectedProviderId,
   selectedEmbeddingProviderId,
+  creatingProvider,
+  creatingEmbeddingProvider,
   draft,
   embeddingDraft,
   models,
   embeddingModels,
   statusLine,
   embeddingStatusLine,
-  agentRuntimeStatus,
   busy,
   onSelectProvider,
   onSelectEmbeddingProvider,
   onNewProvider,
   onNewEmbeddingProvider,
+  onCloseProviderEditor,
+  onCloseEmbeddingEditor,
   onToggleProvider,
   onToggleEmbeddingProvider,
+  onDuplicateProvider,
+  onDeleteProvider,
+  onDuplicateEmbeddingProvider,
+  onDeleteEmbeddingProvider,
   onDraftChange,
   onEmbeddingDraftChange,
   onFetchModels,
@@ -510,20 +614,27 @@ function ProviderSettingsPage({
   providers: ModelProviderConfig[];
   selectedProviderId: string;
   selectedEmbeddingProviderId: string;
+  creatingProvider: boolean;
+  creatingEmbeddingProvider: boolean;
   draft: ProviderDraftInput;
   embeddingDraft: ProviderDraftInput;
   models: ProviderModel[];
   embeddingModels: ProviderModel[];
   statusLine: string;
   embeddingStatusLine: string;
-  agentRuntimeStatus: AgentRuntimeStatus | null;
   busy: boolean;
   onSelectProvider: (provider: ModelProviderConfig) => void;
   onSelectEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onNewProvider: () => void;
   onNewEmbeddingProvider: () => void;
+  onCloseProviderEditor: () => void;
+  onCloseEmbeddingEditor: () => void;
   onToggleProvider: (provider: ModelProviderConfig) => void;
   onToggleEmbeddingProvider: (provider: ModelProviderConfig) => void;
+  onDuplicateProvider: (provider: ModelProviderConfig) => void;
+  onDeleteProvider: (provider: ModelProviderConfig) => void;
+  onDuplicateEmbeddingProvider: (provider: ModelProviderConfig) => void;
+  onDeleteEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onDraftChange: (draft: ProviderDraftInput) => void;
   onEmbeddingDraftChange: (draft: ProviderDraftInput) => void;
   onFetchModels: () => void;
@@ -535,69 +646,52 @@ function ProviderSettingsPage({
 }) {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
   const selectedEmbeddingProvider = providers.find((provider) => provider.id === selectedEmbeddingProviderId);
+  const chatProviders = providers.filter((provider) => provider.purpose === "agent");
+  const embeddingProviders = providers.filter((provider) => provider.purpose === "embedding");
+  const providerEditorOpen = creatingProvider || Boolean(selectedProvider);
+  const embeddingEditorOpen = creatingEmbeddingProvider || Boolean(selectedEmbeddingProvider);
+  const runtimeBanner = null;
 
-  return (
-    <div className="space-y-4">
-      {agentRuntimeStatus && (
-        <div
-          className={cx(
-            "rounded-lg border px-3 py-3 text-xs",
-            agentRuntimeStatus.configured
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-amber-200 bg-amber-50 text-amber-950",
-          )}
-        >
-          <div className="flex items-center gap-2 font-semibold">
-            <KeyRound className="h-3.5 w-3.5" />
-            {agentRuntimeStatus.title}
-          </div>
-          <div className="mt-1 leading-5 opacity-85">{agentRuntimeStatus.detail}</div>
-        </div>
-      )}
-
-      <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
-        <section className="rounded-lg border bg-background/70 p-3">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-semibold">
-              <Bot className="h-3.5 w-3.5" />
-              Provider Profiles
-            </div>
-            <button type="button" className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onNewProvider}>
-              New
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {providers.map((provider) => (
-              <ProviderProfileRow
-                key={provider.id}
-                provider={provider}
-                active={provider.id === selectedProviderId}
-                statusLabel={provider.enabled ? "Enabled" : "Disabled"}
-                statusOn={provider.enabled}
-                onSelect={() => onSelectProvider(provider)}
-                onToggle={() => onToggleProvider(provider)}
-              />
-            ))}
-            {providers.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-6 text-center text-xs text-muted-foreground">No provider profiles yet.</div>}
-          </div>
-        </section>
-
-        <section className="rounded-lg border bg-background/70 p-3">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-semibold">
-                <PlugZap className="h-3.5 w-3.5" />
-                Agent Provider
+  if (providerEditorOpen) {
+    return (
+      <div className="space-y-4">
+        {runtimeBanner}
+        <section className="rounded-lg border bg-background/70 p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={onCloseProviderEditor}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to providers
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <PlugZap className="h-4 w-4" />
+                {creatingProvider ? "New Agent Provider" : `Edit Agent Provider · ${selectedProvider?.name || "Provider"}`}
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">Chat, multimodal recognition, and tool-call responses</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">Chat, multimodal recognition, and tool-call responses.</div>
             </div>
-            <TogglePill enabled={Boolean(draft.enabled)} onClick={() => onDraftChange({ ...draft, enabled: !draft.enabled })} />
+            <div className="flex shrink-0 items-center gap-2">
+              {selectedProvider && <ActionButton icon={<Copy className="h-3.5 w-3.5" />} label="Duplicate" onClick={() => onDuplicateProvider(selectedProvider)} />}
+              {selectedProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteProvider(selectedProvider)} />}
+              <TogglePill enabled={Boolean(draft.enabled)} onClick={() => onDraftChange({ ...draft, enabled: !draft.enabled })} />
+            </div>
           </div>
+
+          {creatingProvider && (
+            <div className="mb-4 rounded-md border border-dashed bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
+              This provider is not saved yet. Fill it out, then save to add it to the Agent list.
+            </div>
+          )}
 
           <div className="grid gap-2 md:grid-cols-2">
             <Field label="Profile name" value={draft.name} onChange={(value) => onDraftChange({ ...draft, name: value })} />
-            <SelectField label="Protocol" value={draft.protocol} onChange={(value) => onDraftChange({ ...draft, protocol: value })} />
+            <ReadOnlyField label="Purpose" value="Agent" />
+            <ProtocolField purpose="agent" value={draft.protocol} onChange={(value) => onDraftChange({ ...draft, protocol: value })} />
+            <KindField purpose="agent" value={draft.kind} onChange={(value) => onDraftChange({ ...draft, kind: value })} />
+            <AuthModeField label="Auth mode" value={draft.authMode} onChange={(value) => onDraftChange({ ...draft, authMode: value })} />
             <Field label="Base URL" value={draft.baseUrl} onChange={(value) => onDraftChange({ ...draft, baseUrl: value })} />
             <Field
               label="API Key"
@@ -607,23 +701,18 @@ function ProviderSettingsPage({
               placeholder={selectedProvider?.apiKeyMasked ? `Stored ${selectedProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
-            <Field label="Chat model" value={draft.chatModel || ""} onChange={(value) => onDraftChange({ ...draft, chatModel: value })} />
-            <Field label="Multimodal model" value={draft.multimodalModel || ""} onChange={(value) => onDraftChange({ ...draft, multimodalModel: value })} />
+            <Field label="Model" value={draft.selectedModel} onChange={(value) => onDraftChange({ ...draft, selectedModel: value })} />
           </div>
 
           {models.length > 0 && (
             <ModelPicker
-              models={models.filter((model) => model.type !== "embedding")}
-              onPick={(model) => {
-                if (model.type === "chat") onDraftChange({ ...draft, chatModel: model.id });
-                if (model.type === "multimodal") onDraftChange({ ...draft, multimodalModel: model.id });
-              }}
+              purpose="agent"
+              models={models}
+              onPick={(model) => onDraftChange({ ...draft, selectedModel: model.id, models })}
             />
           )}
 
-          <HostedToolsSettings value={draft.agentTools || defaultAgentTools()} onChange={(agentTools) => onDraftChange({ ...draft, agentTools })} />
-
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", busy && "animate-spin")} />} label="Get models" onClick={onFetchModels} />
             <ActionButton icon={<PlugZap className="h-3.5 w-3.5" />} label="Test" onClick={onTestProvider} />
             <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save" onClick={onSaveProvider} primary />
@@ -631,73 +720,155 @@ function ProviderSettingsPage({
           {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
         </section>
       </div>
+    );
+  }
 
-      <section className="rounded-lg border bg-background/70 p-3">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold">
-              <Database className="h-3.5 w-3.5" />
-              Embedding Provider
+  if (embeddingEditorOpen) {
+    return (
+      <div className="space-y-4">
+        {runtimeBanner}
+        <section className="rounded-lg border bg-background/70 p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={onCloseEmbeddingEditor}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to providers
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Database className="h-4 w-4" />
+                {creatingEmbeddingProvider ? "New Embedding Provider" : `Edit Embedding Provider · ${selectedEmbeddingProvider?.name || "Provider"}`}
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">RAG search, course file indexing, and context retrieval.</div>
             </div>
-            <div className="mt-1 text-[11px] text-muted-foreground">RAG search, course file indexing, and context retrieval</div>
+            <div className="flex shrink-0 items-center gap-2">
+              {selectedEmbeddingProvider && <ActionButton icon={<Copy className="h-3.5 w-3.5" />} label="Duplicate" onClick={() => onDuplicateEmbeddingProvider(selectedEmbeddingProvider)} />}
+              {selectedEmbeddingProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteEmbeddingProvider(selectedEmbeddingProvider)} />}
+              <TogglePill enabled={Boolean(embeddingDraft.enabled)} labelOn="Embedding on" labelOff="Embedding off" onClick={() => onEmbeddingDraftChange({ ...embeddingDraft, enabled: !embeddingDraft.enabled })} />
+            </div>
           </div>
-          <button type="button" className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onNewEmbeddingProvider}>
-            New embedding
-          </button>
-        </div>
 
-        <div className="grid gap-3 lg:grid-cols-[300px_1fr]">
-          <div className="space-y-2">
-            {providers.map((provider) => (
+          {creatingEmbeddingProvider && (
+            <div className="mb-4 rounded-md border border-dashed bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
+              This embedding provider is not saved yet. Save it to add it to the Embedding list.
+            </div>
+          )}
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <Field label="Profile name" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
+            <ReadOnlyField label="Purpose" value="Embedding" />
+            <ProtocolField purpose="embedding" value={embeddingDraft.protocol} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, protocol: value })} />
+            <KindField purpose="embedding" value={embeddingDraft.kind} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, kind: value })} />
+            <AuthModeField label="Auth mode" value={embeddingDraft.authMode} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, authMode: value })} />
+            <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
+            <Field
+              label="API Key"
+              value={embeddingDraft.apiKey}
+              onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value })}
+              type="password"
+              placeholder={selectedEmbeddingProvider?.apiKeyMasked ? `Stored ${selectedEmbeddingProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
+              icon={<KeyRound className="h-3 w-3" />}
+            />
+            <Field label="Model" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
+          </div>
+
+          {embeddingModels.length > 0 && (
+            <ModelPicker
+              purpose="embedding"
+              models={embeddingModels}
+              onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id, models: embeddingModels })}
+            />
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", busy && "animate-spin")} />} label="Get models" onClick={onFetchEmbeddingModels} />
+            <ActionButton icon={<PlugZap className="h-3.5 w-3.5" />} label="Test" onClick={onTestEmbeddingProvider} />
+            <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save embedding" onClick={onSaveEmbeddingProvider} primary />
+          </div>
+          {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {runtimeBanner}
+      <div className="grid gap-4">
+        <section className="rounded-lg border bg-background/70 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <PlugZap className="h-3.5 w-3.5" />
+                Agent Provider
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">Only saved providers are listed here.</div>
+            </div>
+            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New provider" onClick={onNewProvider} />
+          </div>
+
+          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 uclaw-scrollbar">
+            {chatProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
                 provider={provider}
-                active={provider.id === selectedEmbeddingProviderId}
-                statusLabel={provider.embeddingEnabled ? "Embedding" : "Off"}
-                statusOn={Boolean(provider.embeddingEnabled)}
+                active={false}
+                statusLabel={provider.enabled ? "Enabled" : "Disabled"}
+                statusOn={provider.enabled}
+                onSelect={() => onSelectProvider(provider)}
+                onToggle={() => onToggleProvider(provider)}
+              />
+            ))}
+            {chatProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No agent providers yet. Create one to add it to this list.</div>}
+          </div>
+          {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
+        </section>
+
+        <section className="rounded-lg border bg-background/70 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <Database className="h-3.5 w-3.5" />
+                Embedding Provider
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">Only saved providers are listed here.</div>
+            </div>
+            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New embedding" onClick={onNewEmbeddingProvider} />
+          </div>
+
+          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 uclaw-scrollbar">
+            {embeddingProviders.map((provider) => (
+              <ProviderProfileRow
+                key={provider.id}
+                provider={provider}
+                active={false}
+                statusLabel={provider.enabled ? "Embedding" : "Off"}
+                statusOn={Boolean(provider.enabled)}
                 onSelect={() => onSelectEmbeddingProvider(provider)}
                 onToggle={() => onToggleEmbeddingProvider(provider)}
               />
             ))}
+            {embeddingProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No embedding providers yet. Create one to add it to this list.</div>}
           </div>
-
-          <div className="space-y-3">
-            <div className="grid gap-2 md:grid-cols-2">
-              <Field label="Profile name" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
-              <SelectField label="Protocol" value={embeddingDraft.protocol} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, protocol: value })} />
-              <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
-              <Field
-                label="API Key"
-                value={embeddingDraft.apiKey}
-                onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value })}
-                type="password"
-                placeholder={selectedEmbeddingProvider?.apiKeyMasked ? `Stored ${selectedEmbeddingProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
-                icon={<KeyRound className="h-3 w-3" />}
-              />
-              <Field label="Embedding model" value={embeddingDraft.embeddingModel || ""} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, embeddingModel: value })} />
-              <div className="flex items-end">
-                <TogglePill enabled={Boolean(embeddingDraft.embeddingEnabled)} labelOn="Embedding on" labelOff="Embedding off" onClick={() => onEmbeddingDraftChange({ ...embeddingDraft, embeddingEnabled: !embeddingDraft.embeddingEnabled })} />
-              </div>
-            </div>
-
-            {embeddingModels.length > 0 && (
-              <ModelPicker
-                models={embeddingModels.filter((model) => model.type === "embedding")}
-                onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, embeddingModel: model.id })}
-              />
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", busy && "animate-spin")} />} label="Get models" onClick={onFetchEmbeddingModels} />
-              <ActionButton icon={<PlugZap className="h-3.5 w-3.5" />} label="Test" onClick={onTestEmbeddingProvider} />
-              <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save embedding" onClick={onSaveEmbeddingProvider} primary />
-            </div>
-            {embeddingStatusLine && <div className="rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
-          </div>
-        </div>
-      </section>
+          {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
+        </section>
+      </div>
     </div>
   );
+}
+
+function nextProviderDraftName(providers: ModelProviderConfig[]): string {
+  const used = new Set(
+    providers
+      .map((provider) => provider.name.trim())
+      .filter((name) => /^\d+$/.test(name)),
+  );
+  let index = 1;
+  while (used.has(String(index))) index += 1;
+  return String(index);
 }
 
 function SkillSettingsPage({
@@ -760,7 +931,6 @@ function SkillSettingsPage({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
                   <div className="truncate text-sm font-semibold">{skill.name}</div>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">{skill.scope}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.version}</span>
                 </div>
                 <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{skill.description}</div>
@@ -794,7 +964,6 @@ function SkillSettingsPage({
           {selectedSkill ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                <span className="rounded bg-muted px-1.5 py-0.5 uppercase">{selectedSkill.scope}</span>
                 <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.version}</span>
                 {selectedSkill.sourcePath && <span className="truncate rounded bg-muted px-1.5 py-0.5">{selectedSkill.sourcePath}</span>}
               </div>
@@ -822,7 +991,7 @@ function SkillSettingsPage({
           </div>
           <div className="space-y-2 text-[12px] leading-5 text-muted-foreground">
             <MetricRow label="Router" value="enabled skills" />
-            <MetricRow label="Scope" value="course + task" />
+            <MetricRow label="Scope" value="global" />
             <MetricRow label="Context" value="window aware" />
           </div>
         </section>
@@ -890,8 +1059,7 @@ function ProviderProfileRow({
           {protocolLabel(provider.protocol)} · {provider.baseUrl || "URL not set"}
         </span>
         <span className="mt-1 flex min-w-0 flex-wrap gap-1">
-          {provider.chatModel && <span className="max-w-[130px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.chatModel}</span>}
-          {provider.embeddingModel && <span className="max-w-[130px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.embeddingModel}</span>}
+          {provider.selectedModel && <span className="max-w-[180px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.selectedModel}</span>}
         </span>
       </button>
       <button
@@ -921,6 +1089,10 @@ function Field({
   placeholder?: string;
   icon?: ReactNode;
 }) {
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const isPassword = type === "password";
+  const inputType = isPassword && passwordVisible ? "text" : type;
+
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
       <span>{label}</span>
@@ -928,48 +1100,76 @@ function Field({
         {icon}
         <input
           className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/55"
-          type={type}
+          type={inputType}
           value={value}
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
         />
+        {isPassword && (
+          <button
+            type="button"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            onClick={() => setPasswordVisible((visible) => !visible)}
+            aria-label={passwordVisible ? "Hide API key" : "Show API key"}
+            title={passwordVisible ? "Hide API key" : "Show API key"}
+          >
+            {passwordVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
+        )}
       </div>
     </label>
   );
 }
 
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
   return (
-    <label className="mt-3 block space-y-1 text-[11px] text-muted-foreground">
+    <label className="space-y-1 text-[11px] text-muted-foreground">
       <span>{label}</span>
-      <textarea
-        className="min-h-20 w-full resize-y rounded-md border bg-card px-2 py-2 font-mono text-[11px] leading-4 text-foreground outline-none placeholder:text-muted-foreground/55"
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <div className="flex h-8 items-center rounded-md border bg-muted/35 px-2 text-xs text-foreground">{value}</div>
     </label>
   );
 }
 
-function SelectField({ label, value, onChange }: { label: string; value: ProviderProtocol; onChange: (value: ProviderProtocol) => void }) {
+function ProtocolField({ purpose, value, onChange }: { purpose: ProviderPurpose; value: ProviderProtocol; onChange: (value: ProviderProtocol) => void }) {
+  const options = purpose === "agent" ? agentProtocols : embeddingProtocols;
+  return (
+    <label className="space-y-1 text-[11px] text-muted-foreground">
+      <span>Protocol</span>
+      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderProtocol)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function KindField({ purpose, value, onChange }: { purpose: ProviderPurpose; value: ProviderKind; onChange: (value: ProviderKind) => void }) {
+  const options = purpose === "agent" ? agentKinds : embeddingKinds;
+  return (
+    <label className="space-y-1 text-[11px] text-muted-foreground">
+      <span>Kind</span>
+      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderKind)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function AuthModeField({ label, value, onChange }: { label: string; value: ProviderAuthMode; onChange: (value: ProviderAuthMode) => void }) {
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
       <span>{label}</span>
-      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderProtocol)}>
-        {protocols.map((protocol) => (
-          <option key={protocol.value} value={protocol.value}>
-            {protocol.label}
+      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderAuthMode)}>
+        {authModes.map((mode) => (
+          <option key={mode.value} value={mode.value}>
+            {mode.label}
           </option>
         ))}
       </select>
@@ -990,145 +1190,27 @@ function TogglePill({ enabled, onClick, labelOn = "Enabled", labelOff = "Disable
   );
 }
 
-function ModelPicker({ models, onPick }: { models: ProviderModel[]; onPick: (model: ProviderModel) => void }) {
+function ModelPicker({ purpose, models, onPick }: { purpose: ProviderPurpose; models: ProviderModel[]; onPick: (model: ProviderModel) => void }) {
   if (models.length === 0) return null;
   return (
-    <div className="mt-3 flex flex-wrap gap-1.5 rounded-md border bg-card p-2">
+    <div className="mt-3 grid gap-2 rounded-md border bg-card p-2 md:grid-cols-2">
       {models.map((model) => (
-        <button key={`${model.type}-${model.id}`} type="button" className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground" onClick={() => onPick(model)}>
-          {model.name} · {model.type}
+        <button
+          key={model.id}
+          type="button"
+          className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2 py-2 text-left text-[11px] text-muted-foreground transition hover:border-border/80 hover:text-foreground"
+          onClick={() => onPick(model)}
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
+            {purpose === "embedding" ? <Database className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium text-foreground">{model.name}</span>
+            <span className="block truncate text-[10px] uppercase tracking-wide text-muted-foreground">{purpose}</span>
+          </span>
         </button>
       ))}
     </div>
-  );
-}
-
-function HostedToolsSettings({ value, onChange }: { value: AgentHostedToolSettings; onChange: (value: AgentHostedToolSettings) => void }) {
-  const tools = withDefaultAgentTools(value);
-  const update = (patch: Partial<AgentHostedToolSettings>) => onChange(withDefaultAgentTools({ ...tools, ...patch }));
-  const [mcpText, setMcpText] = useState(stringifyMcpServers(tools.hostedMcpServers));
-
-  useEffect(() => {
-    setMcpText(stringifyMcpServers(tools.hostedMcpServers));
-  }, [tools.hostedMcpServers]);
-
-  return (
-    <section className="mt-3 rounded-lg border bg-card p-3">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div>
-          <div className="text-xs font-semibold">OpenAI Hosted Tools</div>
-          <div className="mt-1 text-[11px] text-muted-foreground">Used by Responses providers; local shell, patch, RAG, and ask-user stay separate.</div>
-        </div>
-        <TogglePill
-          enabled={Boolean(tools.toolSearch?.enabled)}
-          labelOn="Tool search"
-          labelOff="Tool search off"
-          onClick={() => update({ toolSearch: { enabled: !tools.toolSearch?.enabled } })}
-        />
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-2">
-        <ToolToggle
-          title="Web search"
-          detail="Live web search with optional domain filters."
-          enabled={Boolean(tools.webSearch?.enabled)}
-          onToggle={() => update({ webSearch: { ...tools.webSearch, enabled: !tools.webSearch?.enabled } })}
-        />
-        <ToolToggle
-          title="File search"
-          detail="OpenAI vector store search; local LanceDB RAG remains default."
-          enabled={Boolean(tools.fileSearch?.enabled)}
-          onToggle={() => update({ fileSearch: { ...tools.fileSearch, enabled: !tools.fileSearch?.enabled } })}
-        />
-        <ToolToggle
-          title="Code interpreter"
-          detail="Hosted container for code/data artifacts."
-          enabled={Boolean(tools.codeInterpreter?.enabled)}
-          onToggle={() => update({ codeInterpreter: { ...tools.codeInterpreter, enabled: !tools.codeInterpreter?.enabled } })}
-        />
-        <ToolToggle
-          title="Image generation"
-          detail="Hosted image_generation tool for generated visuals."
-          enabled={Boolean(tools.imageGeneration?.enabled)}
-          onToggle={() => update({ imageGeneration: { ...tools.imageGeneration, enabled: !tools.imageGeneration?.enabled } })}
-        />
-      </div>
-
-      <div className="mt-3 grid gap-2 md:grid-cols-2">
-        <Field
-          label="Web allowed domains"
-          value={listToCsv(tools.webSearch?.allowedDomains)}
-          placeholder="openai.com, law.edu"
-          onChange={(text) => update({ webSearch: { ...tools.webSearch, enabled: Boolean(tools.webSearch?.enabled), allowedDomains: csvToList(text) } })}
-        />
-        <label className="space-y-1 text-[11px] text-muted-foreground">
-          <span>Web context size</span>
-          <select
-            className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none"
-            value={tools.webSearch?.searchContextSize || "medium"}
-            onChange={(event) =>
-              update({
-                webSearch: {
-                  ...tools.webSearch,
-                  enabled: Boolean(tools.webSearch?.enabled),
-                  searchContextSize: event.target.value as "low" | "medium" | "high",
-                },
-              })
-            }
-          >
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-          </select>
-        </label>
-        <Field
-          label="File search vector stores"
-          value={listToCsv(tools.fileSearch?.vectorStoreIds)}
-          placeholder="vs_..., vs_..."
-          onChange={(text) => update({ fileSearch: { ...tools.fileSearch, enabled: Boolean(tools.fileSearch?.enabled), vectorStoreIds: csvToList(text) } })}
-        />
-        <Field
-          label="Image model"
-          value={tools.imageGeneration?.model || ""}
-          placeholder="gpt-image-1.5"
-          onChange={(model) => update({ imageGeneration: { ...tools.imageGeneration, enabled: Boolean(tools.imageGeneration?.enabled), model } })}
-        />
-      </div>
-
-      <TextAreaField
-        label="Hosted MCP servers JSON"
-        value={mcpText}
-        placeholder='[{"serverLabel":"github","serverUrl":"https://...","allowedTools":["search"]}]'
-        onChange={(text) => {
-          setMcpText(text);
-          const parsed = parseMcpServers(text);
-          if (!text.trim() || parsed.length > 0) update({ hostedMcpServers: parsed });
-        }}
-      />
-    </section>
-  );
-}
-
-function ToolToggle({
-  title,
-  detail,
-  enabled,
-  onToggle,
-}: {
-  title: string;
-  detail: string;
-  enabled: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cx("rounded-lg border p-2 text-left transition", enabled ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground")}
-      onClick={onToggle}
-    >
-      <span className="block text-xs font-semibold">{title}</span>
-      <span className="mt-0.5 block text-[10px] leading-4 opacity-80">{detail}</span>
-    </button>
   );
 }
 
@@ -1162,83 +1244,25 @@ function ToolChip({ icon, label }: { icon: ReactNode; label: string }) {
 function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<ProviderDraftInput> = {}): ProviderDraftInput {
   return {
     id: provider.id,
+    purpose: provider.purpose,
     name: provider.name,
+    kind: provider.kind,
     protocol: provider.protocol,
+    authMode: provider.authMode,
     baseUrl: provider.baseUrl,
     apiKey: "",
-    chatModel: provider.chatModel || "",
-    embeddingModel: provider.embeddingModel || "",
-    multimodalModel: provider.multimodalModel || "",
+    models: provider.models.map((model) => ({ ...model })),
+    selectedModel: provider.selectedModel,
     enabled: provider.enabled,
-    embeddingEnabled: provider.embeddingEnabled ?? Boolean(provider.embeddingModel),
-    agentTools: withDefaultAgentTools(provider.agentTools),
     ...overrides,
   };
 }
 
-function defaultAgentTools(): AgentHostedToolSettings {
-  return {
-    webSearch: { enabled: false, searchContextSize: "medium", allowedDomains: [] },
-    fileSearch: { enabled: false, vectorStoreIds: [] },
-    codeInterpreter: { enabled: false },
-    imageGeneration: { enabled: false },
-    toolSearch: { enabled: false },
-    hostedMcpServers: [],
-  };
-}
-
-function withDefaultAgentTools(value?: AgentHostedToolSettings): AgentHostedToolSettings {
-  const base = defaultAgentTools();
-  return {
-    ...base,
-    ...value,
-    webSearch: { ...base.webSearch, ...value?.webSearch, enabled: Boolean(value?.webSearch?.enabled) },
-    fileSearch: { ...base.fileSearch, ...value?.fileSearch, enabled: Boolean(value?.fileSearch?.enabled) },
-    codeInterpreter: { ...base.codeInterpreter, ...value?.codeInterpreter, enabled: Boolean(value?.codeInterpreter?.enabled) },
-    imageGeneration: { ...base.imageGeneration, ...value?.imageGeneration, enabled: Boolean(value?.imageGeneration?.enabled) },
-    toolSearch: { ...base.toolSearch, ...value?.toolSearch, enabled: Boolean(value?.toolSearch?.enabled) },
-    hostedMcpServers: value?.hostedMcpServers || [],
-  };
-}
-
-function csvToList(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function listToCsv(value?: string[]): string {
-  return (value || []).join(", ");
-}
-
-function stringifyMcpServers(value?: AgentHostedMcpServerConfig[]): string {
-  if (!value || value.length === 0) return "";
-  return JSON.stringify(value, null, 2);
-}
-
-function parseMcpServers(value: string): AgentHostedMcpServerConfig[] {
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isMcpServerConfig);
-  } catch {
-    return [];
-  }
-}
-
-function isMcpServerConfig(value: unknown): value is AgentHostedMcpServerConfig {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.serverLabel === "string" && (typeof record.serverUrl === "string" || typeof record.connectorId === "string");
-}
-
 function protocolLabel(protocol: ProviderProtocol): string {
-  return protocols.find((item) => item.value === protocol)?.label || protocol;
+  return [...agentProtocols, ...embeddingProtocols].find((item) => item.value === protocol)?.label || protocol;
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Operation failed.";
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.trim() || "Operation failed.";
 }

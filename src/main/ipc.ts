@@ -1,41 +1,42 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { OpenDialogOptions } from "electron";
 import type {
-  AgentRunInput,
-  CourseImageAnalyzeInput,
+  CreateCourseInput,
+  CreateSemesterInput,
   CreateTaskInput,
   CreateThreadInput,
   FileImportInput,
   ProviderDraftInput,
-  SemesterImageAnalyzeInput,
   SkillImportInput,
   SkillWriteInput,
   SkillUpdateInput,
-  TimetableImageAnalyzeInput,
   TimetableRangeQuery,
 } from "../types/domain";
 import { IPC_CHANNELS } from "../types/ipc";
 import type { IndexingQueueService } from "./indexing";
-import { AgentOrchestrator } from "./services/agent-orchestrator";
 import { LocalStore } from "./services/local-store";
 
-export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator, indexingQueue?: IndexingQueueService): void {
+export function registerIpcHandlers(store: LocalStore, indexingQueue?: IndexingQueueService): void {
   ipcMain.handle(IPC_CHANNELS.semesterList, () => store.listSemesters());
+  ipcMain.handle(IPC_CHANNELS.semesterListArchived, () => store.listArchivedSemesters());
   ipcMain.handle(IPC_CHANNELS.semesterCurrent, () => store.currentSemester());
+  ipcMain.handle(IPC_CHANNELS.semesterCreate, (_event, input: CreateSemesterInput) => store.createSemester(input));
   ipcMain.handle(IPC_CHANNELS.semesterSelect, (_event, semesterId: string) => store.selectSemester(semesterId));
-  ipcMain.handle(IPC_CHANNELS.semesterAnalyzeImage, (_event, input: SemesterImageAnalyzeInput) =>
-    store.analyzeSemesterImage(input),
-  );
+  ipcMain.handle(IPC_CHANNELS.semesterArchive, (_event, semesterId: string) => store.archiveSemester(semesterId));
+  ipcMain.handle(IPC_CHANNELS.semesterRestore, (_event, semesterId: string) => store.restoreSemester(semesterId));
+  ipcMain.handle(IPC_CHANNELS.semesterDelete, (_event, semesterId: string) => store.deleteSemester(semesterId));
   ipcMain.handle(IPC_CHANNELS.coursesList, () => store.listCourses());
-  ipcMain.handle(IPC_CHANNELS.coursesAnalyzeImage, (_event, input: CourseImageAnalyzeInput) =>
-    store.analyzeCourseImage(input),
-  );
+  ipcMain.handle(IPC_CHANNELS.coursesListArchived, () => store.listArchivedCourses());
+  ipcMain.handle(IPC_CHANNELS.coursesCreate, (_event, input: CreateCourseInput) => store.createCourse(input));
+  ipcMain.handle(IPC_CHANNELS.coursesArchive, (_event, courseId: string) => store.archiveCourse(courseId));
+  ipcMain.handle(IPC_CHANNELS.coursesRestore, (_event, courseId: string) => store.restoreCourse(courseId));
+  ipcMain.handle(IPC_CHANNELS.coursesDelete, (_event, courseId: string) => store.deleteCourse(courseId));
   ipcMain.handle(IPC_CHANNELS.tasksList, (_event, courseId: string) => store.listTasks(courseId));
   ipcMain.handle(IPC_CHANNELS.tasksCreate, (_event, input: CreateTaskInput) => store.createTask(input));
   ipcMain.handle(IPC_CHANNELS.threadsList, (_event, courseId?: string) => store.listThreads(courseId));
   ipcMain.handle(IPC_CHANNELS.threadsCreate, (_event, input: CreateThreadInput) => store.createThread(input));
-  ipcMain.handle(IPC_CHANNELS.threadsMessages, (_event, threadId: string) => store.messages(threadId));
-  ipcMain.handle(IPC_CHANNELS.skillsList, (_event, courseId?: string) => store.listSkills(courseId));
+  ipcMain.handle(IPC_CHANNELS.threadsArchive, (_event, threadId: string) => store.archiveThread(threadId));
+  ipcMain.handle(IPC_CHANNELS.skillsList, () => store.listSkills());
   ipcMain.handle(IPC_CHANNELS.skillsUpdate, (_event, input: SkillUpdateInput) => store.updateSkill(input));
   ipcMain.handle(IPC_CHANNELS.skillsReadContent, (_event, skillId: string) => store.readSkillContent(skillId));
   ipcMain.handle(IPC_CHANNELS.skillsWriteContent, (_event, input: SkillWriteInput) => store.writeSkillContent(input));
@@ -94,26 +95,17 @@ export function registerIpcHandlers(store: LocalStore, agent: AgentOrchestrator,
   });
   ipcMain.handle(IPC_CHANNELS.filesIndexingJobs, (_event, courseId?: string) => store.listIndexingJobs(courseId));
   ipcMain.handle(IPC_CHANNELS.filesIndexingCancel, (_event, jobId: string) => store.cancelIndexingJob(jobId));
+  ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: string) => store.deleteFile(fileId));
+  ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: string) => {
+    const sourcePath = store.fileSourcePath(fileId);
+    if (!sourcePath) throw new Error("File source path not available.");
+    shell.showItemInFolder(sourcePath);
+  });
   ipcMain.handle(IPC_CHANNELS.providersList, () => store.listProviders());
   ipcMain.handle(IPC_CHANNELS.providersSave, (_event, input: ProviderDraftInput) => store.saveProvider(input));
+  ipcMain.handle(IPC_CHANNELS.providersDelete, (_event, providerId: string) => store.deleteProvider(providerId));
   ipcMain.handle(IPC_CHANNELS.providersModels, (_event, providerId: string) => store.providerModels(providerId));
   ipcMain.handle(IPC_CHANNELS.providersTest, (_event, providerId: string) => store.testProvider(providerId));
   ipcMain.handle(IPC_CHANNELS.timetableRange, (_event, query: TimetableRangeQuery) => store.listTimetableEvents(query));
-  ipcMain.handle(IPC_CHANNELS.timetableAnalyzeImage, (_event, input: TimetableImageAnalyzeInput) =>
-    store.analyzeTimetableImage(input),
-  );
-  ipcMain.handle(IPC_CHANNELS.contextEstimate, (_event, threadId: string) => store.contextReport(threadId));
-  ipcMain.handle(IPC_CHANNELS.agentRuntimeStatus, () => agent.runtimeStatus());
-  ipcMain.handle(IPC_CHANNELS.agentRun, (_event, input: AgentRunInput) => agent.run(input));
-  ipcMain.handle(IPC_CHANNELS.agentStop, (_event, runId: string) => agent.stop(runId));
-  ipcMain.handle(IPC_CHANNELS.agentApprove, (_event, approvalId: string) => agent.approve(approvalId));
-  ipcMain.handle(IPC_CHANNELS.agentReject, (_event, approvalId: string) => agent.reject(approvalId));
-  ipcMain.handle(IPC_CHANNELS.agentRespondAskUser, (_event, requestId: string, response: string) =>
-    agent.respondAskUser(requestId, response),
-  );
-  ipcMain.handle(IPC_CHANNELS.agentEvents, (_event, threadId: string, afterSeq?: number) =>
-    agent.events(threadId, afterSeq),
-  );
-  ipcMain.handle(IPC_CHANNELS.agentPendingRequests, () => agent.pendingRequests());
   ipcMain.handle(IPC_CHANNELS.appOpenExternal, (_event, url: string) => shell.openExternal(url));
 }

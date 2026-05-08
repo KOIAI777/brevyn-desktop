@@ -1,22 +1,27 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FileText, Image, Sparkles, Upload, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FileText, GraduationCap, Image, Settings2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Course, SemesterWorkspace, TimetableEvent, TimetableViewMode } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { SemesterManagementDialog } from "./SemesterManagementDialog";
 
 export function TimetableDialog({
   course,
-  onSemesterUpdated,
+  semesters,
+  onSelectSemester,
+  onWorkspaceChanged,
   onClose,
 }: {
   course?: Course;
-  onSemesterUpdated?: (semester: SemesterWorkspace) => void;
+  semesters: SemesterWorkspace[];
+  onSelectSemester?: (semesterId: string) => Promise<void> | void;
+  onWorkspaceChanged?: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const [viewMode, setViewMode] = useState<TimetableViewMode>("week");
-  const [anchorDate, setAnchorDate] = useState(() => new Date("2026-05-06T12:00:00"));
+  const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [events, setEvents] = useState<TimetableEvent[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
+  const [managingSemesters, setManagingSemesters] = useState(false);
 
   const range = useMemo(() => getRange(anchorDate, viewMode), [anchorDate, viewMode]);
 
@@ -44,19 +49,14 @@ export function TimetableDialog({
     setEvents(result);
   }
 
-  async function analyzeImage() {
-    setAnalyzing(true);
-    try {
-      const result = await window.uclaw.semester.analyzeImage({
-        instruction: "Recognize semester number, term name, semester date range, school events, and timetable anchors from uploaded school calendar or timetable images.",
-      });
-      setSemester(result.semester);
-      onSemesterUpdated?.(result.semester);
-      setAnchorDate(new Date(result.semester.startsAt || result.createdEvents[0]?.startsAt || Date.now()));
-      await loadEvents();
-    } finally {
-      setAnalyzing(false);
-    }
+  async function selectSemester(semesterId: string) {
+    await onSelectSemester?.(semesterId);
+    await Promise.all([loadSemester(), loadEvents()]);
+  }
+
+  async function refreshWorkspace() {
+    await onWorkspaceChanged?.();
+    await Promise.all([loadSemester(), loadEvents()]);
   }
 
   return (
@@ -68,7 +68,7 @@ export function TimetableDialog({
               <CalendarDays className="h-4 w-4" />
               Timetable
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{semester?.term || range.label} · semester, deadlines, school events, and course sessions</div>
+            <div className="truncate text-[11px] text-muted-foreground">{semester?.term || "Default workspace"} · semester, deadlines, school events, and course sessions</div>
           </div>
           <button
             type="button"
@@ -118,26 +118,38 @@ export function TimetableDialog({
           <aside className="space-y-3">
             <section className="rounded-lg border bg-background/70 p-3">
               <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
-                <Sparkles className="h-3.5 w-3.5" />
-                Semester Recognition
+                <GraduationCap className="h-3.5 w-3.5" />
+                Semester
               </div>
-              <div className="mb-2 rounded-md bg-muted/55 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                <span className="font-medium text-foreground">{semester?.semesterNo || "Semester not recognized"}</span>
-                <span> · </span>
-                <span>{semester?.folderName || "folder will be generated after upload"}</span>
-              </div>
-              <div className="rounded-md border border-dashed bg-card px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
-                Upload a school calendar or timetable image first. Multimodal AI recognizes the semester number and date range, then generates the semester folder.
-              </div>
+              {semesters.length > 0 && (
+                <div className="mb-3 space-y-2">
+                  <select
+                    className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none"
+                    value={semester?.id || ""}
+                    onChange={(event) => void selectSemester(event.target.value)}
+                  >
+                    {semesters.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.term}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="truncate text-[11px] text-muted-foreground">{semester?.folderName || "semester folder"}</div>
+                </div>
+              )}
               <button
                 type="button"
-                className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={analyzeImage}
-                disabled={analyzing}
+                className="mb-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-card px-2 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={() => setManagingSemesters(true)}
               >
-                <Upload className="h-3.5 w-3.5" />
-                {analyzing ? "Recognizing..." : "Recognize semester"}
+                <Settings2 className="h-3.5 w-3.5" />
+                Manage semesters
               </button>
+              <div className="rounded-md bg-muted/55 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+                <span className="font-medium text-foreground">{semester?.semesterNo || "—"}</span>
+                <span> · </span>
+                <span>{semester?.folderName || "no semester selected"}</span>
+              </div>
             </section>
 
             <section className="rounded-lg border bg-background/70 p-3">
@@ -164,6 +176,16 @@ export function TimetableDialog({
           </aside>
         </div>
       </div>
+      {managingSemesters && (
+        <SemesterManagementDialog
+          onSelectSemester={selectSemester}
+          onWorkspaceChanged={refreshWorkspace}
+          onClose={() => {
+            setManagingSemesters(false);
+            void refreshWorkspace();
+          }}
+        />
+      )}
     </div>
   );
 }

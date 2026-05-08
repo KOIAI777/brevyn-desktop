@@ -3,7 +3,7 @@ import { Archive, CalendarDays, ChevronRight, FolderOpen, GraduationCap, Home, P
 import type { Course, Thread, UclawTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { formatRelative } from "@/lib/workspace-files";
-import { RunDot, StatusPill, TaskTypeIcon } from "@/components/status/RunIndicators";
+import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
 
 export function WorkspaceSidebar({
   collapsed,
@@ -17,6 +17,7 @@ export function WorkspaceSidebar({
   onSelectHome,
   onSelectTask,
   onSelectThread,
+  onArchiveThread,
   onCreateThread,
   onOpenCourses,
   onOpenTimetable,
@@ -33,6 +34,7 @@ export function WorkspaceSidebar({
   onSelectHome: (courseId: string) => void;
   onSelectTask: (courseId: string, taskId: string) => void;
   onSelectThread: (thread: Thread) => void;
+  onArchiveThread: (thread: Thread) => void;
   onCreateThread: (courseId?: string, taskId?: string) => void;
   onOpenCourses: () => void;
   onOpenTimetable: () => void;
@@ -66,7 +68,6 @@ export function WorkspaceSidebar({
               title={thread.title}
               onClick={() => onSelectThread(thread)}
             >
-              <RunDot status={thread.latestRunStatus} />
               {thread.title.slice(0, 1).toUpperCase() || index + 1}
             </button>
           ))}
@@ -148,7 +149,7 @@ export function WorkspaceSidebar({
                 {threads
                   .filter((thread) => thread.courseId === homeCourse.id)
                   .map((thread) => (
-                    <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} />
+                    <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} onArchive={() => onArchiveThread(thread)} />
                   ))}
               </div>
             )}
@@ -217,7 +218,7 @@ export function WorkspaceSidebar({
                       {homeTaskOpen && (
                         <div className="ml-4 mt-1 space-y-0.5 border-l border-border/40 pl-2">
                           {homeThreads.map((thread) => (
-                            <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} />
+                            <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} onArchive={() => onArchiveThread(thread)} />
                           ))}
                         </div>
                       )}
@@ -242,7 +243,6 @@ export function WorkspaceSidebar({
                             <TaskTypeIcon task={task} />
                             <span className="min-w-0 flex-1 truncate">{task.title}</span>
                             <SessionCount count={taskThreads.length} />
-                            <StatusPill status={task.status} />
                           </button>
                           <button
                             type="button"
@@ -256,7 +256,7 @@ export function WorkspaceSidebar({
                         {taskOpen && taskThreads.length > 0 && (
                           <div className="ml-4 mt-1 space-y-0.5 border-l border-border/40 pl-2">
                             {taskThreads.map((thread) => (
-                              <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} />
+                              <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} onArchive={() => onArchiveThread(thread)} />
                             ))}
                           </div>
                         )}
@@ -304,17 +304,31 @@ function SessionCount({ count }: { count: number }) {
   return <span className="shrink-0 rounded bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
 }
 
-function ThreadButton({ thread, active, onClick }: { thread: Thread; active: boolean; onClick: () => void }) {
+function ThreadButton({ thread, active, onClick, onArchive }: { thread: Thread; active: boolean; onClick: () => void; onArchive: () => void }) {
   return (
-    <button
-      className={cx("group flex w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px]", active ? "bg-muted text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-      onClick={onClick}
+    <div
+      className={cx("group flex w-full min-w-0 items-center rounded-md text-[11px]", active ? "bg-muted text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
       title={thread.title}
     >
-      <RunDot status={thread.latestRunStatus} />
-      <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-      <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
-      <Archive className="h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-50" />
-    </button>
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+        onClick={onClick}
+      >
+        <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+        <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
+      </button>
+      <button
+        type="button"
+        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
+        title="Archive session"
+        onClick={(event) => {
+          event.stopPropagation();
+          onArchive();
+        }}
+      >
+        <Archive className="h-3 w-3" />
+      </button>
+    </div>
   );
 }

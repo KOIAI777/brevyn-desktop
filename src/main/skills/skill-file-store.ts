@@ -7,12 +7,6 @@ interface SkillFrontmatter {
   name?: string;
   description?: string;
   version?: string;
-  scope?: SkillItem["scope"];
-}
-
-export interface SkillFileQuery {
-  semesterId: string;
-  courseId?: string;
 }
 
 export class SkillFileStore {
@@ -42,51 +36,40 @@ export class SkillFileStore {
     }
   }
 
-  listSkills(query: SkillFileQuery): SkillItem[] {
-    const globalSkills = [
-      ...this.scanDir(join(this.rootPath, "skills"), true, "default"),
-      ...this.scanDir(join(this.rootPath, "skills-inactive"), false, "default"),
+  listSkills(): SkillItem[] {
+    return [
+      ...this.scanDir(join(this.rootPath, "skills"), true),
+      ...this.scanDir(join(this.rootPath, "skills-inactive"), false),
     ];
-    const courseSkills = query.courseId
-      ? [
-          ...this.scanDir(this.courseSkillsDir(query.semesterId, query.courseId, true), true, "course", query.courseId),
-          ...this.scanDir(this.courseSkillsDir(query.semesterId, query.courseId, false), false, "course", query.courseId),
-        ]
-      : [];
-    return [...globalSkills, ...courseSkills];
   }
 
-  toggleSkill(id: string, enabled: boolean, query: SkillFileQuery): SkillItem | null {
-    const resolved = this.resolveSkillDir(id, query);
+  toggleSkill(id: string, enabled: boolean): SkillItem | null {
+    const resolved = this.resolveSkillDir(id);
     if (!resolved) return null;
-    const source = resolved.courseId
-      ? this.courseSkillsDir(query.semesterId, resolved.courseId, !enabled)
-      : join(this.rootPath, enabled ? "skills-inactive" : "skills");
-    const target = resolved.courseId
-      ? this.courseSkillsDir(query.semesterId, resolved.courseId, enabled)
-      : join(this.rootPath, enabled ? "skills" : "skills-inactive");
+    const source = join(this.rootPath, enabled ? "skills-inactive" : "skills");
+    const target = join(this.rootPath, enabled ? "skills" : "skills-inactive");
     const sourcePath = join(source, resolved.slug);
     const targetPath = join(target, resolved.slug);
     if (!existsSync(sourcePath)) return null;
     mkdirSync(target, { recursive: true });
     renameSync(sourcePath, targetPath);
-    return this.readSkillDir(targetPath, resolved.slug, enabled, resolved.scope, resolved.courseId);
+    return this.readSkillDir(targetPath, resolved.slug, enabled);
   }
 
-  readSkillContent(id: string, query: SkillFileQuery): string | null {
-    const resolved = this.resolveSkillDir(id, query);
+  readSkillContent(id: string): string | null {
+    const resolved = this.resolveSkillDir(id);
     if (!resolved) return null;
     return readFileSync(join(resolved.dir, "SKILL.md"), "utf8");
   }
 
-  writeSkillContent(id: string, content: string, query: SkillFileQuery): SkillItem | null {
-    const resolved = this.resolveSkillDir(id, query);
+  writeSkillContent(id: string, content: string): SkillItem | null {
+    const resolved = this.resolveSkillDir(id);
     if (!resolved) return null;
     writeFileSync(join(resolved.dir, "SKILL.md"), content, "utf8");
-    return this.readSkillDir(resolved.dir, resolved.slug, resolved.enabled, resolved.scope, resolved.courseId);
+    return this.readSkillDir(resolved.dir, resolved.slug, resolved.enabled);
   }
 
-  importSkillFolder(sourcePath: string, query: SkillFileQuery, enabled = true): SkillItem {
+  importSkillFolder(sourcePath: string, enabled = true): SkillItem {
     const sourceDir = resolve(sourcePath);
     const slug = basename(sourceDir);
     if (!slug) throw new Error("Skill folder must have a valid directory name.");
@@ -95,17 +78,10 @@ export class SkillFileStore {
       throw new Error(`Imported skill folder is missing SKILL.md: ${sourceDir}`);
     }
 
-    const scope: SkillItem["scope"] = query.courseId ? "course" : "default";
-    const targetBaseDir = query.courseId
-      ? this.courseSkillsDir(query.semesterId, query.courseId, enabled)
-      : join(this.rootPath, enabled ? "skills" : "skills-inactive");
+    const targetBaseDir = join(this.rootPath, enabled ? "skills" : "skills-inactive");
     const targetDir = join(targetBaseDir, slug);
-    const inactiveTargetDir = query.courseId
-      ? this.courseSkillsDir(query.semesterId, query.courseId, false)
-      : join(this.rootPath, "skills-inactive");
-    const activeTargetDir = query.courseId
-      ? this.courseSkillsDir(query.semesterId, query.courseId, true)
-      : join(this.rootPath, "skills");
+    const inactiveTargetDir = join(this.rootPath, "skills-inactive");
+    const activeTargetDir = join(this.rootPath, "skills");
 
     if (existsSync(join(activeTargetDir, slug)) || existsSync(join(inactiveTargetDir, slug))) {
       throw new Error(`A skill with the same folder name already exists: ${slug}`);
@@ -113,43 +89,40 @@ export class SkillFileStore {
 
     mkdirSync(targetBaseDir, { recursive: true });
     cpSync(sourceDir, targetDir, { recursive: true, errorOnExist: true, force: false });
-    const imported = this.readSkillDir(targetDir, slug, enabled, scope, query.courseId);
+    const imported = this.readSkillDir(targetDir, slug, enabled);
     if (!imported) {
       throw new Error(`Failed to load imported skill: ${slug}`);
     }
     return imported;
   }
 
-  skillFolderPath(id: string, query: SkillFileQuery): string | null {
-    return this.resolveSkillDir(id, query)?.dir || null;
+  skillFolderPath(id: string): string | null {
+    return this.resolveSkillDir(id)?.dir || null;
   }
 
-  private scanDir(dir: string, enabled: boolean, scope: SkillItem["scope"], courseId?: string): SkillItem[] {
+  private scanDir(dir: string, enabled: boolean): SkillItem[] {
     if (!existsSync(dir)) return [];
     return readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .flatMap((entry) => {
-        const skill = this.readSkillDir(join(dir, entry.name), entry.name, enabled, scope, courseId);
+        const skill = this.readSkillDir(join(dir, entry.name), entry.name, enabled);
         return skill ? [skill] : [];
       });
   }
 
-  private readSkillDir(dir: string, slug: string, enabled: boolean, scope: SkillItem["scope"], courseId?: string): SkillItem | null {
+  private readSkillDir(dir: string, slug: string, enabled: boolean): SkillItem | null {
     const skillPath = join(dir, "SKILL.md");
     if (!existsSync(skillPath)) return null;
     try {
       const parsed = parseSkillMarkdown(readFileSync(skillPath, "utf8"));
-      const effectiveScope = courseId ? "course" : parsed.frontmatter.scope || scope;
       return {
-        id: courseId ? `course:${courseId}:${slug}` : `file:${slug}`,
+        id: `file:${slug}`,
         slug,
         name: parsed.frontmatter.name || titleFromSlug(slug),
         enabled,
-        scope: effectiveScope,
         description: parsed.frontmatter.description || "Workspace skill loaded from SKILL.md.",
         version: parsed.frontmatter.version || "0.1.0",
         instructions: parsed.body.trim(),
-        courseId,
         sourcePath: skillPath,
       };
     } catch (error) {
@@ -158,30 +131,18 @@ export class SkillFileStore {
     }
   }
 
-  private courseSkillsDir(semesterId: string, courseId: string, enabled: boolean): string {
-    return join(this.rootPath, "semesters", semesterId, "courses", courseId, enabled ? "skills" : "skills-inactive");
-  }
-
-  private resolveSkillDir(
-    id: string,
-    query: SkillFileQuery,
-  ): { dir: string; slug: string; enabled: boolean; scope: SkillItem["scope"]; courseId?: string } | null {
+  private resolveSkillDir(id: string): { dir: string; slug: string; enabled: boolean } | null {
     const parsed = parseFileSkillId(id);
     if (!parsed) return null;
-    const scope: SkillItem["scope"] = parsed.courseId ? "course" : "default";
-    const activeDir = parsed.courseId
-      ? this.courseSkillsDir(query.semesterId, parsed.courseId, true)
-      : join(this.rootPath, "skills");
-    const inactiveDir = parsed.courseId
-      ? this.courseSkillsDir(query.semesterId, parsed.courseId, false)
-      : join(this.rootPath, "skills-inactive");
+    const activeDir = join(this.rootPath, "skills");
+    const inactiveDir = join(this.rootPath, "skills-inactive");
     const activePath = join(activeDir, parsed.slug);
     if (existsSync(activePath)) {
-      return { dir: activePath, slug: parsed.slug, enabled: true, scope, courseId: parsed.courseId };
+      return { dir: activePath, slug: parsed.slug, enabled: true };
     }
     const inactivePath = join(inactiveDir, parsed.slug);
     if (existsSync(inactivePath)) {
-      return { dir: inactivePath, slug: parsed.slug, enabled: false, scope, courseId: parsed.courseId };
+      return { dir: inactivePath, slug: parsed.slug, enabled: false };
     }
     return null;
   }
@@ -206,7 +167,6 @@ function parseFrontmatter(value: string): SkillFrontmatter {
     if (key === "name") result.name = raw;
     if (key === "description") result.description = raw;
     if (key === "version") result.version = raw;
-    if (key === "scope" && (raw === "default" || raw === "course")) result.scope = raw;
   }
   return result;
 }
@@ -219,12 +179,9 @@ function unquote(value: string): string {
   return trimmed;
 }
 
-function parseFileSkillId(id: string): { slug: string; courseId?: string } | null {
+function parseFileSkillId(id: string): { slug: string } | null {
   if (id.startsWith("file:")) return { slug: id.slice("file:".length) };
-  if (!id.startsWith("course:")) return null;
-  const [, courseId, ...slugParts] = id.split(":");
-  const slug = slugParts.join(":");
-  return courseId && slug ? { courseId, slug } : null;
+  return null;
 }
 
 function titleFromSlug(slug: string): string {
@@ -241,7 +198,6 @@ function renderSkillTemplate(blueprint: SkillBlueprint): string {
     `name: "${blueprint.name}"`,
     `description: "${blueprint.description}"`,
     `version: "${blueprint.version}"`,
-    `scope: "${blueprint.scope}"`,
     "---",
     "",
     blueprint.instructions,

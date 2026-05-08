@@ -28,10 +28,12 @@ export function AppTitleBar({
     <header className="drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-card/70 px-2 text-foreground backdrop-blur">
       <div className="w-[76px] shrink-0" />
 
-      <div className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background/65 px-2 text-[11px] font-medium text-muted-foreground sm:flex">
-        <CalendarDays className="h-3.5 w-3.5" />
-        <span className="max-w-[128px] truncate text-foreground">{semester?.term || "Semester"}</span>
-      </div>
+      {semester && (
+        <div className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background/65 px-2 text-[11px] font-medium text-muted-foreground sm:flex">
+          <CalendarDays className="h-3.5 w-3.5" />
+          <span className="max-w-[128px] truncate text-foreground">{semester.term}</span>
+        </div>
+      )}
 
       <div className="no-drag flex items-center gap-1">
         <button

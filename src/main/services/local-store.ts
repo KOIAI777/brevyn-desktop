@@ -1,13 +1,10 @@
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
-import type { AgentInputItem } from "@openai/agents";
 import type {
-  ChatMessage,
-  ContextWindowReport,
   Course,
   CourseFileSection,
-  CourseImageAnalyzeInput,
-  CourseImageAnalyzeResult,
+  CreateCourseInput,
+  CreateSemesterInput,
   CreateTaskInput,
   CreateThreadInput,
   FileImportInput,
@@ -21,8 +18,6 @@ import type {
   ProviderModel,
   ProviderTestResult,
   RagSearchResult,
-  SemesterImageAnalyzeInput,
-  SemesterImageAnalyzeResult,
   SemesterWorkspace,
   SkillItem,
   SkillImportInput,
@@ -31,846 +26,388 @@ import type {
   TaskFileBucket,
   TaskType,
   TimetableEvent,
-  TimetableImageAnalyzeInput,
-  TimetableImageAnalyzeResult,
   TimetableRangeQuery,
   Thread,
-  UclawRunStreamItem,
   UclawTask,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
-import { SQLiteBusinessStore, type BusinessSnapshot } from "../storage";
+import { SQLiteBusinessStore, type BusinessData } from "../storage";
+import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
+import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { RagIndexService } from "./rag-index-service";
 import { SkillFileStore } from "../skills/skill-file-store";
 import { BUILTIN_SKILL_BLUEPRINTS } from "../skills/skill-registry";
+import {
+  DEFAULT_TASK_TYPE,
+  SEMESTER_HOME_COURSE_ID,
+  TASK_FILE_BUCKETS,
+  courseWorkspaceDir,
+  ensureCourseWorkspaceDir,
+  ensureImportTargetDir,
+  ensureSemesterSharedDirs,
+  ensureSemesterWorkspaceDir,
+  ensureTaskWorkspaceDir,
+  folderNameForCourse,
+  sanitizeFsSegment,
+  semesterWorkspaceDir,
+  taskBucketLabel,
+  taskTypeLabel,
+  taskWorkspaceDir,
+} from "./workspace-paths";
 
-export const SEMESTER_HOME_COURSE_ID = "semester-home";
+export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
 interface StoreShape {
-  semester: SemesterWorkspace;
+  semester: SemesterWorkspace | null;
   semesters: SemesterWorkspace[];
-  currentSemesterId: string;
+  currentSemesterId: string | null;
   courses: Course[];
   tasks: UclawTask[];
   threads: Thread[];
-  messages: ChatMessage[];
-  events: UclawRunStreamItem[];
   files: WorkspaceFileNode[];
   timetableEvents: TimetableEvent[];
-  providers: ModelProviderConfig[];
   indexingJobs: IndexingJob[];
+  indexingTasks: IndexingTaskRecord[];
 }
 
 const now = () => new Date().toISOString();
-const DEFAULT_WEEK_COUNT = 12;
-const DEFAULT_TASK_TYPES: TaskType[] = ["assignment", "exam"];
-const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  assignment: "Assignment",
-  project: "Project",
-  exam: "Exam",
-  lecture: "Lecture",
-};
-const TASK_FILE_BUCKET_LABELS: Record<TaskFileBucket, string> = {
-  materials: "Materials",
-  drafts: "Drafts",
-  submitted: "Submitted",
+const LEGACY_SEED_IDS = {
+  semester: new Set(["semester-2026-spring", "semester-2026-fall", "semester-current"]),
+  courses: new Set(["course-ai-law", "course-evidence", "course-writing"]),
+  tasks: new Set(["task-ai-policy-brief", "task-ai-case-map", "task-evidence-hearsay", "task-writing-memo"]),
+  threads: new Set(["thread-semester-home", "thread-home", "thread-policy-brief"]),
+
+  files: new Set([
+    "folder-ai-law-materials",
+    "file-ai-rubric",
+    "file-ai-lecture",
+    "file-ai-deck",
+    "file-ai-diagram",
+    "file-ai-agent-tool",
+    "folder-evidence-materials",
+    "file-evidence-hearsay",
+    "file-evidence-outline",
+    "folder-writing-materials",
+    "file-writing-memo",
+    "file-writing-citations",
+  ]),
+  timetableEvents: new Set([
+    "tt-ai-law-mon",
+    "tt-evidence-wed",
+    "tt-writing-fri",
+    "tt-ai-deadline",
+    "tt-school-reading-week",
+  ]),
 };
 
 function initialStore(): StoreShape {
-  const timestamp = now();
   return {
-    semester: {
-      id: "semester-2026-spring",
-      semesterNo: "2026-SPRING",
-      term: "Spring 2026",
-      folderName: "Spring 2026",
-      startsAt: "2026-01-12T00:00:00.000Z",
-      endsAt: "2026-05-29T23:59:00.000Z",
-      source: "seed",
-      recognizedAt: timestamp,
-    },
-    semesters: [
-      {
-        id: "semester-2026-spring",
-        semesterNo: "2026-SPRING",
-        term: "Spring 2026",
-        folderName: "Spring 2026",
-        startsAt: "2026-01-12T00:00:00.000Z",
-        endsAt: "2026-05-29T23:59:00.000Z",
-        source: "seed",
-        recognizedAt: timestamp,
-      },
-    ],
-    currentSemesterId: "semester-2026-spring",
-    courses: [
-      {
-        id: SEMESTER_HOME_COURSE_ID,
-        name: "Home TaskAgent",
-        code: "SEMESTER",
-        term: "Spring 2026",
-        instructor: "Workspace",
-        workspaceKind: "semester_home",
-        color: "#111827",
-        description: "Semester-level TaskAgent that can see all course folders and route work into course/task workspaces.",
-      },
-      {
-        id: "course-ai-law",
-        name: "AI and Law",
-        code: "UCLAW 5101",
-        term: "Spring 2026",
-        instructor: "Dr. Morgan Chen",
-        workspaceKind: "course",
-        meetingTime: "Mon 09:30-11:00",
-        location: "Room 204",
-        color: "#2563eb",
-        description: "Regulation, liability, and evidence problems around applied AI systems.",
-      },
-      {
-        id: "course-evidence",
-        name: "Evidence",
-        code: "LAW 4204",
-        term: "Spring 2026",
-        instructor: "Prof. Ada Wu",
-        workspaceKind: "course",
-        meetingTime: "Wed 14:00-15:30",
-        location: "Trial Lab",
-        color: "#059669",
-        description: "Hearsay, character evidence, expert testimony, and trial objections.",
-      },
-      {
-        id: "course-writing",
-        name: "Legal Writing Studio",
-        code: "WRIT 3002",
-        term: "Spring 2026",
-        instructor: "T. Alvarez",
-        workspaceKind: "course",
-        meetingTime: "Fri 11:00-12:15",
-        location: "Writing Center",
-        color: "#c2410c",
-        description: "Research memos, citation hygiene, and draft revision workflows.",
-      },
-    ],
-    tasks: [
-      {
-        id: "task-ai-policy-brief",
-        courseId: "course-ai-law",
-        title: "Policy Brief: AI Liability",
-        taskType: "assignment",
-        status: "due_soon",
-        dueAt: "2026-05-14T23:59:00.000Z",
-        summary: "1500-word policy brief comparing strict liability and negligence standards.",
-      },
-      {
-        id: "task-ai-case-map",
-        courseId: "course-ai-law",
-        title: "Case Map: Platform Duty",
-        taskType: "project",
-        status: "in_progress",
-        dueAt: "2026-05-22T23:59:00.000Z",
-        summary: "Build a case map with holdings, facts, and open questions.",
-      },
-      {
-        id: "task-evidence-hearsay",
-        courseId: "course-evidence",
-        title: "Hearsay Exceptions Drill",
-        taskType: "exam",
-        status: "in_progress",
-        dueAt: "2026-05-19T10:00:00.000Z",
-        summary: "Practice classification under party admissions, present sense impression, and business records.",
-      },
-      {
-        id: "task-writing-memo",
-        courseId: "course-writing",
-        title: "Research Memo Revision",
-        taskType: "assignment",
-        status: "not_started",
-        dueAt: "2026-05-28T23:59:00.000Z",
-        summary: "Revise discussion section with counterargument and Bluebook cleanup.",
-      },
-    ],
-    threads: [
-      {
-        id: "thread-semester-home",
-        courseId: SEMESTER_HOME_COURSE_ID,
-        threadType: "semester_home",
-        title: "Home TaskAgent",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        latestRunStatus: "idle",
-        latestEventSeq: 0,
-        pendingApprovalCount: 0,
-      },
-      {
-        id: "thread-home",
-        courseId: "course-ai-law",
-        threadType: "course_home",
-        title: "TaskAgent Home",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        latestRunStatus: "idle",
-        latestEventSeq: 0,
-        pendingApprovalCount: 0,
-      },
-      {
-        id: "thread-policy-brief",
-        courseId: "course-ai-law",
-        taskId: "task-ai-policy-brief",
-        threadType: "task",
-        title: "Policy brief outline",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        latestRunStatus: "completed",
-        latestEventSeq: 0,
-        pendingApprovalCount: 0,
-      },
-    ],
-    messages: [
-      {
-        id: "message-semester-home",
-        threadId: "thread-semester-home",
-        role: "assistant",
-        createdAt: timestamp,
-        content:
-          "Home TaskAgent is the semester entry point. It can see every course folder, route files into courses, and narrow work down into task sessions when needed.",
-      },
-      {
-        id: "message-welcome",
-        threadId: "thread-home",
-        role: "assistant",
-        createdAt: timestamp,
-        content:
-          "UCLAW Electron workspace is running locally. Backend APIs are intentionally out of the loop for now; courses, skills, RAG search, timeline events, and approvals are shaped through the Electron main process.",
-      },
-      {
-        id: "message-policy-context",
-        threadId: "thread-policy-brief",
-        role: "assistant",
-        createdAt: timestamp,
-        content:
-          "I found three likely sources for the AI liability brief: lecture 6 notes, the product liability reading, and your rubric. The next useful move is to turn the rubric into a section checklist.",
-        timeline: [
-          {
-            id: "seed-thinking",
-            kind: "thinking_done",
-            phase: "done",
-            title: "Thinking",
-            detail: "Identified assignment scope and checked available course materials.",
-            tone: "thinking",
-          },
-          {
-            id: "seed-rag",
-            kind: "tool_result",
-            phase: "result",
-            title: "已检索知识库",
-            detail: "AI liability rubric, 3 results",
-            tone: "tool",
-            toolCall: {
-              call_id: "seed-rag",
-              tool_name: "rag_search",
-              arguments: { query: "AI liability rubric" },
-              result: { ok: true, count: 3 },
-            },
-          },
-        ],
-      },
-    ],
-    events: [],
-    files: [
-      {
-        id: "folder-ai-law-materials",
-        semesterId: "semester-2026-spring",
-        courseId: "course-ai-law",
-        name: "AI and Law",
-        path: "AI and Law",
-        kind: "folder",
-        updatedAt: timestamp,
-        children: [
-          {
-            id: "file-ai-rubric",
-            semesterId: "semester-2026-spring",
-            courseId: "course-ai-law",
-            taskId: "task-ai-policy-brief",
-            name: "policy-brief-rubric.md",
-            path: "AI and Law/policy-brief-rubric.md",
-            kind: "markdown",
-            sizeLabel: "9 KB",
-            updatedAt: timestamp,
-          },
-          {
-            id: "file-ai-lecture",
-            semesterId: "semester-2026-spring",
-            courseId: "course-ai-law",
-            name: "week-06-liability.pdf",
-            path: "AI and Law/week-06-liability.pdf",
-            kind: "pdf",
-            sizeLabel: "1.8 MB",
-            updatedAt: timestamp,
-          },
-          {
-            id: "file-ai-deck",
-            semesterId: "semester-2026-spring",
-            courseId: "course-ai-law",
-            name: "product-duty-slides.pptx",
-            path: "AI and Law/product-duty-slides.pptx",
-            kind: "pptx",
-            sizeLabel: "3.4 MB",
-            updatedAt: timestamp,
-          },
-          {
-            id: "file-ai-diagram",
-            semesterId: "semester-2026-spring",
-            courseId: "course-ai-law",
-            name: "liability-flow.png",
-            path: "AI and Law/liability-flow.png",
-            kind: "image",
-            sizeLabel: "420 KB",
-            updatedAt: timestamp,
-          },
-          {
-            id: "file-ai-agent-tool",
-            semesterId: "semester-2026-spring",
-            courseId: "course-ai-law",
-            name: "rag-tools.ts",
-            path: "AI and Law/rag-tools.ts",
-            kind: "code",
-            sizeLabel: "14 KB",
-            updatedAt: timestamp,
-          },
-        ],
-      },
-      {
-        id: "folder-evidence-materials",
-        semesterId: "semester-2026-spring",
-        courseId: "course-evidence",
-        name: "Evidence",
-        path: "Evidence",
-        kind: "folder",
-        updatedAt: timestamp,
-        children: [
-          {
-            id: "file-evidence-hearsay",
-            semesterId: "semester-2026-spring",
-            courseId: "course-evidence",
-            taskId: "task-evidence-hearsay",
-            name: "hearsay-exceptions.docx",
-            path: "Evidence/hearsay-exceptions.docx",
-            kind: "docx",
-            sizeLabel: "86 KB",
-            updatedAt: timestamp,
-          },
-          {
-            id: "file-evidence-outline",
-            semesterId: "semester-2026-spring",
-            courseId: "course-evidence",
-            name: "exam-outline.md",
-            path: "Evidence/exam-outline.md",
-            kind: "markdown",
-            sizeLabel: "18 KB",
-            updatedAt: timestamp,
-          },
-        ],
-      },
-      {
-        id: "folder-writing-materials",
-        semesterId: "semester-2026-spring",
-        courseId: "course-writing",
-        name: "Legal Writing Studio",
-        path: "Legal Writing Studio",
-        kind: "folder",
-        updatedAt: timestamp,
-        children: [
-          {
-            id: "file-writing-memo",
-            semesterId: "semester-2026-spring",
-            courseId: "course-writing",
-            taskId: "task-writing-memo",
-            name: "research-memo-draft.docx",
-            path: "Legal Writing Studio/research-memo-draft.docx",
-            kind: "docx",
-            sizeLabel: "112 KB",
-            updatedAt: timestamp,
-          },
-          {
-            id: "file-writing-citations",
-            semesterId: "semester-2026-spring",
-            courseId: "course-writing",
-            name: "bluebook-checklist.md",
-            path: "Legal Writing Studio/bluebook-checklist.md",
-            kind: "markdown",
-            sizeLabel: "7 KB",
-            updatedAt: timestamp,
-          },
-        ],
-      },
-    ],
-    timetableEvents: [
-      {
-        id: "tt-ai-law-mon",
-        title: "AI and Law Seminar",
-        kind: "course_session",
-        source: "course",
-        courseId: "course-ai-law",
-        startsAt: "2026-05-04T09:30:00.000Z",
-        endsAt: "2026-05-04T11:00:00.000Z",
-        location: "Room 204",
-        notes: "Platform duty and product liability.",
-      },
-      {
-        id: "tt-evidence-wed",
-        title: "Evidence Review",
-        kind: "course_session",
-        source: "course",
-        courseId: "course-evidence",
-        startsAt: "2026-05-06T14:00:00.000Z",
-        endsAt: "2026-05-06T15:30:00.000Z",
-        location: "Trial Lab",
-        notes: "Hearsay exceptions drill.",
-      },
-      {
-        id: "tt-writing-fri",
-        title: "Writing Studio",
-        kind: "course_session",
-        source: "course",
-        courseId: "course-writing",
-        startsAt: "2026-05-08T11:00:00.000Z",
-        endsAt: "2026-05-08T12:15:00.000Z",
-        location: "Writing Center",
-      },
-      {
-        id: "tt-ai-deadline",
-        title: "Policy Brief Due",
-        kind: "deadline",
-        source: "course",
-        courseId: "course-ai-law",
-        taskId: "task-ai-policy-brief",
-        startsAt: "2026-05-14T23:59:00.000Z",
-        notes: "1500-word policy brief submission deadline.",
-      },
-      {
-        id: "tt-school-reading-week",
-        title: "University Reading Week",
-        kind: "school_event",
-        source: "school_calendar",
-        startsAt: "2026-05-18T00:00:00.000Z",
-        endsAt: "2026-05-22T23:59:00.000Z",
-        notes: "No regular classes.",
-      },
-    ],
+    semester: null,
+    semesters: [],
+    currentSemesterId: null,
+    courses: [],
+    tasks: [],
+    threads: [],
+    files: [],
+    timetableEvents: [],
     indexingJobs: [],
-    providers: [
-      {
-        id: "provider-openai",
-        name: "OpenAI",
-        protocol: "openai_responses",
-        baseUrl: "https://api.openai.com/v1",
-        apiKeyMasked: "",
-        chatModel: "gpt-5.1",
-        embeddingModel: "text-embedding-3-large",
-        multimodalModel: "gpt-5.1",
-        enabled: true,
-        embeddingEnabled: true,
-        agentTools: {
-          webSearch: { enabled: false, searchContextSize: "medium" },
-          fileSearch: { enabled: false, vectorStoreIds: [] },
-          codeInterpreter: { enabled: false },
-          imageGeneration: { enabled: false },
-          toolSearch: { enabled: false },
-          hostedMcpServers: [],
-        },
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-    ],
+    indexingTasks: [],
   };
 }
 
 export class LocalStore {
-  private data: StoreShape;
   private readonly ragIndex: RagIndexService;
   private readonly skillFiles: SkillFileStore;
+  private readonly providers: ProviderService;
 
   constructor(
     private readonly filePath: string,
     private readonly businessStore: SQLiteBusinessStore,
+    private readonly providerConfigs: ProviderConfigStore,
     private readonly providerSecrets?: ProviderSecretStore,
   ) {
-    this.data = this.load();
+    this.providers = new ProviderService(providerConfigs, providerSecrets);
+    this.initializeStorage();
     this.skillFiles = new SkillFileStore(dirname(this.filePath));
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
     this.ragIndex = new RagIndexService({
       dbPath: join(dirname(this.filePath), "indexes", "rag"),
-      resolveEmbeddingProvider: () => this.embeddingProvider(),
-      resolveApiKey: (provider) => this.providerApiKey(provider.id) || envApiKeyForProvider(provider),
+      resolveEmbeddingProvider: () => this.providers.embeddingProvider(),
+      resolveApiKey: (provider) => this.providers.apiKey(provider.id) || envApiKeyForProvider(provider),
     });
+    this.ensureActiveCurrentSemester();
   }
 
   listSemesters(): SemesterWorkspace[] {
-    return this.data.semesters
+    this.ensureActiveCurrentSemester();
+    return this.businessStore.listSemesters()
+      .filter((semester) => !semester.archivedAt)
       .map((semester) => ({ ...semester }))
       .sort((a, b) => Date.parse(b.startsAt || b.recognizedAt || "") - Date.parse(a.startsAt || a.recognizedAt || ""));
   }
 
-  currentSemester(): SemesterWorkspace {
-    return { ...this.data.semester };
+  listArchivedSemesters(): SemesterWorkspace[] {
+    this.ensureActiveCurrentSemester();
+    return this.businessStore.listSemesters()
+      .filter((semester) => Boolean(semester.archivedAt))
+      .map((semester) => ({ ...semester }))
+      .sort((a, b) => Date.parse(b.archivedAt || "") - Date.parse(a.archivedAt || ""));
+  }
+
+  currentSemester(): SemesterWorkspace | null {
+    const semester = this.ensureActiveCurrentSemester();
+    return semester ? { ...semester } : null;
+  }
+
+  createSemester(input: CreateSemesterInput): SemesterWorkspace {
+    const timestamp = now();
+    const term = input.term.trim() || "New Semester";
+    const semester: SemesterWorkspace = {
+      id: `semester-${Date.now().toString(36)}`,
+      semesterNo: input.semesterNo?.trim() || term,
+      term,
+      folderName: sanitizeFsSegment(input.folderName?.trim() || term),
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      source: "manual",
+      recognizedAt: timestamp,
+    };
+    this.businessStore.saveSemester(semester, true);
+    this.ensureSemesterHomeAssets(semester);
+    ensureSemesterSharedDirs(this.rootDataDir(), semester.id);
+    return { ...semester };
   }
 
   selectSemester(semesterId: string): SemesterWorkspace {
-    const semester = this.data.semesters.find((item) => item.id === semesterId);
+    const semester = this.businessStore.getSemester(semesterId);
     if (!semester) throw new Error(`Semester not found: ${semesterId}`);
-    this.data.currentSemesterId = semester.id;
-    this.data.semester = semester;
-    this.data = normalizeStore(this.data);
-    this.save();
-    return { ...this.data.semester };
+    if (semester.archivedAt) throw new Error(`Semester is archived: ${semester.term}`);
+    this.businessStore.setCurrentSemester(semester.id);
+    this.ensureSemesterHomeAssets(semester);
+    return { ...semester };
   }
 
-  analyzeSemesterImage(input: SemesterImageAnalyzeInput): SemesterImageAnalyzeResult {
-    const timestamp = now();
-    const semester: SemesterWorkspace = {
-      id: "semester-2026-fall",
-      semesterNo: "2026-FALL",
-      term: "Fall 2026",
-      folderName: "Fall 2026",
-      startsAt: "2026-09-07T00:00:00.000Z",
-      endsAt: "2026-12-18T23:59:00.000Z",
-      source: "multimodal_timetable",
-      recognizedAt: timestamp,
-    };
-    this.data.semesters = upsertSemester(this.data.semesters, semester);
-    this.data.currentSemesterId = semester.id;
-    this.data.semester = semester;
-    this.data.courses = this.data.courses.map((course) =>
-      course.id === SEMESTER_HOME_COURSE_ID
-        ? { ...course, term: semester.term, code: semester.semesterNo, description: `Semester workspace generated from ${semester.source}.` }
-        : course,
-    );
-    const createdEvents = [
-      {
-        id: `tt-semester-start-${Date.now().toString(36)}`,
-        semesterId: semester.id,
-        title: `${semester.term} begins`,
-        kind: "school_event" as const,
-        source: "multimodal_image" as const,
-        startsAt: semester.startsAt || timestamp,
-        endsAt: semester.startsAt,
-        notes: input.instruction || "Recognized from semester timetable image.",
-        confidence: 0.88,
-      },
-      {
-        id: `tt-semester-end-${Date.now().toString(36)}`,
-        semesterId: semester.id,
-        title: `${semester.term} ends`,
-        kind: "school_event" as const,
-        source: "multimodal_image" as const,
-        startsAt: semester.endsAt || timestamp,
-        endsAt: semester.endsAt,
-        notes: "Recognized semester range.",
-        confidence: 0.84,
-      },
-    ];
-    this.data.timetableEvents.push(...createdEvents);
-    this.data = normalizeStore(this.data);
-    this.save();
-    return {
-      id: `semester-import-${Date.now().toString(36)}`,
-      status: "completed",
-      source: "multimodal_timetable",
-      semester,
-      createdEvents,
-      warnings: input.imageIds?.length || input.imagePaths?.length ? [] : ["No image selected yet; returned mock semester recognition output."],
-    };
+  archiveSemester(semesterId: string): SemesterWorkspace {
+    const selectedSemesterId = this.businessStore.currentSemesterId() || this.businessStore.currentSemester()?.id || "";
+    const semester = this.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    if (semester.archivedAt) return { ...semester };
+    const archivedAt = now();
+    const archived = this.businessStore.archiveSemester(semesterId, archivedAt) || semester;
+    if (selectedSemesterId === semesterId) this.ensureActiveCurrentSemester();
+    return { ...archived };
+  }
+
+  restoreSemester(semesterId: string): SemesterWorkspace {
+    const semester = this.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    const restored = this.businessStore.restoreSemester(semesterId) || semester;
+    return { ...restored };
+  }
+
+  async deleteSemester(semesterId: string): Promise<boolean> {
+    const selectedSemesterId = this.businessStore.currentSemesterId() || this.businessStore.currentSemester()?.id || "";
+    const semester = this.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    if (!semester.archivedAt) throw new Error("Archive the semester before deleting it permanently.");
+    this.cancelIndexingJobsForSemester(semesterId);
+    this.deleteSemesterDir(semesterId);
+    await this.deleteRagChunksForSemester(semesterId);
+    const deleted = this.businessStore.deleteSemesterDeep(semesterId);
+    if (selectedSemesterId === semesterId) this.ensureActiveCurrentSemester();
+    return deleted;
   }
 
   listCourses(): Course[] {
-    return normalizeCourses(this.data.courses, this.data.semester);
+    const semester = this.ensureActiveCurrentSemester();
+    return normalizeCourses(this.businessStore.listCourses(semester?.id), semester).filter((course) => course.id === SEMESTER_HOME_COURSE_ID || !course.archivedAt);
+  }
+
+  listArchivedCourses(): Course[] {
+    const semester = this.ensureActiveCurrentSemester();
+    if (!semester) return [];
+    return normalizeCourses(this.businessStore.listCourses(semester.id), semester)
+      .filter((course) => course.id !== SEMESTER_HOME_COURSE_ID && Boolean(course.archivedAt))
+      .sort((a, b) => Date.parse(b.archivedAt || "") - Date.parse(a.archivedAt || ""));
   }
 
   listTasks(courseId: string): UclawTask[] {
-    return this.data.tasks.filter((task) => task.semesterId === this.data.semester.id && task.courseId === courseId);
+    const semesterId = this.currentSemesterId();
+    if (!semesterId || this.isCourseArchived(courseId) || this.isCurrentSemesterArchived()) return [];
+    return this.businessStore.listTasks(semesterId, courseId);
   }
 
   createTask(input: CreateTaskInput): UclawTask {
+    const semesterId = this.currentSemesterId();
+    if (!semesterId) throw new Error("Select or recognize a semester before creating tasks.");
+    if (this.isCourseArchived(input.courseId)) throw new Error("Restore this course before creating tasks.");
     const task: UclawTask = {
       id: `task-${Date.now().toString(36)}`,
-      semesterId: this.data.semester.id,
+      semesterId,
       courseId: input.courseId,
       title: input.title.trim() || "New Task",
-      taskType: input.taskType || "assignment",
+      taskType: input.taskType?.trim() || DEFAULT_TASK_TYPE,
       status: "not_started",
       summary: "Custom task created locally.",
     };
-    this.data.tasks.push(task);
-    const root = this.ensureCourseFolder(input.courseId);
+    this.businessStore.saveTask(task);
+    const roots = this.loadCourseRoots(input.courseId, semesterId);
+    const root = this.ensureCourseFolder(input.courseId, roots, semesterId);
     this.ensureTargetFolder(root, { courseId: input.courseId, targetSection: "task", taskId: task.id });
-    this.save();
+    this.persistWorkspaceFilesForCourse(input.courseId, roots, semesterId);
+    this.ensureTaskWorkspaceDir(task);
     return task;
   }
 
-  analyzeCourseImage(input: CourseImageAnalyzeInput): CourseImageAnalyzeResult {
-    const timestamp = now();
+  createCourse(input: CreateCourseInput): Course {
+    const semester = this.ensureActiveCurrentSemester();
+    if (!semester) {
+      throw new Error("Select a semester before creating a course.");
+    }
+    const name = input.name?.trim();
+    const code = input.code?.trim();
+    if (!name) throw new Error("Course name is required.");
+    if (!code) throw new Error("Course code is required.");
+
+    const existingCourseCount = this.businessStore.countCourses(semester.id);
     const course: Course = {
       id: `course-${Date.now().toString(36)}`,
-      semesterId: this.data.semester.id,
-      name: "Recognized Course",
-      code: "AUTO 1001",
-      term: this.data.semester.term,
-      instructor: "Recognized Instructor",
+      semesterId: semester.id,
+      name,
+      code,
+      term: semester.term,
+      instructor: input.instructor?.trim() || "",
       workspaceKind: "course",
-      meetingTime: "Recognized weekly time",
-      location: "Recognized location",
-      color: "#7c3aed",
-      description: input.instruction || "Created from multimodal AI course material analysis placeholder.",
+      meetingTime: input.meetingTime?.trim() || undefined,
+      location: input.location?.trim() || undefined,
+      color: input.color?.trim() || pickCourseColor(existingCourseCount),
+      description: input.description?.trim() || "",
     };
-    this.data.courses.push(course);
-    this.data.files.push({
-      id: `folder-${course.id}-shared`,
-      semesterId: this.data.semester.id,
-      courseId: course.id,
-      name: course.name,
-      path: course.name,
-      kind: "folder",
-      updatedAt: timestamp,
-      children: [],
-    });
-    normalizeWorkspaceFolders(this.data);
-    this.data = normalizeStore(this.data);
-    this.save();
-    return {
-      id: `course-import-${Date.now().toString(36)}`,
-      status: "completed",
-      source: "multimodal_image",
-      course,
-      confidence: 0.84,
-      warnings: input.imageIds?.length || input.imagePaths?.length ? [] : ["No image selected yet; returned mock course recognition output."],
-    };
+    this.businessStore.saveCourse(course);
+    const roots: WorkspaceFileNode[] = [];
+    this.ensureCourseFolder(course.id, roots, semester.id);
+    this.persistWorkspaceFilesForCourse(course.id, roots, semester.id);
+    ensureCourseWorkspaceDir(this.rootDataDir(), semester.id, course.id);
+    return course;
+  }
+
+  archiveCourse(courseId: string): Course {
+    const course = this.businessStore.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    if (course.archivedAt) return { ...course };
+    const archivedAt = now();
+    const archived = this.businessStore.archiveCourse(courseId, archivedAt) || course;
+    this.cancelIndexingJobsForCourse(courseId);
+    return { ...archived };
+  }
+
+  restoreCourse(courseId: string): Course {
+    const course = this.businessStore.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    const restored = this.businessStore.restoreCourse(courseId) || course;
+    return { ...restored };
+  }
+
+  async deleteCourse(courseId: string): Promise<boolean> {
+    const course = this.businessStore.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    if (!course.archivedAt) throw new Error("Archive the course before deleting it permanently.");
+    const semesterId = course.semesterId || this.currentSemesterId();
+    this.cancelIndexingJobsForCourse(courseId);
+    this.deleteCourseDir(courseId, semesterId);
+    await this.deleteRagChunksForCourse(semesterId, courseId);
+    const deleted = this.businessStore.deleteCourseDeep(courseId);
+    return deleted;
   }
 
   listThreads(courseId?: string): Thread[] {
-    return this.data.threads
-      .filter((thread) => thread.semesterId === this.data.semester.id && (!courseId || thread.courseId === courseId))
+    if (this.isCurrentSemesterArchived()) return [];
+    const semesterId = this.currentSemesterId();
+    return this.businessStore.listThreads(semesterId, courseId)
+      .filter((thread) => !thread.archivedAt && !this.isCourseArchived(thread.courseId))
       .slice()
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
   createThread(input: CreateThreadInput): Thread {
-    const task = input.taskId ? this.data.tasks.find((item) => item.id === input.taskId) : null;
+    if (this.isCourseArchived(input.courseId)) throw new Error("Restore this course before creating sessions.");
+    const task = input.taskId ? this.businessStore.getTask(input.taskId) : null;
     const thread: Thread = {
       id: `thread-${Date.now().toString(36)}`,
-      semesterId: this.data.semester.id,
+      semesterId: this.currentSemesterId(),
       courseId: input.courseId,
       taskId: input.taskId,
       threadType: input.taskId ? "task" : "home",
       title: input.title || (task ? `${task.title} thread` : "New Home Thread"),
       createdAt: now(),
       updatedAt: now(),
-      latestRunStatus: "idle",
-      latestEventSeq: 0,
-      pendingApprovalCount: 0,
     };
-    this.data.threads.unshift(thread);
-    this.save();
+    this.businessStore.saveThread(thread);
     return thread;
   }
 
-  messages(threadId: string): ChatMessage[] {
-    return this.data.messages.filter((message) => message.threadId === threadId);
+  archiveThread(threadId: string): boolean {
+    const thread = this.businessStore.getThread(threadId);
+    if (!thread || thread.archivedAt) return false;
+    const timestamp = now();
+    thread.archivedAt = timestamp;
+    thread.updatedAt = timestamp;
+    this.businessStore.saveThread(thread);
+    return true;
   }
 
-  appendMessage(message: ChatMessage): ChatMessage {
-    this.data.messages.push(message);
-    this.appendThreadJsonl(message.threadId, {
-      type: `${message.role}_message`,
-      message,
-    });
-    this.touchThread(message.threadId);
-    this.save();
-    return message;
-  }
-
-  updateAssistantMessage(messageId: string, content: string, timeline?: ChatMessage["timeline"]): void {
-    const message = this.data.messages.find((item) => item.id === messageId);
-    if (!message) return;
-    message.content = content;
-    if (timeline) message.timeline = timeline;
-    this.touchThread(message.threadId);
-    this.save();
-  }
-
-  appendEvent(item: UclawRunStreamItem): UclawRunStreamItem {
-    this.data.events.push(item);
-    this.appendThreadJsonl(item.threadId, {
-      type: "run_item",
-      item,
-    });
-    const thread = this.data.threads.find((entry) => entry.id === item.threadId);
-    if (thread) {
-      thread.latestEventSeq = item.seq;
-      thread.updatedAt = item.createdAt;
-      if (item.status) thread.latestRunStatus = item.status;
-      if (item.type === "tool_approval_required") thread.pendingApprovalCount += 1;
-      if (item.type === "tool_approval_resolved") thread.pendingApprovalCount = 0;
-      if (["completed", "failed", "cancelled"].includes(String(item.status || ""))) {
-        thread.pendingApprovalCount = 0;
-      }
-    }
-    this.save();
-    return item;
-  }
-
-  events(threadId: string, afterSeq = 0): UclawRunStreamItem[] {
-    const jsonlEvents = this.readThreadJsonlEvents(threadId);
-    const source = jsonlEvents.length > 0 ? jsonlEvents : this.data.events.filter((item) => item.threadId === threadId);
-    return source
-      .filter((item) => item.seq > afterSeq)
-      .sort((a, b) => a.seq - b.seq);
-  }
-
-  openAISessionItems(threadId: string, limit?: number): AgentInputItem[] {
-    const items = this.readThreadOpenAISessionItems(threadId);
-    return typeof limit === "number" ? items.slice(-Math.max(0, limit)) : items;
-  }
-
-  appendOpenAISessionItems(threadId: string, items: AgentInputItem[]): void {
-    for (const item of items) {
-      this.appendThreadJsonl(threadId, {
-        type: "sdk_session_item",
-        item,
-      });
-    }
-    this.touchThread(threadId);
-    this.save();
-  }
-
-  popOpenAISessionItem(threadId: string): AgentInputItem | undefined {
-    const item = this.openAISessionItems(threadId).pop();
-    if (!item) return undefined;
-    this.appendThreadJsonl(threadId, { type: "sdk_session_pop" });
-    this.touchThread(threadId);
-    this.save();
-    return item;
-  }
-
-  clearOpenAISession(threadId: string): void {
-    this.appendThreadJsonl(threadId, { type: "sdk_session_clear" });
-    this.touchThread(threadId);
-    this.save();
-  }
-
-  nextEventSeq(threadId: string): number {
-    const maxSeq = this.events(threadId).reduce((max, item) => Math.max(max, item.seq), 0);
-    return maxSeq + 1;
-  }
-
-  listSkills(courseId?: string): SkillItem[] {
-    return mergeSkills(
-      this.skillFiles.listSkills({
-        semesterId: this.data.semester.id,
-        courseId: courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
-      }),
-    );
-  }
-
-  skillsForThread(threadId: string): SkillItem[] {
-    const thread = this.data.threads.find((item) => item.id === threadId);
-    return this.listSkills(thread?.courseId);
+  listSkills(): SkillItem[] {
+    return mergeSkills(this.skillFiles.listSkills());
   }
 
   updateSkill(input: SkillUpdateInput): SkillItem {
-    const fileSkill = this.skillFiles.toggleSkill(input.id, input.enabled, { semesterId: this.data.semester.id });
+    const fileSkill = this.skillFiles.toggleSkill(input.id, input.enabled);
     if (fileSkill) return fileSkill;
     throw new Error(`File skill not found: ${input.id}`);
   }
 
   readSkillContent(skillId: string): string {
-    const content = this.skillFiles.readSkillContent(skillId, { semesterId: this.data.semester.id });
+    const content = this.skillFiles.readSkillContent(skillId);
     if (content == null) throw new Error(`Skill content not found: ${skillId}`);
     return content;
   }
 
   writeSkillContent(input: SkillWriteInput): SkillItem {
-    const updated = this.skillFiles.writeSkillContent(input.id, input.content, { semesterId: this.data.semester.id });
+    const updated = this.skillFiles.writeSkillContent(input.id, input.content);
     if (!updated) throw new Error(`Skill content not found: ${input.id}`);
     return updated;
   }
 
   importSkillFolder(input: SkillImportInput): SkillItem {
     if (!input.sourcePath?.trim()) throw new Error("Skill import requires a source folder.");
-    const courseId = input.courseId && input.courseId !== SEMESTER_HOME_COURSE_ID ? input.courseId : undefined;
-    return this.skillFiles.importSkillFolder(
-      input.sourcePath,
-      { semesterId: this.data.semester.id, courseId },
-      input.enabled ?? true,
-    );
+    return this.skillFiles.importSkillFolder(input.sourcePath, input.enabled ?? true);
   }
 
   skillFolderPath(skillId: string): string {
-    const dir = this.skillFiles.skillFolderPath(skillId, { semesterId: this.data.semester.id });
+    const dir = this.skillFiles.skillFolderPath(skillId);
     if (!dir) throw new Error(`Skill folder not found: ${skillId}`);
     return dir;
   }
 
-  workspacePathForRunScope(threadId: string): string {
-    const thread = this.data.threads.find((item) => item.id === threadId);
-    if (!thread) {
-      throw new Error(`Workspace resolution failed: thread not found: ${threadId}`);
-    }
-    const semesterId = thread?.semesterId || this.data.semester.id;
-    const semesterDir = this.ensureSemesterWorkspaceDir(semesterId);
-    if (thread.courseId === SEMESTER_HOME_COURSE_ID || thread.threadType === "semester_home") {
-      mkdirSync(join(semesterDir, "Semester shared"), { recursive: true });
-      mkdirSync(join(semesterDir, "courses"), { recursive: true });
-      return semesterDir;
-    }
-
-    const courseDir = this.ensureCourseWorkspaceDir(thread.courseId, semesterId);
-    if (!thread.taskId) return courseDir;
-
-    const task = this.data.tasks.find((item) => item.id === thread.taskId);
-    if (!task) return courseDir;
-
-    const taskDir = join(courseDir, "Task", taskTypeLabel(task.taskType), sanitizeFsSegment(task.title));
-    mkdirSync(taskDir, { recursive: true });
-    for (const bucket of Object.keys(TASK_FILE_BUCKET_LABELS) as TaskFileBucket[]) {
-      mkdirSync(join(taskDir, taskBucketLabel(bucket)), { recursive: true });
-    }
-    return taskDir;
-  }
-
   async searchRag(query: string, courseId?: string): Promise<RagSearchResult[]> {
     try {
+      if (this.isCurrentSemesterArchived()) return [];
+      if (courseId && courseId !== SEMESTER_HOME_COURSE_ID && this.isCourseArchived(courseId)) return [];
+      const archivedCourseIds = this.archivedCourseIdsForCurrentSemester();
       return await this.ragIndex.search(
         query,
-        this.data.semester.id,
+        this.currentSemesterId(),
         courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
+        undefined,
+        archivedCourseIds,
       );
     } catch (error) {
       console.warn("[rag] Search failed", error);
       return [];
     }
-  }
-
-  contextReport(threadId: string): ContextWindowReport {
-    const messages = this.messages(threadId);
-    const chars = messages.reduce((sum, message) => sum + message.content.length, 0);
-    const tokens = Math.max(680, Math.round(chars / 3.4) + 2400);
-    const budget = 128000;
-    return {
-      tokens,
-      budget,
-      percent: Math.min(100, Math.round((tokens / budget) * 100)),
-      thresholdPercent: 70,
-      summaryMessageCount: messages.length > 6 ? 1 : 0,
-      compressedMessages: Math.max(0, messages.length - 6),
-      sections: ["course", "task", "thread", "enabled skills"],
-      files: ["rubric.md", "week-06-lecture.pdf", "draft-outline.md"],
-      tools: ["context_report", "rag_search", "ask_user", "shell", "apply_patch"],
-      skills: this.skillsForThread(threadId)
-        .filter((skill) => skill.enabled)
-        .map((skill) => skill.name),
-    };
   }
 
   gitStatus(): GitStatus {
@@ -883,12 +420,16 @@ export class LocalStore {
   }
 
   listFiles(courseId?: string): WorkspaceFileNode[] {
+    if (this.isCurrentSemesterArchived()) return [];
+    if (courseId && courseId !== SEMESTER_HOME_COURSE_ID && this.isCourseArchived(courseId)) return [];
+    const semesterId = this.currentSemesterId();
     if (!courseId || courseId === SEMESTER_HOME_COURSE_ID) {
-      const semesterRoot =
-        this.data.files.find((file) => file.courseId === SEMESTER_HOME_COURSE_ID && file.semesterId === this.data.semester.id && file.kind === "folder") ||
-        this.ensureCourseFolder(SEMESTER_HOME_COURSE_ID);
+      const semesterRoots = this.loadCourseRoots(SEMESTER_HOME_COURSE_ID, semesterId);
+      const semesterRoot = this.ensureCourseFolder(SEMESTER_HOME_COURSE_ID, semesterRoots, semesterId);
+      this.persistWorkspaceFilesForCourse(SEMESTER_HOME_COURSE_ID, semesterRoots, semesterId);
       const semesterClone = cloneFile(semesterRoot);
-      const courseRoots = this.data.files.filter((file) => file.semesterId === this.data.semester.id && file.courseId !== SEMESTER_HOME_COURSE_ID && file.kind === "folder");
+      const archivedCourseIds = new Set(this.archivedCourseIdsForCurrentSemester());
+      const courseRoots = this.businessStore.listWorkspaceFiles(semesterId).filter((file) => file.courseId !== SEMESTER_HOME_COURSE_ID && !archivedCourseIds.has(file.courseId) && file.kind === "folder");
       return [
         {
           ...semesterClone,
@@ -896,7 +437,10 @@ export class LocalStore {
         },
       ];
     }
-    return cloneFiles(this.data.files.filter((file) => file.semesterId === this.data.semester.id && (!courseId || file.courseId === courseId)));
+    const roots = this.loadCourseRoots(courseId, semesterId);
+    this.ensureCourseFolder(courseId, roots, semesterId);
+    this.persistWorkspaceFilesForCourse(courseId, roots, semesterId);
+    return cloneFiles(roots);
   }
 
   fileStats(courseId?: string): FileStats {
@@ -923,7 +467,7 @@ export class LocalStore {
       },
     );
     return {
-      semesterId: this.data.semester.id,
+      semesterId: this.currentSemesterId(),
       courseId: effectiveCourseId,
       scope,
       totalFiles: leafFiles.length,
@@ -939,7 +483,7 @@ export class LocalStore {
   }
 
   previewFile(fileId: string): FilePreview | null {
-    const file = findFile(this.data.files, fileId);
+    const file = this.businessStore.getWorkspaceFile(fileId);
     if (!file || file.kind === "folder") return null;
     const common = {
       id: file.id,
@@ -953,30 +497,30 @@ export class LocalStore {
       },
     };
     if (file.kind === "markdown") {
+      const content = readPreviewSource(file.sourcePath);
       return {
         ...common,
         mimeType: "text/markdown",
-        summary: "Markdown preview is rendered locally in the renderer; later this will come from FileService parser output.",
-        content:
-          `# ${file.name.replace(/\.md$/i, "")}\n\n` +
-          `- Scope: current course/task materials\n` +
-          `- RAG anchors: rubric, lecture notes, student draft\n` +
-          `- Agent note: cite evidence before drafting recommendations\n\n` +
-          `This mock preview keeps the UI contract ready for real markdown ingestion.`,
+        summary: "Loaded from the imported Markdown source file.",
+        content: content || `# ${file.name.replace(/\.md$/i, "")}\n\n(No content available.)`,
       };
     }
     if (file.kind === "code") {
+      const content = readPreviewSource(file.sourcePath);
       return {
         ...common,
         mimeType: "text/typescript",
-        summary: "Code preview placeholder with syntax-friendly monospace layout.",
-        content:
-          `export function searchCourseMaterials(query: string) {\n` +
-          `  return ragService.search({ query, scope: "current-course" });\n` +
-          `}\n\n` +
-          `export function requireApproval(toolName: string) {\n` +
-          `  return ["apply_workspace_patch", "git_commit", "run_shell_command"].includes(toolName);\n` +
-          `}\n`,
+        summary: "Loaded from the imported code source file.",
+        content: content || `// No code content available.`,
+      };
+    }
+    if (file.kind === "text") {
+      const content = readPreviewSource(file.sourcePath);
+      return {
+        ...common,
+        mimeType: "text/plain",
+        summary: "Loaded from the imported text source file.",
+        content: content || "(No text content available.)",
       };
     }
     if (file.kind === "pdf") {
@@ -1017,15 +561,19 @@ export class LocalStore {
   }
 
   importFiles(input: FileImportInput): FileImportResult {
+    if (this.isCourseArchived(input.courseId)) throw new Error("Restore this course before importing files.");
     const sourcePaths = input.sourcePaths || [];
     if (sourcePaths.length === 0) {
       return { files: [], tree: this.listFiles(input.courseId), indexingJob: null };
     }
 
     const timestamp = now();
-    const root = this.ensureCourseFolder(input.courseId);
+    const semesterId = this.currentSemesterId();
+    const roots = this.loadCourseRoots(input.courseId, semesterId);
+    const root = this.ensureCourseFolder(input.courseId, roots, semesterId);
     const targetFolder = this.ensureTargetFolder(root, input);
     const managedTargetDir = this.ensureImportTargetDir(input);
+    const task = input.targetSection === "task" && input.taskId ? this.businessStore.getTask(input.taskId) : undefined;
     const importedFiles = sourcePaths.map((sourcePath) => {
       const stats = statSync(sourcePath);
       const managedPath = uniqueFilePath(managedTargetDir, basename(sourcePath));
@@ -1033,13 +581,12 @@ export class LocalStore {
       const name = basename(managedPath);
       const file: WorkspaceFileNode = {
         id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-        semesterId: this.data.semester.id,
+        semesterId,
         courseId: input.courseId,
         taskId: input.targetSection === "task" ? input.taskId : undefined,
-        taskType: input.targetSection === "task" ? this.data.tasks.find((task) => task.id === input.taskId)?.taskType : undefined,
+        taskType: input.targetSection === "task" ? task?.taskType : undefined,
         taskFileBucket: input.targetSection === "task" ? input.taskFileBucket || "materials" : undefined,
         sectionKind: input.targetSection,
-        weekNumber: input.targetSection === "week" ? input.weekNumber || 1 : undefined,
         sourcePath: managedPath,
         name,
         path: `${targetFolder.path}/${name}`,
@@ -1051,7 +598,7 @@ export class LocalStore {
       return file;
     });
 
-    this.save();
+    this.persistWorkspaceFilesForCourse(input.courseId, roots, semesterId);
     const sectionId = this.sectionIdForImport(input);
     const indexingJob = this.indexCourseFiles(input.courseId, sectionId);
     return {
@@ -1061,7 +608,38 @@ export class LocalStore {
     };
   }
 
+  fileSourcePath(fileId: string): string | undefined {
+    const file = this.businessStore.getWorkspaceFile(fileId);
+    return file?.sourcePath;
+  }
+
+  deleteFile(fileId: string): { courseId: string; tree: WorkspaceFileNode[] } {
+    const file = this.businessStore.getWorkspaceFile(fileId);
+    if (!file) throw new Error(`File not found: ${fileId}`);
+    if (this.isCourseArchived(file.courseId)) throw new Error("Restore this course before deleting files.");
+    if (file.kind === "folder") throw new Error("Cannot delete folder via this action.");
+    const courseId = file.courseId;
+    const sourcePath = file.sourcePath;
+
+    const roots = this.loadCourseRoots(courseId, file.semesterId || this.currentSemesterId());
+    removeFileFromTree(roots, fileId);
+
+    // Trash the managed file copy (recoverable from system trash).
+    if (sourcePath && existsSync(sourcePath)) {
+      try {
+        rmSync(sourcePath, { force: true });
+      } catch (error) {
+        console.warn(`[files] Failed to remove source ${sourcePath}`, error);
+      }
+    }
+
+    this.persistWorkspaceFilesForCourse(courseId, roots, file.semesterId || this.currentSemesterId());
+    return { courseId, tree: this.listFiles(courseId) };
+  }
+
   courseFileSections(courseId: string): CourseFileSection[] {
+    if (this.isCurrentSemesterArchived()) return [];
+    if (courseId !== SEMESTER_HOME_COURSE_ID && this.isCourseArchived(courseId)) return [];
     this.refreshIndexingJobs();
     if (courseId === SEMESTER_HOME_COURSE_ID) {
       const files = this.listFiles(courseId);
@@ -1073,8 +651,8 @@ export class LocalStore {
           courseId,
           kind: "course_shared",
           title: "All semester files",
-          indexingStatus: leafFiles.length > 0 ? "indexed" : "idle",
-          embeddingModel: provider?.embeddingModel || "text-embedding-3-large",
+          indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:shared`, leafFiles.length > 0),
+          embeddingModel: provider?.selectedModel,
           files: leafFiles,
         },
       ];
@@ -1083,18 +661,20 @@ export class LocalStore {
     const files = this.listFiles(courseId);
     const tasks = this.listTasks(courseId);
     const provider = this.embeddingProvider();
-    const embeddingModel = provider?.embeddingModel || "text-embedding-3-large";
+    const embeddingModel = provider?.selectedModel;
     const leafFiles = flattenFiles(files);
-    const weekSections: CourseFileSection[] = Array.from({ length: DEFAULT_WEEK_COUNT }, (_, index) => index + 1).map((weekNumber) => ({
-      id: `${courseId}:week-${weekNumber}`,
-      courseId,
-      kind: "week",
-      title: `Week ${weekNumber}`,
-      weekNumber,
-      indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:week-${weekNumber}`, leafFiles.some((file) => file.weekNumber === weekNumber)),
-      embeddingModel,
-      files: leafFiles.filter((file) => file.weekNumber === weekNumber),
-    }));
+    const lectureFiles = leafFiles.filter((file) => file.sectionKind === "lecture");
+    const lectureSections: CourseFileSection[] = lectureFiles.length > 0
+      ? [{
+          id: `${courseId}:lecture`,
+          courseId,
+          kind: "lecture",
+          title: "Lecture",
+          indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:lecture`, lectureFiles.length > 0),
+          embeddingModel,
+          files: lectureFiles,
+        }]
+      : [];
     const taskSections: CourseFileSection[] = tasks.map((task) => ({
       id: `${courseId}:task-${task.id}`,
       courseId,
@@ -1106,7 +686,7 @@ export class LocalStore {
       embeddingModel,
       files: leafFiles.filter((file) => file.taskId === task.id),
     }));
-    const sharedFiles = leafFiles.filter((file) => !file.taskId && !file.weekNumber);
+    const sharedFiles = leafFiles.filter((file) => file.sectionKind === "course_shared" || (!file.taskId && file.sectionKind !== "lecture"));
 
     return [
       {
@@ -1118,43 +698,66 @@ export class LocalStore {
         embeddingModel,
         files: sharedFiles,
       },
-      ...weekSections,
+      ...lectureSections,
       ...taskSections,
     ];
   }
 
   indexCourseFiles(courseId: string, sectionId?: string): IndexingJob {
+    if (this.isCourseArchived(courseId)) throw new Error("Restore this course before indexing files.");
     const sections = this.courseFileSections(courseId);
     const files = sectionId ? sections.find((section) => section.id === sectionId)?.files || [] : sections.flatMap((section) => section.files);
     const provider = this.embeddingProvider();
     const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
     const timestamp = now();
+    const hasFiles = localFiles.length > 0;
+    const hasProvider = Boolean(provider?.selectedModel);
+    let status: IndexingJob["status"];
+    let stage: string;
+    let progress: number;
+    let error: string | undefined;
+    if (!hasFiles) {
+      status = "idle";
+      stage = "empty";
+      progress = 0;
+      error = "No local source files are available for indexing in this section.";
+    } else if (!hasProvider) {
+      status = "failed";
+      stage = "no_provider";
+      progress = 0;
+      error = "No embedding provider configured. Open Settings → Providers and enable an OpenAI-compatible embedding provider.";
+    } else {
+      status = "queued";
+      stage = "queued";
+      progress = 0;
+      error = undefined;
+    }
     const job: IndexingJob = {
       id: `index-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      semesterId: this.data.semester.id,
+      semesterId: this.currentSemesterId(),
       courseId,
       sectionId,
-      status: localFiles.length > 0 ? "queued" : "indexed",
-      stage: localFiles.length > 0 ? "queued" : "empty",
-      embeddingModel: provider?.embeddingModel || "text-embedding-3-large",
+      status,
+      stage,
+      embeddingModel: provider?.selectedModel || "(none)",
       indexedFiles: 0,
       totalFiles: localFiles.length,
       completedFiles: 0,
-      progress: localFiles.length > 0 ? 0 : 100,
-      error: localFiles.length > 0 ? undefined : "No local source files are available for indexing in this section.",
+      progress,
+      error,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    const tasks: IndexingTaskInsert[] = localFiles.map((file, index) => ({
+    const tasks: IndexingTaskInsert[] = status === "queued" ? localFiles.map((file, index) => ({
       id: `idx-task-${job.id}-${index + 1}`,
       jobId: job.id,
-      semesterId: this.data.semester.id,
+      semesterId: this.currentSemesterId(),
       courseId,
       sectionId,
       fileId: file.id,
       kind: "parse_chunk",
       payload: {
-        semesterId: this.data.semester.id,
+        semesterId: this.currentSemesterId(),
         courseId,
         sectionId,
         fileId: file.id,
@@ -1166,20 +769,20 @@ export class LocalStore {
         weekNumber: file.weekNumber,
         taskFileBucket: file.taskFileBucket,
       },
-    }));
+    })) : [];
     const created = this.businessStore.createIndexingJob(job, tasks);
     this.refreshIndexingJobs();
     return { ...created };
   }
 
   listIndexingJobs(courseId?: string): IndexingJob[] {
-    this.refreshIndexingJobs();
-    return this.data.indexingJobs.filter((job) => job.semesterId === this.data.semester.id && (!courseId || job.courseId === courseId));
+    if (this.isCurrentSemesterArchived()) return [];
+    const archivedCourseIds = new Set(this.archivedCourseIdsForCurrentSemester());
+    return this.businessStore.listIndexingJobs(this.currentSemesterId(), courseId).filter((job) => !archivedCourseIds.has(job.courseId));
   }
 
   cancelIndexingJob(jobId: string): IndexingJob | null {
     const job = this.businessStore.cancelIndexingJob(jobId);
-    this.refreshIndexingJobs();
     return job ? { ...job } : null;
   }
 
@@ -1189,7 +792,6 @@ export class LocalStore {
 
   recoverExpiredIndexingTasks(): void {
     this.businessStore.recoverExpiredIndexingTasks();
-    this.refreshIndexingJobs();
   }
 
   async completeIndexingTask(taskId: string, result: IndexingWorkerResult): Promise<IndexingJob | null> {
@@ -1198,131 +800,57 @@ export class LocalStore {
     const job = this.businessStore.getIndexingJob(task.jobId);
     if (job?.status === "cancelled") {
       const cancelled = this.businessStore.completeIndexingTask(taskId, result);
-      this.refreshIndexingJobs();
       return cancelled;
     }
     await this.ragIndex.ingestTask(task, result);
     const completed = this.businessStore.completeIndexingTask(taskId, result);
-    this.refreshIndexingJobs();
     return completed;
   }
 
   failIndexingTask(taskId: string, message: string): IndexingJob | null {
-    const job = this.businessStore.failIndexingTask(taskId, message);
-    this.refreshIndexingJobs();
-    return job;
+    return this.businessStore.failIndexingTask(taskId, message);
   }
 
   listProviders(): ModelProviderConfig[] {
-    return this.data.providers.map((provider) => ({ ...provider }));
+    return this.providers.list().map((provider) => ({ ...provider }));
   }
 
   saveProvider(input: ProviderDraftInput): ModelProviderConfig {
-    const timestamp = now();
-    const existing = input.id ? this.data.providers.find((provider) => provider.id === input.id) : undefined;
-    const providerId = input.id || `provider-${Date.now().toString(36)}`;
-    const apiKey = input.apiKey.trim();
-    const apiKeySecretRef = apiKey
-      ? this.providerSecrets?.saveApiKey(providerId, apiKey)
-      : existing?.apiKeySecretRef || this.providerSecrets?.secretRef(providerId);
-    const next: ModelProviderConfig = {
-      id: providerId,
-      name: input.name.trim() || "Custom Provider",
-      protocol: input.protocol,
-      baseUrl: input.baseUrl.trim(),
-      apiKeyMasked: apiKey ? maskApiKey(apiKey) : existing?.apiKeyMasked || "",
-      apiKeySecretRef,
-      chatModel: input.chatModel,
-      embeddingModel: input.embeddingModel,
-      multimodalModel: input.multimodalModel,
-      enabled: input.enabled ?? true,
-      embeddingEnabled: input.embeddingEnabled ?? existing?.embeddingEnabled ?? Boolean(input.embeddingModel),
-      agentTools: normalizeAgentToolSettings(input.agentTools ?? existing?.agentTools),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    const index = this.data.providers.findIndex((provider) => provider.id === next.id);
-    if (index >= 0) {
-      next.createdAt = this.data.providers[index].createdAt;
-      this.data.providers[index] = next;
-    } else {
-      this.data.providers.push(next);
-    }
-    this.save();
-    return next;
+    return this.providers.save(input);
   }
 
-  async providerModels(providerId: string): Promise<ProviderModel[]> {
-    const provider = this.data.providers.find((item) => item.id === providerId);
-    if (!provider) return [];
-    const apiKey = this.providerApiKey(provider.id) || envApiKeyForProvider(provider);
-    if (!apiKey || provider.protocol === "custom_http") {
-      return defaultModelsForProvider(provider);
-    }
-    try {
-      const models = await fetchProviderModels(provider, apiKey);
-      return models.length > 0 ? models : defaultModelsForProvider(provider);
-    } catch (error) {
-      console.warn(`[providers] Failed to fetch models for ${provider.id}`, error);
-      return defaultModelsForProvider(provider);
-    }
+  deleteProvider(providerId: string): boolean {
+    return this.providers.delete(providerId);
   }
 
-  async testProvider(providerId: string): Promise<ProviderTestResult> {
-    const startedAt = Date.now();
-    const provider = this.data.providers.find((item) => item.id === providerId);
-    if (!provider) {
-      return { ok: false, latencyMs: 0, message: "Provider not found." };
-    }
-    if (provider.protocol === "custom_http") {
-      return {
-        ok: false,
-        latencyMs: Date.now() - startedAt,
-        message: "Custom HTTP providers need a runtime adapter before connection testing.",
-      };
-    }
-    const apiKey = this.providerApiKey(provider.id) || envApiKeyForProvider(provider);
-    if (!apiKey) {
-      return {
-        ok: false,
-        latencyMs: Date.now() - startedAt,
-        message: "No API key is stored for this provider. Paste a key and save, or set the matching environment variable.",
-      };
-    }
-    try {
-      await fetchProviderModels(provider, apiKey, { limit: 1 });
-      return {
-        ok: true,
-        latencyMs: Date.now() - startedAt,
-        message: `${provider.name} connected via ${normalizeBaseUrl(provider.baseUrl, defaultBaseUrlForProvider(provider))}.`,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        latencyMs: Date.now() - startedAt,
-        message: error instanceof Error ? error.message : "Connection test failed.",
-      };
-    }
+  providerModels(providerId: string): Promise<ProviderModel[]> {
+    return this.providers.models(providerId);
+  }
+
+  testProvider(providerId: string): Promise<ProviderTestResult> {
+    return this.providers.test(providerId);
   }
 
   providerApiKey(providerId: string): string | undefined {
-    return this.providerSecrets?.readApiKey(providerId);
+    return this.providers.apiKey(providerId);
   }
 
   providerHasApiKey(providerId: string): boolean {
-    return Boolean(this.providerSecrets?.hasApiKey(providerId));
+    return this.providers.hasApiKey(providerId);
   }
 
   providerSecretStorageAvailable(): boolean {
-    return Boolean(this.providerSecrets?.isEncryptionAvailable());
+    return this.providers.secretStorageAvailable();
   }
 
   listTimetableEvents(query: TimetableRangeQuery): TimetableEvent[] {
+    if (this.isCurrentSemesterArchived()) return [];
+    const archivedCourseIds = new Set(this.archivedCourseIdsForCurrentSemester());
     const start = Date.parse(query.rangeStart);
     const end = Date.parse(query.rangeEnd);
-    return this.data.timetableEvents
+    return this.businessStore.listTimetableEvents(this.currentSemesterId())
       .filter((event) => {
-        if (event.semesterId !== this.data.semester.id) return false;
+        if (event.courseId && archivedCourseIds.has(event.courseId)) return false;
         const startsAt = Date.parse(event.startsAt);
         const endsAt = Date.parse(event.endsAt || event.startsAt);
         const inRange = startsAt <= end && endsAt >= start;
@@ -1335,45 +863,164 @@ export class LocalStore {
       .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   }
 
-  analyzeTimetableImage(input: TimetableImageAnalyzeInput): TimetableImageAnalyzeResult {
-    const generated: TimetableEvent = {
-      id: `tt-ai-image-${Date.now().toString(36)}`,
-      semesterId: this.data.semester.id,
-      title: "Recognized timetable block",
-      kind: "course_session",
-      source: "multimodal_image",
-      courseId: input.courseId,
-      startsAt: "2026-05-11T10:00:00.000Z",
-      endsAt: "2026-05-11T11:30:00.000Z",
-      location: "Pending confirmation",
-      notes: input.instruction || "Created from multimodal AI image analysis placeholder.",
-      confidence: 0.82,
-    };
-    this.data.timetableEvents.push(generated);
-    this.save();
-    return {
-      id: `tt-import-${Date.now().toString(36)}`,
-      status: "completed",
-      source: "multimodal_image",
-      createdEvents: [generated],
-      warnings: input.imageIds?.length || input.imagePaths?.length ? [] : ["No image selected yet; returned mock analysis output."],
-    };
-  }
-
-  private touchThread(threadId: string): void {
-    const thread = this.data.threads.find((item) => item.id === threadId);
-    if (thread) thread.updatedAt = now();
-  }
-
-  private load(): StoreShape {
-    const snapshot = this.businessStore.loadSnapshot();
-    if (snapshot) {
-      return this.withJsonlTranscript(normalizeStore({ ...snapshot, messages: [], events: [] }));
+  private ensureActiveCurrentSemester(): SemesterWorkspace | null {
+    const currentId = this.businessStore.currentSemesterId() || "";
+    const current = currentId ? this.businessStore.getSemester(currentId) : this.businessStore.currentSemester();
+    if (current && !current.archivedAt) {
+      this.businessStore.setCurrentSemester(current.id);
+      this.ensureSemesterHomeAssets(current);
+      return current;
     }
 
-    const data = normalizeStore(this.loadLegacyJsonStore() || initialStore());
-    this.businessStore.saveSnapshot(toBusinessSnapshot(data));
-    return this.withJsonlTranscript(data);
+    const next = this.businessStore.firstActiveSemester();
+    if (next) {
+      this.businessStore.setCurrentSemester(next.id);
+      this.ensureSemesterHomeAssets(next);
+      return next;
+    }
+
+    return this.seedDefaultSemester();
+  }
+
+  private isCurrentSemesterArchived(): boolean {
+    const semesterId = this.businessStore.currentSemesterId() || this.businessStore.currentSemester()?.id || "";
+    return this.isSemesterArchived(semesterId);
+  }
+
+  private isSemesterArchived(semesterId?: string): boolean {
+    if (!semesterId) return false;
+    return Boolean(this.businessStore.getSemester(semesterId)?.archivedAt);
+  }
+
+  private isCourseArchived(courseId: string): boolean {
+    if (courseId === SEMESTER_HOME_COURSE_ID) return this.isCurrentSemesterArchived();
+    const course = this.businessStore.getCourse(courseId);
+    if (!course) return false;
+    return Boolean(course.archivedAt || this.isSemesterArchived(course.semesterId));
+  }
+
+  private archivedCourseIdsForCurrentSemester(): string[] {
+    const semesterId = this.currentSemesterId();
+    return this.businessStore.listCourses(semesterId)
+      .filter((course) => Boolean(course.archivedAt))
+      .map((course) => course.id);
+  }
+
+  private cancelIndexingJobsForCourse(courseId: string): void {
+    for (const job of this.businessStore.listIndexingJobs(undefined, courseId)) {
+      if (job.status === "queued" || job.status === "indexing") this.businessStore.cancelIndexingJob(job.id);
+    }
+  }
+
+  private cancelIndexingJobsForSemester(semesterId: string): void {
+    for (const job of this.businessStore.listIndexingJobs(semesterId)) {
+      if (job.status === "queued" || job.status === "indexing") this.businessStore.cancelIndexingJob(job.id);
+    }
+  }
+
+  private deleteCourseDir(courseId: string, semesterId?: string): void {
+    if (!semesterId) return;
+    const dir = courseWorkspaceDir(this.rootDataDir(), semesterId, courseId);
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  }
+
+  private deleteSemesterDir(semesterId: string): void {
+    const dir = semesterWorkspaceDir(this.rootDataDir(), semesterId);
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  }
+
+  private async deleteRagChunksForCourse(semesterId: string, courseId: string): Promise<void> {
+    try {
+      await this.ragIndex.deleteChunksByCourse(semesterId, courseId);
+    } catch (error) {
+      console.warn(`[rag] Failed to delete chunks for course ${courseId}`, error);
+    }
+  }
+
+  private async deleteRagChunksForSemester(semesterId: string): Promise<void> {
+    try {
+      await this.ragIndex.deleteChunksBySemester(semesterId);
+    } catch (error) {
+      console.warn(`[rag] Failed to delete chunks for semester ${semesterId}`, error);
+    }
+  }
+
+  private ensureSemesterHomeAssets(semester: SemesterWorkspace): void {
+    ensureSemesterSharedDirs(this.rootDataDir(), semester.id);
+    const threadId = `thread-semester-home-${semester.id}`;
+    if (!this.businessStore.getThread(threadId)) {
+      const timestamp = now();
+      this.businessStore.saveThread({
+        id: threadId,
+        semesterId: semester.id,
+        courseId: SEMESTER_HOME_COURSE_ID,
+        threadType: "semester_home",
+        title: "Home",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    }
+    const roots = this.loadCourseRoots(SEMESTER_HOME_COURSE_ID, semester.id);
+    this.ensureCourseFolder(SEMESTER_HOME_COURSE_ID, roots, semester.id);
+    this.persistWorkspaceFilesForCourse(SEMESTER_HOME_COURSE_ID, roots, semester.id);
+  }
+
+  private persistWorkspaceFilesForCourse(courseId: string, roots: WorkspaceFileNode[], semesterId = this.currentSemesterId()): void {
+    if (!semesterId) return;
+    this.businessStore.saveWorkspaceFilesForScope(semesterId, courseId, roots);
+  }
+
+  private ensureTaskWorkspaceDir(task: UclawTask): void {
+    const semesterId = task.semesterId || this.currentSemesterId();
+    if (!semesterId) return;
+    ensureTaskWorkspaceDir(this.rootDataDir(), semesterId, task);
+  }
+
+  private initializeStorage(): void {
+    const businessData = this.businessStore.loadData();
+    if (businessData) {
+      const rawData: StoreShape = { ...businessData };
+      let data = repairBusinessDataForSQLite(stripLegacySeedData(rawData));
+      if (data.semesters.length === 0) data = this.seedDefaultSemesterData(data);
+      if (businessDataChanged(rawData, data)) this.businessStore.replaceBusinessData(toBusinessData(data));
+      return;
+    }
+
+    const legacyData = stripLegacySeedData(this.loadLegacyJsonStore() || initialStore());
+    let data = repairBusinessDataForSQLite(legacyData);
+    if (data.semesters.length === 0) {
+      data = this.seedDefaultSemesterData(data);
+    }
+    this.businessStore.replaceBusinessData(toBusinessData(data));
+  }
+
+  private seedDefaultSemester(): SemesterWorkspace {
+    const businessData = this.businessStore.loadData();
+    const next = this.seedDefaultSemesterData({ ...(businessData || initialStore()) });
+    this.businessStore.replaceBusinessData(toBusinessData(next));
+    const semester = next.semester as SemesterWorkspace;
+    this.ensureSemesterHomeAssets(semester);
+    return semester;
+  }
+
+  private seedDefaultSemesterData(data: StoreShape): StoreShape {
+    const timestamp = now();
+    const id = data.semesters.some((semester) => semester.id === "semester-default") ? `semester-default-${Date.now().toString(36)}` : "semester-default";
+    const semester: SemesterWorkspace = {
+      id,
+      semesterNo: "DEFAULT",
+      term: "My Semester",
+      folderName: "My Semester",
+      source: "manual",
+      recognizedAt: timestamp,
+    };
+    const next = repairBusinessDataForSQLite({
+      ...data,
+      semester,
+      semesters: upsertSemester(data.semesters, semester),
+      currentSemesterId: semester.id,
+    });
+    return next;
   }
 
   private loadLegacyJsonStore(): StoreShape | null {
@@ -1390,12 +1037,10 @@ export class LocalStore {
         currentSemesterId: parsed.currentSemesterId ?? parsed.semester?.id ?? initial.currentSemesterId,
         tasks: parsed.tasks ?? initial.tasks,
         threads: parsed.threads ?? initial.threads,
-        messages: parsed.messages ?? initial.messages,
-        events: parsed.events ?? initial.events,
         files: parsed.files ?? initial.files,
         timetableEvents: parsed.timetableEvents ?? initial.timetableEvents,
-        providers: normalizeProviders(parsed.providers ?? initial.providers),
         indexingJobs: parsed.indexingJobs ?? initial.indexingJobs,
+        indexingTasks: initial.indexingTasks,
       };
     } catch (error) {
       console.warn("[store] Failed to migrate legacy JSON store; using SQLite seed data", error);
@@ -1403,52 +1048,36 @@ export class LocalStore {
     }
   }
 
-  private save(): void {
-    this.businessStore.saveSnapshot(toBusinessSnapshot(this.data));
-  }
-
-  private withJsonlTranscript(data: StoreShape): StoreShape {
-    const messages: ChatMessage[] = [];
-    const events: UclawRunStreamItem[] = [];
-    const messageIdsFromJsonl = new Set<string>();
-    for (const thread of data.threads) {
-      const transcript = this.readThreadJsonlTranscript(thread);
-      messages.push(...transcript.messages);
-      events.push(...transcript.events);
-      for (const message of transcript.messages) messageIdsFromJsonl.add(message.id);
-    }
-    const fallbackMessages = data.messages.filter((message) => !messageIdsFromJsonl.has(message.id));
-    return {
-      ...data,
-      messages: [...fallbackMessages, ...messages].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
-      events: events.sort((a, b) => a.seq - b.seq),
-    };
+  private currentSemesterId(): string {
+    const semesterId = this.businessStore.currentSemesterId() || this.businessStore.currentSemester()?.id || "";
+    if (this.isSemesterArchived(semesterId)) return this.ensureActiveCurrentSemester()?.id || "";
+    return semesterId;
   }
 
   private embeddingProvider(): ModelProviderConfig | undefined {
-    return (
-      this.data.providers.find((item) => item.embeddingEnabled && item.embeddingModel && item.protocol !== "anthropic_messages") ||
-      this.data.providers.find((item) => item.enabled && item.embeddingModel && item.protocol !== "anthropic_messages") ||
-      this.data.providers.find((item) => item.enabled && item.protocol !== "anthropic_messages")
-    );
+    return this.providers.embeddingProvider();
   }
 
   private refreshIndexingJobs(): IndexingJob[] {
-    this.data.indexingJobs = this.businessStore.listIndexingJobs(this.data.semester.id);
-    return this.data.indexingJobs;
+    return this.businessStore.listIndexingJobs(this.currentSemesterId());
   }
 
-  private ensureCourseFolder(courseId: string): WorkspaceFileNode {
+  private loadCourseRoots(courseId: string, semesterId = this.currentSemesterId()): WorkspaceFileNode[] {
+    return cloneFiles(this.businessStore.listWorkspaceFiles(semesterId, courseId).filter((file) => file.kind === "folder"));
+  }
+
+  private ensureCourseFolder(courseId: string, roots: WorkspaceFileNode[] = this.loadCourseRoots(courseId), semesterId = this.currentSemesterId()): WorkspaceFileNode {
+    const semester = this.businessStore.getSemester(semesterId) || this.businessStore.currentSemester();
     const course =
       courseId === SEMESTER_HOME_COURSE_ID
-        ? semesterHomeCourse(this.data.semester)
-        : this.data.courses.find((item) => item.id === courseId && item.semesterId === this.data.semester.id);
-    const folderName = course ? folderNameForCourse(course, this.data.semester) : "Course";
-    let root = this.data.files.find((file) => file.courseId === courseId && file.semesterId === this.data.semester.id && file.kind === "folder");
+        ? semesterHomeCourse(semester)
+        : this.businessStore.getCourse(courseId);
+    const folderName = course ? folderNameForCourse(course, semester || undefined) : "Course";
+    let root = roots.find((file) => file.courseId === courseId && file.semesterId === semesterId && file.kind === "folder");
     if (!root) {
       root = {
-        id: `folder-${this.data.semester.id}-${courseId}`,
-        semesterId: this.data.semester.id,
+        id: `folder-${semesterId}-${courseId}`,
+        semesterId,
         courseId,
         name: folderName,
         path: folderName,
@@ -1456,11 +1085,26 @@ export class LocalStore {
         updatedAt: now(),
         children: [],
       };
-      this.data.files.push(root);
+      roots.push(root);
     }
     root.name = folderName;
     root.path = folderName;
     root.children ||= [];
+    if (courseId === SEMESTER_HOME_COURSE_ID) {
+      ensureFolderPath(root, [{ name: "Semester shared", extra: { sectionKind: "course_shared" } }], now());
+    } else {
+      ensureFolderPath(root, [{ name: "Course shared", extra: { sectionKind: "course_shared" } }], now());
+      ensureFolderPath(root, [{ name: "Lecture", extra: { sectionKind: "lecture" } }], now());
+      const courseTasks = this.businessStore.listTasks(semesterId, courseId);
+      const taskRoot = ensureFolderPath(root, [{ name: "Task", extra: { sectionKind: "task" } }], now());
+      for (const taskType of uniqueTaskTypesFromTasks(courseTasks)) {
+        ensureFolderChild(taskRoot, taskTypeLabel(taskType), { sectionKind: "task", taskType }, now());
+      }
+      for (const task of courseTasks) {
+        const taskFolder = ensureTaskWorkspace(root, task, now());
+        ensureTaskBucketFolders(taskFolder, courseId, task.id, task.taskType, now());
+      }
+    }
     rebaseChildPaths(root);
     return root;
   }
@@ -1473,20 +1117,12 @@ export class LocalStore {
     if (input.targetSection === "course_shared") {
       return ensureFolderPath(root, [{ name: "Course shared", extra: { sectionKind: "course_shared" } }], timestamp);
     }
-    if (input.targetSection === "week") {
-      const weekNumber = input.weekNumber || 1;
-      return ensureFolderPath(
-        root,
-        [
-          { name: "Week", extra: { sectionKind: "week" } },
-          { name: `Week ${weekNumber}`, extra: { sectionKind: "week", weekNumber } },
-        ],
-        timestamp,
-      );
+    if (input.targetSection === "lecture") {
+      return ensureFolderPath(root, [{ name: "Lecture", extra: { sectionKind: "lecture" } }], timestamp);
     }
 
-    const task = input.taskId ? this.data.tasks.find((item) => item.id === input.taskId) : undefined;
-    const taskType = task?.taskType || "assignment";
+    const task = input.taskId ? this.businessStore.getTask(input.taskId) : undefined;
+    const taskType = task?.taskType || DEFAULT_TASK_TYPE;
     const taskFolder = ensureFolderPath(
       root,
       [
@@ -1516,130 +1152,15 @@ export class LocalStore {
 
   private sectionIdForImport(input: FileImportInput): string | undefined {
     if (input.targetSection === "course_shared") return `${input.courseId}:shared`;
-    if (input.targetSection === "week") return `${input.courseId}:week-${input.weekNumber || 1}`;
+    if (input.targetSection === "lecture") return `${input.courseId}:lecture`;
     if (input.targetSection === "task" && input.taskId) return `${input.courseId}:task-${input.taskId}`;
     return undefined;
   }
 
-  private indexingStatusForSection(courseId: string, sectionId: string, hasFiles: boolean): IndexingJob["status"] {
-    const job = this.data.indexingJobs.find((item) => item.semesterId === this.data.semester.id && item.courseId === courseId && item.sectionId === sectionId);
+  private indexingStatusForSection(courseId: string, sectionId: string, _hasFiles: boolean): IndexingJob["status"] {
+    const job = this.businessStore.listIndexingJobs(this.currentSemesterId(), courseId).find((item) => item.sectionId === sectionId);
     if (job) return job.status;
-    return hasFiles ? "indexed" : "idle";
-  }
-
-  private appendThreadJsonl(threadId: string, payload: Record<string, unknown>): void {
-    const logPath = this.threadJsonlPath(threadId);
-    mkdirSync(dirname(logPath), { recursive: true });
-    appendFileSync(
-      logPath,
-      `${JSON.stringify({
-        id: `event-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-        semesterId: this.threadSemesterId(threadId),
-        threadId,
-        createdAt: now(),
-        ...payload,
-      })}\n`,
-      "utf8",
-    );
-  }
-
-  private readThreadJsonlEvents(threadId: string): UclawRunStreamItem[] {
-    const logPath = this.threadJsonlPath(threadId);
-    if (!existsSync(logPath)) return [];
-    try {
-      const raw = readFileSync(logPath, "utf8");
-      return raw
-        .split("\n")
-        .filter((line) => line.trim().length > 0)
-        .flatMap((line) => {
-          try {
-            const parsed = JSON.parse(line) as { type?: string; item?: unknown };
-            if (parsed.type !== "run_item" || !parsed.item) return [];
-            return [parsed.item as UclawRunStreamItem];
-          } catch {
-            return [];
-          }
-        });
-    } catch (error) {
-      console.warn(`[store] Failed to read thread event log: ${threadId}`, error);
-      return [];
-    }
-  }
-
-  private readThreadOpenAISessionItems(threadId: string): AgentInputItem[] {
-    const logPath = this.threadJsonlPath(threadId);
-    if (!existsSync(logPath)) return [];
-    const items: AgentInputItem[] = [];
-    try {
-      const raw = readFileSync(logPath, "utf8");
-      for (const line of raw.split("\n")) {
-        if (!line.trim()) continue;
-        const parsed = parseJsonlLine(line);
-        if (!parsed) continue;
-        if (parsed.type === "sdk_session_clear") {
-          items.length = 0;
-          continue;
-        }
-        if (parsed.type === "sdk_session_pop") {
-          items.pop();
-          continue;
-        }
-        if (parsed.type === "sdk_session_item" && parsed.item) {
-          items.push(parsed.item as AgentInputItem);
-        }
-      }
-    } catch (error) {
-      console.warn(`[store] Failed to read OpenAI session items: ${threadId}`, error);
-    }
-    return items;
-  }
-
-  private readThreadJsonlTranscript(thread: Thread): { messages: ChatMessage[]; events: UclawRunStreamItem[] } {
-    const logPath = this.threadJsonlPathFor(thread.id, thread.semesterId || this.data?.semester.id);
-    if (!existsSync(logPath)) return { messages: [], events: [] };
-    const messages = new Map<string, ChatMessage>();
-    const events: UclawRunStreamItem[] = [];
-    try {
-      const raw = readFileSync(logPath, "utf8");
-      for (const line of raw.split("\n")) {
-        if (!line.trim()) continue;
-        const parsed = parseJsonlLine(line);
-        if (!parsed) continue;
-        if ((parsed.type === "user_message" || parsed.type === "assistant_message" || parsed.type === "system_message") && isRecord(parsed.message)) {
-          const message = parsed.message as unknown as ChatMessage;
-          messages.set(message.id, { ...message });
-          continue;
-        }
-        if (parsed.type !== "run_item" || !isRecord(parsed.item)) continue;
-        const item = parsed.item as unknown as UclawRunStreamItem;
-        events.push(item);
-        if (item.type === "assistant_message_delta" && item.messageId && typeof item.delta === "string") {
-          const message = messages.get(item.messageId);
-          if (message) message.content += item.delta;
-        }
-        if (item.type === "assistant_message_done" && item.messageId && typeof item.content === "string") {
-          const message = messages.get(item.messageId);
-          if (message) message.content = item.content;
-        }
-      }
-    } catch (error) {
-      console.warn(`[store] Failed to read thread transcript: ${thread.id}`, error);
-    }
-    return { messages: [...messages.values()], events };
-  }
-
-  private threadJsonlPath(threadId: string): string {
-    const semesterId = this.threadSemesterId(threadId);
-    return this.threadJsonlPathFor(threadId, semesterId);
-  }
-
-  private threadJsonlPathFor(threadId: string, semesterId = this.data.semester.id): string {
-    return join(dirname(this.filePath), "semesters", semesterId, "threads", `${threadId}.jsonl`);
-  }
-
-  private threadSemesterId(threadId: string): string {
-    const thread = this.data.threads.find((item) => item.id === threadId);
-    return thread?.semesterId || this.data.semester.id;
+    return "idle";
   }
 
   private rootDataDir(): string {
@@ -1647,47 +1168,20 @@ export class LocalStore {
   }
 
   private ensureSemesterWorkspaceDir(semesterId: string): string {
-    const dir = join(this.rootDataDir(), "semesters", semesterId);
-    mkdirSync(dir, { recursive: true });
-    return dir;
+    return ensureSemesterWorkspaceDir(this.rootDataDir(), semesterId);
   }
 
-  private ensureCourseWorkspaceDir(courseId: string, semesterId = this.data.semester.id): string {
-    const dir = join(this.ensureSemesterWorkspaceDir(semesterId), "courses", courseId);
-    mkdirSync(dir, { recursive: true });
-    mkdirSync(join(dir, "Course shared"), { recursive: true });
-    mkdirSync(join(dir, "Week"), { recursive: true });
-    mkdirSync(join(dir, "Task"), { recursive: true });
-    return dir;
+  private ensureCourseWorkspaceDir(courseId: string, semesterId = this.currentSemesterId()): string {
+    return ensureCourseWorkspaceDir(this.rootDataDir(), semesterId, courseId);
   }
 
   private ensureImportTargetDir(input: FileImportInput): string {
-    const semesterId = this.data.semester.id;
-    if (input.courseId === SEMESTER_HOME_COURSE_ID) {
-      const dir = join(this.ensureSemesterWorkspaceDir(semesterId), "Semester shared");
-      mkdirSync(dir, { recursive: true });
-      return dir;
-    }
-
-    const courseDir = this.ensureCourseWorkspaceDir(input.courseId, semesterId);
-    if (input.targetSection === "course_shared") {
-      const dir = join(courseDir, "Course shared");
-      mkdirSync(dir, { recursive: true });
-      return dir;
-    }
-
-    if (input.targetSection === "week") {
-      const dir = join(courseDir, "Week", `Week ${input.weekNumber || 1}`);
-      mkdirSync(dir, { recursive: true });
-      return dir;
-    }
-
-    const task = input.taskId ? this.data.tasks.find((item) => item.id === input.taskId) : undefined;
-    const taskType = task?.taskType || "assignment";
-    const taskDir = join(courseDir, "Task", taskTypeLabel(taskType), sanitizeFsSegment(task?.title || "Task workspace"));
-    const bucketDir = join(taskDir, taskBucketLabel(input.taskFileBucket || "materials"));
-    mkdirSync(bucketDir, { recursive: true });
-    return bucketDir;
+    const semesterId = this.currentSemesterId();
+    return ensureImportTargetDir(this.rootDataDir(), semesterId, input, (taskId) => {
+      const task = this.businessStore.getTask(taskId);
+      if (!task) return undefined;
+      return { title: task.title, taskType: task.taskType };
+    });
   }
 
 }
@@ -1716,163 +1210,17 @@ function findFile(files: WorkspaceFileNode[], fileId: string): WorkspaceFileNode
   return null;
 }
 
-function maskApiKey(apiKey: string): string {
-  const trimmed = apiKey.trim();
-  if (!trimmed) return "";
-  if (trimmed.length <= 8) return "••••";
-  return `${trimmed.slice(0, 3)}...${trimmed.slice(-4)}`;
-}
-
-function defaultBaseUrlForProvider(provider: ModelProviderConfig): string {
-  if (provider.protocol === "anthropic_messages") return "https://api.anthropic.com/v1";
-  return "https://api.openai.com/v1";
-}
-
-function normalizeBaseUrl(baseUrl: string, fallback: string): string {
-  return (baseUrl.trim() || fallback).replace(/\/+$/, "");
-}
-
-function envApiKeyForProvider(provider: ModelProviderConfig): string | undefined {
-  if (provider.protocol === "anthropic_messages") {
-    return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-  }
-  return process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-}
-
-function normalizeAgentToolSettings(value?: ModelProviderConfig["agentTools"]): ModelProviderConfig["agentTools"] {
-  if (!value) {
-    return {
-      webSearch: { enabled: false, searchContextSize: "medium" },
-      fileSearch: { enabled: false, vectorStoreIds: [] },
-      codeInterpreter: { enabled: false },
-      imageGeneration: { enabled: false },
-      toolSearch: { enabled: false },
-      hostedMcpServers: [],
-    };
-  }
-  return {
-    webSearch: {
-      enabled: Boolean(value.webSearch?.enabled),
-      searchContextSize: value.webSearch?.searchContextSize || "medium",
-      allowedDomains: cleanStringList(value.webSearch?.allowedDomains),
-      externalWebAccess: value.webSearch?.externalWebAccess,
-    },
-    fileSearch: {
-      enabled: Boolean(value.fileSearch?.enabled),
-      vectorStoreIds: cleanStringList(value.fileSearch?.vectorStoreIds),
-      maxNumResults: value.fileSearch?.maxNumResults,
-      includeSearchResults: value.fileSearch?.includeSearchResults,
-    },
-    codeInterpreter: {
-      enabled: Boolean(value.codeInterpreter?.enabled),
-      includeOutputs: value.codeInterpreter?.includeOutputs,
-      container: value.codeInterpreter?.container?.trim() || undefined,
-    },
-    imageGeneration: {
-      enabled: Boolean(value.imageGeneration?.enabled),
-      model: value.imageGeneration?.model?.trim() || undefined,
-      size: value.imageGeneration?.size?.trim() || undefined,
-      quality: value.imageGeneration?.quality?.trim() || undefined,
-    },
-    toolSearch: {
-      enabled: Boolean(value.toolSearch?.enabled),
-    },
-    hostedMcpServers: (value.hostedMcpServers || [])
-      .filter((server) => server.serverLabel?.trim() && (server.serverUrl?.trim() || server.connectorId?.trim()))
-      .map((server) => ({
-        serverLabel: server.serverLabel.trim(),
-        serverUrl: server.serverUrl?.trim() || undefined,
-        connectorId: server.connectorId?.trim() || undefined,
-        authorization: server.authorization?.trim() || undefined,
-        headers: server.headers,
-        allowedTools: cleanStringList(server.allowedTools),
-        deferLoading: Boolean(server.deferLoading),
-        requireApproval: server.requireApproval === "never" ? "never" : "always",
-      })),
-  };
-}
-
-function cleanStringList(value?: string[]): string[] | undefined {
-  const list = (value || []).map((item) => item.trim()).filter(Boolean);
-  return list.length > 0 ? list : undefined;
-}
-
-function defaultModelsForProvider(provider?: ModelProviderConfig): ProviderModel[] {
-  if (provider?.protocol === "anthropic_messages") {
-    return [
-      { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", type: "chat" },
-      { id: "claude-opus-4.1", name: "Claude Opus 4.1", type: "chat" },
-    ];
-  }
-  return [
-    { id: "gpt-5.1", name: "GPT-5.1", type: "chat" },
-    { id: "gpt-5.1-mini", name: "GPT-5.1 mini", type: "chat" },
-    { id: "text-embedding-3-large", name: "text-embedding-3-large", type: "embedding" },
-    { id: "text-embedding-3-small", name: "text-embedding-3-small", type: "embedding" },
-    { id: "gpt-5.1", name: "GPT-5.1 multimodal", type: "multimodal" },
-  ];
-}
-
-async function fetchProviderModels(
-  provider: ModelProviderConfig,
-  apiKey: string,
-  options: { limit?: number } = {},
-): Promise<ProviderModel[]> {
-  const baseUrl = normalizeBaseUrl(provider.baseUrl, defaultBaseUrlForProvider(provider));
-  const response = await fetchWithTimeout(`${baseUrl}/models`, {
-    headers:
-      provider.protocol === "anthropic_messages"
-        ? {
-            "anthropic-version": "2023-06-01",
-            "x-api-key": apiKey,
-          }
-        : {
-            authorization: `Bearer ${apiKey}`,
-          },
-  });
-  if (!response.ok) {
-    throw new Error(`Connection failed (${response.status}) ${await responseShortText(response)}`);
-  }
-  const payload = (await response.json()) as { data?: Array<{ id?: string; display_name?: string; name?: string }> };
-  const models = (payload.data || []).flatMap((item) => providerModelsFromId(item.id || "", item.display_name || item.name));
-  return typeof options.limit === "number" ? models.slice(0, options.limit) : models;
-}
-
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Connection timed out.");
+function removeFileFromTree(files: WorkspaceFileNode[], fileId: string): boolean {
+  for (const file of files) {
+    if (!file.children) continue;
+    const index = file.children.findIndex((child) => child.id === fileId);
+    if (index >= 0) {
+      file.children.splice(index, 1);
+      return true;
     }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+    if (removeFileFromTree(file.children, fileId)) return true;
   }
-}
-
-function providerModelsFromId(id: string, displayName?: string): ProviderModel[] {
-  if (!id) return [];
-  const lower = id.toLowerCase();
-  const name = displayName || id;
-  if (lower.includes("embedding")) {
-    return [{ id, name, type: "embedding" }];
-  }
-  const models: ProviderModel[] = [{ id, name, type: "chat" }];
-  if (lower.includes("gpt-4o") || lower.includes("gpt-5") || lower.includes("vision") || lower.includes("multimodal")) {
-    models.push({ id, name: `${name} multimodal`, type: "multimodal" });
-  }
-  return models;
-}
-
-async function responseShortText(response: Response): Promise<string> {
-  try {
-    return (await response.text()).replace(/\s+/g, " ").slice(0, 180);
-  } catch {
-    return "";
-  }
+  return false;
 }
 
 function formatSize(bytes: number): string {
@@ -1893,29 +1241,19 @@ function kindForPath(filePath: string): WorkspaceFileNode["kind"] {
   return "unknown";
 }
 
-function folderNameForCourse(course: Course, semester?: SemesterWorkspace): string {
-  if (course.workspaceKind === "semester_home" || course.id === SEMESTER_HOME_COURSE_ID) {
-    return semester?.folderName || course.term || "Semester";
+function uniqueTaskTypesFromTasks(tasks: UclawTask[]): TaskType[] {
+  const seen = new Set<string>();
+  const result: TaskType[] = [];
+  for (const task of tasks) {
+    const key = task.taskType?.trim() || DEFAULT_TASK_TYPE;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(key);
   }
-  return course.name || "Course";
+  return result;
 }
 
-function taskTypeLabel(taskType: TaskType): string {
-  return TASK_TYPE_LABELS[taskType] || "Assignment";
-}
-
-function taskBucketLabel(bucket: TaskFileBucket): string {
-  return TASK_FILE_BUCKET_LABELS[bucket] || "Materials";
-}
-
-function orderedTaskTypes(tasks: UclawTask[]): TaskType[] {
-  const discovered = tasks.map((task) => task.taskType);
-  return [...DEFAULT_TASK_TYPES, ...discovered.filter((taskType) => !DEFAULT_TASK_TYPES.includes(taskType))].filter(
-    (taskType, index, all) => all.indexOf(taskType) === index,
-  );
-}
-
-function semesterHomeCourse(semester?: SemesterWorkspace): Course {
+function semesterHomeCourse(semester?: SemesterWorkspace | null): Course {
   return {
     id: SEMESTER_HOME_COURSE_ID,
     semesterId: semester?.id,
@@ -1929,18 +1267,20 @@ function semesterHomeCourse(semester?: SemesterWorkspace): Course {
   };
 }
 
-function normalizeCourses(courses: Course[], semester?: SemesterWorkspace): Course[] {
-  const home = semesterHomeCourse(semester);
+function normalizeCourses(courses: Course[], semester?: SemesterWorkspace | null): Course[] {
   const realCourses = courses
     .filter((course) => course.id !== SEMESTER_HOME_COURSE_ID)
     .filter((course) => !semester?.id || course.semesterId === semester.id)
     .map((course) => ({ ...course, semesterId: course.semesterId || semester?.id, workspaceKind: course.workspaceKind || "course" }));
-  return [{ ...home, code: semester?.semesterNo || home.code, term: semester?.term || home.term, workspaceKind: "semester_home" }, ...realCourses];
+  if (!semester) return realCourses;
+  const home = semesterHomeCourse(semester);
+  return [{ ...home, code: semester.semesterNo || home.code, term: semester.term || home.term, workspaceKind: "semester_home" }, ...realCourses];
 }
 
-function normalizeSemesters(semesters: SemesterWorkspace[] | undefined, current: SemesterWorkspace): SemesterWorkspace[] {
-  const normalized = upsertSemester(semesters || [], current);
-  return normalized.length > 0 ? normalized : [current];
+function normalizeSemesters(semesters: SemesterWorkspace[] | undefined, current?: SemesterWorkspace | null): SemesterWorkspace[] {
+  const normalized = semesters ? semesters.slice() : [];
+  if (!current) return normalized;
+  return upsertSemester(normalized, current);
 }
 
 function upsertSemester(semesters: SemesterWorkspace[], semester: SemesterWorkspace): SemesterWorkspace[] {
@@ -1951,13 +1291,27 @@ function upsertSemester(semesters: SemesterWorkspace[], semester: SemesterWorksp
   return [...semesters, semester];
 }
 
-function normalizeStore(data: StoreShape): StoreShape {
-  const fallback = initialStore();
-  const semesters = normalizeSemesters(data.semesters, data.semester || fallback.semester);
-  const currentSemesterId = semesters.some((item) => item.id === data.currentSemesterId)
+function repairBusinessDataForSQLite(data: StoreShape): StoreShape {
+  const semesters = normalizeSemesters(data.semesters, data.semester);
+  const currentSemesterId = data.currentSemesterId && semesters.some((item) => item.id === data.currentSemesterId)
     ? data.currentSemesterId
-    : data.semester?.id || semesters[0]?.id || fallback.currentSemesterId;
-  const semester = semesters.find((item) => item.id === currentSemesterId) || semesters[0] || fallback.semester;
+    : data.semester?.id || semesters[0]?.id || null;
+  const semester = semesters.find((item) => item.id === currentSemesterId) || null;
+  if (!semester) {
+    return {
+      ...data,
+      semester: null,
+      semesters,
+      currentSemesterId,
+      courses: data.courses.filter((course) => course.id !== SEMESTER_HOME_COURSE_ID),
+      tasks: data.tasks.filter((task) => !task.semesterId || task.semesterId === currentSemesterId || !currentSemesterId),
+      threads: data.threads.filter((thread) => thread.courseId !== SEMESTER_HOME_COURSE_ID),
+      files: data.files.filter((file) => file.courseId !== SEMESTER_HOME_COURSE_ID),
+      timetableEvents: data.timetableEvents.filter((event) => !event.semesterId || event.semesterId === currentSemesterId || !currentSemesterId),
+      indexingJobs: data.indexingJobs || [],
+      indexingTasks: data.indexingTasks || [],
+    };
+  }
   const timestamp = now();
   const courses = data.courses
     .filter((course) => course.id !== SEMESTER_HOME_COURSE_ID)
@@ -1983,30 +1337,12 @@ function normalizeStore(data: StoreShape): StoreShape {
         semesterId: item.id,
         courseId: SEMESTER_HOME_COURSE_ID,
         threadType: "semester_home",
-        title: "Home TaskAgent",
+        title: "Home",
         createdAt: timestamp,
         updatedAt: timestamp,
-        latestRunStatus: "idle",
-        latestEventSeq: 0,
-        pendingApprovalCount: 0,
       });
     }
   }
-  const homeMessages = threads
-    .filter((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID && !data.messages.some((message) => message.threadId === thread.id))
-    .map((thread) => ({
-      id: `message-${thread.id}`,
-      threadId: thread.id,
-      role: "assistant" as const,
-      createdAt: timestamp,
-      content:
-        "Home TaskAgent is the semester entry point. It can see every course folder, route files into courses, and narrow work down into task sessions when needed.",
-    }));
-  const messages = homeMessages.length > 0 ? [...homeMessages, ...data.messages] : data.messages;
-  const files = data.files.map((file) => ({
-    ...file,
-    semesterId: file.semesterId || courseSemester.get(file.courseId) || semester.id,
-  }));
   const timetableEvents = data.timetableEvents.map((event) => ({
     ...event,
     semesterId: event.semesterId || courseSemester.get(event.courseId || "") || semester.id,
@@ -2015,7 +1351,12 @@ function normalizeStore(data: StoreShape): StoreShape {
     ...job,
     semesterId: job.semesterId || courseSemester.get(job.courseId) || semester.id,
   }));
-  return normalizeWorkspaceFolders({
+  const indexingTasks = (data.indexingTasks || []).map((task) => ({
+    ...task,
+    semesterId: task.semesterId || courseSemester.get(task.courseId) || semester.id,
+  }));
+  const files = repairFileTreeForSQLite(data.files, courseSemester, semester.id);
+  return {
     ...data,
     semester,
     semesters,
@@ -2023,81 +1364,29 @@ function normalizeStore(data: StoreShape): StoreShape {
     courses,
     tasks,
     threads,
-    messages,
     files,
     timetableEvents,
     indexingJobs,
-    providers: normalizeProviders(data.providers),
-  });
+    indexingTasks,
+  };
 }
 
-function normalizeWorkspaceFolders(data: StoreShape): StoreShape {
-  const timestamp = now();
-  const files: WorkspaceFileNode[] = [];
-
-  function ensureRoot(course: Course, semester: SemesterWorkspace): WorkspaceFileNode {
-    const folderName = folderNameForCourse(course, semester);
-    const existingRoots = data.files.filter((file) => file.semesterId === semester.id && file.courseId === course.id);
-    let root = existingRoots.find((file) => file.kind === "folder");
-    if (!root) {
-      root = {
-        id: `folder-${semester.id}-${course.id}`,
-        semesterId: semester.id,
-        courseId: course.id,
-        name: folderName,
-        path: folderName,
-        kind: "folder",
-        updatedAt: timestamp,
-        children: [],
-      };
-    }
-    root.semesterId = semester.id;
-    root.name = folderName;
-    root.path = folderName;
-    root.children = [];
-    files.push(root);
-    return root;
-  }
-
-  for (const semester of data.semesters) {
-    for (const course of normalizeCourses(data.courses, semester)) {
-      const existingLeaves = data.files
-        .filter((file) => file.semesterId === semester.id && file.courseId === course.id)
-        .flatMap((file) => (file.kind === "folder" ? flattenFiles(file.children || []) : [file]));
-      const leafById = new Map(existingLeaves.map((file) => [file.id, file]));
-      const root = ensureRoot(course, semester);
-
-      if (course.id === SEMESTER_HOME_COURSE_ID) {
-        ensureFolderPath(root, [{ name: "Semester shared", extra: { sectionKind: "course_shared" } }], timestamp);
-        for (const file of leafById.values()) {
-          moveLeafIntoTarget(root, file, semesterSharedFolder(root), { sectionKind: "course_shared" });
-        }
-        continue;
-      }
-
-      ensureFolderPath(root, [{ name: "Course shared", extra: { sectionKind: "course_shared" } }], timestamp);
-      const weekRoot = ensureFolderPath(root, [{ name: "Week", extra: { sectionKind: "week" } }], timestamp);
-      for (let weekNumber = 1; weekNumber <= DEFAULT_WEEK_COUNT; weekNumber += 1) {
-        ensureFolderChild(weekRoot, `Week ${weekNumber}`, { sectionKind: "week", weekNumber }, timestamp);
-      }
-      const courseTasks = data.tasks.filter((item) => item.semesterId === semester.id && item.courseId === course.id);
-      const taskRoot = ensureFolderPath(root, [{ name: "Task", extra: { sectionKind: "task" } }], timestamp);
-      for (const taskType of orderedTaskTypes(courseTasks)) {
-        ensureFolderChild(taskRoot, taskTypeLabel(taskType), { sectionKind: "task", taskType }, timestamp);
-      }
-      for (const task of courseTasks) {
-        const taskFolder = ensureTaskWorkspace(root, task, timestamp);
-        ensureTaskBucketFolders(taskFolder, course.id, task.id, task.taskType, timestamp);
-      }
-
-      for (const file of leafById.values()) {
-        const route = routeLeafFile(root, file, courseTasks);
-        moveLeafIntoTarget(root, file, route.target, route.extra);
-      }
-    }
-  }
-
-  return { ...data, files };
+function repairFileTreeForSQLite(
+  files: WorkspaceFileNode[],
+  courseSemester: Map<string, string | undefined>,
+  defaultSemesterId: string,
+  parent?: Pick<WorkspaceFileNode, "semesterId" | "courseId">,
+): WorkspaceFileNode[] {
+  return files.map((file) => {
+    const courseId = file.courseId || parent?.courseId || SEMESTER_HOME_COURSE_ID;
+    const semesterId = file.semesterId || parent?.semesterId || courseSemester.get(courseId) || defaultSemesterId;
+    return {
+      ...file,
+      semesterId,
+      courseId,
+      children: file.children ? repairFileTreeForSQLite(file.children, courseSemester, defaultSemesterId, { semesterId, courseId }) : undefined,
+    };
+  });
 }
 
 function ensureTaskWorkspace(root: WorkspaceFileNode, task: UclawTask, timestamp: string): WorkspaceFileNode {
@@ -2119,7 +1408,7 @@ function ensureTaskBucketFolders(
   taskType: TaskType,
   timestamp: string,
 ): void {
-  (Object.keys(TASK_FILE_BUCKET_LABELS) as TaskFileBucket[]).forEach((bucket) => {
+  TASK_FILE_BUCKETS.forEach((bucket) => {
     ensureFolderChild(
       taskFolder,
       taskBucketLabel(bucket),
@@ -2177,88 +1466,6 @@ function ensureFolderChild(
   return child;
 }
 
-function routeLeafFile(
-  root: WorkspaceFileNode,
-  file: WorkspaceFileNode,
-  tasks: UclawTask[],
-): { target: WorkspaceFileNode; extra: Partial<WorkspaceFileNode> } {
-  const task = inferTaskForFile(file, tasks);
-  if (task) {
-    const taskFolder = ensureTaskWorkspace(root, task, now());
-    ensureTaskBucketFolders(taskFolder, root.courseId, task.id, task.taskType, now());
-    const taskFileBucket = file.taskFileBucket || inferTaskFileBucket(file);
-    return {
-      target: ensureFolderChild(
-        taskFolder,
-        taskBucketLabel(taskFileBucket),
-        {
-          taskId: task.id,
-          taskType: task.taskType,
-          taskFileBucket,
-          sectionKind: "task",
-        },
-        now(),
-      ),
-      extra: { sectionKind: "task", taskId: task.id, taskType: task.taskType, taskFileBucket, weekNumber: undefined },
-    };
-  }
-
-  const weekNumber = file.weekNumber || inferWeekNumber(`${file.path} ${file.name}`);
-  if (weekNumber) {
-    const target = ensureFolderPath(
-      root,
-      [
-        { name: "Week", extra: { sectionKind: "week" } },
-        { name: `Week ${weekNumber}`, extra: { sectionKind: "week", weekNumber } },
-      ],
-      now(),
-    );
-    return { target, extra: { sectionKind: "week", weekNumber, taskId: undefined, taskFileBucket: undefined } };
-  }
-
-  return {
-    target: ensureFolderPath(root, [{ name: "Course shared", extra: { sectionKind: "course_shared" } }], now()),
-    extra: { sectionKind: "course_shared", taskId: undefined, taskFileBucket: undefined, weekNumber: undefined },
-  };
-}
-
-function semesterSharedFolder(root: WorkspaceFileNode): WorkspaceFileNode {
-  return ensureFolderPath(root, [{ name: "Semester shared", extra: { sectionKind: "course_shared" } }], now());
-}
-
-function moveLeafIntoTarget(
-  root: WorkspaceFileNode,
-  file: WorkspaceFileNode,
-  target: WorkspaceFileNode,
-  extra: Partial<WorkspaceFileNode>,
-): void {
-  target.children ||= [];
-  const moved: WorkspaceFileNode = {
-    ...file,
-    ...extra,
-    semesterId: target.semesterId || root.semesterId,
-    courseId: target.courseId || root.courseId,
-    path: `${target.path}/${file.name}`,
-    children: undefined,
-  };
-  const existingIndex = target.children.findIndex((child) => child.id === moved.id);
-  if (existingIndex >= 0) target.children[existingIndex] = moved;
-  else target.children.push(moved);
-}
-
-function inferTaskForFile(file: WorkspaceFileNode, tasks: UclawTask[]): UclawTask | undefined {
-  if (file.taskId) return tasks.find((task) => task.id === file.taskId);
-  const haystack = `${file.path} ${file.name}`.toLowerCase();
-  return tasks.find((task) => haystack.includes(task.title.toLowerCase()));
-}
-
-function inferTaskFileBucket(file: WorkspaceFileNode): TaskFileBucket {
-  const haystack = `${file.path} ${file.name}`.toLowerCase();
-  if (haystack.includes("submitted") || haystack.includes("已提交") || haystack.includes("final")) return "submitted";
-  if (haystack.includes("draft")) return "drafts";
-  return "materials";
-}
-
 function rebaseChildPaths(folder: WorkspaceFileNode): void {
   for (const child of folder.children || []) {
     child.path = `${folder.path}/${child.name}`;
@@ -2270,20 +1477,8 @@ function withoutUndefined<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
-function inferWeekNumber(name: string): number | undefined {
-  const match = name.match(/week[-_\s]?(\d{1,2})/i);
-  if (!match) return undefined;
-  const value = Number(match[1]);
-  return value > 0 && value <= DEFAULT_WEEK_COUNT ? value : undefined;
-}
-
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "folder";
-}
-
-function sanitizeFsSegment(value: string): string {
-  const cleaned = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim();
-  return cleaned || "workspace";
 }
 
 function uniqueFilePath(dir: string, fileName: string): string {
@@ -2299,14 +1494,56 @@ function uniqueFilePath(dir: string, fileName: string): string {
   return candidate;
 }
 
-function normalizeProviders(providers: ModelProviderConfig[]): ModelProviderConfig[] {
-  return providers.map((provider) => ({
-    ...provider,
-    apiKeyMasked: provider.apiKeyMasked === "sk-...local" ? "" : provider.apiKeyMasked,
-    apiKeySecretRef: provider.apiKeySecretRef ?? `provider-secret:${provider.id}`,
-    embeddingEnabled: provider.embeddingEnabled ?? Boolean(provider.embeddingModel),
-    agentTools: normalizeAgentToolSettings(provider.agentTools),
-  }));
+function stripLegacySeedData(data: StoreShape): StoreShape {
+  const currentSemester =
+    data.semester && !LEGACY_SEED_IDS.semester.has(data.semester.id) && !isPlaceholderSemester(data.semester) ? data.semester : null;
+  const semesters = data.semesters.filter((semester) => !LEGACY_SEED_IDS.semester.has(semester.id) && !isPlaceholderSemester(semester));
+  const currentSemesterId = currentSemester?.id && semesters.some((semester) => semester.id === currentSemester.id) ? currentSemester.id : null;
+  return {
+    ...data,
+    semester: currentSemester,
+    semesters,
+    currentSemesterId,
+    courses: data.courses.filter((course) => !LEGACY_SEED_IDS.courses.has(course.id)),
+    tasks: data.tasks.filter((task) => !LEGACY_SEED_IDS.tasks.has(task.id)),
+    threads: data.threads.filter((thread) => !LEGACY_SEED_IDS.threads.has(thread.id)),
+    files: data.files.filter((file) => !LEGACY_SEED_IDS.files.has(file.id)),
+    timetableEvents: data.timetableEvents.filter((event) => !LEGACY_SEED_IDS.timetableEvents.has(event.id)),
+  };
+}
+
+function isPlaceholderSemester(semester: SemesterWorkspace): boolean {
+  return semester.id === "semester-current" || (!semester.semesterNo && semester.term === "Current Semester");
+}
+
+function readPreviewSource(sourcePath?: string): string {
+  if (!sourcePath || !existsSync(sourcePath)) return "";
+  try {
+    const content = readFileSync(sourcePath, "utf8");
+    return truncatePreviewText(content, 12000);
+  } catch {
+    return "";
+  }
+}
+
+function truncatePreviewText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}\n\n[truncated at ${maxLength} chars]`;
+}
+
+const COURSE_COLOR_PALETTE = [
+  "#2563eb", // blue
+  "#7c3aed", // violet
+  "#059669", // emerald
+  "#dc2626", // red
+  "#d97706", // amber
+  "#0891b2", // cyan
+  "#db2777", // pink
+  "#65a30d", // lime
+];
+
+function pickCourseColor(index: number): string {
+  return COURSE_COLOR_PALETTE[index % COURSE_COLOR_PALETTE.length];
 }
 
 function mergeSkills(skills: SkillItem[]): SkillItem[] {
@@ -2320,7 +1557,11 @@ function mergeSkills(skills: SkillItem[]): SkillItem[] {
   return merged;
 }
 
-function toBusinessSnapshot(data: StoreShape): BusinessSnapshot {
+function businessDataChanged(before: StoreShape, after: StoreShape): boolean {
+  return JSON.stringify(toBusinessData(before)) !== JSON.stringify(toBusinessData(after));
+}
+
+function toBusinessData(data: StoreShape): BusinessData {
   return {
     semester: data.semester,
     semesters: data.semesters,
@@ -2330,28 +1571,16 @@ function toBusinessSnapshot(data: StoreShape): BusinessSnapshot {
     threads: data.threads,
     files: data.files,
     timetableEvents: data.timetableEvents,
-    providers: data.providers,
     indexingJobs: data.indexingJobs,
+    indexingTasks: data.indexingTasks,
   };
-}
-
-function parseJsonlLine(line: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(line) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function createLocalStore(userDataPath: string): LocalStore {
   return new LocalStore(
     join(userDataPath, "uclaw-state.json"),
     new SQLiteBusinessStore(join(userDataPath, "indexes", "uclaw.sqlite")),
+    new ProviderConfigStore(join(userDataPath, "provider-profiles.json")),
     new ProviderSecretStore(join(userDataPath, "provider-secrets.json")),
   );
 }

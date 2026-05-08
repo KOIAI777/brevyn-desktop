@@ -1,15 +1,8 @@
 import { CalendarDays, Check, FileArchive, FileCode, FileImage, FileText, FolderOpen, Layers3, Library, Loader2, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { Course, CourseFileSectionKind, FileImportInput, FileImportResult, TaskFileBucket, TaskType, UclawTask } from "@/types/domain";
+import type { Course, CourseFileSectionKind, FileImportInput, FileImportResult, TaskFileBucket, UclawTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
-
-const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  assignment: "Assignment",
-  project: "Project",
-  exam: "Exam",
-  lecture: "Lecture",
-};
 
 const TASK_BUCKET_LABELS: Record<TaskFileBucket, string> = {
   materials: "Materials",
@@ -36,7 +29,6 @@ export function CourseFilesUploadDialog({
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
   const [importing, setImporting] = useState(false);
   const [targetSection, setTargetSection] = useState<CourseFileSectionKind>("course_shared");
-  const [weekNumber, setWeekNumber] = useState(1);
   const [taskId, setTaskId] = useState(activeTaskId || "");
   const [taskFileBucket, setTaskFileBucket] = useState<TaskFileBucket>("materials");
   const [lastResult, setLastResult] = useState<FileImportResult | null>(null);
@@ -52,10 +44,10 @@ export function CourseFilesUploadDialog({
     ? "Semester shared"
     : normalizedTargetSection === "course_shared"
       ? "Course shared"
-      : normalizedTargetSection === "week"
-        ? `Week / Week ${weekNumber}`
+      : normalizedTargetSection === "lecture"
+        ? "Lecture"
         : selectedTask
-          ? `Task / ${TASK_TYPE_LABELS[selectedTask.taskType]} / ${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
+          ? `Task / ${selectedTask.taskType} / ${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
           : "Task / Assignment / New task";
 
   async function handleImport() {
@@ -65,7 +57,6 @@ export function CourseFilesUploadDialog({
       const result = await onImportFiles({
         courseId: selectedCourseId,
         targetSection: normalizedTargetSection,
-        weekNumber: normalizedTargetSection === "week" ? weekNumber : undefined,
         taskId: selectedTaskId,
         taskFileBucket: normalizedTargetSection === "task" ? taskFileBucket : undefined,
       });
@@ -85,7 +76,7 @@ export function CourseFilesUploadDialog({
               <Upload className="h-4 w-4" />
               Course File Upload
             </div>
-              <div className="truncate text-[11px] text-muted-foreground">Route files into Course shared, Week, or task outputs for indexing</div>
+              <div className="truncate text-[11px] text-muted-foreground">Route files into Course shared, Lecture, or task outputs for indexing</div>
           </div>
           <button
             type="button"
@@ -155,23 +146,9 @@ export function CourseFilesUploadDialog({
               <div className="text-xs font-semibold">Target Workspace</div>
               <div className="mt-2 grid gap-1.5 text-[11px] text-muted-foreground">
                 <TargetButton active={normalizedTargetSection === "course_shared"} icon={<FolderOpen className="h-3 w-3" />} label={isSemesterTarget ? "Semester shared" : "Course shared"} onClick={() => setTargetSection("course_shared")} />
-                {!isSemesterTarget && <TargetButton active={targetSection === "week"} icon={<CalendarDays className="h-3 w-3" />} label="Week / Week N" onClick={() => setTargetSection("week")} />}
+                {!isSemesterTarget && <TargetButton active={targetSection === "lecture"} icon={<CalendarDays className="h-3 w-3" />} label="Lecture" onClick={() => setTargetSection("lecture")} />}
                 {!isSemesterTarget && <TargetButton active={targetSection === "task"} icon={<FileText className="h-3 w-3" />} label="Task workspace" onClick={() => setTargetSection("task")} />}
               </div>
-
-              {!isSemesterTarget && targetSection === "week" && (
-                <label className="mt-3 block space-y-1 text-[11px] text-muted-foreground">
-                  <span>Week number</span>
-                  <input
-                    className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none"
-                    min={1}
-                    max={52}
-                    type="number"
-                    value={weekNumber}
-                    onChange={(event) => setWeekNumber(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                </label>
-              )}
 
               {!isSemesterTarget && targetSection === "task" && (
                 <div className="mt-3 space-y-3">
@@ -180,7 +157,7 @@ export function CourseFilesUploadDialog({
                     <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={selectedTaskId || ""} onChange={(event) => setTaskId(event.target.value)}>
                       {courseTasks.map((task) => (
                         <option key={task.id} value={task.id}>
-                          {TASK_TYPE_LABELS[task.taskType]} / {task.title}
+                          {task.taskType} / {task.title}
                         </option>
                       ))}
                     </select>
