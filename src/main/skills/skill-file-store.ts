@@ -67,6 +67,7 @@ export class SkillFileStore {
   writeSkillContent(id: string, content: string): SkillItem | null {
     const resolved = this.resolveSkillDir(id);
     if (!resolved) return null;
+    assertSkillContentNotBlank(content);
     assertSkillContentSize(content, join(resolved.dir, "SKILL.md"));
     writeFileSync(join(resolved.dir, "SKILL.md"), content, "utf8");
     return this.readSkillDir(resolved.dir, resolved.slug, resolved.enabled);
@@ -187,7 +188,8 @@ function unquote(value: string): string {
   return trimmed;
 }
 
-function parseFileSkillId(id: string): { slug: string } | null {
+function parseFileSkillId(id: unknown): { slug: string } | null {
+  if (typeof id !== "string") return null;
   if (id.startsWith("file:")) return { slug: id.slice("file:".length) };
   return null;
 }
@@ -231,6 +233,11 @@ function assertSkillContentSize(content: string, skillPath: string): void {
   const byteLength = Buffer.byteLength(content, "utf8");
   if (byteLength <= MAX_SKILL_CONTENT_BYTES) return;
   throw new Error(`Skill file is too large. Maximum size is ${formatMaxSkillSize()} (${skillPath}).`);
+}
+
+function assertSkillContentNotBlank(content: string): void {
+  if (typeof content === "string" && content.trim().length > 0) return;
+  throw new Error("SKILL.md cannot be saved empty.");
 }
 
 function formatMaxSkillSize(): string {

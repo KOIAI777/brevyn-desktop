@@ -20,7 +20,7 @@ export interface SemesterWorkspace {
   folderName: string;
   startsAt?: string;
   endsAt?: string;
-  source: "manual";
+  source: "manual" | "filesystem";
   recognizedAt?: string;
   archivedAt?: string;
 }
@@ -319,6 +319,7 @@ export interface ProviderDraftInput {
   protocol: ProviderProtocol;
   baseUrl: string;
   apiKey: string;
+  clearApiKey?: boolean;
   authMode: ProviderAuthMode;
   models?: ProviderModel[];
   selectedModel: string;

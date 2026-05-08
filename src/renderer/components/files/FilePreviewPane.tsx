@@ -1,5 +1,6 @@
 import { Eye, Maximize2, Minimize2 } from "lucide-react";
 import type { FilePreview } from "@/types/domain";
+import { Markdownish } from "@/components/chat/Markdownish";
 import { fileIcon } from "./file-icons";
 
 export function FilePreviewPane({
@@ -66,7 +67,13 @@ export function FilePreviewPane({
       <div className="min-h-0 flex-1 overflow-y-auto p-3 uclaw-scrollbar">
         {preview.summary && <div className="mb-3 rounded-lg border bg-background/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">{preview.summary}</div>}
 
-        {(preview.kind === "markdown" || preview.kind === "code" || preview.kind === "text") && preview.content && (
+        {preview.kind === "markdown" && preview.content && (
+          <div className="rounded-lg border bg-background px-3 py-3 text-[12px] leading-6 text-foreground">
+            <Markdownish content={preview.content} />
+          </div>
+        )}
+
+        {(preview.kind === "code" || preview.kind === "text") && preview.content && (
           <pre className="overflow-x-auto rounded-lg border bg-slate-950 px-3 py-3 text-[12px] leading-6 text-slate-100">
             <code>{preview.content}</code>
           </pre>

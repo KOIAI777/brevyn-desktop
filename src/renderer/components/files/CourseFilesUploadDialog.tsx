@@ -32,12 +32,13 @@ export function CourseFilesUploadDialog({
   const [taskId, setTaskId] = useState(activeTaskId || "");
   const [taskFileBucket, setTaskFileBucket] = useState<TaskFileBucket>("materials");
   const [lastResult, setLastResult] = useState<FileImportResult | null>(null);
+  const [importError, setImportError] = useState("");
 
   const selectedCourse = courses.find((item) => item.id === selectedCourseId);
   const isSemesterTarget = selectedCourse?.workspaceKind === "semester_home";
   const courseTasks = useMemo(() => tasksByCourse[selectedCourseId] || [], [selectedCourseId, tasksByCourse]);
-  const selectedTaskId = !isSemesterTarget && targetSection === "task" ? taskId || courseTasks[0]?.id || "" : undefined;
-  const selectedTask = courseTasks.find((task) => task.id === selectedTaskId);
+  const selectedTask = !isSemesterTarget && targetSection === "task" ? courseTasks.find((task) => task.id === taskId) : undefined;
+  const selectedTaskId = selectedTask?.id;
   const normalizedTargetSection = isSemesterTarget ? "course_shared" : targetSection;
   const canImport = Boolean(selectedCourseId) && (normalizedTargetSection !== "task" || Boolean(selectedTaskId));
   const targetPathPreview = isSemesterTarget
@@ -48,11 +49,13 @@ export function CourseFilesUploadDialog({
         ? "Lecture"
         : selectedTask
           ? `Task / ${selectedTask.id}__${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
-          : "Task / task-id__Task title";
+          : "Task / select a task first";
 
   async function handleImport() {
     if (!canImport) return;
     setImporting(true);
+    setImportError("");
+    setLastResult(null);
     try {
       const result = await onImportFiles({
         courseId: selectedCourseId,
@@ -62,6 +65,8 @@ export function CourseFilesUploadDialog({
       });
       setLastResult(result);
       if (result?.files.length) onClose();
+    } catch (error) {
+      setImportError(errorMessage(error, "Failed to import files."));
     } finally {
       setImporting(false);
     }
@@ -112,6 +117,7 @@ export function CourseFilesUploadDialog({
                   Queued {lastResult.indexingJob.totalFiles ?? lastResult.indexingJob.indexedFiles} files with {lastResult.indexingJob.embeddingModel}
                 </div>
               )}
+              {importError && <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700">{importError}</div>}
             </div>
           </section>
 
@@ -155,6 +161,9 @@ export function CourseFilesUploadDialog({
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
                     <span>Task</span>
                     <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={selectedTaskId || ""} onChange={(event) => setTaskId(event.target.value)}>
+                      <option value="" disabled>
+                        Select a task
+                      </option>
                       {courseTasks.map((task) => (
                         <option key={task.id} value={task.id}>
                           {task.taskType} / {task.title}
@@ -226,4 +235,10 @@ function TypeChip({ icon, label }: { icon: ReactNode; label: string }) {
       <span className="truncate">{label}</span>
     </div>
   );
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
+  return message || fallback;
 }

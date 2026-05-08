@@ -50,6 +50,8 @@ export function CourseManagementDialog({
   const activeCourses = useMemo(() => courses.filter((course) => !course.archivedAt && !archivedCourseIds.has(course.id)), [archivedCourseIds, courses]);
   const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
   const activeCourse = displayedCourses.find((course) => course.id === activeCourseId) || displayedCourses[0];
+  const activeCourseArchived = Boolean(activeCourse?.archivedAt);
+  const courseReadOnlyReason = activeCourseArchived ? "Restore this course before changing files, tasks, indexing, or RAG search." : "";
   const [sections, setSections] = useState<CourseFileSection[]>([]);
   const [indexingSectionId, setIndexingSectionId] = useState("");
   const [indexingJobs, setIndexingJobs] = useState<IndexingJob[]>([]);
@@ -60,6 +62,8 @@ export function CourseManagementDialog({
   const [ragError, setRagError] = useState("");
   const [taskName, setTaskName] = useState("");
   const [taskType, setTaskType] = useState<TaskType>(DEFAULT_TASK_TYPE);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [taskError, setTaskError] = useState("");
   const [newCourseName, setNewCourseName] = useState("");
   const [newCourseCode, setNewCourseCode] = useState("");
   const [newCourseInstructor, setNewCourseInstructor] = useState("");
@@ -84,6 +88,8 @@ export function CourseManagementDialog({
     if (!activeCourse?.id) return;
     setRagResults([]);
     setRagError("");
+    setTaskError("");
+    setCourseActionError("");
     void loadCourseView(activeCourse.id);
   }, [activeCourse?.id]);
 
@@ -106,13 +112,21 @@ export function CourseManagementDialog({
   }
 
   async function loadSections(courseId: string) {
-    setSections(await window.uclaw.files.sections(courseId));
+    try {
+      setSections(await window.uclaw.files.sections(courseId));
+    } catch (error) {
+      setSections([]);
+      setCourseActionError(errorMessage(error, "Failed to load course sections."));
+    }
   }
 
   async function loadIndexingJobs(courseId: string) {
     setLoadingIndexingJobs(true);
     try {
       setIndexingJobs(await window.uclaw.files.indexingJobs(courseId));
+    } catch (error) {
+      setIndexingJobs([]);
+      setCourseActionError(errorMessage(error, "Failed to load indexing jobs."));
     } finally {
       setLoadingIndexingJobs(false);
     }
@@ -148,31 +162,60 @@ export function CourseManagementDialog({
   }
 
   async function createTask() {
-    if (!activeCourse?.id || !taskName.trim()) return;
-    const task = await window.uclaw.tasks.create({
-      courseId: activeCourse.id,
-      title: taskName.trim(),
-      taskType,
-    });
-    onTaskCreated(task);
-    setTaskName("");
-    await loadSections(activeCourse.id);
+    if (!activeCourse?.id || creatingTask) return;
+    if (activeCourseArchived) {
+      setTaskError(courseReadOnlyReason);
+      return;
+    }
+    const title = taskName.trim();
+    if (!title) {
+      setTaskError("Task name is required.");
+      return;
+    }
+    setCreatingTask(true);
+    setTaskError("");
+    try {
+      const task = await window.uclaw.tasks.create({
+        courseId: activeCourse.id,
+        title,
+        taskType,
+      });
+      onTaskCreated(task);
+      setTaskName("");
+      await loadSections(activeCourse.id);
+    } catch (error) {
+      setTaskError(errorMessage(error, "Failed to create task."));
+    } finally {
+      setCreatingTask(false);
+    }
   }
 
-  async function indexSection(sectionId?: string) {
-    if (!activeCourse?.id) return;
-    setIndexingSectionId(sectionId || "all");
+  async function indexAllSections() {
+    await runIndexing("all");
+  }
+
+  async function indexSection(sectionId: string) {
+    await runIndexing(sectionId, sectionId);
+  }
+
+  async function runIndexing(indicatorId: string, sectionId?: string) {
+    if (!activeCourse?.id || activeCourseArchived) return;
+    setIndexingSectionId(indicatorId);
+    setCourseActionError("");
     try {
       await window.uclaw.files.index(activeCourse.id, sectionId);
       await loadCourseView(activeCourse.id);
+    } catch (error) {
+      setCourseActionError(errorMessage(error, "Failed to start indexing."));
     } finally {
       setIndexingSectionId("");
     }
   }
 
   async function uploadToSection(section: CourseFileSection) {
-    if (!activeCourse?.id) return;
+    if (!activeCourse?.id || activeCourseArchived) return;
     setUploadingSectionId(section.id);
+    setCourseActionError("");
     try {
       await window.uclaw.files.import({
         courseId: activeCourse.id,
@@ -181,6 +224,8 @@ export function CourseManagementDialog({
         taskFileBucket: section.kind === "task" ? "materials" : undefined,
       });
       await loadCourseView(activeCourse.id);
+    } catch (error) {
+      setCourseActionError(errorMessage(error, "Failed to import files."));
     } finally {
       setUploadingSectionId("");
     }
@@ -194,6 +239,11 @@ export function CourseManagementDialog({
 
   async function searchRag() {
     if (!activeCourse?.id) return;
+    if (activeCourseArchived) {
+      setRagError(courseReadOnlyReason);
+      setRagResults([]);
+      return;
+    }
     const query = ragQuery.trim();
     if (!query) return;
     setRagSearching(true);
@@ -391,22 +441,29 @@ export function CourseManagementDialog({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{activeCourse?.name || "No course selected"}</div>
-              <div className="mt-1 truncate text-xs text-muted-foreground">
-                {activeCourse?.code || "UCLAW"} · {activeCourse?.term || "local"} · {activeCourse?.instructor || "Instructor TBD"}
-              </div>
-              <div className="mt-1 truncate text-[11px] text-muted-foreground/80">
-                {activeCourse?.meetingTime || "Time TBD"} · {activeCourse?.location || "Location TBD"}
-              </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">
+                  {activeCourse?.code || "UCLAW"} · {activeCourse?.term || "local"} · {activeCourse?.instructor || "Instructor TBD"}
+                </div>
+                <div className="mt-1 truncate text-[11px] text-muted-foreground/80">
+                  {activeCourse?.meetingTime || "Time TBD"} · {activeCourse?.location || "Location TBD"}
+                </div>
               </div>
               <button
                 type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                onClick={() => indexSection()}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void indexAllSections()}
+                disabled={!activeCourse?.id || activeCourseArchived || Boolean(indexingSectionId)}
               >
                 {indexingSectionId === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
                 Index all
               </button>
             </div>
+            {courseReadOnlyReason && (
+              <div className="mt-3 flex gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-900">
+                <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>{courseReadOnlyReason}</span>
+              </div>
+            )}
 
             <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_340px]">
               <div className="space-y-2">
@@ -415,7 +472,8 @@ export function CourseManagementDialog({
                     key={section.id}
                     section={section}
                     indexing={indexingSectionId === section.id}
-                    onIndex={() => indexSection(section.id)}
+                    disabled={activeCourseArchived || Boolean(indexingSectionId)}
+                    onIndex={() => void indexSection(section.id)}
                     onUpload={() => uploadToSection(section)}
                     uploading={uploadingSectionId === section.id}
                     onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
@@ -437,6 +495,7 @@ export function CourseManagementDialog({
                       onChange={(event) => setTaskType(event.target.value)}
                       placeholder="e.g. Assignment, Exam, Reading Report"
                       list="task-type-suggestions"
+                      disabled={activeCourseArchived || creatingTask}
                     />
                     <datalist id="task-type-suggestions">
                       {existingTaskTypes.map((item) => (
@@ -449,17 +508,20 @@ export function CourseManagementDialog({
                     value={taskName}
                     onChange={(event) => setTaskName(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") void createTask();
+                      if (event.key === "Enter" && !creatingTask) void createTask();
                     }}
                     placeholder="Custom task name"
+                    disabled={activeCourseArchived || creatingTask}
                   />
+                  {taskError && <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{taskError}</div>}
                   <button
                     type="button"
-                    className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-background px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-background px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={createTask}
+                    disabled={activeCourseArchived || creatingTask || !taskName.trim()}
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                    Create task
+                    {creatingTask ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    {creatingTask ? "Creating..." : "Create task"}
                   </button>
                 </section>
 
@@ -478,6 +540,7 @@ export function CourseManagementDialog({
                   error={ragError}
                   onQueryChange={setRagQuery}
                   onSearch={() => void searchRag()}
+                  disabled={activeCourseArchived}
                 />
 
                 <section className="rounded-lg border bg-card p-3">
@@ -589,6 +652,7 @@ function RagDebugPanel({
   error,
   onQueryChange,
   onSearch,
+  disabled,
 }: {
   query: string;
   results: RagSearchResult[];
@@ -596,6 +660,7 @@ function RagDebugPanel({
   error: string;
   onQueryChange: (query: string) => void;
   onSearch: () => void;
+  disabled?: boolean;
 }) {
   return (
     <section className="rounded-lg border bg-card p-3">
@@ -615,11 +680,12 @@ function RagDebugPanel({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Search indexed chunks"
+          disabled={disabled}
         />
         <button
           type="submit"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={searching || !query.trim()}
+          disabled={disabled || searching || !query.trim()}
           title="Run RAG search"
         >
           {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
@@ -658,6 +724,7 @@ function RagDebugPanel({
 function SectionCard({
   section,
   indexing,
+  disabled,
   onIndex,
   onUpload,
   uploading,
@@ -665,6 +732,7 @@ function SectionCard({
 }: {
   section: CourseFileSection;
   indexing: boolean;
+  disabled?: boolean;
   onIndex: () => void;
   onUpload: () => void;
   uploading: boolean;
@@ -720,15 +788,16 @@ function SectionCard({
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={onUpload}
-            disabled={uploading}
+            disabled={disabled || uploading}
             title="Upload files into this section"
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           </button>
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={onIndex}
+            disabled={disabled}
             title="Re-index this section"
           >
             {indexing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}

@@ -234,12 +234,12 @@ export class LocalStore {
     this.files.recoverExpiredIndexingTasks();
   }
 
-  completeIndexingTask(taskId: string, result: IndexingWorkerResult): Promise<IndexingJob | null> {
-    return this.files.completeIndexingTask(taskId, result);
+  completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
+    return this.files.completeIndexingTask(taskId, result, workerId, lockedUntil);
   }
 
-  failIndexingTask(taskId: string, message: string): IndexingJob | null {
-    return this.files.failIndexingTask(taskId, message);
+  failIndexingTask(taskId: string, message: string, workerId?: string, lockedUntil?: string): IndexingJob | null {
+    return this.files.failIndexingTask(taskId, message, workerId, lockedUntil);
   }
 
   listSkills(): SkillItem[] {
@@ -247,20 +247,25 @@ export class LocalStore {
   }
 
   updateSkill(input: SkillUpdateInput): SkillItem {
-    const fileSkill = this.skillFiles.toggleSkill(input.id, input.enabled);
+    const skillId = requireNonEmptyString((input as Partial<SkillUpdateInput> | null | undefined)?.id, "Skill id");
+    const fileSkill = this.skillFiles.toggleSkill(skillId, Boolean((input as Partial<SkillUpdateInput> | null | undefined)?.enabled));
     if (fileSkill) return fileSkill;
-    throw new Error(`File skill not found: ${input.id}`);
+    throw new Error(`File skill not found: ${skillId}`);
   }
 
   readSkillContent(skillId: string): string {
-    const content = this.skillFiles.readSkillContent(skillId);
-    if (content == null) throw new Error(`Skill content not found: ${skillId}`);
+    const id = requireNonEmptyString(skillId, "Skill id");
+    const content = this.skillFiles.readSkillContent(id);
+    if (content == null) throw new Error(`Skill content not found: ${id}`);
     return content;
   }
 
   writeSkillContent(input: SkillWriteInput): SkillItem {
-    const updated = this.skillFiles.writeSkillContent(input.id, input.content);
-    if (!updated) throw new Error(`Skill content not found: ${input.id}`);
+    const skillId = requireNonEmptyString((input as Partial<SkillWriteInput> | null | undefined)?.id, "Skill id");
+    const content = stringValue((input as Partial<SkillWriteInput> | null | undefined)?.content);
+    if (!content.trim()) throw new Error("SKILL.md cannot be saved empty.");
+    const updated = this.skillFiles.writeSkillContent(skillId, content);
+    if (!updated) throw new Error(`Skill content not found: ${skillId}`);
     return updated;
   }
 
@@ -270,8 +275,9 @@ export class LocalStore {
   }
 
   skillFolderPath(skillId: string): string {
-    const dir = this.skillFiles.skillFolderPath(skillId);
-    if (!dir) throw new Error(`Skill folder not found: ${skillId}`);
+    const id = requireNonEmptyString(skillId, "Skill id");
+    const dir = this.skillFiles.skillFolderPath(id);
+    if (!dir) throw new Error(`Skill folder not found: ${id}`);
     return dir;
   }
 
@@ -344,6 +350,16 @@ function mergeSkills(skills: SkillItem[]): SkillItem[] {
     merged.push({ ...skill });
   }
   return merged;
+}
+
+function requireNonEmptyString(value: unknown, label: string): string {
+  const text = stringValue(value).trim();
+  if (!text) throw new Error(`${label} is required.`);
+  return text;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
 }
 
 export function createLocalStore(userDataPath: string): LocalStore {

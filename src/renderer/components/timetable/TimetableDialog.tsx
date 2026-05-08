@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FileText, GraduationCap, Image, Settings2, X } from "lucide-react";
+import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, Clock3, FileText, GraduationCap, Image, Loader2, RefreshCw, Settings2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Course, SemesterWorkspace, TimetableEvent, TimetableViewMode } from "@/types/domain";
 import { cx } from "@/lib/cn";
@@ -22,8 +22,13 @@ export function TimetableDialog({
   const [events, setEvents] = useState<TimetableEvent[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
   const [managingSemesters, setManagingSemesters] = useState(false);
+  const [semesterLoading, setSemesterLoading] = useState(false);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [semesterError, setSemesterError] = useState("");
+  const [eventsError, setEventsError] = useState("");
 
   const range = useMemo(() => getRange(anchorDate, viewMode), [anchorDate, viewMode]);
+  const loadError = semesterError || eventsError;
 
   useEffect(() => {
     void loadSemester();
@@ -34,29 +39,58 @@ export function TimetableDialog({
   }, [course?.id, range.start.toISOString(), range.end.toISOString(), viewMode]);
 
   async function loadSemester() {
-    setSemester(await window.uclaw.semester.current());
+    setSemesterLoading(true);
+    try {
+      setSemester(await window.uclaw.semester.current());
+      setSemesterError("");
+    } catch (error) {
+      setSemester(null);
+      setSemesterError(errorMessage(error, "Failed to load current semester."));
+    } finally {
+      setSemesterLoading(false);
+    }
   }
 
   async function loadEvents() {
-    const result = await window.uclaw.timetable.range({
-      viewMode,
-      rangeStart: range.start.toISOString(),
-      rangeEnd: range.end.toISOString(),
-      courseId: course?.id,
-      includeDeadlines: true,
-      includeSchoolEvents: true,
-    });
-    setEvents(result);
+    setEventsLoading(true);
+    try {
+      const result = await window.uclaw.timetable.range({
+        viewMode,
+        rangeStart: range.start.toISOString(),
+        rangeEnd: range.end.toISOString(),
+        courseId: course?.id,
+        includeDeadlines: true,
+        includeSchoolEvents: true,
+      });
+      setEvents(result);
+      setEventsError("");
+    } catch (error) {
+      setEvents([]);
+      setEventsError(errorMessage(error, "Failed to load timetable events."));
+    } finally {
+      setEventsLoading(false);
+    }
   }
 
   async function selectSemester(semesterId: string) {
-    await onSelectSemester?.(semesterId);
-    await Promise.all([loadSemester(), loadEvents()]);
+    try {
+      setSemesterError("");
+      await onSelectSemester?.(semesterId);
+      await Promise.all([loadSemester(), loadEvents()]);
+    } catch (error) {
+      setSemesterError(errorMessage(error, "Failed to switch semester."));
+    }
   }
 
   async function refreshWorkspace() {
-    await onWorkspaceChanged?.();
-    await Promise.all([loadSemester(), loadEvents()]);
+    try {
+      setSemesterError("");
+      setEventsError("");
+      await onWorkspaceChanged?.();
+      await Promise.all([loadSemester(), loadEvents()]);
+    } catch (error) {
+      setSemesterError(errorMessage(error, "Failed to refresh timetable."));
+    }
   }
 
   return (
@@ -104,6 +138,25 @@ export function TimetableDialog({
           </div>
         </div>
 
+        {(loadError || semesterLoading || eventsLoading) && (
+          <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-4 py-2 text-[11px] text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-2">
+              {loadError ? <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-600" /> : <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+              <span className="truncate">{loadError || "Loading timetable..."}</span>
+            </div>
+            {loadError && (
+              <button
+                type="button"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border bg-card px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={() => void refreshWorkspace()}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1.35fr_0.75fr] uclaw-scrollbar">
           <section className="rounded-lg border bg-background/70 p-4">
             <div className="mb-3 flex items-center justify-between">
@@ -126,6 +179,7 @@ export function TimetableDialog({
                   <select
                     className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none"
                     value={semester?.id || ""}
+                    disabled={semesterLoading}
                     onChange={(event) => void selectSemester(event.target.value)}
                   >
                     {semesters.map((item) => (
@@ -358,6 +412,12 @@ function viewModeLabel(mode: TimetableViewMode) {
   if (mode === "week") return "Week Range";
   if (mode === "month") return "Month Range";
   return "Year Range";
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
+  return message || fallback;
 }
 
 function kindLabel(kind: TimetableEvent["kind"]) {

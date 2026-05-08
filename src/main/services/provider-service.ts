@@ -29,29 +29,39 @@ export class ProviderService {
   }
 
   save(input: ProviderDraftInput): ModelProviderConfig {
+    const draft = normalizeProviderDraftInput(input);
     const providers = normalizeProviders(this.configs.listProviders());
     const timestamp = new Date().toISOString();
-    const existing = input.id ? providers.find((provider) => provider.id === input.id) : undefined;
-    const providerId = input.id || `provider-${Date.now().toString(36)}`;
-    const purpose = normalizeProviderPurpose(input);
-    const protocol = normalizeProviderProtocol(input.protocol, purpose);
-    const selectedModel = input.selectedModel.trim();
-    const apiKey = input.apiKey.trim();
-    const apiKeySecretRef = apiKey
-      ? this.secrets?.saveApiKey(providerId, apiKey)
-      : existing?.apiKeySecretRef || this.secrets?.secretRef(providerId);
+    const existing = draft.id ? providers.find((provider) => provider.id === draft.id) : undefined;
+    const providerId = draft.id || `provider-${Date.now().toString(36)}`;
+    const purpose = normalizeProviderPurpose(draft);
+    const protocol = normalizeProviderProtocol(draft.protocol, purpose);
+    const selectedModel = draft.selectedModel;
+    const apiKey = draft.apiKey;
+    let apiKeySecretRef = existing?.apiKeySecretRef;
+    let apiKeyMasked = existing?.apiKeyMasked || "";
+    if (draft.clearApiKey) {
+      this.secrets?.deleteApiKey(providerId);
+      apiKeySecretRef = undefined;
+      apiKeyMasked = "";
+    } else if (apiKey) {
+      apiKeySecretRef = this.secrets?.saveApiKey(providerId, apiKey);
+      apiKeyMasked = maskApiKey(apiKey);
+    } else if (!apiKeySecretRef && this.secrets?.hasApiKey(providerId)) {
+      apiKeySecretRef = this.secrets.secretRef(providerId);
+    }
     const next: ModelProviderConfig = {
       id: providerId,
       purpose,
-      name: input.name.trim() || nextProviderName(providers, purpose),
+      name: uniqueProviderName(draft.name || nextProviderName(providers, purpose, providerId), providers, purpose, providerId),
       protocol,
-      baseUrl: normalizeBaseUrl(input.baseUrl),
-      apiKeyMasked: apiKey ? maskApiKey(apiKey) : existing?.apiKeyMasked || "",
+      baseUrl: normalizeBaseUrl(draft.baseUrl),
+      apiKeyMasked,
       apiKeySecretRef,
-      authMode: normalizeProviderAuthMode(input.authMode, purpose),
-      models: normalizeProviderModels(input.models || existing?.models || [], selectedModel),
+      authMode: normalizeProviderAuthMode(draft.authMode, purpose),
+      models: normalizeProviderModels(draft.models || existing?.models || [], selectedModel),
       selectedModel,
-      enabled: input.enabled ?? existing?.enabled ?? false,
+      enabled: draft.enabled ?? existing?.enabled ?? false,
       createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
     };
@@ -59,19 +69,23 @@ export class ProviderService {
   }
 
   delete(providerId: string): boolean {
-    const existedInMemory = this.configs.listProviders().some((provider) => provider.id === providerId);
-    const deleted = this.configs.deleteProvider(providerId);
+    const id = stringValue(providerId).trim();
+    if (!id) return false;
+    const existedInMemory = this.configs.listProviders().some((provider) => provider.id === id);
+    const deleted = this.configs.deleteProvider(id);
     if (!deleted && !existedInMemory) return false;
     try {
-      this.secrets?.deleteApiKey(providerId);
+      this.secrets?.deleteApiKey(id);
     } catch (error) {
-      console.warn(`[providers] Failed to delete secret for ${providerId}`, error);
+      console.warn(`[providers] Failed to delete secret for ${id}`, error);
     }
     return true;
   }
 
   async models(providerId: string): Promise<ProviderModel[]> {
-    const provider = this.list().find((item) => item.id === providerId);
+    const id = stringValue(providerId).trim();
+    if (!id) return [];
+    const provider = this.list().find((item) => item.id === id);
     if (!provider) return [];
     const apiKey = this.apiKey(provider.id) || envApiKeyForProvider(provider);
     if (!provider.baseUrl || !apiKey) return provider.models;
@@ -89,7 +103,11 @@ export class ProviderService {
 
   async test(providerId: string): Promise<ProviderTestResult> {
     const startedAt = Date.now();
-    const provider = this.list().find((item) => item.id === providerId);
+    const id = stringValue(providerId).trim();
+    if (!id) {
+      return { ok: false, latencyMs: Date.now() - startedAt, message: "Provider id is required." };
+    }
+    const provider = this.list().find((item) => item.id === id);
     if (!provider) {
       return { ok: false, latencyMs: 0, message: "Provider not found." };
     }
@@ -121,11 +139,13 @@ export class ProviderService {
   }
 
   apiKey(providerId: string): string | undefined {
-    return this.secrets?.readApiKey(providerId);
+    const id = stringValue(providerId).trim();
+    return id ? this.secrets?.readApiKey(id) : undefined;
   }
 
   hasApiKey(providerId: string): boolean {
-    return Boolean(this.secrets?.hasApiKey(providerId));
+    const id = stringValue(providerId).trim();
+    return Boolean(id && this.secrets?.hasApiKey(id));
   }
 
   secretStorageAvailable(): boolean {
@@ -138,7 +158,9 @@ export class ProviderService {
       provider.purpose === "agent" &&
       provider.protocol === "anthropic_messages" &&
       provider.enabled &&
-      Boolean(provider.selectedModel),
+      Boolean(provider.selectedModel) &&
+      Boolean(provider.baseUrl) &&
+      Boolean(this.apiKey(provider.id) || envApiKeyForProvider(provider)),
     );
   }
 
@@ -148,7 +170,8 @@ export class ProviderService {
       provider.purpose === "embedding" &&
       provider.protocol === "openai_compatible" &&
       provider.enabled &&
-      Boolean(provider.selectedModel),
+      Boolean(provider.selectedModel) &&
+      Boolean(provider.baseUrl),
     );
   }
 
@@ -209,12 +232,33 @@ function normalizeBaseUrl(baseUrl?: string): string {
   return stringValue(baseUrl).trim().replace(/\/+$/, "");
 }
 
-function nextProviderName(providers: ModelProviderConfig[], purpose: ProviderPurpose): string {
+function nextProviderName(providers: ModelProviderConfig[], purpose: ProviderPurpose, excludeId?: string): string {
   const prefix = purpose === "agent" ? "Agent" : "Embedding";
-  const used = new Set(providers.filter((provider) => provider.purpose === purpose).map((provider) => provider.name.trim()));
+  const used = new Set(
+    providers
+      .filter((provider) => provider.purpose === purpose && provider.id !== excludeId)
+      .map((provider) => normalizeNameKey(provider.name)),
+  );
   let index = 1;
-  while (used.has(`${prefix} ${index}`)) index += 1;
+  while (used.has(normalizeNameKey(`${prefix} ${index}`))) index += 1;
   return `${prefix} ${index}`;
+}
+
+function uniqueProviderName(name: string, providers: ModelProviderConfig[], purpose: ProviderPurpose, excludeId?: string): string {
+  const baseName = name.trim() || nextProviderName(providers, purpose, excludeId);
+  const used = new Set(
+    providers
+      .filter((provider) => provider.purpose === purpose && provider.id !== excludeId)
+      .map((provider) => normalizeNameKey(provider.name)),
+  );
+  if (!used.has(normalizeNameKey(baseName))) return baseName;
+  let index = 2;
+  while (used.has(normalizeNameKey(`${baseName} ${index}`))) index += 1;
+  return `${baseName} ${index}`;
+}
+
+function normalizeNameKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function normalizeProviderPurpose(provider: Pick<LegacyProviderConfig, "purpose" | "protocol">): ProviderPurpose {
@@ -385,6 +429,24 @@ function candidateModelEndpoints(baseUrl: string): string[] {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+}
+
+function normalizeProviderDraftInput(input: unknown): ProviderDraftInput {
+  const draft = input && typeof input === "object" ? input as Partial<ProviderDraftInput> : {};
+  const purpose = draft.purpose === "agent" || draft.purpose === "embedding" ? draft.purpose : draft.protocol === "anthropic_messages" ? "agent" : "embedding";
+  return {
+    id: stringValue(draft.id).trim() || undefined,
+    purpose,
+    name: stringValue(draft.name).trim(),
+    protocol: normalizeProviderProtocol(stringValue(draft.protocol), purpose),
+    baseUrl: stringValue(draft.baseUrl),
+    apiKey: stringValue(draft.apiKey).trim(),
+    clearApiKey: Boolean(draft.clearApiKey),
+    authMode: normalizeProviderAuthMode(stringValue(draft.authMode), purpose),
+    models: Array.isArray(draft.models) ? draft.models : [],
+    selectedModel: stringValue(draft.selectedModel).trim(),
+    enabled: typeof draft.enabled === "boolean" ? draft.enabled : undefined,
+  };
 }
 
 function cloneProvider(provider: ModelProviderConfig): ModelProviderConfig {

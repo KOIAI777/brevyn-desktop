@@ -41,6 +41,7 @@ export interface BusinessStoreStatus {
 }
 
 type Row = Record<string, unknown>;
+type IndexingTaskLease = { workerId: string; lockedUntil?: string };
 
 const require = createRequire(__filename);
 const BUSINESS_SCHEMA_VERSION = 1;
@@ -387,7 +388,7 @@ export class SQLiteBusinessStore {
     this.db.exec("begin immediate;");
     try {
       this.insertTask(task);
-      this.run("delete from workspace_files where semester_id = ? and course_id = ?", task.semesterId ?? "", task.courseId);
+      this.run("delete from workspace_files where semester_id = ? and course_id = ? and task_id = ?", task.semesterId ?? "", task.courseId, task.id);
       for (const file of flattenFileTree(files)) this.insertFile(file.node, file.parentId);
       this.db.exec("commit;");
       return task;
@@ -647,7 +648,7 @@ export class SQLiteBusinessStore {
     }
   }
 
-  completeIndexingTask(taskId: string, result: IndexingWorkerResult): IndexingJob | null {
+  completeIndexingTask(taskId: string, result: IndexingWorkerResult, lease?: IndexingTaskLease): IndexingJob | null {
     const timestamp = now();
     this.db.exec("begin immediate;");
     try {
@@ -668,7 +669,7 @@ export class SQLiteBusinessStore {
         this.db.exec("commit;");
         return this.getIndexingJob(task.jobId);
       }
-      this.run(
+      const updateResult = this.run(
         `update indexing_tasks
          set status = 'done',
              locked_by = null,
@@ -677,7 +678,8 @@ export class SQLiteBusinessStore {
              error = null,
              payload_json = ?,
              updated_at = ?
-         where id = ?`,
+         where id = ?
+           ${lease ? "and status = 'running' and locked_by = ? and locked_until = ?" : ""}`,
         json({
           ...task.payload,
           result: {
@@ -693,7 +695,12 @@ export class SQLiteBusinessStore {
         }),
         timestamp,
         taskId,
+        ...(lease ? [lease.workerId, lease.lockedUntil ?? ""] : []),
       );
+      if (lease && Number((updateResult as { changes?: number } | undefined)?.changes || 0) === 0) {
+        this.db.exec("commit;");
+        return this.getIndexingJob(task.jobId);
+      }
       this.run("update workspace_files set indexed_at = ?, updated_at = ? where id = ?", timestamp, timestamp, task.fileId);
       const updated = this.refreshIndexingJob(task.jobId);
       this.db.exec("commit;");
@@ -704,7 +711,7 @@ export class SQLiteBusinessStore {
     }
   }
 
-  failIndexingTask(taskId: string, message: string): IndexingJob | null {
+  failIndexingTask(taskId: string, message: string, lease?: IndexingTaskLease): IndexingJob | null {
     const timestamp = now();
     this.db.exec("begin immediate;");
     try {
@@ -715,7 +722,7 @@ export class SQLiteBusinessStore {
       }
       const retry = task.attempts < task.maxAttempts;
       const backoffMs = Math.min(120_000, 10_000 * Math.max(1, 2 ** Math.max(0, task.attempts - 1)));
-      this.run(
+      const updateResult = this.run(
         `update indexing_tasks
          set status = ?,
              locked_by = null,
@@ -724,13 +731,19 @@ export class SQLiteBusinessStore {
              progress = 0,
              error = ?,
              updated_at = ?
-         where id = ?`,
+         where id = ?
+           ${lease ? "and status = 'running' and locked_by = ? and locked_until = ?" : ""}`,
         retry ? "queued" : "failed",
         retry ? new Date(Date.now() + backoffMs).toISOString() : timestamp,
         message,
         timestamp,
         taskId,
+        ...(lease ? [lease.workerId, lease.lockedUntil ?? ""] : []),
       );
+      if (lease && Number((updateResult as { changes?: number } | undefined)?.changes || 0) === 0) {
+        this.db.exec("commit;");
+        return this.getIndexingJob(task.jobId);
+      }
       const updated = this.refreshIndexingJob(task.jobId);
       this.db.exec("commit;");
       return updated;
@@ -1371,7 +1384,7 @@ function rowToSemester(row: Row): SemesterWorkspace {
     folderName: stringValue(row.folder_name),
     startsAt: nullableString(row.starts_at),
     endsAt: nullableString(row.ends_at),
-    source: "manual",
+    source: semesterSource(row.source),
     recognizedAt: nullableString(row.recognized_at),
     archivedAt: nullableString(row.archived_at),
   };
@@ -1559,6 +1572,11 @@ function stringValue(value: unknown): string {
 function nullableString(value: unknown): string | undefined {
   const text = stringValue(value);
   return text ? text : undefined;
+}
+
+function semesterSource(value: unknown): SemesterWorkspace["source"] {
+  const source = stringValue(value);
+  return source === "filesystem" ? "filesystem" : "manual";
 }
 
 function numberValue(value: unknown): number | undefined {

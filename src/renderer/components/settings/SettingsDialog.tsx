@@ -72,6 +72,7 @@ const emptyDraft: ProviderDraftInput = {
   authMode: "api_key",
   baseUrl: "",
   apiKey: "",
+  clearApiKey: false,
   models: [],
   selectedModel: "",
   enabled: false,
@@ -84,6 +85,7 @@ const emptyEmbeddingDraft: ProviderDraftInput = {
   authMode: "bearer",
   baseUrl: "",
   apiKey: "",
+  clearApiKey: false,
   models: [],
   selectedModel: "",
   enabled: false,
@@ -205,7 +207,7 @@ export function SettingsDialog({
     closeEmbeddingEditor();
     setCreatingProvider(true);
     setSelectedProviderId("");
-    setDraft({ ...emptyDraft, name: nextProviderDraftName(providers) });
+    setDraft({ ...emptyDraft, name: nextProviderDraftName(providers, "agent") });
     setModels([]);
     setStatusLine("");
   }
@@ -214,7 +216,7 @@ export function SettingsDialog({
     closeProviderEditor();
     setCreatingEmbeddingProvider(true);
     setSelectedEmbeddingProviderId("");
-    setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers) });
+    setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers, "embedding") });
     setEmbeddingModels([]);
     setEmbeddingStatusLine("");
   }
@@ -432,6 +434,10 @@ export function SettingsDialog({
     if (!selectedSkillId) return;
     setSkillBusy(true);
     try {
+      if (!skillContent.trim()) {
+        setSkillStatusLine("SKILL.md cannot be saved empty.");
+        return;
+      }
       const updated = await window.uclaw.skills.writeContent({ id: selectedSkillId, content: skillContent });
       const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
       setLocalSkills(next);
@@ -698,11 +704,20 @@ function ProviderSettingsPage({
             <Field
               label="API Key"
               value={draft.apiKey}
-              onChange={(value) => onDraftChange({ ...draft, apiKey: value })}
+              onChange={(value) => onDraftChange({ ...draft, apiKey: value, clearApiKey: false })}
               type="password"
               placeholder={selectedProvider?.apiKeyMasked ? `Stored ${selectedProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
+            {selectedProvider?.apiKeyMasked && (
+              <button
+                type="button"
+                className="h-8 rounded-md border bg-card px-2 text-left text-[11px] text-muted-foreground transition hover:bg-red-50 hover:text-red-700"
+                onClick={() => onDraftChange({ ...draft, apiKey: "", clearApiKey: !draft.clearApiKey })}
+              >
+                {draft.clearApiKey ? "Stored API key will be cleared" : `Clear stored key ${selectedProvider.apiKeyMasked}`}
+              </button>
+            )}
             <Field label="Model" value={draft.selectedModel} onChange={(value) => onDraftChange({ ...draft, selectedModel: value })} />
           </div>
 
@@ -768,11 +783,20 @@ function ProviderSettingsPage({
             <Field
               label="API Key"
               value={embeddingDraft.apiKey}
-              onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value })}
+              onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value, clearApiKey: false })}
               type="password"
               placeholder={selectedEmbeddingProvider?.apiKeyMasked ? `Stored ${selectedEmbeddingProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
+            {selectedEmbeddingProvider?.apiKeyMasked && (
+              <button
+                type="button"
+                className="h-8 rounded-md border bg-card px-2 text-left text-[11px] text-muted-foreground transition hover:bg-red-50 hover:text-red-700"
+                onClick={() => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: "", clearApiKey: !embeddingDraft.clearApiKey })}
+              >
+                {embeddingDraft.clearApiKey ? "Stored API key will be cleared" : `Clear stored key ${selectedEmbeddingProvider.apiKeyMasked}`}
+              </button>
+            )}
             <Field label="Model" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
           </div>
 
@@ -861,15 +885,16 @@ function ProviderSettingsPage({
   );
 }
 
-function nextProviderDraftName(providers: ModelProviderConfig[]): string {
+function nextProviderDraftName(providers: ModelProviderConfig[], purpose: ProviderPurpose): string {
+  const prefix = purpose === "agent" ? "Agent" : "Embedding";
   const used = new Set(
     providers
-      .map((provider) => provider.name.trim())
-      .filter((name) => /^\d+$/.test(name)),
+      .filter((provider) => provider.purpose === purpose)
+      .map((provider) => provider.name.trim().replace(/\s+/g, " ").toLowerCase()),
   );
   let index = 1;
-  while (used.has(String(index))) index += 1;
-  return String(index);
+  while (used.has(`${prefix} ${index}`.toLowerCase())) index += 1;
+  return `${prefix} ${index}`;
 }
 
 interface ArchiveSemesterGroup {
@@ -1388,7 +1413,7 @@ function SkillSettingsPage({
                 label="Open"
                 onClick={() => selectedSkill && onOpenSkillFolder(selectedSkill.id)}
               />
-              <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save" onClick={onSaveSkill} primary />
+              <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save" onClick={onSaveSkill} primary disabled={!selectedSkill || skillBusy || !skillContent.trim()} />
             </div>
           </div>
 
@@ -1670,6 +1695,7 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
     authMode: provider.authMode,
     baseUrl: provider.baseUrl,
     apiKey: "",
+    clearApiKey: false,
     models: provider.models.map((model) => ({ ...model })),
     selectedModel: provider.selectedModel,
     enabled: provider.enabled,

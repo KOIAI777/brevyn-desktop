@@ -24,6 +24,7 @@ export function AppTitleBar({
   onToggleFileRail: () => void;
   onTogglePreviewRail: () => void;
 }) {
+  const threadLabel = thread?.title || "No active session";
   return (
     <header className="drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-card/70 px-2 text-foreground backdrop-blur">
       <div className="w-[76px] shrink-0" />
@@ -55,7 +56,7 @@ export function AppTitleBar({
           </>
         )}
         <span className="hidden text-muted-foreground/50 md:inline">·</span>
-        <div className="hidden min-w-0 truncate text-xs text-muted-foreground md:block">{thread?.title || "No session"}</div>
+        <div className="hidden min-w-0 truncate text-xs text-muted-foreground md:block">{threadLabel}</div>
       </div>
 
       <div className="no-drag flex items-center gap-1">

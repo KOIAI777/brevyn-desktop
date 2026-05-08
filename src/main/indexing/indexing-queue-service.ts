@@ -46,7 +46,9 @@ export class IndexingQueueService {
 
   poke(): void {
     if (this.stopped) return;
-    void this.drain();
+    void this.drain().catch((error) => {
+      console.warn("[indexing-queue] Drain failed", error);
+    });
   }
 
   private async drain(): Promise<void> {
@@ -70,9 +72,9 @@ export class IndexingQueueService {
   private async runTask(task: IndexingTaskRecord): Promise<void> {
     try {
       const result = await this.executor.run(task);
-      await this.store.completeIndexingTask(task.id, result);
+      await this.store.completeIndexingTask(task.id, result, this.workerId, task.lockedUntil);
     } catch (error) {
-      this.store.failIndexingTask(task.id, error instanceof Error ? error.message : String(error));
+      this.store.failIndexingTask(task.id, error instanceof Error ? error.message : String(error), this.workerId, task.lockedUntil);
     }
   }
 

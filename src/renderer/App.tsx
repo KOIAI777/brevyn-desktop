@@ -177,7 +177,10 @@ function App() {
 
   async function selectFile(file: WorkspaceFileNode) {
     setSelectedFileId(file.id);
-    if (file.kind === "folder") return;
+    if (file.kind === "folder") {
+      setFilePreview(null);
+      return;
+    }
     setFilePreview(await window.uclaw.files.preview(file.id));
     setPreviewRailCollapsed(false);
   }
@@ -388,7 +391,10 @@ function App() {
           files={fileTree}
           selectedFileId={selectedFileId}
           onSelectFile={selectFile}
-          onOpenUpload={() => setCourseFilesUploadOpen(true)}
+          onOpenUpload={() => {
+            if (activeCourse?.archivedAt) return;
+            setCourseFilesUploadOpen(true);
+          }}
         />
 
         <FilePreviewRail collapsed={previewRailCollapsed} preview={filePreview} />
@@ -420,8 +426,8 @@ function App() {
         <TimetableDialog
           course={activeCourse}
           semesters={semesters}
-          onSelectSemester={(semesterId) => void selectSemester(semesterId)}
-          onWorkspaceChanged={() => void reloadWorkspace()}
+          onSelectSemester={selectSemester}
+          onWorkspaceChanged={() => reloadWorkspace()}
           onClose={() => setTimetableOpen(false)}
         />
       )}

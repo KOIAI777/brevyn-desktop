@@ -19,7 +19,9 @@ export function findFileNode(nodes: WorkspaceFileNode[], id: string): WorkspaceF
 }
 
 export function formatRelative(value: string): string {
-  const delta = Math.max(0, Date.now() - Date.parse(value || ""));
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return "";
+  const delta = Math.max(0, Date.now() - timestamp);
   const minutes = Math.floor(delta / 60000);
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;

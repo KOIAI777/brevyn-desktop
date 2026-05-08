@@ -478,19 +478,23 @@ export class FileService {
     this.options.businessStore.recoverExpiredIndexingTasks();
   }
 
-  async completeIndexingTask(taskId: string, result: IndexingWorkerResult): Promise<IndexingJob | null> {
+  async completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
     const task = this.options.businessStore.getIndexingTask(taskId);
     if (!task) return null;
+    const lease = workerId ? { workerId, lockedUntil } : undefined;
+    if (lease && (task.status !== "running" || task.lockedBy !== lease.workerId || task.lockedUntil !== lease.lockedUntil)) {
+      return this.options.businessStore.getIndexingJob(task.jobId);
+    }
     const job = this.options.businessStore.getIndexingJob(task.jobId);
     if (job?.status === "cancelled") {
-      return this.options.businessStore.completeIndexingTask(taskId, result);
+      return this.options.businessStore.completeIndexingTask(taskId, result, lease);
     }
     await this.options.ragIndex.ingestTask(task, result);
-    return this.options.businessStore.completeIndexingTask(taskId, result);
+    return this.options.businessStore.completeIndexingTask(taskId, result, lease);
   }
 
-  failIndexingTask(taskId: string, message: string): IndexingJob | null {
-    return this.options.businessStore.failIndexingTask(taskId, message);
+  failIndexingTask(taskId: string, message: string, workerId?: string, lockedUntil?: string): IndexingJob | null {
+    return this.options.businessStore.failIndexingTask(taskId, message, workerId ? { workerId, lockedUntil } : undefined);
   }
 
   private viewCourseRoots(courseId: string, semesterId: string): WorkspaceFileNode[] {
