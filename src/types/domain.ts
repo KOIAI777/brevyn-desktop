@@ -20,7 +20,7 @@ export interface SemesterWorkspace {
   folderName: string;
   startsAt?: string;
   endsAt?: string;
-  source: "seed" | "manual";
+  source: "manual";
   recognizedAt?: string;
   archivedAt?: string;
 }
@@ -86,6 +86,15 @@ export interface CreateTaskInput {
   courseId: string;
   title: string;
   taskType?: TaskType;
+}
+
+export interface UpdateTaskInput {
+  id: string;
+  title?: string;
+  taskType?: TaskType;
+  status?: TaskStatus;
+  dueAt?: string | null;
+  summary?: string;
 }
 
 export interface SkillItem {
@@ -339,6 +348,7 @@ export interface UclawAPI {
   tasks: {
     list: (courseId: string) => Promise<UclawTask[]>;
     create: (input: CreateTaskInput) => Promise<UclawTask>;
+    update: (input: UpdateTaskInput) => Promise<UclawTask>;
     delete: (taskId: string) => Promise<boolean>;
   };
   threads: {

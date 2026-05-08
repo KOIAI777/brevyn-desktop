@@ -1,1 +1,1 @@
-export { SQLiteBusinessStore, type BusinessData, type BusinessStoreStatus } from "./sqlite-business-store";
+export { SQLiteBusinessStore, type BusinessStoreStatus } from "./sqlite-business-store";

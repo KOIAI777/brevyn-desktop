@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Course,
   FileImportInput,
@@ -26,6 +27,7 @@ import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 
 function App() {
+  const mountedRef = useRef(true);
   const [courses, setCourses] = useState<Course[]>([]);
   const [semesters, setSemesters] = useState<SemesterWorkspace[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
@@ -47,10 +49,18 @@ function App() {
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [courseFilesUploadOpen, setCourseFilesUploadOpen] = useState(false);
+  const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
+  const [bootError, setBootError] = useState("");
   const [archiveError, setArchiveError] = useState("");
 
   useEffect(() => {
     void bootstrap();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -65,36 +75,49 @@ function App() {
   const workspaceScope = useMemo(() => describeWorkspaceScope(activeCourse, activeTask, activeThread), [activeCourse, activeTask, activeThread]);
 
   async function bootstrap() {
-    const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
-      window.uclaw.semester.list(),
-      window.uclaw.semester.current(),
-      window.uclaw.courses.list(),
-      window.uclaw.skills.list(),
-      window.uclaw.git.status(),
-    ]);
-    const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
-    const threadList = await window.uclaw.threads.list();
+    if (!mountedRef.current) return;
+    setBootState("loading");
+    setBootError("");
+    try {
+      const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
+        window.uclaw.semester.list(),
+        window.uclaw.semester.current(),
+        window.uclaw.courses.list(),
+        window.uclaw.skills.list(),
+        window.uclaw.git.status(),
+      ]);
+      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
+      const threadList = await window.uclaw.threads.list();
 
-    setSemesters(semesterList);
-    setSemester(currentSemester);
-    setCourses(courseList);
-    setSkills(skillList);
-    setGitStatus(git);
-    setTasksByCourse(Object.fromEntries(taskEntries));
-    setThreads(dedupeThreads(threadList));
+      if (!mountedRef.current) return;
 
-    if (courseList.length === 0 && threadList.length === 0) {
-      setActiveCourseId("");
-      setActiveTaskId(undefined);
-      setActiveThreadId("");
-      return;
+      setSemesters(semesterList);
+      setSemester(currentSemester);
+      setCourses(courseList);
+      setSkills(skillList);
+      setGitStatus(git);
+      setTasksByCourse(Object.fromEntries(taskEntries));
+      setThreads(dedupeThreads(threadList));
+
+      if (courseList.length === 0 && threadList.length === 0) {
+        setActiveCourseId("");
+        setActiveTaskId(undefined);
+        setActiveThreadId("");
+        setBootState("ready");
+        return;
+      }
+
+      const firstThread = threadList.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threadList[0];
+      const firstCourse = firstThread ? courseList.find((course) => course.id === firstThread.courseId) : courseList[0];
+      setActiveCourseId(firstCourse?.id || "");
+      setActiveTaskId(firstThread?.taskId);
+      setActiveThreadId(firstThread?.id || "");
+      setBootState("ready");
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setBootError(errorMessage(error, "Failed to load workspace."));
+      setBootState("error");
     }
-
-    const firstThread = threadList.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threadList[0];
-    const firstCourse = firstThread ? courseList.find((course) => course.id === firstThread.courseId) : courseList[0];
-    setActiveCourseId(firstCourse?.id || "");
-    setActiveTaskId(firstThread?.taskId);
-    setActiveThreadId(firstThread?.id || "");
   }
 
   async function reloadWorkspace(preferredThreadId?: string) {
@@ -277,6 +300,14 @@ function App() {
     }));
   }
 
+  if (bootState === "loading") {
+    return <AppLoadingScreen />;
+  }
+
+  if (bootState === "error") {
+    return <AppBootErrorScreen error={bootError} onRetry={() => void bootstrap()} />;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,hsl(var(--background)),#f3f1ea)] text-foreground">
       <AppTitleBar
@@ -431,4 +462,50 @@ function dedupeThreads(threads: Thread[]): Thread[] {
     result.push(thread);
   }
   return result;
+}
+
+function AppLoadingScreen() {
+  return (
+    <div className="flex h-full min-h-screen items-center justify-center bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,hsl(var(--background)),#f3f1ea)] px-6 text-foreground">
+      <div className="w-full max-w-md rounded-2xl border bg-card/90 p-6 shadow-2xl ring-1 ring-border/70">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading workspace
+        </div>
+        <div className="mt-4 space-y-2">
+          <div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" />
+          <div className="h-3 w-3/5 animate-pulse rounded-full bg-muted/80" />
+          <div className="h-3 w-2/3 animate-pulse rounded-full bg-muted/70" />
+        </div>
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">Syncing semesters, courses, tasks, threads, and files.</p>
+      </div>
+    </div>
+  );
+}
+
+function AppBootErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="flex h-full min-h-screen items-center justify-center bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,hsl(var(--background)),#f3f1ea)] px-6 text-foreground">
+      <div className="w-full max-w-md rounded-2xl border bg-card/90 p-6 shadow-2xl ring-1 ring-border/70">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          Failed to load workspace
+        </div>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          UCLAW could not finish startup. Try again, and if it keeps happening we will need the error text below.
+        </p>
+        <div className="mt-4 rounded-lg border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+          {error || "Unknown startup error."}
+        </div>
+        <button
+          type="button"
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
+          onClick={onRetry}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </button>
+      </div>
+    </div>
+  );
 }

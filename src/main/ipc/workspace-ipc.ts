@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { CreateCourseInput, CreateSemesterInput, CreateTaskInput, CreateThreadInput } from "../../types/domain";
+import type { CreateCourseInput, CreateSemesterInput, CreateTaskInput, CreateThreadInput, UpdateTaskInput } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 
@@ -20,6 +20,7 @@ export function registerWorkspaceIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.coursesDelete, (_event, courseId: string) => store.deleteCourse(courseId));
   ipcMain.handle(IPC_CHANNELS.tasksList, (_event, courseId: string) => store.listTasks(courseId));
   ipcMain.handle(IPC_CHANNELS.tasksCreate, (_event, input: CreateTaskInput) => store.createTask(input));
+  ipcMain.handle(IPC_CHANNELS.tasksUpdate, (_event, input: UpdateTaskInput) => store.updateTask(input));
   ipcMain.handle(IPC_CHANNELS.tasksDelete, (_event, taskId: string) => store.deleteTask(taskId));
   ipcMain.handle(IPC_CHANNELS.threadsList, (_event, courseId?: string) => store.listThreads(courseId));
   ipcMain.handle(IPC_CHANNELS.threadsListArchived, (_event, courseId?: string) => store.listArchivedThreads(courseId));

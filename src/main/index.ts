@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc";
 import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
-import { createLocalStore } from "./services/local-store";
+import { createLocalStore, type LocalStore } from "./services/local-store";
 
 if (!app.isPackaged) {
   app.setPath("userData", join(app.getPath("appData"), "@uclaw/electron-dev"));
@@ -15,8 +15,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-const store = createLocalStore(app.getPath("userData"));
-const indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
+let store: LocalStore | null = null;
+let indexingQueue: IndexingQueueService | null = null;
 let shuttingDown = false;
 
 function createWindow(): void {
@@ -75,8 +75,17 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  registerIpcHandlers({ store, indexingQueue });
-  indexingQueue.start();
+  try {
+    store = createLocalStore(app.getPath("userData"));
+    indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
+    registerIpcHandlers({ store, indexingQueue });
+    indexingQueue.start();
+  } catch (error) {
+    console.error("[uclaw] Failed to initialize local store", error);
+    store = createUnavailableStore(error);
+    indexingQueue = null;
+    registerIpcHandlers({ store });
+  }
   createWindow();
 
   app.on("activate", () => {
@@ -92,14 +101,37 @@ app.on("before-quit", (event) => {
   if (shuttingDown) return;
   event.preventDefault();
   shuttingDown = true;
+  let exited = false;
+  const forceExit = () => {
+    if (exited) return;
+    exited = true;
+    app.exit(0);
+  };
+  const timeout = setTimeout(() => {
+    console.warn("[uclaw] Shutdown timed out, forcing exit.");
+    forceExit();
+  }, 5_000);
   void (async () => {
     try {
-      await indexingQueue.stop();
-      await store.close();
+      await indexingQueue?.stop();
+      await store?.close();
     } catch (error) {
       console.error("[uclaw] Failed to shut down cleanly", error);
     } finally {
-      app.exit(0);
+      clearTimeout(timeout);
+      forceExit();
     }
   })();
 });
+
+function createUnavailableStore(error: unknown): LocalStore {
+  const message = error instanceof Error ? error.message : String(error || "Unknown startup error");
+  return new Proxy({} as LocalStore, {
+    get(_target, property) {
+      if (property === "close") return async () => undefined;
+      return () => {
+        throw new Error(`Workspace store unavailable: ${message}`);
+      };
+    },
+  });
+}

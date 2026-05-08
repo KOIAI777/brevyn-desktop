@@ -11,12 +11,13 @@ import type {
   TimetableEvent,
   TimetableEventKind,
   TimetableEventSource,
+  UpdateTaskInput,
   UclawTask,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
-import { SEMESTER_HOME_COURSE_ID, taskRelativeWorkspacePath } from "../services/workspace-paths";
+import { SEMESTER_HOME_COURSE_ID } from "../services/workspace-paths";
 
 type SQLiteStatementSync = {
   all: (...params: unknown[]) => unknown[];
@@ -39,24 +40,11 @@ export interface BusinessStoreStatus {
   schemaVersion: number;
 }
 
-export interface BusinessData {
-  semester: SemesterWorkspace | null;
-  semesters: SemesterWorkspace[];
-  currentSemesterId: string | null;
-  courses: Course[];
-  tasks: UclawTask[];
-  threads: Thread[];
-  files: WorkspaceFileNode[];
-  timetableEvents: TimetableEvent[];
-  indexingJobs: IndexingJob[];
-  indexingTasks: IndexingTaskRecord[];
-}
-
 type Row = Record<string, unknown>;
 
 const require = createRequire(__filename);
-const BUSINESS_SCHEMA_VERSION = 3;
-const BUSINESS_SCHEMA_NAME = "business_schema_v3";
+const BUSINESS_SCHEMA_VERSION = 1;
+const BUSINESS_SCHEMA_NAME = "business_schema_v1";
 const now = () => new Date().toISOString();
 
 export class SQLiteBusinessStore {
@@ -76,42 +64,13 @@ export class SQLiteBusinessStore {
     };
   }
 
-  hasBusinessData(): boolean {
-    const row = this.db.prepare("select count(*) as count from semesters").get() as { count?: number } | undefined;
-    return Number(row?.count || 0) > 0;
-  }
-
-  loadData(): BusinessData | null {
-    if (!this.hasBusinessData()) return null;
-
-    const appState = this.loadAppState();
-    const semesters = this.all("select * from semesters order by starts_at desc, recognized_at desc").map(rowToSemester);
-    const currentSemesterId = appState.currentSemesterId || semesters[0]?.id || "";
-    const semester = semesters.find((item) => item.id === currentSemesterId) || semesters[0];
-    if (!semester) return null;
-
-    return {
-      semester,
-      semesters,
-      currentSemesterId: semester.id,
-      courses: this.all("select * from courses order by name").map(rowToCourse),
-      tasks: this.all("select * from tasks order by updated_at desc").map(rowToTask),
-      threads: this.all("select * from threads order by updated_at desc").map(rowToThread),
-      files: rowsToFileTree(this.all("select * from workspace_files order by path, name")),
-      timetableEvents: this.all("select * from timetable_events order by starts_at").map(rowToTimetableEvent),
-      indexingJobs: this.all("select * from indexing_jobs order by updated_at desc").map(rowToIndexingJob),
-      indexingTasks: this.all("select * from indexing_tasks order by updated_at desc").map(rowToIndexingTask),
-    };
-  }
-
   currentSemesterId(): string | null {
     return this.loadAppState().currentSemesterId || null;
   }
 
   currentSemester(): SemesterWorkspace | null {
-    const semesters = this.listSemesters();
     const currentId = this.currentSemesterId();
-    return semesters.find((semester) => semester.id === currentId) || semesters[0] || null;
+    return currentId ? this.getSemester(currentId) : null;
   }
 
   listSemesters(): SemesterWorkspace[] {
@@ -244,6 +203,21 @@ export class SQLiteBusinessStore {
     return Boolean(taskRow);
   }
 
+  hasActiveFileIndexing(fileId: string): boolean {
+    const row = this.db
+      .prepare(
+        `select 1
+         from indexing_tasks
+         join indexing_jobs on indexing_jobs.id = indexing_tasks.job_id
+         where indexing_tasks.file_id = ?
+           and indexing_tasks.status in ('queued', 'running')
+           and indexing_jobs.status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(fileId) as Row | undefined;
+    return Boolean(row);
+  }
+
   listThreads(semesterId?: string, courseId?: string): Thread[] {
     const where: string[] = [];
     const params: unknown[] = [];
@@ -295,58 +269,6 @@ export class SQLiteBusinessStore {
     return this.all("select * from timetable_events order by starts_at").map(rowToTimetableEvent);
   }
 
-  importBusinessData(data: BusinessData): void {
-    this.db.exec("begin immediate;");
-    try {
-      const defaultSemesterId = data.currentSemesterId || data.semester?.id || data.semesters[0]?.id || "";
-      this.setCurrentSemester(defaultSemesterId);
-      for (const semester of data.semesters) this.insertSemester(semester);
-      for (const course of data.courses) this.insertCourse({ ...course, semesterId: course.semesterId || defaultSemesterId });
-      for (const task of data.tasks) this.insertTask({ ...task, semesterId: task.semesterId || defaultSemesterId });
-      for (const thread of data.threads) this.insertThread({ ...thread, semesterId: thread.semesterId || defaultSemesterId });
-      for (const file of flattenFileTree(data.files)) this.insertFile({ ...file.node, semesterId: file.node.semesterId || defaultSemesterId }, file.parentId);
-      for (const event of data.timetableEvents) this.insertTimetableEvent({ ...event, semesterId: event.semesterId || defaultSemesterId });
-      for (const job of data.indexingJobs) this.insertIndexingJob({ ...job, semesterId: job.semesterId || defaultSemesterId });
-      for (const task of data.indexingTasks) this.insertIndexingTaskRecord({ ...task, semesterId: task.semesterId || defaultSemesterId });
-
-      this.db.exec("commit;");
-    } catch (error) {
-      this.db.exec("rollback;");
-      throw error;
-    }
-  }
-
-  replaceBusinessData(data: BusinessData): void {
-    this.db.exec("begin immediate;");
-    try {
-      this.run("delete from indexing_tasks");
-      this.run("delete from indexing_jobs");
-      this.run("delete from workspace_files");
-      this.run("delete from threads");
-      this.run("delete from tasks");
-      this.run("delete from timetable_events");
-      this.run("delete from courses");
-      this.run("delete from semesters");
-      this.run("delete from app_state where key = 'current_semester_id'");
-
-      const defaultSemesterId = data.currentSemesterId || data.semester?.id || data.semesters[0]?.id || "";
-      this.setCurrentSemester(defaultSemesterId);
-      for (const semester of data.semesters) this.insertSemester(semester);
-      for (const course of data.courses) this.insertCourse({ ...course, semesterId: course.semesterId || defaultSemesterId });
-      for (const task of data.tasks) this.insertTask({ ...task, semesterId: task.semesterId || defaultSemesterId });
-      for (const thread of data.threads) this.insertThread({ ...thread, semesterId: thread.semesterId || defaultSemesterId });
-      for (const file of flattenFileTree(data.files)) this.insertFile({ ...file.node, semesterId: file.node.semesterId || defaultSemesterId }, file.parentId);
-      for (const event of data.timetableEvents) this.insertTimetableEvent({ ...event, semesterId: event.semesterId || defaultSemesterId });
-      for (const job of data.indexingJobs) this.insertIndexingJob({ ...job, semesterId: job.semesterId || defaultSemesterId });
-      for (const task of data.indexingTasks) this.insertIndexingTaskRecord({ ...task, semesterId: task.semesterId || defaultSemesterId });
-
-      this.db.exec("commit;");
-    } catch (error) {
-      this.db.exec("rollback;");
-      throw error;
-    }
-  }
-
   setCurrentSemester(semesterId: string | null): void {
     this.run(
       `insert or replace into app_state(key, value, updated_at)
@@ -361,6 +283,21 @@ export class SQLiteBusinessStore {
     this.insertSemester(semester);
     if (select) this.setCurrentSemester(semester.id);
     return semester;
+  }
+
+  saveSemesterWithWorkspaceFiles(semester: SemesterWorkspace, files: WorkspaceFileNode[], select = true): SemesterWorkspace {
+    this.db.exec("begin immediate;");
+    try {
+      this.insertSemester(semester);
+      if (select) this.setCurrentSemester(semester.id);
+      this.run("delete from workspace_files where semester_id = ? and course_id = ?", semester.id, SEMESTER_HOME_COURSE_ID);
+      for (const file of flattenFileTree(files)) this.insertFile(file.node, file.parentId);
+      this.db.exec("commit;");
+      return semester;
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
   }
 
   archiveSemester(semesterId: string, archivedAt = now()): SemesterWorkspace | null {
@@ -402,6 +339,20 @@ export class SQLiteBusinessStore {
     return course;
   }
 
+  saveCourseWithWorkspaceFiles(course: Course, files: WorkspaceFileNode[]): Course {
+    this.db.exec("begin immediate;");
+    try {
+      this.insertCourse(course);
+      this.run("delete from workspace_files where semester_id = ? and course_id = ?", course.semesterId ?? "", course.id);
+      for (const file of flattenFileTree(files)) this.insertFile(file.node, file.parentId);
+      this.db.exec("commit;");
+      return course;
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
   archiveCourse(courseId: string, archivedAt = now()): Course | null {
     this.run("update courses set archived_at = ?, updated_at = ? where id = ?", archivedAt, archivedAt, courseId);
     const row = this.db.prepare("select * from courses where id = ?").get(courseId) as Row | undefined;
@@ -430,6 +381,54 @@ export class SQLiteBusinessStore {
   saveTask(task: UclawTask): UclawTask {
     this.insertTask(task);
     return task;
+  }
+
+  saveTaskWithWorkspaceFiles(task: UclawTask, files: WorkspaceFileNode[]): UclawTask {
+    this.db.exec("begin immediate;");
+    try {
+      this.insertTask(task);
+      this.run("delete from workspace_files where semester_id = ? and course_id = ?", task.semesterId ?? "", task.courseId);
+      for (const file of flattenFileTree(files)) this.insertFile(file.node, file.parentId);
+      this.db.exec("commit;");
+      return task;
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
+  updateTask(input: UpdateTaskInput): UclawTask | null {
+    const row = this.db.prepare("select * from tasks where id = ?").get(input.id) as Row | undefined;
+    if (!row) return null;
+
+    const existing = rowToTask(row);
+    const title = input.title === undefined ? existing.title : input.title.trim() || existing.title;
+    const taskType = input.taskType === undefined ? existing.taskType : input.taskType.trim() || existing.taskType;
+    const dueAt = input.dueAt === undefined ? existing.dueAt : input.dueAt?.trim() || undefined;
+    const status = input.status ?? existing.status;
+    const summary = input.summary === undefined ? existing.summary : input.summary;
+    const nextTask: UclawTask = {
+      ...existing,
+      title,
+      taskType,
+      dueAt,
+      status,
+      summary,
+    };
+    const timestamp = now();
+    this.run(
+      `update tasks
+       set title = ?, task_type = ?, due_at = ?, status = ?, raw_json = ?, updated_at = ?
+       where id = ?`,
+      nextTask.title,
+      nextTask.taskType,
+      nextTask.dueAt ?? null,
+      nextTask.status,
+      json({ ...rawJson<Record<string, unknown>>(row.raw_json, {}), ...nextTask }),
+      timestamp,
+      input.id,
+    );
+    return this.getTask(input.id);
   }
 
   deleteTaskDeep(taskId: string): boolean {
@@ -841,15 +840,14 @@ export class SQLiteBusinessStore {
   private insertTask(task: UclawTask): void {
     const timestamp = now();
     this.run(
-      `insert or replace into tasks(id, semester_id, course_id, title, task_type, due_at, workspace_path, status, raw_json, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert or replace into tasks(id, semester_id, course_id, title, task_type, due_at, status, raw_json, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       task.id,
       task.semesterId ?? "",
       task.courseId,
       task.title,
       task.taskType,
       task.dueAt ?? null,
-      taskRelativeWorkspacePath(task),
       task.status,
       json(task),
       timestamp,
@@ -1109,7 +1107,6 @@ export class SQLiteBusinessStore {
           title text not null,
           task_type text not null,
           due_at text,
-          workspace_path text not null,
           status text not null default 'active',
           raw_json text not null default '{}',
           created_at text not null,
@@ -1228,7 +1225,7 @@ export class SQLiteBusinessStore {
     this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
     this.db.exec("drop table if exists providers;");
-    this.normalizeThreadRows();
+    this.dropTaskWorkspacePathColumn();
     this.db.exec(`
       create table if not exists indexing_tasks (
         id text primary key,
@@ -1252,6 +1249,7 @@ export class SQLiteBusinessStore {
       );
       create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
       create index if not exists idx_indexing_tasks_job on indexing_tasks(job_id, status);
+      create index if not exists idx_tasks_course on tasks(course_id);
       create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
       create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
     `);
@@ -1304,29 +1302,34 @@ export class SQLiteBusinessStore {
     }
   }
 
-  private normalizeThreadRows(): void {
-    const rows = this.all("select * from threads");
-    if (rows.length === 0) return;
-
+  private dropTaskWorkspacePathColumn(): void {
+    if (!this.columnNames("tasks").includes("workspace_path")) return;
     this.db.exec("begin immediate;");
     try {
-      for (const row of rows) {
-        const threadId = stringValue(row.id);
-        const courseId = stringValue(row.course_id);
-        const taskId = nullableString(row.task_id);
-        if (courseId !== SEMESTER_HOME_COURSE_ID && !taskId) {
-          this.run("delete from threads where id = ?", threadId);
-          continue;
-        }
-
-        const thread = rowToThread(row);
-        this.insertThread({
-          ...thread,
-          courseId,
-          taskId: courseId === SEMESTER_HOME_COURSE_ID ? undefined : taskId,
-          threadType: courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
-        });
-      }
+      this.db.exec(`
+        drop table if exists tasks_without_workspace_path;
+        create table tasks_without_workspace_path (
+          id text primary key,
+          semester_id text not null references semesters(id) on delete cascade,
+          course_id text not null references courses(id) on delete cascade,
+          title text not null,
+          task_type text not null,
+          due_at text,
+          status text not null default 'active',
+          raw_json text not null default '{}',
+          created_at text not null,
+          updated_at text not null
+        );
+      `);
+      this.run(
+        `insert into tasks_without_workspace_path(id, semester_id, course_id, title, task_type, due_at, status, raw_json, created_at, updated_at)
+         select id, semester_id, course_id, title, task_type, due_at, coalesce(status, 'active'), coalesce(raw_json, '{}'), created_at, updated_at
+         from tasks`,
+      );
+      this.db.exec(`
+        drop table tasks;
+        alter table tasks_without_workspace_path rename to tasks;
+      `);
       this.db.exec("commit;");
     } catch (error) {
       this.db.exec("rollback;");
@@ -1368,7 +1371,7 @@ function rowToSemester(row: Row): SemesterWorkspace {
     folderName: stringValue(row.folder_name),
     startsAt: nullableString(row.starts_at),
     endsAt: nullableString(row.ends_at),
-    source: stringValue(row.source) as SemesterWorkspace["source"],
+    source: "manual",
     recognizedAt: nullableString(row.recognized_at),
     archivedAt: nullableString(row.archived_at),
   };

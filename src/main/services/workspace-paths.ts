@@ -44,7 +44,11 @@ export function folderNameForCourse(course: Course, semester?: SemesterWorkspace
 
 export function sanitizeFsSegment(value: string): string {
   const cleaned = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim();
-  return cleaned || "workspace";
+  const safe = cleaned
+    .replace(/^\.+|\.+$/g, "")
+    .replace(/\.\./g, "-")
+    .slice(0, 200);
+  return safe || "workspace";
 }
 
 export function isPathInside(targetPath: string, parentPath: string): boolean {
@@ -114,10 +118,6 @@ export function taskFolderPrefix(taskId: string): string {
 
 export function taskFolderName(task: UclawTask): string {
   return `${taskFolderPrefix(task.id)}${sanitizeFsSegment(task.title)}`;
-}
-
-export function taskRelativeWorkspacePath(task: UclawTask): string {
-  return join("Task", taskFolderName(task));
 }
 
 export function taskWorkspaceDirForTask(courseDir: string, task: UclawTask): string {

@@ -1,0 +1,507 @@
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import type {
+  Course,
+  CreateCourseInput,
+  CreateSemesterInput,
+  CreateTaskInput,
+  CreateThreadInput,
+  GitStatus,
+  SemesterWorkspace,
+  Thread,
+  UclawTask,
+  UpdateTaskInput,
+  WorkspaceFileNode,
+} from "../../types/domain";
+import type { SQLiteBusinessStore } from "../storage";
+import type { RagIndexService } from "./rag-index-service";
+import {
+  cloneFiles,
+  ensureCourseFolderInTree,
+  flattenFiles,
+  normalizeCourses,
+} from "./workspace-file-tree";
+import {
+  DEFAULT_TASK_TYPE,
+  SEMESTER_HOME_COURSE_ID,
+  courseWorkspaceDir,
+  ensureCourseWorkspaceDir,
+  ensureSemesterSharedDirs,
+  ensureTaskWorkspaceDir,
+  ensureThreadMessagesDir,
+  sanitizeFsSegment,
+  semesterWorkspaceDir,
+  taskWorkspaceDirForTask,
+  threadMessagesPath,
+} from "./workspace-paths";
+import {
+  currentActiveSemester,
+  currentActiveSemesterId,
+  isCourseArchived,
+  isCurrentSemesterArchived,
+  isSemesterArchived,
+} from "./workspace-state";
+
+const now = () => new Date().toISOString();
+
+export interface WorkspaceServiceOptions {
+  rootDataDir: string;
+  businessStore: SQLiteBusinessStore;
+  ragIndex: RagIndexService;
+}
+
+export class WorkspaceService {
+  constructor(private readonly options: WorkspaceServiceOptions) {}
+
+  listSemesters(): SemesterWorkspace[] {
+    return this.options.businessStore.listSemesters()
+      .filter((semester) => !semester.archivedAt)
+      .map((semester) => ({ ...semester }))
+      .sort((a, b) => Date.parse(b.startsAt || b.recognizedAt || "") - Date.parse(a.startsAt || a.recognizedAt || ""));
+  }
+
+  listArchivedSemesters(): SemesterWorkspace[] {
+    return this.options.businessStore.listSemesters()
+      .filter((semester) => Boolean(semester.archivedAt))
+      .map((semester) => ({ ...semester }))
+      .sort((a, b) => Date.parse(b.archivedAt || "") - Date.parse(a.archivedAt || ""));
+  }
+
+  currentSemester(): SemesterWorkspace | null {
+    const semester = currentActiveSemester(this.options.businessStore);
+    return semester ? { ...semester } : null;
+  }
+
+  createSemester(input: CreateSemesterInput): SemesterWorkspace {
+    const timestamp = now();
+    const term = input.term.trim() || "New Semester";
+    const semester: SemesterWorkspace = {
+      id: `semester-${Date.now().toString(36)}`,
+      semesterNo: input.semesterNo?.trim() || term,
+      term,
+      folderName: sanitizeFsSegment(input.folderName?.trim() || term),
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      source: "manual",
+      recognizedAt: timestamp,
+    };
+    const roots = this.buildCourseRoots(SEMESTER_HOME_COURSE_ID, semester.id, semester, undefined, []);
+    try {
+      ensureSemesterSharedDirs(this.options.rootDataDir, semester.id);
+      this.options.businessStore.saveSemesterWithWorkspaceFiles(semester, roots, true);
+      return { ...semester };
+    } catch (error) {
+      this.deleteSemesterDir(semester.id);
+      throw error;
+    }
+  }
+
+  selectSemester(semesterId: string): SemesterWorkspace {
+    const semester = this.options.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    if (semester.archivedAt) throw new Error(`Semester is archived: ${semester.term}`);
+    this.options.businessStore.setCurrentSemester(semester.id);
+    return { ...semester };
+  }
+
+  archiveSemester(semesterId: string): SemesterWorkspace {
+    const selectedSemesterId = this.options.businessStore.currentSemesterId() || "";
+    const semester = this.options.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    if (semester.archivedAt) return { ...semester };
+    const archivedAt = now();
+    const archived = this.options.businessStore.archiveSemester(semesterId, archivedAt) || semester;
+    if (selectedSemesterId === semesterId) {
+      this.options.businessStore.setCurrentSemester(this.options.businessStore.firstActiveSemester()?.id || null);
+    }
+    return { ...archived };
+  }
+
+  restoreSemester(semesterId: string): SemesterWorkspace {
+    const semester = this.options.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    const restored = this.options.businessStore.restoreSemester(semesterId) || semester;
+    return { ...restored };
+  }
+
+  async deleteSemester(semesterId: string): Promise<boolean> {
+    const selectedSemesterId = this.options.businessStore.currentSemesterId() || "";
+    const semester = this.options.businessStore.getSemester(semesterId);
+    if (!semester) throw new Error(`Semester not found: ${semesterId}`);
+    if (!semester.archivedAt) throw new Error("Archive the semester before deleting it permanently.");
+    if (this.options.businessStore.hasActiveSemesterIndexing(semesterId)) {
+      throw new Error("Wait for indexing to finish before deleting this semester.");
+    }
+    const threads = this.options.businessStore.listThreads(semesterId);
+    const deleted = this.options.businessStore.deleteSemesterDeep(semesterId);
+    if (!deleted) return false;
+    if (selectedSemesterId === semesterId) {
+      this.options.businessStore.setCurrentSemester(this.options.businessStore.firstActiveSemester()?.id || null);
+    }
+    this.deleteThreadMessageFiles(threads);
+    this.deleteSemesterDir(semesterId);
+    await this.deleteRagChunksForSemester(semesterId);
+    return true;
+  }
+
+  listCourses(): Course[] {
+    const semester = currentActiveSemester(this.options.businessStore);
+    if (!semester) return [];
+    return normalizeCourses(this.options.businessStore.listCourses(semester.id), semester).filter((course) => course.id === SEMESTER_HOME_COURSE_ID || !course.archivedAt);
+  }
+
+  listArchivedCourses(): Course[] {
+    const semester = currentActiveSemester(this.options.businessStore);
+    if (!semester) return [];
+    return normalizeCourses(this.options.businessStore.listCourses(semester.id), semester)
+      .filter((course) => course.id !== SEMESTER_HOME_COURSE_ID && Boolean(course.archivedAt))
+      .sort((a, b) => Date.parse(b.archivedAt || "") - Date.parse(a.archivedAt || ""));
+  }
+
+  listTasks(courseId: string): UclawTask[] {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || isCourseArchived(this.options.businessStore, courseId) || isCurrentSemesterArchived(this.options.businessStore)) return [];
+    return this.options.businessStore.listTasks(semesterId, courseId);
+  }
+
+  createTask(input: CreateTaskInput): UclawTask {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) throw new Error("Select or recognize a semester before creating tasks.");
+    const course = this.options.businessStore.getCourse(input.courseId);
+    if (!course) throw new Error(`Course not found: ${input.courseId}`);
+    if (isCourseArchived(this.options.businessStore, input.courseId)) throw new Error("Restore this course before creating tasks.");
+    const task: UclawTask = {
+      id: `task-${Date.now().toString(36)}`,
+      semesterId,
+      courseId: input.courseId,
+      title: input.title.trim() || "New Task",
+      taskType: input.taskType?.trim() || DEFAULT_TASK_TYPE,
+      status: "not_started",
+      summary: "Custom task created locally.",
+    };
+    const roots = this.loadCourseRoots(input.courseId, semesterId);
+    ensureCourseFolderInTree({
+      roots,
+      courseId: input.courseId,
+      semester: this.options.businessStore.getSemester(semesterId),
+      course,
+      tasks: [...this.options.businessStore.listTasks(semesterId, input.courseId), task],
+      timestamp: now(),
+    });
+    try {
+      ensureTaskWorkspaceDir(this.options.rootDataDir, semesterId, task);
+      this.options.businessStore.saveTaskWithWorkspaceFiles(task, roots);
+      return task;
+    } catch (error) {
+      this.deleteTaskDir(task);
+      throw error;
+    }
+  }
+
+  updateTask(input: UpdateTaskInput): UclawTask {
+    const task = this.options.businessStore.getTask(input.id);
+    if (!task) throw new Error(`Task not found: ${input.id}`);
+    if (isCurrentSemesterArchived(this.options.businessStore) || (task.semesterId && isSemesterArchived(this.options.businessStore, task.semesterId))) {
+      throw new Error("Restore this semester before updating tasks.");
+    }
+    if (isCourseArchived(this.options.businessStore, task.courseId)) throw new Error("Restore this course before updating tasks.");
+    const updated = this.options.businessStore.updateTask(input);
+    if (!updated) throw new Error(`Task not found: ${input.id}`);
+    return updated;
+  }
+
+  async deleteTask(taskId: string): Promise<boolean> {
+    const task = this.options.businessStore.getTask(taskId);
+    if (!task) return false;
+    if (isCourseArchived(this.options.businessStore, task.courseId)) throw new Error("Restore this course before deleting tasks.");
+    if (this.options.businessStore.hasActiveTaskIndexing(task.id, task.courseId)) {
+      throw new Error("Wait for indexing to finish before deleting this task.");
+    }
+    const semesterId = task.semesterId || currentActiveSemesterId(this.options.businessStore);
+    const taskFileIds = flattenFiles(this.options.businessStore.listWorkspaceFiles(semesterId, task.courseId))
+      .filter((file) => file.taskId === task.id)
+      .map((file) => file.id);
+    const threads = this.options.businessStore.listThreads(semesterId, task.courseId).filter((thread) => thread.taskId === task.id);
+    const deleted = this.options.businessStore.deleteTaskDeep(task.id);
+    if (!deleted) return false;
+    this.deleteTaskDir(task);
+    this.deleteThreadMessageFiles(threads);
+    await this.deleteRagChunksForTask(semesterId, task.courseId, task.id, taskFileIds);
+    return true;
+  }
+
+  createCourse(input: CreateCourseInput): Course {
+    const semester = currentActiveSemester(this.options.businessStore);
+    if (!semester) throw new Error("Select a semester before creating a course.");
+    const name = input.name?.trim();
+    const code = input.code?.trim();
+    if (!name) throw new Error("Course name is required.");
+    if (!code) throw new Error("Course code is required.");
+
+    const existingCourseCount = this.options.businessStore.countCourses(semester.id);
+    const course: Course = {
+      id: `course-${Date.now().toString(36)}`,
+      semesterId: semester.id,
+      name,
+      code,
+      term: semester.term,
+      instructor: input.instructor?.trim() || "",
+      workspaceKind: "course",
+      meetingTime: input.meetingTime?.trim() || undefined,
+      location: input.location?.trim() || undefined,
+      color: input.color?.trim() || pickCourseColor(existingCourseCount),
+      description: input.description?.trim() || "",
+    };
+    const roots = this.buildCourseRoots(course.id, semester.id, semester, course, []);
+    try {
+      ensureCourseWorkspaceDir(this.options.rootDataDir, semester.id, course.id);
+      this.options.businessStore.saveCourseWithWorkspaceFiles(course, roots);
+      return course;
+    } catch (error) {
+      this.deleteCourseDir(course.id, semester.id);
+      throw error;
+    }
+  }
+
+  archiveCourse(courseId: string): Course {
+    const course = this.options.businessStore.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    if (course.archivedAt) return { ...course };
+    const archivedAt = now();
+    const archived = this.options.businessStore.archiveCourse(courseId, archivedAt) || course;
+    return { ...archived };
+  }
+
+  restoreCourse(courseId: string): Course {
+    const course = this.options.businessStore.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    const restored = this.options.businessStore.restoreCourse(courseId) || course;
+    return { ...restored };
+  }
+
+  async deleteCourse(courseId: string): Promise<boolean> {
+    const course = this.options.businessStore.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    if (!course.archivedAt) throw new Error("Archive the course before deleting it permanently.");
+    if (this.options.businessStore.hasActiveCourseIndexing(courseId)) {
+      throw new Error("Wait for indexing to finish before deleting this course.");
+    }
+    const semesterId = course.semesterId || currentActiveSemesterId(this.options.businessStore);
+    const threads = this.options.businessStore.listThreads(semesterId, courseId);
+    const deleted = this.options.businessStore.deleteCourseDeep(courseId);
+    if (!deleted) return false;
+    this.deleteCourseDir(courseId, semesterId);
+    this.deleteThreadMessageFiles(threads);
+    await this.deleteRagChunksForCourse(semesterId, courseId);
+    return true;
+  }
+
+  listThreads(courseId?: string): Thread[] {
+    if (isCurrentSemesterArchived(this.options.businessStore)) return [];
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) return [];
+    return this.options.businessStore.listThreads(semesterId, courseId)
+      .filter((thread) => this.isThreadUsable(thread))
+      .slice()
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }
+
+  listArchivedThreads(courseId?: string): Thread[] {
+    if (isCurrentSemesterArchived(this.options.businessStore)) return [];
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) return [];
+    return this.options.businessStore.listArchivedThreads(semesterId, courseId)
+      .sort((a, b) => Date.parse(b.archivedAt || b.updatedAt) - Date.parse(a.archivedAt || a.updatedAt));
+  }
+
+  createThread(input: CreateThreadInput): Thread {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    const task = this.assertThreadParentUsable({
+      id: "new-thread",
+      semesterId,
+      courseId: input.courseId,
+      taskId: input.taskId,
+    });
+    const thread: Thread = {
+      id: `thread-${Date.now().toString(36)}`,
+      semesterId,
+      courseId: input.courseId,
+      taskId: input.taskId,
+      threadType: input.courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
+      title: input.title || (task ? `${task.title} thread` : "New Home Thread"),
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    ensureThreadMessagesDir(this.options.rootDataDir, semesterId);
+    this.options.businessStore.saveThread(thread);
+    return thread;
+  }
+
+  archiveThread(threadId: string): boolean {
+    const thread = this.options.businessStore.getThread(threadId);
+    if (!thread || thread.archivedAt) return false;
+    return Boolean(this.options.businessStore.archiveThread(threadId, now()));
+  }
+
+  restoreThread(threadId: string): Thread {
+    const thread = this.options.businessStore.getThread(threadId);
+    if (!thread) throw new Error(`Thread not found: ${threadId}`);
+    this.assertThreadParentUsable(thread);
+    const restored = this.options.businessStore.restoreThread(threadId);
+    if (!restored) throw new Error(`Thread not found: ${threadId}`);
+    return { ...restored };
+  }
+
+  deleteThread(threadId: string): boolean {
+    const thread = this.options.businessStore.getThread(threadId);
+    if (!thread) return false;
+    if (!thread.archivedAt) throw new Error("Archive the thread before deleting it permanently.");
+    const deleted = this.options.businessStore.deleteThread(threadId);
+    if (deleted) this.deleteThreadMessageFiles([thread]);
+    return deleted;
+  }
+
+  gitStatus(): GitStatus {
+    return {
+      root: process.cwd(),
+      branch: "local/mock",
+      changedFiles: 0,
+      summary: "Git service stub is wired; real status will run through main-process GitService.",
+    };
+  }
+
+  private assertThreadUsable(threadOrId: string | Thread): Thread {
+    const thread = typeof threadOrId === "string" ? this.options.businessStore.getThread(threadOrId) : threadOrId;
+    if (!thread) throw new Error(`Thread not found: ${threadOrId}`);
+    if (thread.archivedAt) throw new Error("Restore the thread before using it.");
+    this.assertThreadParentUsable(thread);
+    return thread;
+  }
+
+  private assertThreadParentUsable(thread: Pick<Thread, "id" | "semesterId" | "courseId" | "taskId">): UclawTask | null {
+    if (!thread.semesterId) throw new Error(`Thread ${thread.id} has no semester scope.`);
+    const semester = this.options.businessStore.getSemester(thread.semesterId);
+    if (!semester) throw new Error(`Semester not found: ${thread.semesterId}`);
+    if (semester.archivedAt) throw new Error("Restore this semester before using sessions.");
+
+    if (thread.courseId === SEMESTER_HOME_COURSE_ID) {
+      if (thread.taskId) throw new Error("Task sessions must belong to a course.");
+      return null;
+    }
+
+    const course = this.options.businessStore.getCourse(thread.courseId);
+    if (!course) throw new Error(`Course not found: ${thread.courseId}`);
+    if (course.semesterId !== thread.semesterId) throw new Error("Thread course does not belong to this semester.");
+    if (course.archivedAt) throw new Error("Restore this course before using sessions.");
+
+    if (!thread.taskId) throw new Error("Create sessions from a task, not the course container.");
+    const task = this.options.businessStore.getTask(thread.taskId);
+    if (!task) throw new Error(`Task not found: ${thread.taskId}`);
+    if (task.courseId !== thread.courseId) throw new Error("Task does not belong to this course.");
+    if (!task.semesterId || task.semesterId !== thread.semesterId) throw new Error("Task does not belong to this semester.");
+    return task;
+  }
+
+  private isThreadUsable(thread: Thread): boolean {
+    try {
+      this.assertThreadUsable(thread);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private loadCourseRoots(courseId: string, semesterId: string): WorkspaceFileNode[] {
+    return cloneFiles(this.options.businessStore.listWorkspaceFiles(semesterId, courseId).filter((file) => file.kind === "folder"));
+  }
+
+  private buildCourseRoots(
+    courseId: string,
+    semesterId: string,
+    semester: SemesterWorkspace,
+    course: Course | undefined,
+    tasks: UclawTask[],
+  ): WorkspaceFileNode[] {
+    const roots: WorkspaceFileNode[] = [];
+    ensureCourseFolderInTree({
+      roots,
+      courseId,
+      semester,
+      course,
+      tasks,
+      timestamp: now(),
+    });
+    return roots;
+  }
+
+  private deleteCourseDir(courseId: string, semesterId?: string): void {
+    if (!semesterId) return;
+    this.safeRm(courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId), `[workspace] Failed to delete course directory ${courseId}`);
+  }
+
+  private deleteTaskDir(task: UclawTask): void {
+    const semesterId = task.semesterId || currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) return;
+    const courseDir = courseWorkspaceDir(this.options.rootDataDir, semesterId, task.courseId);
+    this.safeRm(taskWorkspaceDirForTask(courseDir, task), `[workspace] Failed to delete task directory ${task.id}`);
+  }
+
+  private deleteSemesterDir(semesterId: string): void {
+    this.safeRm(semesterWorkspaceDir(this.options.rootDataDir, semesterId), `[workspace] Failed to delete semester directory ${semesterId}`);
+  }
+
+  private deleteThreadMessageFiles(threads: Thread[]): void {
+    for (const thread of threads) {
+      if (!thread.semesterId) continue;
+      this.safeRm(threadMessagesPath(this.options.rootDataDir, thread.semesterId, thread.id), `[threads] Failed to delete messages for ${thread.id}`);
+    }
+  }
+
+  private async deleteRagChunksForCourse(semesterId: string, courseId: string): Promise<void> {
+    try {
+      await this.options.ragIndex.deleteChunksByCourse(semesterId, courseId);
+    } catch (error) {
+      console.warn(`[rag] Failed to delete chunks for course ${courseId}`, error);
+    }
+  }
+
+  private async deleteRagChunksForSemester(semesterId: string): Promise<void> {
+    try {
+      await this.options.ragIndex.deleteChunksBySemester(semesterId);
+    } catch (error) {
+      console.warn(`[rag] Failed to delete chunks for semester ${semesterId}`, error);
+    }
+  }
+
+  private async deleteRagChunksForTask(semesterId: string, courseId: string, taskId: string, fileIds: string[]): Promise<void> {
+    try {
+      await this.options.ragIndex.deleteChunksByTask(semesterId, courseId, taskId, fileIds);
+    } catch (error) {
+      console.warn(`[rag] Failed to delete chunks for task ${taskId}`, error);
+    }
+  }
+
+  private safeRm(path: string, message: string): void {
+    if (!existsSync(path)) return;
+    try {
+      rmSync(path, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(message, error);
+    }
+  }
+}
+
+const COURSE_COLOR_PALETTE = [
+  "#2563eb",
+  "#7c3aed",
+  "#059669",
+  "#dc2626",
+  "#d97706",
+  "#0891b2",
+  "#db2777",
+  "#65a30d",
+];
+
+function pickCourseColor(index: number): string {
+  return COURSE_COLOR_PALETTE[index % COURSE_COLOR_PALETTE.length];
+}

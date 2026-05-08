@@ -145,6 +145,10 @@ export class RagIndexService {
     }
   }
 
+  async deleteChunksByFile(fileId: string): Promise<void> {
+    await this.deleteFile(fileId);
+  }
+
   async deleteChunksBySemester(semesterId: string): Promise<void> {
     const table = await this.getReadableTable();
     if (!table) return;

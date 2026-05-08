@@ -15,6 +15,7 @@ export const IPC_CHANNELS = {
   coursesDelete: "uclaw:courses:delete",
   tasksList: "uclaw:tasks:list",
   tasksCreate: "uclaw:tasks:create",
+  tasksUpdate: "uclaw:tasks:update",
   tasksDelete: "uclaw:tasks:delete",
   threadsList: "uclaw:threads:list",
   threadsListArchived: "uclaw:threads:list-archived",

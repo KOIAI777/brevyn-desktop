@@ -3,6 +3,7 @@ import type {
   CreateSemesterInput,
   CreateCourseInput,
   CreateTaskInput,
+  UpdateTaskInput,
   CreateThreadInput,
   FileImportInput,
   ProviderDraftInput,
@@ -36,6 +37,7 @@ const api: UclawAPI = {
   tasks: {
     list: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksList, courseId),
     create: (input: CreateTaskInput) => ipcRenderer.invoke(IPC_CHANNELS.tasksCreate, input),
+    update: (input: UpdateTaskInput) => ipcRenderer.invoke(IPC_CHANNELS.tasksUpdate, input),
     delete: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksDelete, taskId),
   },
   threads: {
