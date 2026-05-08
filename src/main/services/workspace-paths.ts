@@ -69,6 +69,20 @@ export function ensureSemesterSharedDirs(rootDataDir: string, semesterId: string
   return dir;
 }
 
+export function threadMessagesDir(rootDataDir: string, semesterId: string): string {
+  return join(semesterWorkspaceDir(rootDataDir, semesterId), "threads");
+}
+
+export function ensureThreadMessagesDir(rootDataDir: string, semesterId: string): string {
+  const dir = threadMessagesDir(rootDataDir, semesterId);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function threadMessagesPath(rootDataDir: string, semesterId: string, threadId: string): string {
+  return join(threadMessagesDir(rootDataDir, semesterId), `${idPathSegment(threadId)}.jsonl`);
+}
+
 export function courseWorkspaceDir(rootDataDir: string, semesterId: string, courseId: string): string {
   return join(semesterWorkspaceDir(rootDataDir, semesterId), "courses", courseId);
 }
@@ -130,7 +144,6 @@ export function ensureTaskWorkspaceDir(rootDataDir: string, semesterId: string, 
  *
  * - semester-home thread → the entire semester directory (home agent sees all courses)
  * - task thread          → the specific task directory
- * - course-home thread   → the course directory
  */
 export function workspacePathForThread(
   rootDataDir: string,
@@ -157,7 +170,7 @@ export function workspacePathForThread(
     }
     return ensureTaskWorkspaceDir(rootDataDir, semesterId, task);
   }
-  return ensureCourseWorkspaceDir(rootDataDir, semesterId, thread.courseId);
+  throw new Error(`Cannot resolve workspace path: thread ${thread.id} is not bound to a task`);
 }
 
 export function ensureImportTargetDir(

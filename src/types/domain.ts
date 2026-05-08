@@ -69,7 +69,7 @@ export interface Thread {
   semesterId?: string;
   courseId: string;
   taskId?: string;
-  threadType: "semester_home" | "course_home" | "home" | "task";
+  threadType: "semester_home" | "task";
   title: string;
   createdAt: string;
   updatedAt: string;

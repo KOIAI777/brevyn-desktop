@@ -45,6 +45,7 @@ export function CourseManagementDialog({
   const [archivedCourses, setArchivedCourses] = useState<Course[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [courseBusyId, setCourseBusyId] = useState("");
+  const [courseActionError, setCourseActionError] = useState("");
   const archivedCourseIds = useMemo(() => new Set(archivedCourses.map((course) => course.id)), [archivedCourses]);
   const activeCourses = useMemo(() => courses.filter((course) => !course.archivedAt && !archivedCourseIds.has(course.id)), [archivedCourseIds, courses]);
   const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
@@ -210,10 +211,13 @@ export function CourseManagementDialog({
   async function archiveCourse(course: Course) {
     if (!window.confirm(`Archive "${course.name}"? It will disappear from the main workspace until restored.`)) return;
     setCourseBusyId(course.id);
+    setCourseActionError("");
     try {
       await window.uclaw.courses.archive(course.id);
       await loadArchivedCourses();
       onWorkspaceChanged?.();
+    } catch (reason) {
+      setCourseActionError(errorMessage(reason, "Failed to archive course."));
     } finally {
       setCourseBusyId("");
     }
@@ -221,12 +225,15 @@ export function CourseManagementDialog({
 
   async function restoreCourse(course: Course) {
     setCourseBusyId(course.id);
+    setCourseActionError("");
     try {
       const restored = await window.uclaw.courses.restore(course.id);
       await loadArchivedCourses();
       onCourseCreated(restored);
       onSelectCourse(restored.id);
       onWorkspaceChanged?.();
+    } catch (reason) {
+      setCourseActionError(errorMessage(reason, "Failed to restore course."));
     } finally {
       setCourseBusyId("");
     }
@@ -240,10 +247,13 @@ export function CourseManagementDialog({
     const typed = window.prompt(`This permanently deletes "${course.name}", all files, and indexed data.\n\nType the course name to confirm:`);
     if (typed !== course.name) return;
     setCourseBusyId(course.id);
+    setCourseActionError("");
     try {
       await window.uclaw.courses.delete(course.id);
       await loadArchivedCourses();
       onWorkspaceChanged?.();
+    } catch (reason) {
+      setCourseActionError(errorMessage(reason, "Failed to delete course."));
     } finally {
       setCourseBusyId("");
     }
@@ -282,6 +292,12 @@ export function CourseManagementDialog({
                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} archived</span>
               </button>
             </section>
+            {courseActionError && (
+              <div className="flex gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
+                <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-words">{courseActionError}</span>
+              </div>
+            )}
             <section className="space-y-2">
               {displayedCourses.map((course) => (
                 <div
@@ -769,4 +785,10 @@ function formatJobTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
+  return message || fallback;
 }

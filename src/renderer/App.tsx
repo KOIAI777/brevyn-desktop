@@ -190,13 +190,12 @@ function App() {
   function threadTitleForScope(courseId: string, taskId?: string): string {
     const task = taskId ? (tasksByCourse[courseId] || []).find((item) => item.id === taskId) : undefined;
     const course = courses.find((item) => item.id === courseId);
-    return task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "Home session" : "Course home session";
+    return task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "Home session" : "Task session";
   }
 
   function pickThreadAfterArchive(threadList: Thread[], archivedThread: Thread): Thread | undefined {
     return (
       threadList.find((item) => item.courseId === archivedThread.courseId && item.taskId === archivedThread.taskId) ||
-      threadList.find((item) => item.courseId === archivedThread.courseId && !item.taskId) ||
       threadList.find((item) => item.courseId === SEMESTER_HOME_COURSE_ID) ||
       threadList[0]
     );
@@ -204,15 +203,24 @@ function App() {
 
   async function createThread(courseId = activeCourse?.id || "", taskId?: string) {
     if (!courseId) return;
-    const thread = await window.uclaw.threads.create({
-      courseId,
-      taskId,
-      title: threadTitleForScope(courseId, taskId),
-    });
-    setThreads((current) => dedupeThreads([thread, ...current]));
-    setActiveCourseId(thread.courseId);
-    setActiveTaskId(thread.taskId);
-    setActiveThreadId(thread.id);
+    if (courseId !== SEMESTER_HOME_COURSE_ID && !taskId) {
+      setArchiveError("Create sessions from a task, not the course container.");
+      return;
+    }
+    setArchiveError("");
+    try {
+      const thread = await window.uclaw.threads.create({
+        courseId,
+        taskId,
+        title: threadTitleForScope(courseId, taskId),
+      });
+      setThreads((current) => dedupeThreads([thread, ...current]));
+      setActiveCourseId(thread.courseId);
+      setActiveTaskId(thread.taskId);
+      setActiveThreadId(thread.id);
+    } catch (error) {
+      setArchiveError(errorMessage(error, "Create session failed."));
+    }
   }
 
   async function archiveThread(thread: Thread) {
@@ -232,7 +240,7 @@ function App() {
 
       const fallbackCourse = courses.find((course) => course.id === thread.courseId) || activeCourse || courses[0];
       const taskStillExists = Boolean(thread.taskId && (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId));
-      if (!fallbackCourse) {
+      if (!fallbackCourse || (fallbackCourse.id !== SEMESTER_HOME_COURSE_ID && !taskStillExists)) {
         setActiveCourseId("");
         setActiveTaskId(undefined);
         setActiveThreadId("");
@@ -256,7 +264,7 @@ function App() {
   async function selectCourseHome(courseId: string) {
     setActiveCourseId(courseId);
     setActiveTaskId(undefined);
-    const thread = threads.find((item) => item.courseId === courseId && !item.taskId);
+    const thread = courseId === SEMESTER_HOME_COURSE_ID ? threads.find((item) => item.courseId === courseId && !item.taskId) : undefined;
     setActiveThreadId(thread?.id || "");
   }
 
@@ -337,7 +345,20 @@ function App() {
             {activeThread ? (
               <p>Thread: {activeThread.title}</p>
             ) : (
-              <p>Select a course or task to get started.</p>
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div>
+                  <p className="font-medium text-foreground">{threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Workspace files are ready. Create a session when you want to start chatting.</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={(!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask)}
+                  onClick={() => void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id)}
+                >
+                  {activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
+                </button>
+              </div>
             )}
           </div>
         </main>
@@ -409,7 +430,8 @@ function describeWorkspaceScope(course?: Course, task?: UclawTask, thread?: Thre
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : String(error || "");
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
   return message.trim() || fallback;
 }
 

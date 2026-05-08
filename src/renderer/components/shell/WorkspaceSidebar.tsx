@@ -46,6 +46,7 @@ export function WorkspaceSidebar({
   const recentThreads = threads.slice(0, 8);
   const homeCourse = courses.find((course) => course.workspaceKind === "semester_home");
   const courseList = courses.filter((course) => course.workspaceKind !== "semester_home");
+  const canCreateThread = activeCourseId === homeCourse?.id || Boolean(activeTaskId);
 
   if (collapsed) {
     return (
@@ -54,7 +55,7 @@ export function WorkspaceSidebar({
           <PanelLeftOpen className="h-4 w-4" />
         </button>
         <div className="my-2 h-px w-8 bg-border" />
-        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => onCreateThread(activeCourseId, activeTaskId)} title="New thread">
+        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onCreateThread(activeCourseId, activeTaskId)} title="New thread" disabled={!canCreateThread}>
           <Plus className="h-4 w-4" />
         </button>
         <div className="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
@@ -106,7 +107,7 @@ export function WorkspaceSidebar({
           </div>
           <div className="truncate text-[11px] text-muted-foreground/75">Tasks, threads, skills, files</div>
         </div>
-        <button className="inline-flex h-7 items-center gap-1 rounded-md border bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => onCreateThread(activeCourseId, activeTaskId)}>
+        <button className="inline-flex h-7 items-center gap-1 rounded-md border bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onCreateThread(activeCourseId, activeTaskId)} disabled={!canCreateThread}>
           <Plus className="h-3 w-3" />
           New
         </button>
@@ -159,9 +160,6 @@ export function WorkspaceSidebar({
         {courseList.map((course) => {
           const courseTasks = tasksByCourse[course.id] || [];
           const courseOpen = openCourses[course.id] ?? course.id === activeCourseId;
-          const homeThreads = threads.filter((thread) => thread.courseId === course.id && !thread.taskId);
-          const homeTaskId = `${course.id}:home`;
-          const homeTaskOpen = openTasks[homeTaskId] ?? (course.id === activeCourseId && !activeTaskId);
 
           return (
             <div key={course.id} className="mb-2">
@@ -189,40 +187,6 @@ export function WorkspaceSidebar({
 
               {courseOpen && (
                 <div className="ml-4 mt-1 space-y-1 border-l border-border/60 pl-2">
-                  <div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          className={cx(
-                            "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px]",
-                            course.id === activeCourseId && !activeTaskId ? "bg-muted/80 text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                          )}
-                          onClick={() => {
-                            setOpenTasks((current) => ({ ...current, [homeTaskId]: !homeTaskOpen }));
-                            onSelectHome(course.id);
-                          }}
-                        >
-                          <ChevronRight className={cx("h-3 w-3 shrink-0 transition-transform", homeTaskOpen && "rotate-90")} />
-                          <FolderOpen className="h-3 w-3 shrink-0 opacity-80" />
-                          <span className="min-w-0 flex-1 truncate">Course Home</span>
-                          <SessionCount count={homeThreads.length} />
-                        </button>
-                        <button
-                          type="button"
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                          title="New course session"
-                          onClick={() => onCreateThread(course.id)}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      </div>
-                      {homeTaskOpen && (
-                        <div className="ml-4 mt-1 space-y-0.5 border-l border-border/40 pl-2">
-                          {homeThreads.map((thread) => (
-                            <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} onArchive={() => onArchiveThread(thread)} />
-                          ))}
-                        </div>
-                      )}
-                  </div>
                   {courseTasks.map((task) => {
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
                     const taskThreads = threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id);

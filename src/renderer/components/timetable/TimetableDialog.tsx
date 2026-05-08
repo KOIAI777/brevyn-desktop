@@ -68,7 +68,7 @@ export function TimetableDialog({
               <CalendarDays className="h-4 w-4" />
               Timetable
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{semester?.term || "Default workspace"} · semester, deadlines, school events, and course sessions</div>
+            <div className="truncate text-[11px] text-muted-foreground">{semester?.term || "Default workspace"} · semester, deadlines, school events, and task sessions</div>
           </div>
           <button
             type="button"

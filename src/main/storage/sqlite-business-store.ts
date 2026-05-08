@@ -16,7 +16,7 @@ import type {
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
-import { taskRelativeWorkspacePath } from "../services/workspace-paths";
+import { SEMESTER_HOME_COURSE_ID, taskRelativeWorkspacePath } from "../services/workspace-paths";
 
 type SQLiteStatementSync = {
   all: (...params: unknown[]) => unknown[];
@@ -55,8 +55,8 @@ export interface BusinessData {
 type Row = Record<string, unknown>;
 
 const require = createRequire(__filename);
-const BUSINESS_SCHEMA_VERSION = 1;
-const BUSINESS_SCHEMA_NAME = "business_schema_v1";
+const BUSINESS_SCHEMA_VERSION = 3;
+const BUSINESS_SCHEMA_NAME = "business_schema_v3";
 const now = () => new Date().toISOString();
 
 export class SQLiteBusinessStore {
@@ -190,6 +190,58 @@ export class SQLiteBusinessStore {
       )
       .get(taskId) as Row | undefined;
     return Boolean(fileRow);
+  }
+
+  hasActiveCourseIndexing(courseId: string): boolean {
+    const jobRow = this.db
+      .prepare(
+        `select 1
+         from indexing_jobs
+         where course_id = ?
+           and status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(courseId) as Row | undefined;
+    if (jobRow) return true;
+
+    const taskRow = this.db
+      .prepare(
+        `select 1
+         from indexing_tasks
+         join indexing_jobs on indexing_jobs.id = indexing_tasks.job_id
+         where indexing_tasks.course_id = ?
+           and indexing_tasks.status in ('queued', 'running')
+           and indexing_jobs.status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(courseId) as Row | undefined;
+    return Boolean(taskRow);
+  }
+
+  hasActiveSemesterIndexing(semesterId: string): boolean {
+    const jobRow = this.db
+      .prepare(
+        `select 1
+         from indexing_jobs
+         where semester_id = ?
+           and status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(semesterId) as Row | undefined;
+    if (jobRow) return true;
+
+    const taskRow = this.db
+      .prepare(
+        `select 1
+         from indexing_tasks
+         join indexing_jobs on indexing_jobs.id = indexing_tasks.job_id
+         where indexing_tasks.semester_id = ?
+           and indexing_tasks.status in ('queued', 'running')
+           and indexing_jobs.status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(semesterId) as Row | undefined;
+    return Boolean(taskRow);
   }
 
   listThreads(semesterId?: string, courseId?: string): Thread[] {
@@ -807,14 +859,13 @@ export class SQLiteBusinessStore {
 
   private insertThread(thread: Thread): void {
     this.run(
-      `insert or replace into threads(id, semester_id, course_id, task_id, title, jsonl_path, status, archived_at, raw_json, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert or replace into threads(id, semester_id, course_id, task_id, title, status, archived_at, raw_json, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       thread.id,
       thread.semesterId ?? "",
       thread.courseId,
       thread.taskId ?? null,
       thread.title,
-      `semesters/${thread.semesterId || "unknown"}/threads/${thread.id}.jsonl`,
       "idle",
       thread.archivedAt ?? null,
       json(threadBusinessJson(thread)),
@@ -1071,7 +1122,6 @@ export class SQLiteBusinessStore {
           course_id text not null,
           task_id text,
           title text not null,
-          jsonl_path text not null,
           status text not null default 'idle',
           archived_at text,
           raw_json text not null default '{}',
@@ -1171,12 +1221,14 @@ export class SQLiteBusinessStore {
 
     this.ensureColumn("threads", "raw_json", "text not null default '{}'");
     this.ensureColumn("threads", "archived_at", "text");
+    this.dropThreadJsonlPathColumn();
     this.ensureColumn("semesters", "archived_at", "text");
     this.ensureColumn("courses", "archived_at", "text");
     this.ensureColumn("indexing_jobs", "stage", "text");
     this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
     this.db.exec("drop table if exists providers;");
+    this.normalizeThreadRows();
     this.db.exec(`
       create table if not exists indexing_tasks (
         id text primary key,
@@ -1200,15 +1252,85 @@ export class SQLiteBusinessStore {
       );
       create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
       create index if not exists idx_indexing_tasks_job on indexing_tasks(job_id, status);
+      create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
       create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
     `);
     this.rebaselineSchemaMigration();
   }
 
   private ensureColumn(tableName: string, columnName: string, definition: string): void {
-    const columns = this.all(`pragma table_info(${tableName})`).map((row) => stringValue(row.name));
+    const columns = this.columnNames(tableName);
     if (!columns.includes(columnName)) {
       this.db.exec(`alter table ${tableName} add column ${columnName} ${definition};`);
+    }
+  }
+
+  private columnNames(tableName: string): string[] {
+    return this.all(`pragma table_info(${tableName})`).map((row) => stringValue(row.name));
+  }
+
+  private dropThreadJsonlPathColumn(): void {
+    if (!this.columnNames("threads").includes("jsonl_path")) return;
+    this.db.exec("begin immediate;");
+    try {
+      this.db.exec(`
+        drop table if exists threads_without_jsonl_path;
+        create table threads_without_jsonl_path (
+          id text primary key,
+          semester_id text not null references semesters(id) on delete cascade,
+          course_id text not null,
+          task_id text,
+          title text not null,
+          status text not null default 'idle',
+          archived_at text,
+          raw_json text not null default '{}',
+          created_at text not null,
+          updated_at text not null
+        );
+      `);
+      this.run(
+        `insert into threads_without_jsonl_path(id, semester_id, course_id, task_id, title, status, archived_at, raw_json, created_at, updated_at)
+         select id, semester_id, course_id, task_id, title, coalesce(status, 'idle'), archived_at, coalesce(raw_json, '{}'), created_at, updated_at
+         from threads`,
+      );
+      this.db.exec(`
+        drop table threads;
+        alter table threads_without_jsonl_path rename to threads;
+      `);
+      this.db.exec("commit;");
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
+  private normalizeThreadRows(): void {
+    const rows = this.all("select * from threads");
+    if (rows.length === 0) return;
+
+    this.db.exec("begin immediate;");
+    try {
+      for (const row of rows) {
+        const threadId = stringValue(row.id);
+        const courseId = stringValue(row.course_id);
+        const taskId = nullableString(row.task_id);
+        if (courseId !== SEMESTER_HOME_COURSE_ID && !taskId) {
+          this.run("delete from threads where id = ?", threadId);
+          continue;
+        }
+
+        const thread = rowToThread(row);
+        this.insertThread({
+          ...thread,
+          courseId,
+          taskId: courseId === SEMESTER_HOME_COURSE_ID ? undefined : taskId,
+          threadType: courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
+        });
+      }
+      this.db.exec("commit;");
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
     }
   }
 
@@ -1288,14 +1410,16 @@ function rowToTask(row: Row): UclawTask {
 }
 
 function rowToThread(row: Row): Thread {
-  const raw = rawJson<Thread>(row.raw_json, {});
+  const raw = rawJson<Partial<Thread>>(row.raw_json, {});
+  const courseId = stringValue(row.course_id);
+  const taskId = nullableString(row.task_id);
   return {
-    threadType: "course_home",
     ...raw,
     id: stringValue(row.id),
     semesterId: stringValue(row.semester_id),
-    courseId: stringValue(row.course_id),
-    taskId: nullableString(row.task_id),
+    courseId,
+    taskId,
+    threadType: courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
     title: stringValue(row.title),
     createdAt: stringValue(row.created_at),
     updatedAt: stringValue(row.updated_at),
