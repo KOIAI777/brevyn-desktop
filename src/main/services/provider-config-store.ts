@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ModelProviderConfig } from "../../types/domain";
 
@@ -45,6 +45,7 @@ export class ProviderConfigStore {
   }
 
   private load(): ProviderConfigFile {
+    this.removeStaleTempFile();
     if (!existsSync(this.filePath)) {
       return { version: 1, providers: [] };
     }
@@ -65,11 +66,39 @@ export class ProviderConfigStore {
 
   private write(): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
+    const tmpPath = `${this.filePath}.tmp`;
+    try {
+      writeFileSync(tmpPath, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
+      let fd: number | undefined;
+      try {
+        fd = openSync(tmpPath, "r+");
+        fsyncSync(fd);
+      } finally {
+        if (fd !== undefined) closeSync(fd);
+      }
+      renameSync(tmpPath, this.filePath);
+    } catch (error) {
+      try {
+        if (existsSync(tmpPath)) unlinkSync(tmpPath);
+      } catch {
+        // Ignore cleanup failure and surface the original write error.
+      }
+      throw error;
+    }
     try {
       chmodSync(this.filePath, 0o600);
     } catch {
       // Best effort on filesystems that do not support POSIX modes.
+    }
+  }
+
+  private removeStaleTempFile(): void {
+    const tmpPath = `${this.filePath}.tmp`;
+    if (!existsSync(tmpPath)) return;
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // A stale temp file should not block reading the last complete profile store.
     }
   }
 }

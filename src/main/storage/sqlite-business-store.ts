@@ -1192,7 +1192,7 @@ export class SQLiteBusinessStore {
           title text not null,
           task_type text not null,
           due_at text,
-          status text not null default 'active',
+          status text not null default 'not_started',
           raw_json text not null default '{}',
           created_at text not null,
           updated_at text not null
@@ -1400,7 +1400,7 @@ export class SQLiteBusinessStore {
           title text not null,
           task_type text not null,
           due_at text,
-          status text not null default 'active',
+          status text not null default 'not_started',
           raw_json text not null default '{}',
           created_at text not null,
           updated_at text not null
@@ -1408,7 +1408,7 @@ export class SQLiteBusinessStore {
       `);
       this.run(
         `insert into tasks_without_workspace_path(id, semester_id, course_id, title, task_type, due_at, status, raw_json, created_at, updated_at)
-         select id, semester_id, course_id, title, task_type, due_at, coalesce(status, 'active'), coalesce(raw_json, '{}'), created_at, updated_at
+         select id, semester_id, course_id, title, task_type, due_at, coalesce(status, 'not_started'), coalesce(raw_json, '{}'), created_at, updated_at
          from tasks`,
       );
       this.db.exec(`

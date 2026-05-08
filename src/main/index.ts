@@ -61,7 +61,7 @@ function createWindow(): void {
       shell.openExternal(url);
       return { action: "deny" };
     }
-    return { action: "allow" };
+    return { action: "deny" };
   });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {

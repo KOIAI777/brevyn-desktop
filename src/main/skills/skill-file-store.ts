@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import type { SkillItem } from "../../types/domain";
 import type { SkillBlueprint } from "./skill-registry";
 
@@ -145,11 +145,13 @@ export class SkillFileStore {
     if (!parsed) return null;
     const activeDir = join(this.rootPath, "skills");
     const inactiveDir = join(this.rootPath, "skills-inactive");
-    const activePath = join(activeDir, parsed.slug);
+    const activePath = resolveSkillChildDir(activeDir, parsed.slug);
+    if (!activePath) return null;
     if (existsSync(activePath)) {
       return { dir: activePath, slug: parsed.slug, enabled: true };
     }
-    const inactivePath = join(inactiveDir, parsed.slug);
+    const inactivePath = resolveSkillChildDir(inactiveDir, parsed.slug);
+    if (!inactivePath) return null;
     if (existsSync(inactivePath)) {
       return { dir: inactivePath, slug: parsed.slug, enabled: false };
     }
@@ -190,7 +192,16 @@ function unquote(value: string): string {
 
 function parseFileSkillId(id: unknown): { slug: string } | null {
   if (typeof id !== "string") return null;
-  if (id.startsWith("file:")) return { slug: id.slice("file:".length) };
+  if (!id.startsWith("file:")) return null;
+  const slug = id.slice("file:".length);
+  if (!isValidSkillSlug(slug)) return null;
+  return { slug };
+}
+
+function resolveSkillChildDir(baseDir: string, slug: string): string | null {
+  const base = resolve(baseDir);
+  const target = resolve(base, slug);
+  if (target === base || target.startsWith(`${base}${sep}`)) return target;
   return null;
 }
 

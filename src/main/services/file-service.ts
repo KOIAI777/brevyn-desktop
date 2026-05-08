@@ -75,7 +75,7 @@ export class FileService {
       );
     } catch (error) {
       console.warn("[rag] Search failed", error);
-      return [];
+      throw error;
     }
   }
 
@@ -142,8 +142,9 @@ export class FileService {
   }
 
   previewFile(fileId: string): FilePreview | null {
-    const file = this.options.businessStore.getWorkspaceFile(fileId);
-    if (!file || file.kind === "folder") return null;
+    const { file, semesterId } = this.guardFileAccess(fileId, "accessing");
+    if (file.kind === "folder") return null;
+    this.assertFileSourceInsideWorkspace(file, semesterId);
     const common = {
       id: file.id,
       title: file.name,
@@ -281,16 +282,13 @@ export class FileService {
   }
 
   fileSourcePath(fileId: string): string | undefined {
-    const file = this.options.businessStore.getWorkspaceFile(fileId);
-    return file?.sourcePath;
+    const { file, semesterId } = this.guardFileAccess(fileId, "accessing");
+    this.assertFileSourceInsideWorkspace(file, semesterId);
+    return file.sourcePath;
   }
 
   async deleteFile(fileId: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
-    const file = this.options.businessStore.getWorkspaceFile(fileId);
-    if (!file) throw new Error(`File not found: ${fileId}`);
-    const semesterId = currentActiveSemesterId(this.options.businessStore);
-    if (!semesterId || file.semesterId !== semesterId) throw new Error("Select this file's semester before deleting it.");
-    activeCourseScopeOrThrow(this.options.businessStore, file.courseId, semesterId);
+    const { file, semesterId } = this.guardFileAccess(fileId, "deleting");
     if (file.kind === "folder") throw new Error("Cannot delete folder via this action.");
     if (this.options.businessStore.hasActiveFileIndexing(fileId)) {
       throw new Error("Wait for indexing to finish before deleting this file.");
@@ -301,9 +299,7 @@ export class FileService {
       ? join(semesterWorkspaceDir(this.options.rootDataDir, semesterId), "Semester shared")
       : courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
 
-    if (sourcePath && existsSync(sourcePath) && !isPathInside(sourcePath, allowedRoot)) {
-      throw new Error(`Refusing to delete file outside the workspace: ${sourcePath}`);
-    }
+    this.assertFileSourceInsideWorkspace(file, semesterId, allowedRoot);
 
     const roots = this.loadCourseRoots(courseId, semesterId);
     removeFileFromTree(roots, fileId);
@@ -319,6 +315,29 @@ export class FileService {
     }
     await this.deleteRagChunksForFile(fileId);
     return { courseId, tree: this.listFiles(courseId) };
+  }
+
+  private guardFileAccess(fileId: string, operation: string): { file: WorkspaceFileNode; semesterId: string } {
+    const file = this.options.businessStore.getWorkspaceFile(fileId);
+    if (!file) throw new Error(`File not found: ${fileId}`);
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || file.semesterId !== semesterId) {
+      throw new Error(`Select this file's semester before ${operation} it.`);
+    }
+    activeCourseScopeOrThrow(this.options.businessStore, file.courseId, semesterId);
+    return { file, semesterId };
+  }
+
+  private assertFileSourceInsideWorkspace(file: WorkspaceFileNode, semesterId: string, allowedRoot = this.allowedSourceRoot(file.courseId, semesterId)): void {
+    if (file.sourcePath && existsSync(file.sourcePath) && !isPathInside(file.sourcePath, allowedRoot)) {
+      throw new Error(`Refusing to access file outside the workspace: ${file.sourcePath}`);
+    }
+  }
+
+  private allowedSourceRoot(courseId: string, semesterId: string): string {
+    return courseId === SEMESTER_HOME_COURSE_ID
+      ? join(semesterWorkspaceDir(this.options.rootDataDir, semesterId), "Semester shared")
+      : courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
   }
 
   courseFileSections(courseId: string): CourseFileSection[] {

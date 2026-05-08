@@ -9,45 +9,45 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.filesPreview, (_event, fileId: unknown) => store.previewFile(requireString(fileId, "File id")));
   ipcMain.handle(IPC_CHANNELS.filesImport, async (event, rawInput: unknown) => {
     const input = normalizeFileImportInput(rawInput);
-    let sourcePaths = input.sourcePaths || [];
-    if (sourcePaths.length === 0) {
-      const window = BrowserWindow.fromWebContents(event.sender);
-      const options: OpenDialogOptions = {
-        title: "Import course files",
-        properties: ["openFile", "multiSelections"],
-        filters: [
-          {
-            name: "Course files",
-            extensions: [
-              "pdf",
-              "docx",
-              "ppt",
-              "pptx",
-              "png",
-              "jpg",
-              "jpeg",
-              "md",
-              "txt",
-              "ts",
-              "tsx",
-              "js",
-              "jsx",
-              "py",
-              "java",
-              "cpp",
-              "c",
-              "zip",
-            ],
-          },
-          { name: "All files", extensions: ["*"] },
-        ],
-      };
-      const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
-      if (result.canceled) {
-        return { files: [], tree: store.listFiles(input.courseId), indexingJob: null };
-      }
-      sourcePaths = result.filePaths;
+    if (input.sourcePaths?.length) {
+      throw new Error("File import paths must be selected from the system file dialog.");
     }
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = {
+      title: "Import course files",
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        {
+          name: "Course files",
+          extensions: [
+            "pdf",
+            "docx",
+            "ppt",
+            "pptx",
+            "png",
+            "jpg",
+            "jpeg",
+            "md",
+            "txt",
+            "ts",
+            "tsx",
+            "js",
+            "jsx",
+            "py",
+            "java",
+            "cpp",
+            "c",
+            "zip",
+          ],
+        },
+        { name: "All files", extensions: ["*"] },
+      ],
+    };
+    const dialogResult = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    if (dialogResult.canceled) {
+      return { files: [], tree: store.listFiles(input.courseId), indexingJob: null };
+    }
+    const sourcePaths = dialogResult.filePaths;
     const result = store.importFiles({ ...input, sourcePaths });
     if (result.indexingJob) indexingQueue?.poke();
     return result;

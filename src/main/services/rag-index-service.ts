@@ -24,8 +24,17 @@ type RagChunkRow = {
   title: string;
   citation: string;
   vector: number[];
+  embedding_provider_id: string;
+  embedding_model: string;
+  embedding_dimension: number;
   created_at: string;
   updated_at: string;
+};
+
+type EmbeddingMeta = {
+  providerId: string;
+  model: string;
+  dimension: number;
 };
 
 interface RagIndexServiceOptions {
@@ -63,8 +72,9 @@ export class RagIndexService {
     }
 
     const vectors = await this.embedTexts(result.chunks, provider, apiKey);
+    const providerMeta = embeddingMeta(provider, vectors);
     if (!(await canWrite())) return false;
-    const rows = result.chunks.map((chunk, index) => this.toRow(task, result, index, chunk, vectors[index]));
+    const rows = result.chunks.map((chunk, index) => this.toRow(task, result, index, chunk, vectors[index], providerMeta));
     const table = await this.ensureWritableTable(rows);
     if (!(await canWrite())) return false;
     await table
@@ -86,13 +96,7 @@ export class RagIndexService {
     const table = await this.getReadableTable();
     if (!table) return [];
 
-    const provider = this.resolveEmbeddingProvider();
-    if (!provider) return [];
-    const apiKey = this.options.resolveApiKey(provider);
-    if (!apiKey) return [];
-
     const normalized = query.trim() || "course materials";
-    const [queryVector] = await this.embedTexts([normalized], provider, apiKey);
     const filterParts = [`semester_id = '${escapeSql(semesterId)}'`];
     if (courseId && courseId !== SEMESTER_HOME_COURSE_ID) {
       filterParts.push(`course_id = '${escapeSql(courseId)}'`);
@@ -101,6 +105,25 @@ export class RagIndexService {
       filterParts.push(`course_id != '${escapeSql(archivedCourseId)}'`);
     }
     const filter = filterParts.join(" AND ");
+    const rowCount = await table.countRows(filter);
+    if (rowCount === 0) return [];
+    if (!(await tableHasEmbeddingMeta(table))) {
+      throw new Error("Embedding index schema is outdated. Please re-index this course.");
+    }
+
+    const provider = this.resolveEmbeddingProvider();
+    if (!provider) return [];
+    const apiKey = this.options.resolveApiKey(provider);
+    if (!apiKey) return [];
+
+    const [queryVector] = await this.embedTexts([normalized], provider, apiKey);
+    const currentMeta = embeddingMeta(provider, [queryVector]);
+    const mismatch = await this.firstEmbeddingMetaMismatch(table, filter, currentMeta);
+    if (mismatch) {
+      throw new Error(
+        `Embedding index was built with "${mismatch.model}" (dim=${mismatch.dimension}), but the current embedding provider uses "${currentMeta.model}" (dim=${currentMeta.dimension}). Please re-index this course.`,
+      );
+    }
 
     const rows = await table
       .search(Float32Array.from(queryVector))
@@ -219,6 +242,10 @@ export class RagIndexService {
 
   private async ensureWritableTable(rows: RagChunkRow[]): Promise<Table> {
     const conn = await this.connection();
+    if (await this.tableNeedsRebuild(conn)) {
+      await this.closeCurrentTable();
+      await conn.dropTable(TABLE_NAME);
+    }
     const table = await conn.createTable(TABLE_NAME, rows, { mode: "create", existOk: true });
     this.tablePromise = Promise.resolve(table);
     return table;
@@ -252,7 +279,50 @@ export class RagIndexService {
     return this.connectionPromise;
   }
 
-  private toRow(task: IndexingTaskRecord, result: IndexingWorkerResult, chunkIndex: number, text: string, vector: number[]): RagChunkRow {
+  private async tableNeedsRebuild(conn: Connection): Promise<boolean> {
+    const tableNames = await conn.tableNames();
+    if (!tableNames.includes(TABLE_NAME)) return false;
+    const table = await conn.openTable(TABLE_NAME);
+    try {
+      return !(await tableHasEmbeddingMeta(table));
+    } finally {
+      table.close();
+    }
+  }
+
+  private async closeCurrentTable(): Promise<void> {
+    const tablePromise = this.tablePromise;
+    this.tablePromise = null;
+    if (!tablePromise) return;
+    try {
+      const table = await tablePromise;
+      table?.close();
+    } catch {
+      // The table is about to be rebuilt; ignore stale handle close failures.
+    }
+  }
+
+  private async firstEmbeddingMetaMismatch(table: Table, filter: string, current: EmbeddingMeta): Promise<EmbeddingMeta | null> {
+    const mismatchFilter = [
+      filter,
+      "AND",
+      "(",
+      `embedding_provider_id IS NULL OR embedding_provider_id != '${escapeSql(current.providerId)}'`,
+      `OR embedding_model IS NULL OR embedding_model != '${escapeSql(current.model)}'`,
+      `OR embedding_dimension IS NULL OR embedding_dimension != ${current.dimension}`,
+      ")",
+    ].join(" ");
+    const rows = await table
+      .query()
+      .where(mismatchFilter)
+      .select(["embedding_provider_id", "embedding_model", "embedding_dimension"])
+      .limit(1)
+      .toArray();
+    const row = rows[0];
+    return row ? rowToEmbeddingMeta(row) : null;
+  }
+
+  private toRow(task: IndexingTaskRecord, result: IndexingWorkerResult, chunkIndex: number, text: string, vector: number[], providerMeta: EmbeddingMeta): RagChunkRow {
     const citationParts = [result.sourcePath || task.payload.path, `chunk ${chunkIndex + 1}/${result.chunks.length}`];
     return {
       id: `${task.payload.fileId}:${chunkIndex}`,
@@ -272,6 +342,9 @@ export class RagIndexService {
       title: task.payload.name,
       citation: citationParts.filter(Boolean).join(" · "),
       vector,
+      embedding_provider_id: providerMeta.providerId,
+      embedding_model: providerMeta.model,
+      embedding_dimension: providerMeta.dimension,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -306,6 +379,42 @@ function embeddingAuthHeaders(provider: ModelProviderConfig, apiKey: string): Re
 
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
+}
+
+function embeddingMeta(provider: ModelProviderConfig, vectors: number[][]): EmbeddingMeta {
+  const dimension = vectors[0]?.length ?? 0;
+  if (!dimension || vectors.length === 0 || vectors.some((vector) => vector.length !== dimension)) {
+    throw new Error("Embedding provider returned empty or inconsistent vectors. Check the selected embedding model and re-index.");
+  }
+  return {
+    providerId: provider.id,
+    model: provider.selectedModel,
+    dimension,
+  };
+}
+
+async function tableHasEmbeddingMeta(table: Table): Promise<boolean> {
+  const schema = await table.schema();
+  const fieldNames = new Set(schema.fields.map((field) => field.name));
+  return fieldNames.has("embedding_provider_id") && fieldNames.has("embedding_model") && fieldNames.has("embedding_dimension");
+}
+
+function rowToEmbeddingMeta(row: Record<string, unknown>): EmbeddingMeta {
+  return {
+    providerId: stringValue(row.embedding_provider_id) || "unknown provider",
+    model: stringValue(row.embedding_model) || "unknown model",
+    dimension: numberValue(row.embedding_dimension) || 0,
+  };
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function excerptText(text: string, query: string): string {

@@ -420,11 +420,7 @@ async function responseJson(response: Response): Promise<unknown | null> {
 
 function candidateModelEndpoints(baseUrl: string): string[] {
   const normalized = normalizeBaseUrl(baseUrl);
-  const candidates = [`${normalized}/models`];
-  if (!/\/v\d+$/.test(normalized)) {
-    candidates.push(`${normalized}/v1/models`);
-  }
-  return [...new Set(candidates)];
+  return [`${normalized}/models`];
 }
 
 function stringValue(value: unknown): string {
