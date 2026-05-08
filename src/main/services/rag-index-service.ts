@@ -46,10 +46,12 @@ export class RagIndexService {
     mkdirSync(dirname(options.dbPath), { recursive: true });
   }
 
-  async ingestTask(task: IndexingTaskRecord, result: IndexingWorkerResult): Promise<void> {
+  async ingestTask(task: IndexingTaskRecord, result: IndexingWorkerResult, canWrite: () => boolean | Promise<boolean> = () => true): Promise<boolean> {
+    if (!(await canWrite())) return false;
     if (result.chunks.length === 0) {
+      if (!(await canWrite())) return false;
       await this.deleteFile(task.payload.fileId);
-      return;
+      return true;
     }
     const provider = this.resolveEmbeddingProvider();
     if (!provider) {
@@ -61,14 +63,17 @@ export class RagIndexService {
     }
 
     const vectors = await this.embedTexts(result.chunks, provider, apiKey);
+    if (!(await canWrite())) return false;
     const rows = result.chunks.map((chunk, index) => this.toRow(task, result, index, chunk, vectors[index]));
     const table = await this.ensureWritableTable(rows);
+    if (!(await canWrite())) return false;
     await table
       .mergeInsert("id")
       .whenMatchedUpdateAll()
       .whenNotMatchedInsertAll()
       .whenNotMatchedBySourceDelete({ where: `file_id = '${escapeSql(task.payload.fileId)}'` })
       .execute(rows);
+    return true;
   }
 
   async search(

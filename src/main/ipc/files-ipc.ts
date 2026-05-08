@@ -1,13 +1,14 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { OpenDialogOptions } from "electron";
-import type { FileImportInput } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
+import { normalizeFileImportInput, optionalString, requireString } from "./validation";
 
 export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
-  ipcMain.handle(IPC_CHANNELS.filesTree, (_event, courseId?: string) => store.listFiles(courseId));
-  ipcMain.handle(IPC_CHANNELS.filesPreview, (_event, fileId: string) => store.previewFile(fileId));
-  ipcMain.handle(IPC_CHANNELS.filesImport, async (event, input: FileImportInput) => {
+  ipcMain.handle(IPC_CHANNELS.filesTree, (_event, courseId?: unknown) => store.listFiles(optionalString(courseId)));
+  ipcMain.handle(IPC_CHANNELS.filesPreview, (_event, fileId: unknown) => store.previewFile(requireString(fileId, "File id")));
+  ipcMain.handle(IPC_CHANNELS.filesImport, async (event, rawInput: unknown) => {
+    const input = normalizeFileImportInput(rawInput);
     let sourcePaths = input.sourcePaths || [];
     if (sourcePaths.length === 0) {
       const window = BrowserWindow.fromWebContents(event.sender);
@@ -51,11 +52,11 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     if (result.indexingJob) indexingQueue?.poke();
     return result;
   });
-  ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: string) => store.courseFileSections(courseId));
-  ipcMain.handle(IPC_CHANNELS.filesStats, (_event, courseId?: string) => store.fileStats(courseId));
-  ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: string) => store.deleteFile(fileId));
-  ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: string) => {
-    const sourcePath = store.fileSourcePath(fileId);
+  ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: unknown) => store.courseFileSections(requireString(courseId, "Course id")));
+  ipcMain.handle(IPC_CHANNELS.filesStats, (_event, courseId?: unknown) => store.fileStats(optionalString(courseId)));
+  ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: unknown) => store.deleteFile(requireString(fileId, "File id")));
+  ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: unknown) => {
+    const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
     if (!sourcePath) throw new Error("File source path not available.");
     shell.showItemInFolder(sourcePath);
   });

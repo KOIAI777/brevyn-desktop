@@ -1,4 +1,4 @@
-import type { Course, SemesterWorkspace } from "../../types/domain";
+import type { Course, SemesterWorkspace, UclawTask } from "../../types/domain";
 import type { SQLiteBusinessStore } from "../storage";
 import { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
@@ -44,4 +44,33 @@ export function activeCourseOrThrow(businessStore: SQLiteBusinessStore, courseId
     throw new Error("Restore this course before using it.");
   }
   return course;
+}
+
+export function activeCourseScopeOrThrow(businessStore: SQLiteBusinessStore, courseId: string, semesterId: string): Course | null {
+  if (!semesterId) throw new Error("Select a semester before using courses.");
+  if (courseId === SEMESTER_HOME_COURSE_ID) {
+    if (isSemesterArchived(businessStore, semesterId)) throw new Error("Restore this semester before using the home workspace.");
+    return null;
+  }
+  return activeCourseInSemesterOrThrow(businessStore, courseId, semesterId);
+}
+
+export function activeCourseInSemesterOrThrow(businessStore: SQLiteBusinessStore, courseId: string, semesterId: string): Course {
+  if (!semesterId) throw new Error("Select a semester before using courses.");
+  const course = businessStore.getCourse(courseId);
+  if (!course) throw new Error(`Course not found: ${courseId}`);
+  if (course.semesterId !== semesterId) throw new Error("Course does not belong to the current semester.");
+  if (course.archivedAt || isSemesterArchived(businessStore, course.semesterId)) {
+    throw new Error("Restore this course before using it.");
+  }
+  return course;
+}
+
+export function taskInCourseOrThrow(businessStore: SQLiteBusinessStore, taskId: string | undefined, courseId: string, semesterId: string): UclawTask {
+  if (!taskId) throw new Error("Select a task before using the task workspace.");
+  const task = businessStore.getTask(taskId);
+  if (!task) throw new Error(`Task not found: ${taskId}`);
+  if (task.courseId !== courseId) throw new Error("Task does not belong to this course.");
+  if (!task.semesterId || task.semesterId !== semesterId) throw new Error("Task does not belong to the current semester.");
+  return task;
 }

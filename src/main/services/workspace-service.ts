@@ -17,6 +17,7 @@ import type {
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { SQLiteBusinessStore } from "../storage";
+import { recordCleanupFailure, type CleanupFailure } from "./cleanup-log";
 import type { RagIndexService } from "./rag-index-service";
 import {
   cloneFiles,
@@ -38,6 +39,7 @@ import {
   threadMessagesPath,
 } from "./workspace-paths";
 import {
+  activeCourseInSemesterOrThrow,
   currentActiveSemester,
   currentActiveSemesterId,
   isCourseArchived,
@@ -172,9 +174,7 @@ export class WorkspaceService {
   createTask(input: CreateTaskInput): UclawTask {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("Select or recognize a semester before creating tasks.");
-    const course = this.options.businessStore.getCourse(input.courseId);
-    if (!course) throw new Error(`Course not found: ${input.courseId}`);
-    if (isCourseArchived(this.options.businessStore, input.courseId)) throw new Error("Restore this course before creating tasks.");
+    const course = activeCourseInSemesterOrThrow(this.options.businessStore, input.courseId, semesterId);
     const task: UclawTask = {
       id: entityId("task"),
       semesterId,
@@ -206,10 +206,9 @@ export class WorkspaceService {
   updateTask(input: UpdateTaskInput): UclawTask {
     const task = this.options.businessStore.getTask(input.id);
     if (!task) throw new Error(`Task not found: ${input.id}`);
-    if (isCurrentSemesterArchived(this.options.businessStore) || (task.semesterId && isSemesterArchived(this.options.businessStore, task.semesterId))) {
-      throw new Error("Restore this semester before updating tasks.");
-    }
-    if (isCourseArchived(this.options.businessStore, task.courseId)) throw new Error("Restore this course before updating tasks.");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || task.semesterId !== semesterId) throw new Error("Select this task's semester before updating it.");
+    activeCourseInSemesterOrThrow(this.options.businessStore, task.courseId, semesterId);
     const updated = this.options.businessStore.updateTask(input);
     if (!updated) throw new Error(`Task not found: ${input.id}`);
     return updated;
@@ -218,11 +217,12 @@ export class WorkspaceService {
   async deleteTask(taskId: string): Promise<boolean> {
     const task = this.options.businessStore.getTask(taskId);
     if (!task) return false;
-    if (isCourseArchived(this.options.businessStore, task.courseId)) throw new Error("Restore this course before deleting tasks.");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || task.semesterId !== semesterId) throw new Error("Select this task's semester before deleting it.");
+    activeCourseInSemesterOrThrow(this.options.businessStore, task.courseId, semesterId);
     if (this.options.businessStore.hasActiveTaskIndexing(task.id, task.courseId)) {
       throw new Error("Wait for indexing to finish before deleting this task.");
     }
-    const semesterId = task.semesterId || currentActiveSemesterId(this.options.businessStore);
     const taskFileIds = flattenFiles(this.options.businessStore.listWorkspaceFiles(semesterId, task.courseId))
       .filter((file) => file.taskId === task.id)
       .map((file) => file.id);
@@ -280,6 +280,9 @@ export class WorkspaceService {
   restoreCourse(courseId: string): Course {
     const course = this.options.businessStore.getCourse(courseId);
     if (!course) throw new Error(`Course not found: ${courseId}`);
+    if (course.semesterId && isSemesterArchived(this.options.businessStore, course.semesterId)) {
+      throw new Error("Restore the parent semester before restoring this course.");
+    }
     const restored = this.options.businessStore.restoreCourse(courseId) || course;
     return { ...restored };
   }
@@ -441,24 +444,48 @@ export class WorkspaceService {
 
   private deleteCourseDir(courseId: string, semesterId?: string): void {
     if (!semesterId) return;
-    this.safeRm(courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId), `[workspace] Failed to delete course directory ${courseId}`);
+    const path = courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
+    this.safeRm(path, `[workspace] Failed to delete course directory ${courseId}`, {
+      scope: "workspace",
+      operation: "delete_course_dir",
+      targetId: courseId,
+      path,
+    });
   }
 
   private deleteTaskDir(task: UclawTask): void {
     const semesterId = task.semesterId || currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) return;
     const courseDir = courseWorkspaceDir(this.options.rootDataDir, semesterId, task.courseId);
-    this.safeRm(taskWorkspaceDirForTask(courseDir, task), `[workspace] Failed to delete task directory ${task.id}`);
+    const path = taskWorkspaceDirForTask(courseDir, task);
+    this.safeRm(path, `[workspace] Failed to delete task directory ${task.id}`, {
+      scope: "workspace",
+      operation: "delete_task_dir",
+      targetId: task.id,
+      path,
+    });
   }
 
   private deleteSemesterDir(semesterId: string): void {
-    this.safeRm(semesterWorkspaceDir(this.options.rootDataDir, semesterId), `[workspace] Failed to delete semester directory ${semesterId}`);
+    const path = semesterWorkspaceDir(this.options.rootDataDir, semesterId);
+    this.safeRm(path, `[workspace] Failed to delete semester directory ${semesterId}`, {
+      scope: "workspace",
+      operation: "delete_semester_dir",
+      targetId: semesterId,
+      path,
+    });
   }
 
   private deleteThreadMessageFiles(threads: Thread[]): void {
     for (const thread of threads) {
       if (!thread.semesterId) continue;
-      this.safeRm(threadMessagesPath(this.options.rootDataDir, thread.semesterId, thread.id), `[threads] Failed to delete messages for ${thread.id}`);
+      const path = threadMessagesPath(this.options.rootDataDir, thread.semesterId, thread.id);
+      this.safeRm(path, `[threads] Failed to delete messages for ${thread.id}`, {
+        scope: "thread",
+        operation: "delete_thread_messages",
+        targetId: thread.id,
+        path,
+      });
     }
   }
 
@@ -467,6 +494,12 @@ export class WorkspaceService {
       await this.options.ragIndex.deleteChunksByCourse(semesterId, courseId);
     } catch (error) {
       console.warn(`[rag] Failed to delete chunks for course ${courseId}`, error);
+      recordCleanupFailure(this.options.rootDataDir, {
+        scope: "rag",
+        operation: "delete_chunks_by_course",
+        targetId: courseId,
+        message: errorMessage(error),
+      });
     }
   }
 
@@ -475,6 +508,12 @@ export class WorkspaceService {
       await this.options.ragIndex.deleteChunksBySemester(semesterId);
     } catch (error) {
       console.warn(`[rag] Failed to delete chunks for semester ${semesterId}`, error);
+      recordCleanupFailure(this.options.rootDataDir, {
+        scope: "rag",
+        operation: "delete_chunks_by_semester",
+        targetId: semesterId,
+        message: errorMessage(error),
+      });
     }
   }
 
@@ -483,15 +522,27 @@ export class WorkspaceService {
       await this.options.ragIndex.deleteChunksByTask(semesterId, courseId, taskId, fileIds);
     } catch (error) {
       console.warn(`[rag] Failed to delete chunks for task ${taskId}`, error);
+      recordCleanupFailure(this.options.rootDataDir, {
+        scope: "rag",
+        operation: "delete_chunks_by_task",
+        targetId: taskId,
+        message: errorMessage(error),
+      });
     }
   }
 
-  private safeRm(path: string, message: string): void {
+  private safeRm(path: string, message: string, failure?: Omit<CleanupFailure, "message">): void {
     if (!existsSync(path)) return;
     try {
       rmSync(path, { recursive: true, force: true });
     } catch (error) {
       console.warn(message, error);
+      if (failure) {
+        recordCleanupFailure(this.options.rootDataDir, {
+          ...failure,
+          message: errorMessage(error),
+        });
+      }
     }
   }
 }
@@ -513,4 +564,8 @@ function pickCourseColor(index: number): string {
 
 function entityId(prefix: string): string {
   return `${prefix}-${randomUUID()}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || "Unknown cleanup failure");
 }

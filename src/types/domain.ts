@@ -99,8 +99,6 @@ export interface CreateTaskInput {
 
 export interface UpdateTaskInput {
   id: string;
-  title?: string;
-  taskType?: TaskType;
   status?: TaskStatus;
   dueAt?: string | null;
   summary?: string;

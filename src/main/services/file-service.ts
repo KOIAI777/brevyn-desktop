@@ -14,6 +14,7 @@ import type {
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import type { SQLiteBusinessStore } from "../storage";
+import { recordCleanupFailure, type CleanupFailure } from "./cleanup-log";
 import type { ProviderService } from "./provider-service";
 import type { RagIndexService } from "./rag-index-service";
 import {
@@ -36,14 +37,17 @@ import {
   taskTypeLabel,
 } from "./workspace-paths";
 import {
+  activeCourseScopeOrThrow,
   archivedCourseIdsForSemester,
   currentActiveSemester,
   currentActiveSemesterId,
   isCourseArchived,
   isCurrentSemesterArchived,
+  taskInCourseOrThrow,
 } from "./workspace-state";
 
 const now = () => new Date().toISOString();
+const INDEXING_INGEST_LOCK_MS = 5 * 60_000;
 
 export interface FileServiceOptions {
   rootDataDir: string;
@@ -216,19 +220,18 @@ export class FileService {
   }
 
   importFiles(input: FileImportInput): FileImportResult {
-    if (isCourseArchived(this.options.businessStore, input.courseId)) throw new Error("Restore this course before importing files.");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
     const sourcePaths = input.sourcePaths || [];
     if (sourcePaths.length === 0) {
       return { files: [], tree: this.listFiles(input.courseId), indexingJob: null };
     }
 
     const timestamp = now();
-    const semesterId = currentActiveSemesterId(this.options.businessStore);
-    if (!semesterId) throw new Error("Select a semester before importing files.");
     const roots = this.viewCourseRoots(input.courseId, semesterId);
     const root = roots[0];
     if (!root) throw new Error("Course file tree is not available.");
-    const task = input.targetSection === "task" && input.taskId ? this.options.businessStore.getTask(input.taskId) || undefined : undefined;
+    const task = input.targetSection === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
     const targetFolder = ensureTargetFolderInTree(root, input, task, timestamp);
     const managedTargetDir = this.ensureImportTargetDir(input);
     const copiedPaths: string[] = [];
@@ -285,14 +288,15 @@ export class FileService {
   async deleteFile(fileId: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
     const file = this.options.businessStore.getWorkspaceFile(fileId);
     if (!file) throw new Error(`File not found: ${fileId}`);
-    if (isCourseArchived(this.options.businessStore, file.courseId)) throw new Error("Restore this course before deleting files.");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || file.semesterId !== semesterId) throw new Error("Select this file's semester before deleting it.");
+    activeCourseScopeOrThrow(this.options.businessStore, file.courseId, semesterId);
     if (file.kind === "folder") throw new Error("Cannot delete folder via this action.");
     if (this.options.businessStore.hasActiveFileIndexing(fileId)) {
       throw new Error("Wait for indexing to finish before deleting this file.");
     }
     const courseId = file.courseId;
     const sourcePath = file.sourcePath;
-    const semesterId = file.semesterId || currentActiveSemesterId(this.options.businessStore);
     const allowedRoot = courseId === SEMESTER_HOME_COURSE_ID
       ? join(semesterWorkspaceDir(this.options.rootDataDir, semesterId), "Semester shared")
       : courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
@@ -306,7 +310,12 @@ export class FileService {
     this.persistWorkspaceFilesForCourse(courseId, roots, semesterId);
 
     if (sourcePath && existsSync(sourcePath)) {
-      this.safeRm(sourcePath, `[files] Failed to remove source ${sourcePath}`);
+      this.safeRm(sourcePath, `[files] Failed to remove source ${sourcePath}`, {
+        scope: "file",
+        operation: "delete_file_source",
+        targetId: fileId,
+        path: sourcePath,
+      });
     }
     await this.deleteRagChunksForFile(fileId);
     return { courseId, tree: this.listFiles(courseId) };
@@ -383,7 +392,9 @@ export class FileService {
   indexCourseFiles(courseId: string, sectionId?: string): IndexingJob {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("Select a semester before indexing files.");
-    if (isCourseArchived(this.options.businessStore, courseId)) throw new Error("Restore this course before indexing files.");
+    activeCourseScopeOrThrow(this.options.businessStore, courseId, semesterId);
+    const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, courseId, sectionId);
+    if (activeJob) return { ...activeJob };
     const sections = this.courseFileSections(courseId);
     const files = sectionId ? sections.find((section) => section.id === sectionId)?.files || [] : sections.flatMap((section) => section.files);
     const provider = this.embeddingProvider();
@@ -479,9 +490,9 @@ export class FileService {
   }
 
   async completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
-    const task = this.options.businessStore.getIndexingTask(taskId);
+    let task = this.options.businessStore.getIndexingTask(taskId);
     if (!task) return null;
-    const lease = workerId ? { workerId, lockedUntil } : undefined;
+    let lease = workerId ? { workerId, lockedUntil } : undefined;
     if (lease && (task.status !== "running" || task.lockedBy !== lease.workerId || task.lockedUntil !== lease.lockedUntil)) {
       return this.options.businessStore.getIndexingJob(task.jobId);
     }
@@ -489,7 +500,15 @@ export class FileService {
     if (job?.status === "cancelled") {
       return this.options.businessStore.completeIndexingTask(taskId, result, lease);
     }
-    await this.options.ragIndex.ingestTask(task, result);
+    if (lease) {
+      const extendedTask = this.options.businessStore.extendIndexingTaskLease(taskId, lease, INDEXING_INGEST_LOCK_MS);
+      if (!extendedTask?.lockedBy || !extendedTask.lockedUntil) return this.options.businessStore.getIndexingJob(task.jobId);
+      task = extendedTask;
+      lease = { workerId: extendedTask.lockedBy, lockedUntil: extendedTask.lockedUntil };
+    }
+    const leaseCurrent = () => !lease || this.options.businessStore.isIndexingTaskLeaseCurrent(taskId, lease);
+    const ingested = await this.options.ragIndex.ingestTask(task, result, leaseCurrent);
+    if (!ingested || !leaseCurrent()) return this.options.businessStore.getIndexingJob(task.jobId);
     return this.options.businessStore.completeIndexingTask(taskId, result, lease);
   }
 
@@ -501,7 +520,7 @@ export class FileService {
     const roots = this.loadCourseRoots(courseId, semesterId);
     const semester = this.options.businessStore.getSemester(semesterId);
     const course = courseId === SEMESTER_HOME_COURSE_ID ? undefined : this.options.businessStore.getCourse(courseId);
-    if (!semester || (courseId !== SEMESTER_HOME_COURSE_ID && !course)) return roots;
+    if (!semester || (courseId !== SEMESTER_HOME_COURSE_ID && (!course || course.semesterId !== semesterId))) return [];
     ensureCourseFolderInTree({
       roots,
       courseId,
@@ -556,15 +575,27 @@ export class FileService {
       await this.options.ragIndex.deleteChunksByFile(fileId);
     } catch (error) {
       console.warn(`[rag] Failed to delete chunks for file ${fileId}`, error);
+      recordCleanupFailure(this.options.rootDataDir, {
+        scope: "rag",
+        operation: "delete_chunks_by_file",
+        targetId: fileId,
+        message: errorMessage(error),
+      });
     }
   }
 
-  private safeRm(path: string, message: string): void {
+  private safeRm(path: string, message: string, failure?: Omit<CleanupFailure, "message">): void {
     if (!existsSync(path)) return;
     try {
       rmSync(path, { recursive: true, force: true });
     } catch (error) {
       console.warn(message, error);
+      if (failure) {
+        recordCleanupFailure(this.options.rootDataDir, {
+          ...failure,
+          message: errorMessage(error),
+        });
+      }
     }
   }
 }
@@ -595,4 +626,8 @@ function readPreviewSource(sourcePath?: string): string {
 function truncatePreviewText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}\n\n[truncated at ${maxLength} chars]`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || "Unknown cleanup failure");
 }

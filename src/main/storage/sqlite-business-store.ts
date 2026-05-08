@@ -403,15 +403,11 @@ export class SQLiteBusinessStore {
     if (!row) return null;
 
     const existing = rowToTask(row);
-    const title = input.title === undefined ? existing.title : input.title.trim() || existing.title;
-    const taskType = input.taskType === undefined ? existing.taskType : input.taskType.trim() || existing.taskType;
     const dueAt = input.dueAt === undefined ? existing.dueAt : input.dueAt?.trim() || undefined;
     const status = input.status ?? existing.status;
     const summary = input.summary === undefined ? existing.summary : input.summary;
     const nextTask: UclawTask = {
       ...existing,
-      title,
-      taskType,
       dueAt,
       status,
       summary,
@@ -534,6 +530,35 @@ export class SQLiteBusinessStore {
     return this.all(sql, ...params).map(rowToIndexingJob);
   }
 
+  activeIndexingJobForSection(semesterId: string, courseId: string, sectionId?: string): IndexingJob | null {
+    const row = sectionId
+      ? this.db
+          .prepare(
+            `select *
+             from indexing_jobs
+             where semester_id = ?
+               and course_id = ?
+               and section_id = ?
+               and status in ('queued', 'indexing')
+             order by updated_at desc
+             limit 1`,
+          )
+          .get(semesterId, courseId, sectionId) as Row | undefined
+      : this.db
+          .prepare(
+            `select *
+             from indexing_jobs
+             where semester_id = ?
+               and course_id = ?
+               and section_id is null
+               and status in ('queued', 'indexing')
+             order by updated_at desc
+             limit 1`,
+          )
+          .get(semesterId, courseId) as Row | undefined;
+    return row ? rowToIndexingJob(row) : null;
+  }
+
   createIndexingJob(job: IndexingJob, tasks: IndexingTaskInsert[]): IndexingJob {
     this.db.exec("begin immediate;");
     try {
@@ -557,6 +582,53 @@ export class SQLiteBusinessStore {
   getIndexingTask(taskId: string): IndexingTaskRecord | null {
     const row = this.db.prepare("select * from indexing_tasks where id = ?").get(taskId) as Row | undefined;
     return row ? rowToIndexingTask(row) : null;
+  }
+
+  isIndexingTaskLeaseCurrent(taskId: string, lease: IndexingTaskLease): boolean {
+    const row = this.db
+      .prepare(
+        `select 1
+         from indexing_tasks
+         where id = ?
+           and status = 'running'
+           and locked_by = ?
+           and locked_until = ?
+         limit 1`,
+      )
+      .get(taskId, lease.workerId, lease.lockedUntil ?? "") as Row | undefined;
+    return Boolean(row);
+  }
+
+  extendIndexingTaskLease(taskId: string, lease: IndexingTaskLease, lockMs: number): IndexingTaskRecord | null {
+    const timestamp = now();
+    const lockedUntil = new Date(Date.now() + lockMs).toISOString();
+    this.db.exec("begin immediate;");
+    try {
+      const result = this.run(
+        `update indexing_tasks
+         set locked_until = ?,
+             updated_at = ?
+         where id = ?
+           and status = 'running'
+           and locked_by = ?
+           and locked_until = ?`,
+        lockedUntil,
+        timestamp,
+        taskId,
+        lease.workerId,
+        lease.lockedUntil ?? "",
+      ) as { changes?: number } | undefined;
+      if (Number(result?.changes || 0) === 0) {
+        this.db.exec("commit;");
+        return null;
+      }
+      const task = this.getIndexingTask(taskId);
+      this.db.exec("commit;");
+      return task;
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
   }
 
   claimNextIndexingTask(workerId: string, lockMs: number): IndexingTaskRecord | null {

@@ -1,15 +1,16 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { OpenDialogOptions } from "electron";
-import type { SkillImportInput, SkillUpdateInput, SkillWriteInput } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
+import { normalizeSkillImportInput, normalizeSkillUpdateInput, normalizeSkillWriteInput, requireString } from "./validation";
 
 export function registerSkillsIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.skillsList, () => store.listSkills());
-  ipcMain.handle(IPC_CHANNELS.skillsUpdate, (_event, input: SkillUpdateInput) => store.updateSkill(input));
-  ipcMain.handle(IPC_CHANNELS.skillsReadContent, (_event, skillId: string) => store.readSkillContent(skillId));
-  ipcMain.handle(IPC_CHANNELS.skillsWriteContent, (_event, input: SkillWriteInput) => store.writeSkillContent(input));
-  ipcMain.handle(IPC_CHANNELS.skillsImportFolder, async (event, input: SkillImportInput) => {
+  ipcMain.handle(IPC_CHANNELS.skillsUpdate, (_event, input: unknown) => store.updateSkill(normalizeSkillUpdateInput(input)));
+  ipcMain.handle(IPC_CHANNELS.skillsReadContent, (_event, skillId: unknown) => store.readSkillContent(requireString(skillId, "Skill id")));
+  ipcMain.handle(IPC_CHANNELS.skillsWriteContent, (_event, input: unknown) => store.writeSkillContent(normalizeSkillWriteInput(input)));
+  ipcMain.handle(IPC_CHANNELS.skillsImportFolder, async (event, rawInput: unknown) => {
+    const input = normalizeSkillImportInput(rawInput);
     let sourcePath = input.sourcePath?.trim();
     if (!sourcePath) {
       const window = BrowserWindow.fromWebContents(event.sender);
@@ -25,8 +26,8 @@ export function registerSkillsIpc({ store }: IpcContext): void {
     }
     return store.importSkillFolder({ ...input, sourcePath });
   });
-  ipcMain.handle(IPC_CHANNELS.skillsOpenFolder, async (_event, skillId: string) => {
-    const result = await shell.openPath(store.skillFolderPath(skillId));
+  ipcMain.handle(IPC_CHANNELS.skillsOpenFolder, async (_event, skillId: unknown) => {
+    const result = await shell.openPath(store.skillFolderPath(requireString(skillId, "Skill id")));
     if (result) throw new Error(result);
   });
 }

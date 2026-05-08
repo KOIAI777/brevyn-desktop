@@ -50,13 +50,16 @@ export class ProviderConfigStore {
     }
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<ProviderConfigFile>;
+      if (!Array.isArray(parsed.providers)) {
+        throw new Error("provider-profiles.json must contain a providers array.");
+      }
       return {
         version: 1,
-        providers: Array.isArray(parsed.providers) ? parsed.providers.map(cloneProvider) : [],
+        providers: parsed.providers.map(cloneProvider),
       };
     } catch (error) {
-      console.warn("[provider-configs] Failed to read provider config store; starting empty", error);
-      return { version: 1, providers: [] };
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Provider profile store is unreadable: ${this.filePath}. Fix or remove the file before saving providers. ${detail}`);
     }
   }
 
