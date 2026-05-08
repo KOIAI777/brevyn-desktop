@@ -45,8 +45,9 @@ export interface CreateCourseInput {
 
 /**
  * Task type is user-defined free-form string (e.g. "assignment", "exam", "读书报告", "小组项目").
- * It's used as a folder name segment when generating the workspace path:
- *   <courseDir>/Task/<taskType>/<taskTitle>/{Materials, Drafts, Submitted}
+ * It's a business label for display, filtering, icons, and section titles.
+ * Physical task workspace paths are keyed by task id:
+ *   <courseDir>/Task/<taskId>__<taskTitle>/{Materials, Drafts, Submitted}
  */
 export type TaskType = string;
 export type TaskStatus = "not_started" | "in_progress" | "due_soon" | "done";
@@ -341,11 +342,15 @@ export interface UclawAPI {
   tasks: {
     list: (courseId: string) => Promise<UclawTask[]>;
     create: (input: CreateTaskInput) => Promise<UclawTask>;
+    delete: (taskId: string) => Promise<boolean>;
   };
   threads: {
     list: (courseId?: string) => Promise<Thread[]>;
+    listArchived: (courseId?: string) => Promise<Thread[]>;
     create: (input: CreateThreadInput) => Promise<Thread>;
     archive: (threadId: string) => Promise<boolean>;
+    restore: (threadId: string) => Promise<Thread>;
+    delete: (threadId: string) => Promise<boolean>;
   };
   skills: {
     list: () => Promise<SkillItem[]>;

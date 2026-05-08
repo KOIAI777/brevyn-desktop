@@ -36,11 +36,15 @@ const api: UclawAPI = {
   tasks: {
     list: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksList, courseId),
     create: (input: CreateTaskInput) => ipcRenderer.invoke(IPC_CHANNELS.tasksCreate, input),
+    delete: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksDelete, taskId),
   },
   threads: {
     list: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsList, courseId),
+    listArchived: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsListArchived, courseId),
     create: (input: CreateThreadInput) => ipcRenderer.invoke(IPC_CHANNELS.threadsCreate, input),
     archive: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsArchive, threadId),
+    restore: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsRestore, threadId),
+    delete: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsDelete, threadId),
   },
   skills: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.skillsList),

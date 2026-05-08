@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
   Course,
@@ -47,6 +47,11 @@ export function sanitizeFsSegment(value: string): string {
   return cleaned || "workspace";
 }
 
+export function idPathSegment(id: string): string {
+  const cleaned = id.trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  return cleaned || "id";
+}
+
 export function semesterWorkspaceDir(rootDataDir: string, semesterId: string): string {
   return join(rootDataDir, "semesters", semesterId);
 }
@@ -77,13 +82,42 @@ export function ensureCourseWorkspaceDir(rootDataDir: string, semesterId: string
   return dir;
 }
 
-export function taskWorkspaceDir(courseDir: string, taskType: TaskType, title: string): string {
-  return join(courseDir, "Task", taskTypeLabel(taskType), sanitizeFsSegment(title));
+export function taskFolderPrefix(taskId: string): string {
+  return `${idPathSegment(taskId)}__`;
+}
+
+export function taskFolderName(task: UclawTask): string {
+  return `${taskFolderPrefix(task.id)}${sanitizeFsSegment(task.title)}`;
+}
+
+export function taskRelativeWorkspacePath(task: UclawTask): string {
+  return join("Task", taskFolderName(task));
+}
+
+export function taskWorkspaceDirForTask(courseDir: string, task: UclawTask): string {
+  return join(courseDir, resolveTaskRelativeWorkspacePath(courseDir, task));
+}
+
+function resolveTaskRelativeWorkspacePath(courseDir: string, task: UclawTask): string {
+  const taskRoot = join(courseDir, "Task");
+  const preferredName = taskFolderName(task);
+  if (!existsSync(taskRoot)) return join("Task", preferredName);
+
+  try {
+    const prefix = taskFolderPrefix(task.id);
+    const matches = readdirSync(taskRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+      .map((entry) => entry.name)
+      .sort();
+    return join("Task", matches.includes(preferredName) ? preferredName : matches[0] || preferredName);
+  } catch {
+    return join("Task", preferredName);
+  }
 }
 
 export function ensureTaskWorkspaceDir(rootDataDir: string, semesterId: string, task: UclawTask): string {
   const courseDir = ensureCourseWorkspaceDir(rootDataDir, semesterId, task.courseId);
-  const taskDir = taskWorkspaceDir(courseDir, task.taskType, task.title);
+  const taskDir = taskWorkspaceDirForTask(courseDir, task);
   mkdirSync(taskDir, { recursive: true });
   for (const bucket of TASK_FILE_BUCKETS) {
     mkdirSync(join(taskDir, taskBucketLabel(bucket)), { recursive: true });
@@ -112,9 +146,16 @@ export function workspacePathForThread(
   }
   if (thread.taskId) {
     const task = resolveTask(thread.taskId);
-    if (task) {
-      return ensureTaskWorkspaceDir(rootDataDir, semesterId, task);
+    if (!task) {
+      throw new Error(`Cannot resolve workspace path: thread ${thread.id} references missing task ${thread.taskId}`);
     }
+    if (task.courseId !== thread.courseId) {
+      throw new Error(`Cannot resolve workspace path: thread ${thread.id} task does not belong to course ${thread.courseId}`);
+    }
+    if (!task.semesterId || task.semesterId !== semesterId) {
+      throw new Error(`Cannot resolve workspace path: thread ${thread.id} task does not belong to semester ${semesterId}`);
+    }
+    return ensureTaskWorkspaceDir(rootDataDir, semesterId, task);
   }
   return ensureCourseWorkspaceDir(rootDataDir, semesterId, thread.courseId);
 }
@@ -123,7 +164,7 @@ export function ensureImportTargetDir(
   rootDataDir: string,
   semesterId: string,
   input: FileImportInput,
-  resolveTaskTitle: (taskId: string) => { title: string; taskType: TaskType } | undefined,
+  resolveTask: (taskId: string) => UclawTask | undefined,
 ): string {
   if (input.courseId === SEMESTER_HOME_COURSE_ID) {
     const dir = join(ensureSemesterWorkspaceDir(rootDataDir, semesterId), "Semester shared");
@@ -144,10 +185,11 @@ export function ensureImportTargetDir(
     return dir;
   }
 
-  const task = input.taskId ? resolveTaskTitle(input.taskId) : undefined;
-  const taskType = task?.taskType || DEFAULT_TASK_TYPE;
-  const title = task?.title || "Task workspace";
-  const taskDir = taskWorkspaceDir(courseDir, taskType, title);
+  const task = input.taskId ? resolveTask(input.taskId) : undefined;
+  if (!task) {
+    throw new Error("Select a task before importing into a task workspace.");
+  }
+  const taskDir = taskWorkspaceDirForTask(courseDir, task);
   const bucketDir = join(taskDir, taskBucketLabel(input.taskFileBucket || "materials"));
   mkdirSync(bucketDir, { recursive: true });
   return bucketDir;

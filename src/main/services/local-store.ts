@@ -54,8 +54,10 @@ import {
   sanitizeFsSegment,
   semesterWorkspaceDir,
   taskBucketLabel,
+  taskFolderName,
+  taskFolderPrefix,
   taskTypeLabel,
-  taskWorkspaceDir,
+  taskWorkspaceDirForTask,
 } from "./workspace-paths";
 
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
@@ -262,6 +264,24 @@ export class LocalStore {
     return task;
   }
 
+  async deleteTask(taskId: string): Promise<boolean> {
+    const task = this.businessStore.getTask(taskId);
+    if (!task) return false;
+    if (this.isCourseArchived(task.courseId)) throw new Error("Restore this course before deleting tasks.");
+    if (this.businessStore.hasActiveTaskIndexing(task.id, task.courseId)) {
+      throw new Error("Wait for indexing to finish before deleting this task.");
+    }
+    const semesterId = task.semesterId || this.currentSemesterId();
+    const roots = this.loadCourseRoots(task.courseId, semesterId);
+    const taskFileIds = flattenFiles(roots).filter((file) => file.taskId === task.id).map((file) => file.id);
+    removeTaskFromTree(roots, task.id);
+    this.deleteTaskDir(task);
+    await this.deleteRagChunksForTask(semesterId, task.courseId, task.id, taskFileIds);
+    const deleted = this.businessStore.deleteTaskDeep(task.id);
+    if (deleted) this.persistWorkspaceFilesForCourse(task.courseId, roots, semesterId);
+    return deleted;
+  }
+
   createCourse(input: CreateCourseInput): Course {
     const semester = this.ensureActiveCurrentSemester();
     if (!semester) {
@@ -332,12 +352,31 @@ export class LocalStore {
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
+  listArchivedThreads(courseId?: string): Thread[] {
+    if (this.isCurrentSemesterArchived()) return [];
+    const semesterId = this.currentSemesterId();
+    return this.businessStore.listArchivedThreads(semesterId, courseId)
+      .filter((thread) => !this.isCourseArchived(thread.courseId))
+      .sort((a, b) => Date.parse(b.archivedAt || b.updatedAt) - Date.parse(a.archivedAt || a.updatedAt));
+  }
+
   createThread(input: CreateThreadInput): Thread {
+    const semesterId = this.currentSemesterId();
+    const isSemesterHome = input.courseId === SEMESTER_HOME_COURSE_ID;
+    const course = isSemesterHome ? semesterHomeCourse(this.businessStore.getSemester(semesterId) || this.businessStore.currentSemester()) : this.businessStore.getCourse(input.courseId);
+    if (!course) throw new Error(`Course not found: ${input.courseId}`);
+    if (!isSemesterHome && course.semesterId !== semesterId) throw new Error("Cannot create a session outside the current semester.");
     if (this.isCourseArchived(input.courseId)) throw new Error("Restore this course before creating sessions.");
+
     const task = input.taskId ? this.businessStore.getTask(input.taskId) : null;
+    if (input.taskId) {
+      if (!task) throw new Error(`Task not found: ${input.taskId}`);
+      if (task.courseId !== input.courseId) throw new Error("Task does not belong to this course.");
+      if (!task.semesterId || task.semesterId !== semesterId) throw new Error("Task does not belong to the current semester.");
+    }
     const thread: Thread = {
       id: `thread-${Date.now().toString(36)}`,
-      semesterId: this.currentSemesterId(),
+      semesterId,
       courseId: input.courseId,
       taskId: input.taskId,
       threadType: input.taskId ? "task" : "home",
@@ -352,11 +391,21 @@ export class LocalStore {
   archiveThread(threadId: string): boolean {
     const thread = this.businessStore.getThread(threadId);
     if (!thread || thread.archivedAt) return false;
-    const timestamp = now();
-    thread.archivedAt = timestamp;
-    thread.updatedAt = timestamp;
-    this.businessStore.saveThread(thread);
-    return true;
+    return Boolean(this.businessStore.archiveThread(threadId, now()));
+  }
+
+  restoreThread(threadId: string): Thread {
+    const restored = this.businessStore.restoreThread(threadId);
+    if (!restored) throw new Error(`Thread not found: ${threadId}`);
+    return { ...restored };
+  }
+
+  deleteThread(threadId: string): boolean {
+    const thread = this.businessStore.getThread(threadId);
+    if (!thread) return false;
+    if (this.isSystemThread(thread)) throw new Error("System workspace threads cannot be deleted.");
+    if (!thread.archivedAt) throw new Error("Archive the thread before deleting it permanently.");
+    return this.businessStore.deleteThread(threadId);
   }
 
   listSkills(): SkillItem[] {
@@ -924,6 +973,14 @@ export class LocalStore {
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   }
 
+  private deleteTaskDir(task: UclawTask): void {
+    const semesterId = task.semesterId || this.currentSemesterId();
+    if (!semesterId) return;
+    const courseDir = courseWorkspaceDir(this.rootDataDir(), semesterId, task.courseId);
+    const dir = taskWorkspaceDirForTask(courseDir, task);
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  }
+
   private deleteSemesterDir(semesterId: string): void {
     const dir = semesterWorkspaceDir(this.rootDataDir(), semesterId);
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
@@ -943,6 +1000,18 @@ export class LocalStore {
     } catch (error) {
       console.warn(`[rag] Failed to delete chunks for semester ${semesterId}`, error);
     }
+  }
+
+  private async deleteRagChunksForTask(semesterId: string, courseId: string, taskId: string, fileIds: string[]): Promise<void> {
+    try {
+      await this.ragIndex.deleteChunksByTask(semesterId, courseId, taskId, fileIds);
+    } catch (error) {
+      console.warn(`[rag] Failed to delete chunks for task ${taskId}`, error);
+    }
+  }
+
+  private isSystemThread(thread: Thread): boolean {
+    return thread.threadType === "semester_home" || thread.courseId === SEMESTER_HOME_COURSE_ID;
   }
 
   private ensureSemesterHomeAssets(semester: SemesterWorkspace): void {
@@ -1096,10 +1165,6 @@ export class LocalStore {
       ensureFolderPath(root, [{ name: "Course shared", extra: { sectionKind: "course_shared" } }], now());
       ensureFolderPath(root, [{ name: "Lecture", extra: { sectionKind: "lecture" } }], now());
       const courseTasks = this.businessStore.listTasks(semesterId, courseId);
-      const taskRoot = ensureFolderPath(root, [{ name: "Task", extra: { sectionKind: "task" } }], now());
-      for (const taskType of uniqueTaskTypesFromTasks(courseTasks)) {
-        ensureFolderChild(taskRoot, taskTypeLabel(taskType), { sectionKind: "task", taskType }, now());
-      }
       for (const task of courseTasks) {
         const taskFolder = ensureTaskWorkspace(root, task, now());
         ensureTaskBucketFolders(taskFolder, courseId, task.id, task.taskType, now());
@@ -1122,19 +1187,9 @@ export class LocalStore {
     }
 
     const task = input.taskId ? this.businessStore.getTask(input.taskId) : undefined;
-    const taskType = task?.taskType || DEFAULT_TASK_TYPE;
-    const taskFolder = ensureFolderPath(
-      root,
-      [
-        { name: "Task", extra: { sectionKind: "task" } },
-        { name: taskTypeLabel(taskType), extra: { sectionKind: "task", taskType } },
-        {
-          name: task?.title || "Task workspace",
-          extra: { sectionKind: "task", taskId: input.taskId, taskType },
-        },
-      ],
-      timestamp,
-    );
+    if (!task) throw new Error("Select a task before importing into a task workspace.");
+    const taskType = task.taskType || DEFAULT_TASK_TYPE;
+    const taskFolder = ensureTaskWorkspace(root, task, timestamp);
     ensureTaskBucketFolders(taskFolder, input.courseId, input.taskId, taskType, timestamp);
     return ensureFolderChild(
       taskFolder,
@@ -1178,9 +1233,7 @@ export class LocalStore {
   private ensureImportTargetDir(input: FileImportInput): string {
     const semesterId = this.currentSemesterId();
     return ensureImportTargetDir(this.rootDataDir(), semesterId, input, (taskId) => {
-      const task = this.businessStore.getTask(taskId);
-      if (!task) return undefined;
-      return { title: task.title, taskType: task.taskType };
+      return this.businessStore.getTask(taskId) || undefined;
     });
   }
 
@@ -1223,6 +1276,25 @@ function removeFileFromTree(files: WorkspaceFileNode[], fileId: string): boolean
   return false;
 }
 
+function removeTaskFromTree(files: WorkspaceFileNode[], taskId: string): boolean {
+  let changed = false;
+  for (let index = files.length - 1; index >= 0; index--) {
+    const file = files[index];
+    if (file.taskId === taskId) {
+      files.splice(index, 1);
+      changed = true;
+      continue;
+    }
+    if (!file.children || file.children.length === 0) continue;
+    if (removeTaskFromTree(file.children, taskId)) changed = true;
+    if (file.sectionKind === "task" && !file.taskId && file.children.length === 0) {
+      files.splice(index, 1);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -1239,18 +1311,6 @@ function kindForPath(filePath: string): WorkspaceFileNode["kind"] {
   if ([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".cpp", ".c", ".h", ".css", ".html", ".json"].includes(ext)) return "code";
   if ([".txt", ".csv", ".rtf"].includes(ext)) return "text";
   return "unknown";
-}
-
-function uniqueTaskTypesFromTasks(tasks: UclawTask[]): TaskType[] {
-  const seen = new Set<string>();
-  const result: TaskType[] = [];
-  for (const task of tasks) {
-    const key = task.taskType?.trim() || DEFAULT_TASK_TYPE;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(key);
-  }
-  return result;
 }
 
 function semesterHomeCourse(semester?: SemesterWorkspace | null): Course {
@@ -1390,15 +1450,23 @@ function repairFileTreeForSQLite(
 }
 
 function ensureTaskWorkspace(root: WorkspaceFileNode, task: UclawTask, timestamp: string): WorkspaceFileNode {
-  return ensureFolderPath(
-    root,
-    [
-      { name: "Task", extra: { sectionKind: "task" } },
-      { name: taskTypeLabel(task.taskType), extra: { sectionKind: "task", taskType: task.taskType } },
-      { name: task.title, extra: { sectionKind: "task", taskId: task.id, taskType: task.taskType } },
-    ],
+  const taskRoot = ensureFolderPath(root, [{ name: "Task", extra: { sectionKind: "task" } }], timestamp);
+  return ensureFolderChild(
+    taskRoot,
+    resolveTaskFolderName(taskRoot, task),
+    { sectionKind: "task", taskId: task.id, taskType: task.taskType },
     timestamp,
   );
+}
+
+function resolveTaskFolderName(taskRoot: WorkspaceFileNode, task: UclawTask): string {
+  const preferredName = taskFolderName(task);
+  const prefix = taskFolderPrefix(task.id);
+  const existingNames = (taskRoot.children || [])
+    .filter((child) => child.kind === "folder" && child.name.startsWith(prefix))
+    .map((child) => child.name)
+    .sort();
+  return existingNames.includes(preferredName) ? preferredName : existingNames[0] || preferredName;
 }
 
 function ensureTaskBucketFolders(

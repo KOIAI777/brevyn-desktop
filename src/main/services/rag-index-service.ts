@@ -135,6 +135,16 @@ export class RagIndexService {
     await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}'`);
   }
 
+  async deleteChunksByTask(semesterId: string, courseId: string, taskId: string, fileIds: string[] = []): Promise<void> {
+    const table = await this.getReadableTable();
+    if (!table) return;
+    const sectionId = `${courseId}:task-${taskId}`;
+    await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}' AND section_id = '${escapeSql(sectionId)}'`);
+    for (const fileId of fileIds) {
+      await table.delete(`file_id = '${escapeSql(fileId)}'`);
+    }
+  }
+
   async deleteChunksBySemester(semesterId: string): Promise<void> {
     const table = await this.getReadableTable();
     if (!table) return;

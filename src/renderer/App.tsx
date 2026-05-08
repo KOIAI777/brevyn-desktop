@@ -304,7 +304,7 @@ function App() {
           tasksByCourse={tasksByCourse}
           threads={threads}
           activeCourseId={activeCourseId}
-          activeTaskId={activeTaskId}
+          activeTaskId={activeTask?.id}
           activeThreadId={activeThreadId}
           onToggle={() => setSidebarCollapsed((value) => !value)}
           onSelectHome={selectCourseHome}

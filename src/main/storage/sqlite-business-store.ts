@@ -16,6 +16,7 @@ import type {
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
+import { taskRelativeWorkspacePath } from "../services/workspace-paths";
 
 type SQLiteStatementSync = {
   all: (...params: unknown[]) => unknown[];
@@ -162,6 +163,35 @@ export class SQLiteBusinessStore {
     return row ? rowToTask(row) : null;
   }
 
+  hasActiveTaskIndexing(taskId: string, courseId: string): boolean {
+    const sectionId = `${courseId}:task-${taskId}`;
+    const sectionRow = this.db
+      .prepare(
+        `select 1
+         from indexing_jobs
+         where course_id = ?
+           and section_id = ?
+           and status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(courseId, sectionId) as Row | undefined;
+    if (sectionRow) return true;
+
+    const fileRow = this.db
+      .prepare(
+        `select 1
+         from indexing_tasks
+         join indexing_jobs on indexing_jobs.id = indexing_tasks.job_id
+         join workspace_files on workspace_files.id = indexing_tasks.file_id
+         where workspace_files.task_id = ?
+           and indexing_tasks.status in ('queued', 'running')
+           and indexing_jobs.status in ('queued', 'indexing')
+         limit 1`,
+      )
+      .get(taskId) as Row | undefined;
+    return Boolean(fileRow);
+  }
+
   listThreads(semesterId?: string, courseId?: string): Thread[] {
     const where: string[] = [];
     const params: unknown[] = [];
@@ -175,6 +205,12 @@ export class SQLiteBusinessStore {
     }
     const sql = `select * from threads${where.length ? ` where ${where.join(" and ")}` : ""} order by updated_at desc`;
     return this.all(sql, ...params).map(rowToThread);
+  }
+
+  listArchivedThreads(semesterId?: string, courseId?: string): Thread[] {
+    return this.listThreads(semesterId, courseId)
+      .filter((thread) => Boolean(thread.archivedAt))
+      .sort((a, b) => Date.parse(b.archivedAt || b.updatedAt) - Date.parse(a.archivedAt || a.updatedAt));
   }
 
   getThread(threadId: string): Thread | null {
@@ -344,9 +380,58 @@ export class SQLiteBusinessStore {
     return task;
   }
 
+  deleteTaskDeep(taskId: string): boolean {
+    const task = this.getTask(taskId);
+    if (!task) return false;
+    const sectionId = `${task.courseId}:task-${task.id}`;
+    this.db.exec("begin immediate;");
+    try {
+      this.run(
+        `delete from indexing_tasks
+         where section_id = ?
+            or job_id in (select id from indexing_jobs where section_id = ?)
+            or file_id in (select id from workspace_files where task_id = ?)`,
+        sectionId,
+        sectionId,
+        taskId,
+      );
+      this.run("delete from indexing_jobs where section_id = ?", sectionId);
+      this.run("delete from workspace_files where task_id = ?", taskId);
+      this.run("delete from threads where task_id = ?", taskId);
+      this.run("delete from timetable_events where task_id = ?", taskId);
+      const result = this.run("delete from tasks where id = ?", taskId) as { changes?: number } | undefined;
+      this.db.exec("commit;");
+      return Number(result?.changes || 0) > 0;
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
   saveThread(thread: Thread): Thread {
     this.insertThread(thread);
     return thread;
+  }
+
+  archiveThread(threadId: string, archivedAt = now()): Thread | null {
+    const thread = this.getThread(threadId);
+    if (!thread) return null;
+    this.insertThread({ ...thread, archivedAt, updatedAt: archivedAt });
+    return this.getThread(threadId);
+  }
+
+  restoreThread(threadId: string): Thread | null {
+    const thread = this.getThread(threadId);
+    if (!thread) return null;
+    const timestamp = now();
+    const { archivedAt: _archivedAt, ...restored } = thread;
+    this.insertThread({ ...restored, updatedAt: timestamp });
+    return this.getThread(threadId);
+  }
+
+  deleteThread(threadId: string): boolean {
+    const result = this.run("delete from threads where id = ?", threadId) as { changes?: number } | undefined;
+    return Number(result?.changes || 0) > 0;
   }
 
   saveWorkspaceFilesForScope(semesterId: string, courseId: string, files: WorkspaceFileNode[]): void {
@@ -712,7 +797,7 @@ export class SQLiteBusinessStore {
       task.title,
       task.taskType,
       task.dueAt ?? null,
-      `Task/${task.taskType}/${task.title}`,
+      taskRelativeWorkspacePath(task),
       task.status,
       json(task),
       timestamp,
@@ -722,8 +807,8 @@ export class SQLiteBusinessStore {
 
   private insertThread(thread: Thread): void {
     this.run(
-      `insert or replace into threads(id, semester_id, course_id, task_id, title, jsonl_path, status, raw_json, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert or replace into threads(id, semester_id, course_id, task_id, title, jsonl_path, status, archived_at, raw_json, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       thread.id,
       thread.semesterId ?? "",
       thread.courseId,
@@ -731,6 +816,7 @@ export class SQLiteBusinessStore {
       thread.title,
       `semesters/${thread.semesterId || "unknown"}/threads/${thread.id}.jsonl`,
       "idle",
+      thread.archivedAt ?? null,
       json(threadBusinessJson(thread)),
       thread.createdAt,
       thread.updatedAt,
@@ -987,6 +1073,7 @@ export class SQLiteBusinessStore {
           title text not null,
           jsonl_path text not null,
           status text not null default 'idle',
+          archived_at text,
           raw_json text not null default '{}',
           created_at text not null,
           updated_at text not null
@@ -1071,6 +1158,7 @@ export class SQLiteBusinessStore {
         create index if not exists idx_courses_semester on courses(semester_id);
         create index if not exists idx_tasks_course on tasks(course_id);
         create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
+        create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
         create index if not exists idx_files_scope on workspace_files(semester_id, course_id, task_id, section_kind);
         create index if not exists idx_timetable_range on timetable_events(semester_id, starts_at, ends_at);
         create index if not exists idx_indexing_jobs_scope on indexing_jobs(semester_id, course_id, status);
@@ -1082,6 +1170,7 @@ export class SQLiteBusinessStore {
     }
 
     this.ensureColumn("threads", "raw_json", "text not null default '{}'");
+    this.ensureColumn("threads", "archived_at", "text");
     this.ensureColumn("semesters", "archived_at", "text");
     this.ensureColumn("courses", "archived_at", "text");
     this.ensureColumn("indexing_jobs", "stage", "text");
@@ -1111,6 +1200,7 @@ export class SQLiteBusinessStore {
       );
       create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
       create index if not exists idx_indexing_tasks_job on indexing_tasks(job_id, status);
+      create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
     `);
     this.rebaselineSchemaMigration();
   }
@@ -1209,6 +1299,7 @@ function rowToThread(row: Row): Thread {
     title: stringValue(row.title),
     createdAt: stringValue(row.created_at),
     updatedAt: stringValue(row.updated_at),
+    archivedAt: nullableString(row.archived_at) || raw.archivedAt,
   };
 }
 

@@ -47,8 +47,8 @@ export function CourseFilesUploadDialog({
       : normalizedTargetSection === "lecture"
         ? "Lecture"
         : selectedTask
-          ? `Task / ${selectedTask.taskType} / ${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
-          : "Task / Assignment / New task";
+          ? `Task / ${selectedTask.id}__${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
+          : "Task / task-id__Task title";
 
   async function handleImport() {
     if (!canImport) return;

@@ -74,7 +74,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  registerIpcHandlers(store, indexingQueue);
+  registerIpcHandlers({ store, indexingQueue });
   indexingQueue.start();
   createWindow();
 

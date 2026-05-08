@@ -472,7 +472,7 @@ export function CourseManagementDialog({
                   <div className="space-y-2 text-[11px] leading-5 text-muted-foreground">
                     <div className="rounded-md bg-muted/55 px-2 py-2">Semester recognition creates the semester folder first.</div>
                     <div className="rounded-md bg-muted/55 px-2 py-2">Course recognition creates each course folder inside the semester workspace.</div>
-                    <div className="rounded-md bg-muted/55 px-2 py-2">Course files use Course shared, Lecture, and Task / Assignment or Exam / Drafts / Submitted.</div>
+                    <div className="rounded-md bg-muted/55 px-2 py-2">Course files use Course shared, Lecture, and Task / task-id__Task title / Materials, Drafts, or Submitted.</div>
                   </div>
                 </section>
               </aside>
