@@ -73,7 +73,18 @@ export class ProviderConfigStore {
 
 function cloneProvider(provider: ModelProviderConfig): ModelProviderConfig {
   return {
-    ...provider,
+    id: provider.id,
+    purpose: provider.purpose,
+    name: provider.name,
+    protocol: provider.protocol,
+    baseUrl: provider.baseUrl,
+    apiKeyMasked: provider.apiKeyMasked,
+    apiKeySecretRef: provider.apiKeySecretRef,
+    authMode: provider.authMode,
     models: Array.isArray(provider.models) ? provider.models.map((model) => ({ ...model })) : [],
+    selectedModel: provider.selectedModel,
+    enabled: provider.enabled,
+    createdAt: provider.createdAt,
+    updatedAt: provider.updatedAt,
   };
 }

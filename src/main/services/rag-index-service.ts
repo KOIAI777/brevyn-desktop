@@ -151,6 +151,31 @@ export class RagIndexService {
     await table.delete(`semester_id = '${escapeSql(semesterId)}'`);
   }
 
+  async close(): Promise<void> {
+    const tablePromise = this.tablePromise;
+    const connectionPromise = this.connectionPromise;
+    this.tablePromise = null;
+    this.connectionPromise = null;
+
+    if (tablePromise) {
+      try {
+        const table = await tablePromise;
+        table?.close();
+      } catch (error) {
+        console.warn("[rag-index] Failed to close table", error);
+      }
+    }
+
+    if (connectionPromise) {
+      try {
+        const connection = await connectionPromise;
+        connection?.close();
+      } catch (error) {
+        console.warn("[rag-index] Failed to close connection", error);
+      }
+    }
+  }
+
   private resolveEmbeddingProvider(): ModelProviderConfig | undefined {
     const provider = this.options.resolveEmbeddingProvider();
     if (!provider || provider.purpose !== "embedding" || provider.protocol !== "openai_compatible" || !provider.enabled || !provider.selectedModel || !provider.baseUrl) return undefined;

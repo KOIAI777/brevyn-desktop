@@ -2,7 +2,6 @@ import type {
   ModelProviderConfig,
   ProviderAuthMode,
   ProviderDraftInput,
-  ProviderKind,
   ProviderModel,
   ProviderProtocol,
   ProviderPurpose,
@@ -15,7 +14,6 @@ const PROVIDER_FETCH_TIMEOUT_MS = 8_000;
 
 type LegacyProviderConfig = Partial<ModelProviderConfig> & {
   purpose?: string;
-  kind?: string;
   protocol?: string;
   authMode?: string;
 };
@@ -46,7 +44,6 @@ export class ProviderService {
       id: providerId,
       purpose,
       name: input.name.trim() || nextProviderName(providers, purpose),
-      kind: normalizeProviderKind(input.kind, purpose, input.baseUrl),
       protocol,
       baseUrl: normalizeBaseUrl(input.baseUrl),
       apiKeyMasked: apiKey ? maskApiKey(apiKey) : existing?.apiKeyMasked || "",
@@ -169,7 +166,6 @@ export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProv
       id: stringValue(provider.id) || `provider-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       purpose,
       name: stringValue(provider.name) || (purpose === "agent" ? "Agent Provider" : "Embedding Provider"),
-      kind: normalizeProviderKind(provider.kind, purpose, provider.baseUrl),
       protocol,
       baseUrl: normalizeBaseUrl(provider.baseUrl),
       apiKeyMasked: stringValue(provider.apiKeyMasked) === "sk-...local" ? "" : stringValue(provider.apiKeyMasked),
@@ -186,19 +182,19 @@ export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProv
 
 export function envApiKeyForProvider(provider: ModelProviderConfig): string | undefined {
   if (provider.purpose === "agent") {
-    if (provider.authMode === "auth_token" || provider.authMode === "bearer") {
-      return process.env.UCLAW_ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
-    }
-    return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+    return envAgentApiKey(provider.authMode);
   }
-  return envEmbeddingApiKey(provider.kind);
+  return envEmbeddingApiKey();
 }
 
-function envEmbeddingApiKey(kind: ProviderKind): string | undefined {
-  if (kind === "dashscope") return process.env.UCLAW_DASHSCOPE_API_KEY || process.env.DASHSCOPE_API_KEY;
-  if (kind === "siliconflow") return process.env.UCLAW_SILICONFLOW_API_KEY || process.env.SILICONFLOW_API_KEY;
-  if (kind === "voyage") return process.env.UCLAW_VOYAGE_API_KEY || process.env.VOYAGE_API_KEY;
-  if (kind === "openai") return process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+function envAgentApiKey(authMode: ProviderAuthMode): string | undefined {
+  if (authMode === "auth_token" || authMode === "bearer") {
+    return process.env.UCLAW_ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+  }
+  return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+}
+
+function envEmbeddingApiKey(): string | undefined {
   return process.env.UCLAW_OPENAI_COMPATIBLE_API_KEY || process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 }
 
@@ -230,21 +226,6 @@ function normalizeProviderPurpose(provider: Pick<LegacyProviderConfig, "purpose"
 function normalizeProviderProtocol(protocol: string | undefined, purpose: ProviderPurpose): ProviderProtocol {
   if (purpose === "agent") return "anthropic_messages";
   return "openai_compatible";
-}
-
-function normalizeProviderKind(kind: string | undefined, purpose: ProviderPurpose, baseUrl?: string): ProviderKind {
-  if (isProviderKind(kind)) return kind;
-  if (purpose === "agent") return "anthropic";
-  const url = stringValue(baseUrl).toLowerCase();
-  if (url.includes("openai.com")) return "openai";
-  if (url.includes("dashscope")) return "dashscope";
-  if (url.includes("siliconflow")) return "siliconflow";
-  if (url.includes("voyage")) return "voyage";
-  return "custom";
-}
-
-function isProviderKind(value: string | undefined): value is ProviderKind {
-  return value === "anthropic" || value === "openai" || value === "dashscope" || value === "siliconflow" || value === "voyage" || value === "custom";
 }
 
 function normalizeProviderAuthMode(authMode: string | undefined, purpose: ProviderPurpose): ProviderAuthMode {

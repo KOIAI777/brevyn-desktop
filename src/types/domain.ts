@@ -270,7 +270,6 @@ export type ProviderPurpose = "agent" | "embedding";
 export type AgentProtocol = "anthropic_messages";
 export type EmbeddingProtocol = "openai_compatible";
 export type ProviderProtocol = AgentProtocol | EmbeddingProtocol;
-export type ProviderKind = "anthropic" | "openai" | "dashscope" | "siliconflow" | "voyage" | "custom";
 export type ProviderAuthMode = "api_key" | "auth_token" | "bearer";
 
 export interface ProviderModel {
@@ -283,7 +282,6 @@ export interface ModelProviderConfig {
   id: string;
   purpose: ProviderPurpose;
   name: string;
-  kind: ProviderKind;
   protocol: ProviderProtocol;
   baseUrl: string;
   apiKeyMasked: string;
@@ -300,7 +298,6 @@ export interface ProviderDraftInput {
   id?: string;
   purpose: ProviderPurpose;
   name: string;
-  kind: ProviderKind;
   protocol: ProviderProtocol;
   baseUrl: string;
   apiKey: string;

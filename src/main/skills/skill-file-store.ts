@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { SkillItem } from "../../types/domain";
 import type { SkillBlueprint } from "./skill-registry";
@@ -8,6 +8,8 @@ interface SkillFrontmatter {
   description?: string;
   version?: string;
 }
+
+const MAX_SKILL_CONTENT_BYTES = 10 * 1024 * 1024;
 
 export class SkillFileStore {
   constructor(private readonly rootPath: string) {}
@@ -65,17 +67,23 @@ export class SkillFileStore {
   writeSkillContent(id: string, content: string): SkillItem | null {
     const resolved = this.resolveSkillDir(id);
     if (!resolved) return null;
+    assertSkillContentSize(content, join(resolved.dir, "SKILL.md"));
     writeFileSync(join(resolved.dir, "SKILL.md"), content, "utf8");
     return this.readSkillDir(resolved.dir, resolved.slug, resolved.enabled);
   }
 
   importSkillFolder(sourcePath: string, enabled = true): SkillItem {
     const sourceDir = resolve(sourcePath);
-    const slug = basename(sourceDir);
-    if (!slug) throw new Error("Skill folder must have a valid directory name.");
+    const slug = basename(sourceDir).trim();
+    if (!isValidSkillSlug(slug)) {
+      throw new Error(`Invalid skill folder name: ${slug || "(empty)"}`);
+    }
     const sourceSkillPath = join(sourceDir, "SKILL.md");
     if (!existsSync(sourceSkillPath)) {
       throw new Error(`Imported skill folder is missing SKILL.md: ${sourceDir}`);
+    }
+    if (statSync(sourceSkillPath).size > MAX_SKILL_CONTENT_BYTES) {
+      throw new Error(`Skill file is too large. Maximum size is ${formatMaxSkillSize()}.`);
     }
 
     const targetBaseDir = join(this.rootPath, enabled ? "skills" : "skills-inactive");
@@ -203,4 +211,28 @@ function renderSkillTemplate(blueprint: SkillBlueprint): string {
     blueprint.instructions,
     "",
   ].join("\n");
+}
+
+function isValidSkillSlug(slug: string): boolean {
+  if (!slug || slug === "." || slug === "..") return false;
+  return slug === sanitizeSkillSlug(slug);
+}
+
+function sanitizeSkillSlug(value: string): string {
+  return value
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .replace(/\.\./g, "-");
+}
+
+function assertSkillContentSize(content: string, skillPath: string): void {
+  const byteLength = Buffer.byteLength(content, "utf8");
+  if (byteLength <= MAX_SKILL_CONTENT_BYTES) return;
+  throw new Error(`Skill file is too large. Maximum size is ${formatMaxSkillSize()} (${skillPath}).`);
+}
+
+function formatMaxSkillSize(): string {
+  return "10 MB";
 }

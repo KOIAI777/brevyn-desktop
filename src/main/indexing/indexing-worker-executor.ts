@@ -31,8 +31,12 @@ export class WorkerThreadIndexingExecutor implements IndexingExecutor {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        if (message.ok) resolve(message.result);
-        else reject(new Error(message.error));
+        if (message.ok) {
+          resolve(message.result);
+        } else {
+          reject(new Error(message.error));
+        }
+        void worker.terminate();
       });
 
       worker.once("error", (error) => {
@@ -40,6 +44,7 @@ export class WorkerThreadIndexingExecutor implements IndexingExecutor {
         settled = true;
         clearTimeout(timeout);
         reject(error);
+        void worker.terminate();
       });
 
       worker.once("exit", (code) => {
@@ -51,6 +56,7 @@ export class WorkerThreadIndexingExecutor implements IndexingExecutor {
         } else {
           reject(new Error(`Indexing worker exited with code ${code} for ${task.payload.name}.`));
         }
+        void worker.terminate();
       });
     });
   }

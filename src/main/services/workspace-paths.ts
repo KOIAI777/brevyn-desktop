@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, realpathSync, readdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import type {
   Course,
   FileImportInput,
@@ -45,6 +45,18 @@ export function folderNameForCourse(course: Course, semester?: SemesterWorkspace
 export function sanitizeFsSegment(value: string): string {
   const cleaned = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim();
   return cleaned || "workspace";
+}
+
+export function isPathInside(targetPath: string, parentPath: string): boolean {
+  try {
+    const target = realpathSync(targetPath);
+    const parent = realpathSync(parentPath);
+    return target === parent || target.startsWith(`${parent}${sep}`);
+  } catch {
+    const target = resolve(targetPath);
+    const parent = resolve(parentPath);
+    return target === parent || target.startsWith(`${parent}${sep}`);
+  }
 }
 
 export function idPathSegment(id: string): string {

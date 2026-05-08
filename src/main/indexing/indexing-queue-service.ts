@@ -37,10 +37,11 @@ export class IndexingQueueService {
     this.timer = setInterval(() => this.poke(), this.pollMs);
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    await this.waitForIdle();
   }
 
   poke(): void {
@@ -72,6 +73,12 @@ export class IndexingQueueService {
       await this.store.completeIndexingTask(task.id, result);
     } catch (error) {
       this.store.failIndexingTask(task.id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async waitForIdle(): Promise<void> {
+    while (this.draining || this.active.size > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
 }

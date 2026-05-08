@@ -238,24 +238,11 @@ function App() {
         return;
       }
 
-      const fallbackCourse = courses.find((course) => course.id === thread.courseId) || activeCourse || courses[0];
-      const taskStillExists = Boolean(thread.taskId && (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId));
-      if (!fallbackCourse || (fallbackCourse.id !== SEMESTER_HOME_COURSE_ID && !taskStillExists)) {
-        setActiveCourseId("");
-        setActiveTaskId(undefined);
-        setActiveThreadId("");
-        return;
-      }
-
-      const created = await window.uclaw.threads.create({
-        courseId: fallbackCourse.id,
-        taskId: taskStillExists ? thread.taskId : undefined,
-        title: threadTitleForScope(fallbackCourse.id, taskStillExists ? thread.taskId : undefined),
-      });
-      setThreads(dedupeThreads([created, ...nextThreads]));
-      setActiveCourseId(created.courseId);
-      setActiveTaskId(created.taskId);
-      setActiveThreadId(created.id);
+      const courseStillExists = courses.some((course) => course.id === thread.courseId);
+      const taskStillExists = !thread.taskId || (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId);
+      setActiveCourseId(courseStillExists ? thread.courseId : activeCourse?.id || "");
+      setActiveTaskId(courseStillExists && taskStillExists ? thread.taskId : undefined);
+      setActiveThreadId("");
     } catch (error) {
       setArchiveError(errorMessage(error, "Archive session failed."));
     }

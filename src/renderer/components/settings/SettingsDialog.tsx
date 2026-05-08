@@ -33,7 +33,6 @@ import type {
   ModelProviderConfig,
   ProviderAuthMode,
   ProviderDraftInput,
-  ProviderKind,
   ProviderModel,
   ProviderProtocol,
   ProviderPurpose,
@@ -58,23 +57,9 @@ const authModes: Array<{ value: ProviderAuthMode; label: string }> = [
   { value: "bearer", label: "Bearer token" },
 ];
 
-const agentKinds: Array<{ value: ProviderKind; label: string }> = [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "custom", label: "Custom" },
-];
-
-const embeddingKinds: Array<{ value: ProviderKind; label: string }> = [
-  { value: "openai", label: "OpenAI-compatible" },
-  { value: "dashscope", label: "DashScope" },
-  { value: "siliconflow", label: "SiliconFlow" },
-  { value: "voyage", label: "Voyage" },
-  { value: "custom", label: "Custom" },
-];
-
 const emptyDraft: ProviderDraftInput = {
   purpose: "agent",
   name: "",
-  kind: "anthropic",
   protocol: "anthropic_messages",
   authMode: "api_key",
   baseUrl: "",
@@ -87,7 +72,6 @@ const emptyDraft: ProviderDraftInput = {
 const emptyEmbeddingDraft: ProviderDraftInput = {
   purpose: "embedding",
   name: "",
-  kind: "custom",
   protocol: "openai_compatible",
   authMode: "bearer",
   baseUrl: "",
@@ -690,7 +674,6 @@ function ProviderSettingsPage({
             <Field label="Profile name" value={draft.name} onChange={(value) => onDraftChange({ ...draft, name: value })} />
             <ReadOnlyField label="Purpose" value="Agent" />
             <ProtocolField purpose="agent" value={draft.protocol} onChange={(value) => onDraftChange({ ...draft, protocol: value })} />
-            <KindField purpose="agent" value={draft.kind} onChange={(value) => onDraftChange({ ...draft, kind: value })} />
             <AuthModeField label="Auth mode" value={draft.authMode} onChange={(value) => onDraftChange({ ...draft, authMode: value })} />
             <Field label="Base URL" value={draft.baseUrl} onChange={(value) => onDraftChange({ ...draft, baseUrl: value })} />
             <Field
@@ -761,7 +744,6 @@ function ProviderSettingsPage({
             <Field label="Profile name" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
             <ReadOnlyField label="Purpose" value="Embedding" />
             <ProtocolField purpose="embedding" value={embeddingDraft.protocol} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, protocol: value })} />
-            <KindField purpose="embedding" value={embeddingDraft.kind} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, kind: value })} />
             <AuthModeField label="Auth mode" value={embeddingDraft.authMode} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, authMode: value })} />
             <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
             <Field
@@ -1146,22 +1128,6 @@ function ProtocolField({ purpose, value, onChange }: { purpose: ProviderPurpose;
   );
 }
 
-function KindField({ purpose, value, onChange }: { purpose: ProviderPurpose; value: ProviderKind; onChange: (value: ProviderKind) => void }) {
-  const options = purpose === "agent" ? agentKinds : embeddingKinds;
-  return (
-    <label className="space-y-1 text-[11px] text-muted-foreground">
-      <span>Kind</span>
-      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderKind)}>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function AuthModeField({ label, value, onChange }: { label: string; value: ProviderAuthMode; onChange: (value: ProviderAuthMode) => void }) {
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
@@ -1246,7 +1212,6 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
     id: provider.id,
     purpose: provider.purpose,
     name: provider.name,
-    kind: provider.kind,
     protocol: provider.protocol,
     authMode: provider.authMode,
     baseUrl: provider.baseUrl,

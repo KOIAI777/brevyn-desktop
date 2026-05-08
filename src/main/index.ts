@@ -17,6 +17,7 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow: BrowserWindow | null = null;
 const store = createLocalStore(app.getPath("userData"));
 const indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
+let shuttingDown = false;
 
 function createWindow(): void {
   const preloadPath = join(__dirname, "preload.cjs");
@@ -87,6 +88,18 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
-  indexingQueue.stop();
+app.on("before-quit", (event) => {
+  if (shuttingDown) return;
+  event.preventDefault();
+  shuttingDown = true;
+  void (async () => {
+    try {
+      await indexingQueue.stop();
+      await store.close();
+    } catch (error) {
+      console.error("[uclaw] Failed to shut down cleanly", error);
+    } finally {
+      app.exit(0);
+    }
+  })();
 });

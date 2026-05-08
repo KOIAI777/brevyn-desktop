@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type {
   Course,
@@ -51,6 +51,7 @@ import {
   ensureSemesterWorkspaceDir,
   ensureTaskWorkspaceDir,
   folderNameForCourse,
+  isPathInside,
   sanitizeFsSegment,
   semesterWorkspaceDir,
   taskBucketLabel,
@@ -58,7 +59,6 @@ import {
   taskFolderPrefix,
   taskTypeLabel,
   taskWorkspaceDirForTask,
-  threadMessagesDir,
   threadMessagesPath,
 } from "./workspace-paths";
 
@@ -143,7 +143,6 @@ export class LocalStore {
       resolveApiKey: (provider) => this.providers.apiKey(provider.id) || envApiKeyForProvider(provider),
     });
     this.ensureActiveCurrentSemester();
-    this.pruneOrphanThreadMessageFiles();
   }
 
   listSemesters(): SemesterWorkspace[] {
@@ -678,8 +677,16 @@ export class LocalStore {
     if (file.kind === "folder") throw new Error("Cannot delete folder via this action.");
     const courseId = file.courseId;
     const sourcePath = file.sourcePath;
+    const semesterId = file.semesterId || this.currentSemesterId();
+    const allowedRoot = courseId === SEMESTER_HOME_COURSE_ID
+      ? join(semesterWorkspaceDir(this.rootDataDir(), semesterId), "Semester shared")
+      : courseWorkspaceDir(this.rootDataDir(), semesterId, courseId);
 
-    const roots = this.loadCourseRoots(courseId, file.semesterId || this.currentSemesterId());
+    if (sourcePath && existsSync(sourcePath) && !isPathInside(sourcePath, allowedRoot)) {
+      throw new Error(`Refusing to delete file outside the workspace: ${sourcePath}`);
+    }
+
+    const roots = this.loadCourseRoots(courseId, semesterId);
     removeFileFromTree(roots, fileId);
 
     // Trash the managed file copy (recoverable from system trash).
@@ -691,7 +698,7 @@ export class LocalStore {
       }
     }
 
-    this.persistWorkspaceFilesForCourse(courseId, roots, file.semesterId || this.currentSemesterId());
+    this.persistWorkspaceFilesForCourse(courseId, roots, semesterId);
     return { courseId, tree: this.listFiles(courseId) };
   }
 
@@ -1033,21 +1040,6 @@ export class LocalStore {
     }
   }
 
-  private pruneOrphanThreadMessageFiles(): void {
-    const root = this.rootDataDir();
-    for (const semester of this.businessStore.listSemesters()) {
-      const dir = threadMessagesDir(root, semester.id);
-      if (!existsSync(dir)) continue;
-      const validFiles = new Set(
-        this.businessStore.listThreads(semester.id).map((thread) => basename(threadMessagesPath(root, semester.id, thread.id))),
-      );
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith(".jsonl") || validFiles.has(entry.name)) continue;
-        rmSync(join(dir, entry.name), { force: true });
-      }
-    }
-  }
-
   private async deleteRagChunksForCourse(semesterId: string, courseId: string): Promise<void> {
     try {
       await this.ragIndex.deleteChunksByCourse(semesterId, courseId);
@@ -1280,6 +1272,11 @@ export class LocalStore {
     return ensureImportTargetDir(this.rootDataDir(), semesterId, input, (taskId) => {
       return this.businessStore.getTask(taskId) || undefined;
     });
+  }
+
+  async close(): Promise<void> {
+    await this.ragIndex.close();
+    this.businessStore.close();
   }
 
 }
