@@ -267,6 +267,17 @@ export interface IndexingJob {
   updatedAt: string;
 }
 
+export interface IndexActiveSemesterFailure {
+  courseId: string;
+  courseName: string;
+  message: string;
+}
+
+export interface IndexActiveSemesterResult {
+  jobs: IndexingJob[];
+  failures: IndexActiveSemesterFailure[];
+}
+
 export interface FileImportInput {
   courseId: string;
   targetSection: CourseFileSectionKind;
@@ -322,6 +333,11 @@ export interface ProviderDraftInput {
   models?: ProviderModel[];
   selectedModel: string;
   enabled?: boolean;
+}
+
+export interface ProviderSaveResult {
+  provider: ModelProviderConfig;
+  embeddingIndexMayBeStale: boolean;
 }
 
 export interface ProviderDeleteInput {
@@ -388,6 +404,7 @@ export interface UclawAPI {
     sections: (courseId: string) => Promise<CourseFileSection[]>;
     stats: (courseId?: string) => Promise<FileStats>;
     index: (courseId: string, sectionId?: string) => Promise<IndexingJob>;
+    indexActiveSemester: () => Promise<IndexActiveSemesterResult>;
     indexingJobs: (courseId?: string) => Promise<IndexingJob[]>;
     cancelIndexing: (jobId: string) => Promise<IndexingJob | null>;
     delete: (fileId: string) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
@@ -395,7 +412,7 @@ export interface UclawAPI {
   };
   providers: {
     list: () => Promise<ModelProviderConfig[]>;
-    save: (input: ProviderDraftInput) => Promise<ModelProviderConfig>;
+    save: (input: ProviderDraftInput) => Promise<ProviderSaveResult>;
     delete: (providerId: string) => Promise<boolean>;
     models: (providerId: string) => Promise<ProviderModel[]>;
     test: (providerId: string) => Promise<ProviderTestResult>;

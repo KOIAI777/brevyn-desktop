@@ -41,6 +41,7 @@ import type {
   ProviderModel,
   ProviderProtocol,
   ProviderPurpose,
+  ProviderSaveResult,
   SemesterWorkspace,
   SkillItem,
   Thread,
@@ -120,6 +121,8 @@ export function SettingsDialog({
   const [embeddingModels, setEmbeddingModels] = useState<ProviderModel[]>([]);
   const [statusLine, setStatusLine] = useState("");
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
+  const [embeddingReindexNotice, setEmbeddingReindexNotice] = useState("");
+  const [reindexingActiveSemester, setReindexingActiveSemester] = useState(false);
   const [busy, setBusy] = useState(false);
   const [localSkills, setLocalSkills] = useState(skills);
   const [selectedSkillId, setSelectedSkillId] = useState("");
@@ -235,10 +238,44 @@ export function SettingsDialog({
     setEmbeddingModels([]);
   }
 
+  async function handleEmbeddingIndexNotice(result: ProviderSaveResult, savedMessage: string) {
+    if (!result.embeddingIndexMayBeStale) {
+      setEmbeddingReindexNotice("");
+      setEmbeddingStatusLine(savedMessage);
+      return;
+    }
+    setEmbeddingStatusLine(savedMessage);
+    setEmbeddingReindexNotice("Embedding provider, URL, or model changed. Existing RAG indexes may have been built with the previous embedding configuration.");
+  }
+
+  async function reindexActiveSemester() {
+    setReindexingActiveSemester(true);
+    try {
+      const result = await window.uclaw.files.indexActiveSemester();
+      const queued = result.jobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
+      const failed = result.failures.length;
+      if (failed > 0) {
+        const summary = result.failures.slice(0, 2).map((failure) => `${failure.courseName}: ${failure.message}`).join("; ");
+        const suffix = result.failures.length > 2 ? `; +${result.failures.length - 2} more` : "";
+        setEmbeddingReindexNotice(`Some workspaces failed to queue. ${summary}${suffix}. Fix the issue if needed, then retry.`);
+        setEmbeddingStatusLine(`Re-index queued for ${queued} active workspace${queued === 1 ? "" : "s"}; ${failed} failed.`);
+      } else {
+        setEmbeddingReindexNotice("");
+        setEmbeddingStatusLine(`Re-index queued for ${queued} active workspace${queued === 1 ? "" : "s"}.`);
+      }
+    } catch (error) {
+      setEmbeddingReindexNotice("Re-index could not start. Fix the issue, then retry.");
+      setEmbeddingStatusLine(`Re-index failed: ${errorMessage(error)}`);
+    } finally {
+      setReindexingActiveSemester(false);
+    }
+  }
+
   async function saveProvider() {
     setBusy(true);
     try {
-      const saved = await window.uclaw.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
+      const result = await window.uclaw.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
+      const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
       closeProviderEditor();
@@ -254,12 +291,13 @@ export function SettingsDialog({
     setBusy(true);
     try {
       const duplicateName = provider.name.endsWith(" Copy") ? `${provider.name} 2` : `${provider.name} Copy`;
-      const saved = await window.uclaw.providers.save({
+      const result = await window.uclaw.providers.save({
         ...toProviderDraft(provider),
         id: undefined,
         name: duplicateName,
         apiKey: "",
       });
+      const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
       closeProviderEditor();
@@ -291,11 +329,12 @@ export function SettingsDialog({
   async function saveEmbeddingProvider() {
     setBusy(true);
     try {
-      const saved = await window.uclaw.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
+      const result = await window.uclaw.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
+      const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
       closeEmbeddingEditor();
-      setEmbeddingStatusLine(`Saved embedding provider "${saved.name}".`);
+      await handleEmbeddingIndexNotice(result, `Saved embedding provider "${saved.name}".`);
     } catch (error) {
       setEmbeddingStatusLine(`Failed to save embedding provider: ${errorMessage(error)}`);
     } finally {
@@ -307,16 +346,17 @@ export function SettingsDialog({
     setBusy(true);
     try {
       const duplicateName = provider.name.endsWith(" Copy") ? `${provider.name} 2` : `${provider.name} Copy`;
-      const saved = await window.uclaw.providers.save({
+      const result = await window.uclaw.providers.save({
         ...toProviderDraft(provider),
         id: undefined,
         name: duplicateName,
         apiKey: "",
       });
+      const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
       closeEmbeddingEditor();
-      setEmbeddingStatusLine(`Duplicated embedding provider "${saved.name}".`);
+      await handleEmbeddingIndexNotice(result, `Duplicated embedding provider "${saved.name}".`);
     } catch (error) {
       setEmbeddingStatusLine(`Failed to duplicate embedding provider: ${errorMessage(error)}`);
     } finally {
@@ -343,7 +383,8 @@ export function SettingsDialog({
 
   async function toggleProvider(provider: ModelProviderConfig) {
     try {
-      const saved = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const result = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
       if (provider.id === selectedProviderId) selectProvider(saved);
@@ -354,10 +395,12 @@ export function SettingsDialog({
 
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
     try {
-      const saved = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const result = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
       if (provider.id === selectedEmbeddingProviderId) selectEmbeddingProvider(saved);
+      await handleEmbeddingIndexNotice(result, `Updated embedding provider "${saved.name}".`);
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
     }
@@ -538,6 +581,8 @@ export function SettingsDialog({
                 embeddingModels={embeddingModels}
                 statusLine={statusLine}
                 embeddingStatusLine={embeddingStatusLine}
+                embeddingReindexNotice={embeddingReindexNotice}
+                reindexingActiveSemester={reindexingActiveSemester}
                 busy={busy}
                 onSelectProvider={selectProvider}
                 onSelectEmbeddingProvider={selectEmbeddingProvider}
@@ -559,6 +604,8 @@ export function SettingsDialog({
                 onTestEmbeddingProvider={testEmbeddingProvider}
                 onSaveProvider={saveProvider}
                 onSaveEmbeddingProvider={saveEmbeddingProvider}
+                onReindexActiveSemester={() => void reindexActiveSemester()}
+                onDismissEmbeddingReindexNotice={() => setEmbeddingReindexNotice("")}
               />
             ) : activePage === "archive" ? (
               <ArchiveSettingsPage onWorkspaceChanged={onWorkspaceChanged} />
@@ -598,6 +645,8 @@ function ProviderSettingsPage({
   embeddingModels,
   statusLine,
   embeddingStatusLine,
+  embeddingReindexNotice,
+  reindexingActiveSemester,
   busy,
   onSelectProvider,
   onSelectEmbeddingProvider,
@@ -619,6 +668,8 @@ function ProviderSettingsPage({
   onTestEmbeddingProvider,
   onSaveProvider,
   onSaveEmbeddingProvider,
+  onReindexActiveSemester,
+  onDismissEmbeddingReindexNotice,
 }: {
   providers: ModelProviderConfig[];
   selectedProviderId: string;
@@ -631,6 +682,8 @@ function ProviderSettingsPage({
   embeddingModels: ProviderModel[];
   statusLine: string;
   embeddingStatusLine: string;
+  embeddingReindexNotice: string;
+  reindexingActiveSemester: boolean;
   busy: boolean;
   onSelectProvider: (provider: ModelProviderConfig) => void;
   onSelectEmbeddingProvider: (provider: ModelProviderConfig) => void;
@@ -652,6 +705,8 @@ function ProviderSettingsPage({
   onTestEmbeddingProvider: () => void;
   onSaveProvider: () => void;
   onSaveEmbeddingProvider: () => void;
+  onReindexActiveSemester: () => void;
+  onDismissEmbeddingReindexNotice: () => void;
 }) {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
   const selectedEmbeddingProvider = providers.find((provider) => provider.id === selectedEmbeddingProviderId);
@@ -878,6 +933,35 @@ function ProviderSettingsPage({
             ))}
             {embeddingProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No embedding providers yet. Create one to add it to this list.</div>}
           </div>
+          {embeddingReindexNotice && (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+              <div className="flex gap-2">
+                <Database className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">Embedding index may be stale</div>
+                  <div>{embeddingReindexNotice}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={reindexingActiveSemester}
+                      onClick={onReindexActiveSemester}
+                    >
+                      {reindexingActiveSemester ? <RefreshCw className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      {reindexingActiveSemester ? "Re-indexing..." : "Re-index current semester"}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-medium text-amber-900 transition hover:bg-amber-100"
+                      onClick={onDismissEmbeddingReindexNotice}
+                    >
+                      Later
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
         </section>
       </div>

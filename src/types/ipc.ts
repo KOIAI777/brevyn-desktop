@@ -37,6 +37,7 @@ export const IPC_CHANNELS = {
   filesSections: "uclaw:files:sections",
   filesStats: "uclaw:files:stats",
   filesIndex: "uclaw:files:index",
+  filesIndexActiveSemester: "uclaw:files:index-active-semester",
   filesIndexingJobs: "uclaw:files:indexing-jobs",
   filesIndexingCancel: "uclaw:files:indexing-cancel",
   filesDelete: "uclaw:files:delete",

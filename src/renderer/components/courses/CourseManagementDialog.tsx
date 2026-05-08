@@ -541,8 +541,6 @@ export function CourseManagementDialog({
                   error={ragError}
                   onQueryChange={setRagQuery}
                   onSearch={() => void searchRag()}
-                  onReindex={() => void indexAllSections()}
-                  reindexing={indexingSectionId === "all"}
                   disabled={activeCourseArchived}
                 />
 
@@ -655,8 +653,6 @@ function RagDebugPanel({
   error,
   onQueryChange,
   onSearch,
-  onReindex,
-  reindexing,
   disabled,
 }: {
   query: string;
@@ -665,11 +661,8 @@ function RagDebugPanel({
   error: string;
   onQueryChange: (query: string) => void;
   onSearch: () => void;
-  onReindex: () => void;
-  reindexing: boolean;
   disabled?: boolean;
 }) {
-  const needsReindex = /re-?index|embedding index/i.test(error);
   return (
     <section className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
@@ -706,17 +699,6 @@ function RagDebugPanel({
             <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
             <span className="min-w-0 break-words">{error}</span>
           </div>
-          {needsReindex && (
-            <button
-              type="button"
-              className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-md border border-red-200 bg-white px-2 text-[10px] font-medium text-red-800 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={disabled || reindexing}
-              onClick={onReindex}
-            >
-              {reindexing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Layers3 className="h-3 w-3" />}
-              {reindexing ? "Re-indexing..." : "Re-index all"}
-            </button>
-          )}
         </div>
       )}
 

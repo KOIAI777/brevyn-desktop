@@ -6,6 +6,7 @@ import type {
   FileImportResult,
   FilePreview,
   FileStats,
+  IndexActiveSemesterResult,
   IndexingJob,
   ModelProviderConfig,
   RagSearchResult,
@@ -485,6 +486,25 @@ export class FileService {
     const created = this.options.businessStore.createIndexingJob(job, tasks);
     this.refreshIndexingJobs();
     return { ...created };
+  }
+
+  indexActiveSemesterCourses(): IndexActiveSemesterResult {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) throw new Error("Select a semester before indexing files.");
+    const courses = new Map<string, string>([[SEMESTER_HOME_COURSE_ID, "Home"]]);
+    for (const course of this.options.businessStore.listCourses(semesterId)) {
+      if (course.id !== SEMESTER_HOME_COURSE_ID && !course.archivedAt) courses.set(course.id, course.name || course.code || course.id);
+    }
+    const jobs: IndexingJob[] = [];
+    const failures: IndexActiveSemesterResult["failures"] = [];
+    for (const [courseId, courseName] of courses) {
+      try {
+        jobs.push(this.indexCourseFiles(courseId));
+      } catch (error) {
+        failures.push({ courseId, courseName, message: errorMessage(error) });
+      }
+    }
+    return { jobs, failures };
   }
 
   listIndexingJobs(courseId?: string): IndexingJob[] {

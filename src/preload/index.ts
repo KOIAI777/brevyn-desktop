@@ -71,6 +71,7 @@ const api: UclawAPI = {
     sections: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesSections, courseId),
     stats: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesStats, courseId),
     index: (courseId: string, sectionId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndex, courseId, sectionId),
+    indexActiveSemester: () => ipcRenderer.invoke(IPC_CHANNELS.filesIndexActiveSemester),
     indexingJobs: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingJobs, courseId),
     cancelIndexing: (jobId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingCancel, jobId),
     delete: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesDelete, fileId),

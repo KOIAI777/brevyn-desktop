@@ -13,10 +13,12 @@ import type {
   FilePreview,
   FileStats,
   GitStatus,
+  IndexActiveSemesterResult,
   IndexingJob,
   ModelProviderConfig,
   ProviderDraftInput,
   ProviderModel,
+  ProviderSaveResult,
   ProviderTestResult,
   RagSearchResult,
   SemesterWorkspace,
@@ -218,6 +220,10 @@ export class LocalStore {
     return this.files.indexCourseFiles(courseId, sectionId);
   }
 
+  indexActiveSemesterCourses(): IndexActiveSemesterResult {
+    return this.files.indexActiveSemesterCourses();
+  }
+
   listIndexingJobs(courseId?: string): IndexingJob[] {
     return this.files.listIndexingJobs(courseId);
   }
@@ -285,7 +291,7 @@ export class LocalStore {
     return this.providers.list().map((provider) => ({ ...provider }));
   }
 
-  saveProvider(input: ProviderDraftInput): ModelProviderConfig {
+  saveProvider(input: ProviderDraftInput): ProviderSaveResult {
     return this.providers.save(input);
   }
 

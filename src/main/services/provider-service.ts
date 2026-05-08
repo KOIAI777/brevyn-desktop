@@ -5,6 +5,7 @@ import type {
   ProviderModel,
   ProviderProtocol,
   ProviderPurpose,
+  ProviderSaveResult,
   ProviderTestResult,
 } from "../../types/domain";
 import { ProviderConfigStore } from "./provider-config-store";
@@ -28,9 +29,10 @@ export class ProviderService {
     return normalizeProviders(this.configs.listProviders()).map(cloneProvider);
   }
 
-  save(input: ProviderDraftInput): ModelProviderConfig {
+  save(input: ProviderDraftInput): ProviderSaveResult {
     const draft = normalizeProviderDraftInput(input);
     const providers = normalizeProviders(this.configs.listProviders());
+    const embeddingFingerprintBefore = activeEmbeddingProviderFingerprint(providers);
     const timestamp = new Date().toISOString();
     const existing = draft.id ? providers.find((provider) => provider.id === draft.id) : undefined;
     const providerId = draft.id || `provider-${Date.now().toString(36)}`;
@@ -65,7 +67,16 @@ export class ProviderService {
       createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
     };
-    return this.configs.saveProvider(next);
+    const provider = this.configs.saveProvider(next);
+    const embeddingFingerprintAfter = activeEmbeddingProviderFingerprint(normalizeProviders(this.configs.listProviders()));
+    return {
+      provider,
+      embeddingIndexMayBeStale: Boolean(
+        embeddingFingerprintBefore &&
+        embeddingFingerprintAfter &&
+        embeddingFingerprintBefore !== embeddingFingerprintAfter,
+      ),
+    };
   }
 
   delete(providerId: string): boolean {
@@ -283,6 +294,18 @@ function normalizeSelectedModel(provider: LegacyProviderConfig): string {
 
 function normalizeProviderEnabled(provider: LegacyProviderConfig): boolean {
   return Boolean(provider.enabled);
+}
+
+function activeEmbeddingProviderFingerprint(providers: ModelProviderConfig[]): string | undefined {
+  const provider = providers.find((item) =>
+    item.purpose === "embedding" &&
+    item.protocol === "openai_compatible" &&
+    item.enabled &&
+    Boolean(item.selectedModel) &&
+    Boolean(item.baseUrl),
+  );
+  if (!provider) return undefined;
+  return [provider.id, normalizeBaseUrl(provider.baseUrl), provider.selectedModel.trim()].join("|");
 }
 
 function normalizeProviderModels(models: unknown, selectedModel: string): ProviderModel[] {
