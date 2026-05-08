@@ -50,6 +50,7 @@ import {
 
 const now = () => new Date().toISOString();
 const INDEXING_INGEST_LOCK_MS = 5 * 60_000;
+const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 
 export interface FileServiceOptions {
   rootDataDir: string;
@@ -230,6 +231,7 @@ export class FileService {
       return { files: [], tree: this.listFiles(input.courseId), indexingJob: null };
     }
 
+    const importSources = await this.statImportSources(sourcePaths);
     const timestamp = now();
     const roots = this.writableCourseRoots(input.courseId, semesterId);
     const root = roots[0];
@@ -240,8 +242,8 @@ export class FileService {
     const copiedPaths: string[] = [];
     try {
       const importedFiles: WorkspaceFileNode[] = [];
-      for (const sourcePath of sourcePaths) {
-        const stats = await stat(sourcePath);
+      for (const source of importSources) {
+        const sourcePath = source.sourcePath;
         const managedPath = uniqueFilePath(managedTargetDir, basename(sourcePath));
         await copyFile(sourcePath, managedPath);
         copiedPaths.push(managedPath);
@@ -258,7 +260,7 @@ export class FileService {
           name,
           path: `${targetFolder.path}/${name}`,
           kind: kindForPath(managedPath),
-          sizeLabel: formatSize(stats.size),
+          sizeLabel: formatSize(source.size),
           updatedAt: timestamp,
         };
         targetFolder.children = [...(targetFolder.children || []), file];
@@ -344,6 +346,21 @@ export class FileService {
     return courseId === SEMESTER_HOME_COURSE_ID
       ? join(semesterWorkspaceDir(this.options.rootDataDir, semesterId), "Semester shared")
       : courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
+  }
+
+  private async statImportSources(sourcePaths: string[]): Promise<Array<{ sourcePath: string; size: number }>> {
+    const sources: Array<{ sourcePath: string; size: number }> = [];
+    for (const sourcePath of sourcePaths) {
+      const stats = await stat(sourcePath);
+      if (!stats.isFile()) {
+        throw new Error(`"${basename(sourcePath)}" is not a regular file.`);
+      }
+      if (stats.size > MAX_IMPORT_FILE_BYTES) {
+        throw new Error(`"${basename(sourcePath)}" is ${formatSize(stats.size)}. File imports are limited to ${formatSize(MAX_IMPORT_FILE_BYTES)} per file.`);
+      }
+      sources.push({ sourcePath, size: stats.size });
+    }
+    return sources;
   }
 
   courseFileSections(courseId: string): CourseFileSection[] {

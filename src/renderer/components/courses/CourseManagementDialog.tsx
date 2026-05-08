@@ -19,7 +19,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Course, CourseFileSection, IndexingJob, RagSearchResult, TaskType, UclawTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
@@ -49,9 +49,9 @@ export function CourseManagementDialog({
   const archivedCourseIds = useMemo(() => new Set(archivedCourses.map((course) => course.id)), [archivedCourses]);
   const activeCourses = useMemo(() => courses.filter((course) => !course.archivedAt && !archivedCourseIds.has(course.id)), [archivedCourseIds, courses]);
   const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
-  const activeCourse = displayedCourses.find((course) => course.id === activeCourseId) || displayedCourses[0];
+  const activeCourse = displayedCourses.find((course) => course.id === activeCourseId);
   const activeCourseArchived = Boolean(activeCourse?.archivedAt);
-  const courseReadOnlyReason = activeCourseArchived ? "Restore this course before changing files, tasks, indexing, or RAG search." : "";
+  const courseReadOnlyReason = !activeCourse ? "Select a course before changing files, tasks, indexing, or RAG search." : activeCourseArchived ? "Restore this course before changing files, tasks, indexing, or RAG search." : "";
   const [sections, setSections] = useState<CourseFileSection[]>([]);
   const [indexingSectionId, setIndexingSectionId] = useState("");
   const [indexingJobs, setIndexingJobs] = useState<IndexingJob[]>([]);
@@ -70,6 +70,7 @@ export function CourseManagementDialog({
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [newCourseError, setNewCourseError] = useState("");
   const [uploadingSectionId, setUploadingSectionId] = useState("");
+  const courseViewRequestRef = useRef(0);
 
   const existingTaskTypes = useMemo(() => {
     const seen = new Set<string>();
@@ -85,11 +86,17 @@ export function CourseManagementDialog({
   }, []);
 
   useEffect(() => {
-    if (!activeCourse?.id) return;
     setRagResults([]);
     setRagError("");
     setTaskError("");
     setCourseActionError("");
+    if (!activeCourse?.id) {
+      courseViewRequestRef.current += 1;
+      setSections([]);
+      setIndexingJobs([]);
+      setLoadingIndexingJobs(false);
+      return;
+    }
     void loadCourseView(activeCourse.id);
   }, [activeCourse?.id]);
 
@@ -103,10 +110,6 @@ export function CourseManagementDialog({
     return () => window.clearInterval(timer);
   }, [activeCourse?.id, indexingJobs]);
 
-  async function loadCourseView(courseId: string) {
-    await Promise.all([loadSections(courseId), loadIndexingJobs(courseId)]);
-  }
-
   async function loadArchivedCourses() {
     try {
       setArchivedCourses(await window.uclaw.courses.listArchived());
@@ -116,24 +119,28 @@ export function CourseManagementDialog({
     }
   }
 
-  async function loadSections(courseId: string) {
-    try {
-      setSections(await window.uclaw.files.sections(courseId));
-    } catch (error) {
-      setSections([]);
-      setCourseActionError(errorMessage(error, "Failed to load course sections."));
-    }
-  }
-
-  async function loadIndexingJobs(courseId: string) {
+  async function loadCourseView(courseId: string): Promise<boolean> {
+    const requestId = courseViewRequestRef.current + 1;
+    courseViewRequestRef.current = requestId;
     setLoadingIndexingJobs(true);
     try {
-      setIndexingJobs(await window.uclaw.files.indexingJobs(courseId));
+      const [nextSections, nextIndexingJobs] = await Promise.all([
+        window.uclaw.files.sections(courseId),
+        window.uclaw.files.indexingJobs(courseId),
+      ]);
+      if (courseViewRequestRef.current !== requestId) return false;
+      setSections(nextSections);
+      setIndexingJobs(nextIndexingJobs);
+      return true;
     } catch (error) {
-      setIndexingJobs([]);
-      setCourseActionError(errorMessage(error, "Failed to load indexing jobs."));
+      if (courseViewRequestRef.current === requestId) {
+        setSections([]);
+        setIndexingJobs([]);
+        setCourseActionError(errorMessage(error, "Failed to load course view."));
+      }
+      return false;
     } finally {
-      setLoadingIndexingJobs(false);
+      if (courseViewRequestRef.current === requestId) setLoadingIndexingJobs(false);
     }
   }
 
@@ -158,7 +165,7 @@ export function CourseManagementDialog({
       setNewCourseName("");
       setNewCourseCode("");
       setNewCourseInstructor("");
-      await loadSections(created.id);
+      await loadCourseView(created.id);
     } catch (error) {
       setNewCourseError(error instanceof Error ? error.message : "Failed to create course.");
     } finally {
@@ -167,7 +174,11 @@ export function CourseManagementDialog({
   }
 
   async function createTask() {
-    if (!activeCourse?.id || creatingTask) return;
+    if (creatingTask) return;
+    if (!activeCourse?.id) {
+      setTaskError(courseReadOnlyReason);
+      return;
+    }
     if (activeCourseArchived) {
       setTaskError(courseReadOnlyReason);
       return;
@@ -187,7 +198,7 @@ export function CourseManagementDialog({
       });
       onTaskCreated(task);
       setTaskName("");
-      await loadSections(activeCourse.id);
+      await loadCourseView(activeCourse.id);
     } catch (error) {
       setTaskError(errorMessage(error, "Failed to create task."));
     } finally {
@@ -204,7 +215,11 @@ export function CourseManagementDialog({
   }
 
   async function runIndexing(indicatorId: string, sectionId?: string) {
-    if (!activeCourse?.id || activeCourseArchived) return;
+    if (!activeCourse?.id) {
+      setCourseActionError(courseReadOnlyReason);
+      return;
+    }
+    if (activeCourseArchived) return;
     setIndexingSectionId(indicatorId);
     setCourseActionError("");
     try {
@@ -219,7 +234,11 @@ export function CourseManagementDialog({
   }
 
   async function uploadToSection(section: CourseFileSection) {
-    if (!activeCourse?.id || activeCourseArchived) return;
+    if (!activeCourse?.id) {
+      setCourseActionError(courseReadOnlyReason);
+      return;
+    }
+    if (activeCourseArchived) return;
     setUploadingSectionId(section.id);
     setCourseActionError("");
     try {
@@ -241,7 +260,10 @@ export function CourseManagementDialog({
   }
 
   async function cancelIndexing(jobId: string) {
-    if (!activeCourse?.id) return;
+    if (!activeCourse?.id) {
+      setCourseActionError(courseReadOnlyReason);
+      return;
+    }
     setCourseActionError("");
     try {
       await window.uclaw.files.cancelIndexing(jobId);
@@ -252,7 +274,11 @@ export function CourseManagementDialog({
   }
 
   async function searchRag() {
-    if (!activeCourse?.id) return;
+    if (!activeCourse?.id) {
+      setRagError(courseReadOnlyReason);
+      setRagResults([]);
+      return;
+    }
     if (activeCourseArchived) {
       setRagError(courseReadOnlyReason);
       setRagResults([]);
@@ -481,7 +507,12 @@ export function CourseManagementDialog({
 
             <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_340px]">
               <div className="space-y-2">
-                {sections.map((section) => (
+                {!activeCourse && (
+                  <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
+                    Select a course on the left before viewing sections, files, indexing jobs, or RAG search.
+                  </div>
+                )}
+                {activeCourse && sections.map((section) => (
                   <SectionCard
                     key={section.id}
                     section={section}
@@ -509,7 +540,7 @@ export function CourseManagementDialog({
                       onChange={(event) => setTaskType(event.target.value)}
                       placeholder="e.g. Assignment, Exam, Reading Report"
                       list="task-type-suggestions"
-                      disabled={activeCourseArchived || creatingTask}
+                      disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
                     />
                     <datalist id="task-type-suggestions">
                       {existingTaskTypes.map((item) => (
@@ -525,14 +556,14 @@ export function CourseManagementDialog({
                       if (event.key === "Enter" && !creatingTask) void createTask();
                     }}
                     placeholder="Custom task name"
-                    disabled={activeCourseArchived || creatingTask}
+                    disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
                   />
                   {taskError && <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{taskError}</div>}
                   <button
                     type="button"
                     className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-background px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={createTask}
-                    disabled={activeCourseArchived || creatingTask || !taskName.trim()}
+                    disabled={!activeCourse?.id || activeCourseArchived || creatingTask || !taskName.trim()}
                   >
                     {creatingTask ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                     {creatingTask ? "Creating..." : "Create task"}
@@ -554,7 +585,7 @@ export function CourseManagementDialog({
                   error={ragError}
                   onQueryChange={setRagQuery}
                   onSearch={() => void searchRag()}
-                  disabled={activeCourseArchived}
+                  disabled={!activeCourse?.id || activeCourseArchived}
                 />
 
                 <section className="rounded-lg border bg-card p-3">

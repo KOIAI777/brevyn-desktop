@@ -32,6 +32,7 @@ function App() {
   const selectedFileIdRef = useRef("");
   const fileLoadRequestRef = useRef(0);
   const filePreviewRequestRef = useRef(0);
+  const workspaceReloadRequestRef = useRef(0);
   const [courses, setCourses] = useState<Course[]>([]);
   const [semesters, setSemesters] = useState<SemesterWorkspace[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
@@ -62,11 +63,11 @@ function App() {
   selectedFileIdRef.current = selectedFileId;
 
   useEffect(() => {
-    void bootstrap();
-  }, []);
-
-  useEffect(() => {
+    let cancelled = false;
+    mountedRef.current = true;
+    void bootstrap(() => cancelled);
     return () => {
+      cancelled = true;
       mountedRef.current = false;
     };
   }, []);
@@ -84,7 +85,7 @@ function App() {
     void loadCourseFiles(activeCourseId);
   }, [activeCourseId]);
 
-  const activeCourse = useMemo(() => courses.find((course) => course.id === activeCourseId) || courses[0], [courses, activeCourseId]);
+  const activeCourse = useMemo(() => courses.find((course) => course.id === activeCourseId), [courses, activeCourseId]);
   const courseTasks = activeCourse ? tasksByCourse[activeCourse.id] || [] : [];
   const activeTask = useMemo(() => courseTasks.find((task) => task.id === activeTaskId), [courseTasks, activeTaskId]);
   const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId), [threads, activeThreadId]);
@@ -115,8 +116,8 @@ function App() {
     return mountedRef.current && fileLoadRequestRef.current === requestId && activeCourseIdRef.current === courseId;
   }
 
-  async function bootstrap() {
-    if (!mountedRef.current) return;
+  async function bootstrap(isCancelled: () => boolean = () => false) {
+    if (!mountedRef.current || isCancelled()) return;
     setBootState("loading");
     setBootError("");
     setWorkspaceError("");
@@ -131,39 +132,34 @@ function App() {
       const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
       const threadList = await window.uclaw.threads.list();
 
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || isCancelled()) return;
       const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
-      const selection = pickWorkspaceSelection(courseList, visibleThreads);
+      const nextTasksByCourse = Object.fromEntries(taskEntries);
+      const selection = pickWorkspaceSelection(courseList, nextTasksByCourse, visibleThreads);
 
       setSemesters(semesterList);
       setSemester(currentSemester);
       setCourses(courseList);
       setSkills(skillList);
       setGitStatus(git);
-      setTasksByCourse(Object.fromEntries(taskEntries));
+      setTasksByCourse(nextTasksByCourse);
       setThreads(visibleThreads);
-
-      if (courseList.length === 0 && visibleThreads.length === 0) {
-        commitActiveCourseId("");
-        setActiveTaskId(undefined);
-        setActiveThreadId("");
-        clearFileState();
-        setBootState("ready");
-        return;
-      }
 
       commitActiveCourseId(selection.courseId);
       setActiveTaskId(selection.taskId);
       setActiveThreadId(selection.threadId);
+      if (!selection.courseId) clearFileState();
       setBootState("ready");
     } catch (error) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || isCancelled()) return;
       setBootError(errorMessage(error, "Failed to load workspace."));
       setBootState("error");
     }
   }
 
   async function reloadWorkspace(preferredThreadId?: string): Promise<boolean> {
+    const requestId = workspaceReloadRequestRef.current + 1;
+    workspaceReloadRequestRef.current = requestId;
     setWorkspaceError("");
     try {
       const [semesterList, currentSemester, courseList, threadList] = await Promise.all([
@@ -174,33 +170,39 @@ function App() {
       ]);
       const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
 
-      if (!mountedRef.current) return false;
+      if (!mountedRef.current || workspaceReloadRequestRef.current !== requestId) return false;
 
       const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
-      const selection = pickWorkspaceSelection(courseList, visibleThreads, preferredThreadId);
+      const nextTasksByCourse = Object.fromEntries(taskEntries);
+      const selection = pickWorkspaceSelection(
+        courseList,
+        nextTasksByCourse,
+        visibleThreads,
+        {
+          courseId: activeCourseIdRef.current,
+          taskId: activeTaskId,
+          threadId: activeThreadId,
+        },
+        preferredThreadId,
+      );
       const previousCourseId = activeCourseIdRef.current;
 
       setSemesters(semesterList);
       setSemester(currentSemester);
       setCourses(courseList);
-      setTasksByCourse(Object.fromEntries(taskEntries));
+      setTasksByCourse(nextTasksByCourse);
       setThreads(visibleThreads);
-
-      if (courseList.length === 0 && visibleThreads.length === 0) {
-        commitActiveCourseId("");
-        setActiveTaskId(undefined);
-        setActiveThreadId("");
-        clearFileState();
-        return true;
-      }
 
       commitActiveCourseId(selection.courseId);
       setActiveTaskId(selection.taskId);
       setActiveThreadId(selection.threadId);
-      if (selection.courseId && previousCourseId === selection.courseId) void loadCourseFiles(selection.courseId);
+      if (!selection.courseId) clearFileState();
+      else if (previousCourseId === selection.courseId) void loadCourseFiles(selection.courseId);
       return true;
     } catch (error) {
-      if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to reload workspace."));
+      if (mountedRef.current && workspaceReloadRequestRef.current === requestId) {
+        setWorkspaceError(errorMessage(error, "Failed to reload workspace."));
+      }
       return false;
     }
   }
@@ -335,14 +337,6 @@ function App() {
     return task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "Home session" : "Task session";
   }
 
-  function pickThreadAfterArchive(threadList: Thread[], archivedThread: Thread): Thread | undefined {
-    return (
-      threadList.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === archivedThread.courseId && item.taskId === archivedThread.taskId) ||
-      threadList.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === SEMESTER_HOME_COURSE_ID) ||
-      threadList[0]
-    );
-  }
-
   async function createThread(courseId = activeCourse?.id || "", taskId?: string) {
     if (!courseId) return;
     if (courseId !== SEMESTER_HOME_COURSE_ID && !taskId) {
@@ -370,20 +364,12 @@ function App() {
     setWorkspaceError("");
     try {
       await window.uclaw.threads.archive(thread.id);
-      const nextThreads = await refreshThreads();
+      await refreshThreads();
       if (thread.id !== activeThreadId) return;
-
-      const nextThread = pickThreadAfterArchive(nextThreads, thread);
-      if (nextThread) {
-        commitActiveCourseId(nextThread.courseId);
-        setActiveTaskId(nextThread.taskId);
-        setActiveThreadId(nextThread.id);
-        return;
-      }
 
       const courseStillExists = courses.some((course) => course.id === thread.courseId);
       const taskStillExists = !thread.taskId || (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId);
-      commitActiveCourseId(courseStillExists ? thread.courseId : activeCourse?.id || "");
+      commitActiveCourseId(courseStillExists ? thread.courseId : "");
       setActiveTaskId(courseStillExists && taskStillExists ? thread.taskId : undefined);
       setActiveThreadId("");
     } catch (error) {
@@ -614,25 +600,51 @@ function filterThreadsForSemester(threads: Thread[], semesterId?: string) {
   return threads.filter((thread) => threadBelongsToSemester(thread, semesterId));
 }
 
-function pickWorkspaceSelection(courses: Course[], threads: Thread[], preferredThreadId?: string) {
-  const preferredThread = preferredThreadId ? threads.find((thread) => thread.id === preferredThreadId) : undefined;
-  const nextThread = preferredThread || threads.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID) || threads[0];
-  if (nextThread) {
-    const threadCourse = courses.find((course) => course.id === nextThread.courseId);
-    if (threadCourse) {
-      return {
-        courseId: threadCourse.id,
-        taskId: nextThread.taskId,
-        threadId: nextThread.id,
-      };
+interface WorkspaceSelection {
+  courseId: string;
+  taskId?: string;
+  threadId: string;
+}
+
+function pickWorkspaceSelection(
+  courses: Course[],
+  tasksByCourse: Record<string, UclawTask[]>,
+  threads: Thread[],
+  current?: WorkspaceSelection,
+  preferredThreadId?: string,
+): WorkspaceSelection {
+  const preferredThread = preferredThreadId ? validThreadSelection(threads.find((thread) => thread.id === preferredThreadId), courses, tasksByCourse) : undefined;
+  if (preferredThread) return preferredThread;
+
+  const currentThread = current?.threadId ? validThreadSelection(threads.find((thread) => thread.id === current.threadId), courses, tasksByCourse) : undefined;
+  if (currentThread) return currentThread;
+
+  if (current?.courseId && courses.some((course) => course.id === current.courseId)) {
+    if (current.taskId && taskBelongsToCourse(tasksByCourse, current.courseId, current.taskId)) {
+      return { courseId: current.courseId, taskId: current.taskId, threadId: "" };
     }
+    if (!current.taskId) return { courseId: current.courseId, taskId: undefined, threadId: "" };
   }
 
   return {
-    courseId: courses[0]?.id || "",
+    courseId: "",
     taskId: undefined,
     threadId: "",
   };
+}
+
+function validThreadSelection(thread: Thread | undefined, courses: Course[], tasksByCourse: Record<string, UclawTask[]>): WorkspaceSelection | undefined {
+  if (!thread || !courses.some((course) => course.id === thread.courseId)) return undefined;
+  if (thread.taskId && !taskBelongsToCourse(tasksByCourse, thread.courseId, thread.taskId)) return undefined;
+  return {
+    courseId: thread.courseId,
+    taskId: thread.taskId,
+    threadId: thread.id,
+  };
+}
+
+function taskBelongsToCourse(tasksByCourse: Record<string, UclawTask[]>, courseId: string, taskId: string): boolean {
+  return Boolean((tasksByCourse[courseId] || []).some((task) => task.id === taskId));
 }
 
 function AppLoadingScreen() {

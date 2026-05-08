@@ -22,7 +22,8 @@ export function FileBrowserRail({
   onOpenUpload: () => void;
 }) {
   if (collapsed) return null;
-  const uploadDisabled = Boolean(course?.archivedAt);
+  const uploadDisabled = !course || Boolean(course.archivedAt);
+  const uploadTitle = !course ? "Select a course before uploading files" : course.archivedAt ? "Restore this course before uploading files" : "Import course files";
 
   return (
     <aside className="hidden w-[320px] shrink-0 flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 transition-[width,opacity,transform] duration-200 lg:flex">
@@ -47,7 +48,7 @@ export function FileBrowserRail({
             className="inline-flex h-7 items-center gap-1 rounded-md border bg-background/70 px-2 text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
             disabled={uploadDisabled}
             onClick={onOpenUpload}
-            title={uploadDisabled ? "Restore this course before uploading files" : "Import course files"}
+            title={uploadTitle}
           >
             <Upload className="h-3 w-3" />
             Upload

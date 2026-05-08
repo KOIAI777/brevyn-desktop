@@ -415,6 +415,7 @@ export interface UclawAPI {
     list: () => Promise<ModelProviderConfig[]>;
     save: (input: ProviderDraftInput) => Promise<ProviderSaveResult>;
     delete: (providerId: string) => Promise<boolean>;
+    decryptApiKey: (providerId: string) => Promise<string>;
     models: (providerId: string) => Promise<ProviderModel[]>;
     test: (providerId: string) => Promise<ProviderTestResult>;
   };

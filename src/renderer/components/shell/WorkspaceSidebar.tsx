@@ -43,7 +43,7 @@ export function WorkspaceSidebar({
   const [openCourses, setOpenCourses] = useState<Record<string, boolean>>({});
   const [openTasks, setOpenTasks] = useState<Record<string, boolean>>({});
   const [homeOpen, setHomeOpen] = useState(true);
-  const recentThreads = threads.slice(0, 8);
+  const recentThreads = [...threads].sort(compareThreadsByUpdatedAtDesc).slice(0, 8);
   const homeCourse = courses.find((course) => course.workspaceKind === "semester_home");
   const courseList = courses.filter((course) => course.workspaceKind !== "semester_home");
   const canCreateThread = activeCourseId === homeCourse?.id || Boolean(activeTaskId);
@@ -262,6 +262,14 @@ export function WorkspaceSidebar({
       </div>
     </aside>
   );
+}
+
+function compareThreadsByUpdatedAtDesc(a: Thread, b: Thread): number {
+  const aTime = Date.parse(a.updatedAt);
+  const bTime = Date.parse(b.updatedAt);
+  const safeATime = Number.isFinite(aTime) ? aTime : 0;
+  const safeBTime = Number.isFinite(bTime) ? bTime : 0;
+  return safeBTime - safeATime;
 }
 
 function SessionCount({ count }: { count: number }) {

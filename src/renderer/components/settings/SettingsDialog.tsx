@@ -11,13 +11,13 @@ import {
   EyeOff,
   FileText,
   FolderOpen,
-  Copy,
   GitBranch,
   KeyRound,
   Layers3,
   MessageSquare,
   PlugZap,
   Plus,
+  Pencil,
   RefreshCw,
   RotateCcw,
   Save,
@@ -31,7 +31,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Course,
   GitStatus,
@@ -49,6 +49,17 @@ import type {
 import { cx } from "@/lib/cn";
 
 type SettingsPage = "providers" | "archive" | "skills";
+type ProviderBusyAction =
+  | "agent-save"
+  | "agent-delete"
+  | "agent-toggle"
+  | "agent-fetch"
+  | "agent-test"
+  | "embedding-save"
+  | "embedding-delete"
+  | "embedding-toggle"
+  | "embedding-fetch"
+  | "embedding-test";
 
 const agentProtocols: Array<{ value: ProviderProtocol; label: string }> = [
   { value: "anthropic_messages", label: "Anthropic Messages" },
@@ -123,21 +134,26 @@ export function SettingsDialog({
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
   const [embeddingReindexNotice, setEmbeddingReindexNotice] = useState("");
   const [reindexingActiveSemester, setReindexingActiveSemester] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [providerToast, setProviderToast] = useState<{ id: number; message: string } | null>(null);
+  const [providerBusyActions, setProviderBusyActions] = useState<Partial<Record<ProviderBusyAction, boolean>>>({});
   const [localSkills, setLocalSkills] = useState(skills);
   const [selectedSkillId, setSelectedSkillId] = useState("");
   const [skillContent, setSkillContent] = useState("");
   const [skillStatusLine, setSkillStatusLine] = useState("");
   const [skillBusy, setSkillBusy] = useState(false);
+  const providerApiKeyLoadRequestRef = useRef(0);
+  const embeddingApiKeyLoadRequestRef = useRef(0);
 
   const enabledSkills = localSkills.filter((skill) => skill.enabled).length;
   const chatProviders = providers.filter((provider) => provider.purpose === "agent");
   const embeddingProviders = providers.filter((provider) => provider.purpose === "embedding");
-  const enabledProviders = chatProviders.filter((provider) => provider.enabled).length;
-  const activeEmbeddingProvider = useMemo(
-    () => embeddingProviders.find((provider) => provider.id === selectedEmbeddingProviderId) || embeddingProviders.find((provider) => provider.enabled) || embeddingProviders[0],
-    [embeddingProviders, selectedEmbeddingProviderId],
-  );
+  const activeAgentProviders = chatProviders.filter((provider) => provider.enabled);
+  const activeEmbeddingProviders = embeddingProviders.filter((provider) => provider.enabled);
+  const enabledProviders = activeAgentProviders.length;
+  const activeEmbeddingProvider = activeEmbeddingProviders.length === 1 ? activeEmbeddingProviders[0] : undefined;
+  const embeddingProviderDetail = activeEmbeddingProviders.length > 1
+    ? "multiple embedding providers"
+    : activeEmbeddingProvider?.selectedModel || "embedding TBD";
 
   useEffect(() => {
     void loadProviders();
@@ -146,6 +162,60 @@ export function SettingsDialog({
   useEffect(() => {
     setLocalSkills(skills);
   }, [skills]);
+
+  useEffect(() => {
+    if (!providerToast) return;
+    const timeout = window.setTimeout(() => setProviderToast(null), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [providerToast]);
+
+  useEffect(() => {
+    if (!selectedProviderId || creatingProvider) return;
+    const provider = providers.find((item) => item.id === selectedProviderId);
+    if (!provider) return;
+    const requestId = ++providerApiKeyLoadRequestRef.current;
+    void window.uclaw.providers
+      .decryptApiKey(provider.id)
+      .then((apiKey) => {
+        if (providerApiKeyLoadRequestRef.current !== requestId) return;
+        setDraft((current) => {
+          if (current.id !== provider.id) return current;
+          if (current.apiKey.trim()) return current;
+          return { ...current, apiKey };
+        });
+      })
+      .catch((error) => {
+        if (providerApiKeyLoadRequestRef.current !== requestId) return;
+        console.warn("[providers] Failed to load provider API key", error);
+      });
+    return () => {
+      providerApiKeyLoadRequestRef.current += 1;
+    };
+  }, [creatingProvider, providers, selectedProviderId]);
+
+  useEffect(() => {
+    if (!selectedEmbeddingProviderId || creatingEmbeddingProvider) return;
+    const provider = providers.find((item) => item.id === selectedEmbeddingProviderId);
+    if (!provider) return;
+    const requestId = ++embeddingApiKeyLoadRequestRef.current;
+    void window.uclaw.providers
+      .decryptApiKey(provider.id)
+      .then((apiKey) => {
+        if (embeddingApiKeyLoadRequestRef.current !== requestId) return;
+        setEmbeddingDraft((current) => {
+          if (current.id !== provider.id) return current;
+          if (current.apiKey.trim()) return current;
+          return { ...current, apiKey };
+        });
+      })
+      .catch((error) => {
+        if (embeddingApiKeyLoadRequestRef.current !== requestId) return;
+        console.warn("[providers] Failed to load embedding provider API key", error);
+      });
+    return () => {
+      embeddingApiKeyLoadRequestRef.current += 1;
+    };
+  }, [creatingEmbeddingProvider, providers, selectedEmbeddingProviderId]);
 
   useEffect(() => {
     void window.uclaw.skills
@@ -250,13 +320,26 @@ export function SettingsDialog({
     setEmbeddingModels([]);
   }
 
+  function setProviderBusy(action: ProviderBusyAction, busy: boolean) {
+    setProviderBusyActions((current) => {
+      if (busy) return { ...current, [action]: true };
+      const { [action]: _finished, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function showProviderToast(message: string) {
+    setProviderToast({ id: Date.now(), message });
+  }
+
   async function handleEmbeddingIndexNotice(result: ProviderSaveResult, savedMessage: string) {
+    showProviderToast(savedMessage);
     if (!result.embeddingIndexMayBeStale) {
       setEmbeddingReindexNotice("");
-      setEmbeddingStatusLine(savedMessage);
+      setEmbeddingStatusLine("");
       return;
     }
-    setEmbeddingStatusLine(savedMessage);
+    setEmbeddingStatusLine("");
     setEmbeddingReindexNotice("Embedding provider, URL, or model changed. Existing RAG indexes may have been built with the previous embedding configuration.");
   }
 
@@ -284,47 +367,39 @@ export function SettingsDialog({
   }
 
   async function saveProvider() {
-    setBusy(true);
+    setProviderBusy("agent-save", true);
     try {
       const result = await window.uclaw.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
       const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
-      closeProviderEditor();
-      setStatusLine(`Saved "${saved.name}".`);
+      setCreatingProvider(false);
+      setSelectedProviderId(saved.id);
+      setDraft((current) => ({
+        ...current,
+        id: saved.id,
+        purpose: saved.purpose,
+        name: saved.name,
+        protocol: saved.protocol,
+        authMode: saved.authMode,
+        baseUrl: saved.baseUrl,
+        models: saved.models.map((model) => ({ ...model })),
+        selectedModel: saved.selectedModel,
+        enabled: saved.enabled,
+      }));
+      setStatusLine("");
+      showProviderToast("Provider saved.");
     } catch (error) {
       setStatusLine(`Failed to save provider profile: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function duplicateProvider(provider: ModelProviderConfig) {
-    setBusy(true);
-    try {
-      const duplicateName = provider.name.endsWith(" Copy") ? `${provider.name} 2` : `${provider.name} Copy`;
-      const result = await window.uclaw.providers.save({
-        ...toProviderDraft(provider),
-        id: undefined,
-        name: duplicateName,
-        apiKey: "",
-      });
-      const saved = result.provider;
-      const next = await window.uclaw.providers.list();
-      setProviders(next);
-      closeProviderEditor();
-      setStatusLine(`Duplicated "${saved.name}".`);
-    } catch (error) {
-      setStatusLine(`Failed to duplicate provider profile: ${errorMessage(error)}`);
-    } finally {
-      setBusy(false);
+      setProviderBusy("agent-save", false);
     }
   }
 
   async function deleteProvider(provider: ModelProviderConfig) {
     const ok = window.confirm(`Delete provider profile "${provider.name}"?`);
     if (!ok) return;
-    setBusy(true);
+    setProviderBusy("agent-delete", true);
     try {
       await window.uclaw.providers.delete(provider.id);
       const next = await window.uclaw.providers.list();
@@ -334,52 +409,43 @@ export function SettingsDialog({
     } catch (error) {
       setStatusLine(`Failed to delete provider profile: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
+      setProviderBusy("agent-delete", false);
     }
   }
 
   async function saveEmbeddingProvider() {
-    setBusy(true);
+    setProviderBusy("embedding-save", true);
     try {
       const result = await window.uclaw.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
       const saved = result.provider;
       const next = await window.uclaw.providers.list();
       setProviders(next);
-      closeEmbeddingEditor();
-      await handleEmbeddingIndexNotice(result, `Saved embedding provider "${saved.name}".`);
+      setCreatingEmbeddingProvider(false);
+      setSelectedEmbeddingProviderId(saved.id);
+      setEmbeddingDraft((current) => ({
+        ...current,
+        id: saved.id,
+        purpose: saved.purpose,
+        name: saved.name,
+        protocol: saved.protocol,
+        authMode: saved.authMode,
+        baseUrl: saved.baseUrl,
+        models: saved.models.map((model) => ({ ...model })),
+        selectedModel: saved.selectedModel,
+        enabled: saved.enabled,
+      }));
+      await handleEmbeddingIndexNotice(result, "Embedding provider saved.");
     } catch (error) {
       setEmbeddingStatusLine(`Failed to save embedding provider: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function duplicateEmbeddingProvider(provider: ModelProviderConfig) {
-    setBusy(true);
-    try {
-      const duplicateName = provider.name.endsWith(" Copy") ? `${provider.name} 2` : `${provider.name} Copy`;
-      const result = await window.uclaw.providers.save({
-        ...toProviderDraft(provider),
-        id: undefined,
-        name: duplicateName,
-        apiKey: "",
-      });
-      const saved = result.provider;
-      const next = await window.uclaw.providers.list();
-      setProviders(next);
-      closeEmbeddingEditor();
-      await handleEmbeddingIndexNotice(result, `Duplicated embedding provider "${saved.name}".`);
-    } catch (error) {
-      setEmbeddingStatusLine(`Failed to duplicate embedding provider: ${errorMessage(error)}`);
-    } finally {
-      setBusy(false);
+      setProviderBusy("embedding-save", false);
     }
   }
 
   async function deleteEmbeddingProvider(provider: ModelProviderConfig) {
     const ok = window.confirm(`Delete embedding provider profile "${provider.name}"?`);
     if (!ok) return;
-    setBusy(true);
+    setProviderBusy("embedding-delete", true);
     try {
       await window.uclaw.providers.delete(provider.id);
       const next = await window.uclaw.providers.list();
@@ -389,11 +455,12 @@ export function SettingsDialog({
     } catch (error) {
       setEmbeddingStatusLine(`Failed to delete embedding provider: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
+      setProviderBusy("embedding-delete", false);
     }
   }
 
   async function toggleProvider(provider: ModelProviderConfig) {
+    setProviderBusy("agent-toggle", true);
     try {
       const result = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
       const saved = result.provider;
@@ -402,10 +469,13 @@ export function SettingsDialog({
       if (provider.id === selectedProviderId) selectProvider(saved);
     } catch (error) {
       setStatusLine(errorMessage(error));
+    } finally {
+      setProviderBusy("agent-toggle", false);
     }
   }
 
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
+    setProviderBusy("embedding-toggle", true);
     try {
       const result = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
       const saved = result.provider;
@@ -415,6 +485,8 @@ export function SettingsDialog({
       await handleEmbeddingIndexNotice(result, `Updated embedding provider "${saved.name}".`);
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
+    } finally {
+      setProviderBusy("embedding-toggle", false);
     }
   }
 
@@ -423,7 +495,7 @@ export function SettingsDialog({
       setStatusLine("Save provider before fetching models.");
       return;
     }
-    setBusy(true);
+    setProviderBusy("agent-fetch", true);
     try {
       setModels(await window.uclaw.providers.models(selectedProviderId));
       setStatusLine("Fetched available models.");
@@ -431,7 +503,7 @@ export function SettingsDialog({
       setModels([]);
       setStatusLine(`Failed to fetch agent models: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
+      setProviderBusy("agent-fetch", false);
     }
   }
 
@@ -440,7 +512,7 @@ export function SettingsDialog({
       setEmbeddingStatusLine("Save embedding provider before fetching models.");
       return;
     }
-    setBusy(true);
+    setProviderBusy("embedding-fetch", true);
     try {
       setEmbeddingModels(await window.uclaw.providers.models(selectedEmbeddingProviderId));
       setEmbeddingStatusLine("Fetched embedding models.");
@@ -448,7 +520,7 @@ export function SettingsDialog({
       setEmbeddingModels([]);
       setEmbeddingStatusLine(`Failed to fetch embedding models: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
+      setProviderBusy("embedding-fetch", false);
     }
   }
 
@@ -457,14 +529,14 @@ export function SettingsDialog({
       setStatusLine("Save provider before testing connection.");
       return;
     }
-    setBusy(true);
+    setProviderBusy("agent-test", true);
     try {
       const result = await window.uclaw.providers.test(selectedProviderId);
       setStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
     } catch (error) {
       setStatusLine(errorMessage(error));
     } finally {
-      setBusy(false);
+      setProviderBusy("agent-test", false);
     }
   }
 
@@ -473,14 +545,14 @@ export function SettingsDialog({
       setEmbeddingStatusLine("Save embedding provider before testing connection.");
       return;
     }
-    setBusy(true);
+    setProviderBusy("embedding-test", true);
     try {
       const result = await window.uclaw.providers.test(selectedEmbeddingProviderId);
       setEmbeddingStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
     } finally {
-      setBusy(false);
+      setProviderBusy("embedding-test", false);
     }
   }
 
@@ -547,6 +619,12 @@ export function SettingsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
+      {providerToast && (
+        <div className="pointer-events-none absolute top-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-lg ring-1 ring-border/60">
+          <Check className="h-3.5 w-3.5 text-emerald-600" />
+          {providerToast.message}
+        </div>
+      )}
       <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
@@ -573,7 +651,7 @@ export function SettingsDialog({
                 active={activePage === "providers"}
                 icon={<PlugZap className="h-4 w-4" />}
                 title="Provider"
-                detail={`${enabledProviders} enabled · ${activeEmbeddingProvider?.selectedModel || "embedding TBD"}`}
+                detail={`${enabledProviders} active · ${embeddingProviderDetail}`}
                 onClick={() => setActivePage("providers")}
               />
               <SettingsNavButton
@@ -609,7 +687,7 @@ export function SettingsDialog({
                 embeddingStatusLine={embeddingStatusLine}
                 embeddingReindexNotice={embeddingReindexNotice}
                 reindexingActiveSemester={reindexingActiveSemester}
-                busy={busy}
+                busyActions={providerBusyActions}
                 onSelectProvider={selectProvider}
                 onSelectEmbeddingProvider={selectEmbeddingProvider}
                 onNewProvider={newProvider}
@@ -618,9 +696,7 @@ export function SettingsDialog({
                 onCloseEmbeddingEditor={closeEmbeddingEditor}
                 onToggleProvider={toggleProvider}
                 onToggleEmbeddingProvider={toggleEmbeddingProvider}
-                onDuplicateProvider={(provider) => void duplicateProvider(provider)}
                 onDeleteProvider={(provider) => void deleteProvider(provider)}
-                onDuplicateEmbeddingProvider={(provider) => void duplicateEmbeddingProvider(provider)}
                 onDeleteEmbeddingProvider={(provider) => void deleteEmbeddingProvider(provider)}
                 onDraftChange={setDraft}
                 onEmbeddingDraftChange={setEmbeddingDraft}
@@ -673,7 +749,7 @@ function ProviderSettingsPage({
   embeddingStatusLine,
   embeddingReindexNotice,
   reindexingActiveSemester,
-  busy,
+  busyActions,
   onSelectProvider,
   onSelectEmbeddingProvider,
   onNewProvider,
@@ -682,9 +758,7 @@ function ProviderSettingsPage({
   onCloseEmbeddingEditor,
   onToggleProvider,
   onToggleEmbeddingProvider,
-  onDuplicateProvider,
   onDeleteProvider,
-  onDuplicateEmbeddingProvider,
   onDeleteEmbeddingProvider,
   onDraftChange,
   onEmbeddingDraftChange,
@@ -710,7 +784,7 @@ function ProviderSettingsPage({
   embeddingStatusLine: string;
   embeddingReindexNotice: string;
   reindexingActiveSemester: boolean;
-  busy: boolean;
+  busyActions: Partial<Record<ProviderBusyAction, boolean>>;
   onSelectProvider: (provider: ModelProviderConfig) => void;
   onSelectEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onNewProvider: () => void;
@@ -719,9 +793,7 @@ function ProviderSettingsPage({
   onCloseEmbeddingEditor: () => void;
   onToggleProvider: (provider: ModelProviderConfig) => void;
   onToggleEmbeddingProvider: (provider: ModelProviderConfig) => void;
-  onDuplicateProvider: (provider: ModelProviderConfig) => void;
   onDeleteProvider: (provider: ModelProviderConfig) => void;
-  onDuplicateEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onDeleteEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onDraftChange: (draft: ProviderDraftInput) => void;
   onEmbeddingDraftChange: (draft: ProviderDraftInput) => void;
@@ -741,6 +813,15 @@ function ProviderSettingsPage({
   const providerEditorOpen = creatingProvider || Boolean(selectedProvider);
   const embeddingEditorOpen = creatingEmbeddingProvider || Boolean(selectedEmbeddingProvider);
   const runtimeBanner = null;
+  const isBusy = (action: ProviderBusyAction) => Boolean(busyActions[action]);
+  const isPurposeBlockingBusy = (purpose: ProviderPurpose) => {
+    const prefix = purpose === "agent" ? "agent" : "embedding";
+    return Object.entries(busyActions).some(([action, busy]) => Boolean(busy) && action.startsWith(`${prefix}-`) && action !== `${prefix}-toggle`);
+  };
+  const agentBusy = isPurposeBlockingBusy("agent");
+  const embeddingBusy = isPurposeBlockingBusy("embedding");
+  const agentToggleBusy = isBusy("agent-toggle");
+  const embeddingToggleBusy = isBusy("embedding-toggle");
 
   if (providerEditorOpen) {
     return (
@@ -753,6 +834,7 @@ function ProviderSettingsPage({
                 type="button"
                 className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={onCloseProviderEditor}
+                disabled={agentBusy}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Back to providers
@@ -764,9 +846,7 @@ function ProviderSettingsPage({
               <div className="mt-1 text-[11px] text-muted-foreground">Chat, multimodal recognition, and tool-call responses.</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {selectedProvider && <ActionButton icon={<Copy className="h-3.5 w-3.5" />} label="Duplicate" onClick={() => onDuplicateProvider(selectedProvider)} />}
-              {selectedProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteProvider(selectedProvider)} />}
-              <TogglePill enabled={Boolean(draft.enabled)} onClick={() => onDraftChange({ ...draft, enabled: !draft.enabled })} />
+              {selectedProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteProvider(selectedProvider)} disabled={agentBusy} />}
             </div>
           </div>
 
@@ -787,18 +867,9 @@ function ProviderSettingsPage({
               value={draft.apiKey}
               onChange={(value) => onDraftChange({ ...draft, apiKey: value, clearApiKey: false })}
               type="password"
-              placeholder={selectedProvider?.apiKeyMasked ? `Stored ${selectedProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
+              placeholder={selectedProviderId ? "留空则不更新" : "输入 API Key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
-            {selectedProvider?.apiKeyMasked && (
-              <button
-                type="button"
-                className="h-8 rounded-md border bg-card px-2 text-left text-[11px] text-muted-foreground transition hover:bg-red-50 hover:text-red-700"
-                onClick={() => onDraftChange({ ...draft, apiKey: "", clearApiKey: !draft.clearApiKey })}
-              >
-                {draft.clearApiKey ? "Stored API key will be cleared" : `Clear stored key ${selectedProvider.apiKeyMasked}`}
-              </button>
-            )}
             <Field label="Model" value={draft.selectedModel} onChange={(value) => onDraftChange({ ...draft, selectedModel: value })} />
           </div>
 
@@ -811,9 +882,9 @@ function ProviderSettingsPage({
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", busy && "animate-spin")} />} label="Get models" onClick={onFetchModels} />
-            <ActionButton icon={<PlugZap className="h-3.5 w-3.5" />} label="Test" onClick={onTestProvider} />
-            <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save" onClick={onSaveProvider} primary />
+            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("agent-fetch") && "animate-spin")} />} label="Get models" onClick={onFetchModels} disabled={agentBusy} />
+            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("agent-test") && "animate-pulse")} />} label="Test" onClick={onTestProvider} disabled={agentBusy} />
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("agent-save") && "animate-pulse")} />} label="Save" onClick={onSaveProvider} primary disabled={agentBusy} />
           </div>
           {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
         </section>
@@ -832,6 +903,7 @@ function ProviderSettingsPage({
                 type="button"
                 className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={onCloseEmbeddingEditor}
+                disabled={embeddingBusy}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Back to providers
@@ -843,9 +915,7 @@ function ProviderSettingsPage({
               <div className="mt-1 text-[11px] text-muted-foreground">RAG search, course file indexing, and context retrieval.</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {selectedEmbeddingProvider && <ActionButton icon={<Copy className="h-3.5 w-3.5" />} label="Duplicate" onClick={() => onDuplicateEmbeddingProvider(selectedEmbeddingProvider)} />}
-              {selectedEmbeddingProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteEmbeddingProvider(selectedEmbeddingProvider)} />}
-              <TogglePill enabled={Boolean(embeddingDraft.enabled)} labelOn="Embedding on" labelOff="Embedding off" onClick={() => onEmbeddingDraftChange({ ...embeddingDraft, enabled: !embeddingDraft.enabled })} />
+              {selectedEmbeddingProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteEmbeddingProvider(selectedEmbeddingProvider)} disabled={embeddingBusy} />}
             </div>
           </div>
 
@@ -866,18 +936,9 @@ function ProviderSettingsPage({
               value={embeddingDraft.apiKey}
               onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: value, clearApiKey: false })}
               type="password"
-              placeholder={selectedEmbeddingProvider?.apiKeyMasked ? `Stored ${selectedEmbeddingProvider.apiKeyMasked}; leave blank to keep` : "Paste API key"}
+              placeholder={selectedEmbeddingProviderId ? "留空则不更新" : "输入 API Key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
-            {selectedEmbeddingProvider?.apiKeyMasked && (
-              <button
-                type="button"
-                className="h-8 rounded-md border bg-card px-2 text-left text-[11px] text-muted-foreground transition hover:bg-red-50 hover:text-red-700"
-                onClick={() => onEmbeddingDraftChange({ ...embeddingDraft, apiKey: "", clearApiKey: !embeddingDraft.clearApiKey })}
-              >
-                {embeddingDraft.clearApiKey ? "Stored API key will be cleared" : `Clear stored key ${selectedEmbeddingProvider.apiKeyMasked}`}
-              </button>
-            )}
             <Field label="Model" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
           </div>
 
@@ -890,9 +951,9 @@ function ProviderSettingsPage({
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", busy && "animate-spin")} />} label="Get models" onClick={onFetchEmbeddingModels} />
-            <ActionButton icon={<PlugZap className="h-3.5 w-3.5" />} label="Test" onClick={onTestEmbeddingProvider} />
-            <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save embedding" onClick={onSaveEmbeddingProvider} primary />
+            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("embedding-fetch") && "animate-spin")} />} label="Get models" onClick={onFetchEmbeddingModels} disabled={embeddingBusy} />
+            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("embedding-test") && "animate-pulse")} />} label="Test" onClick={onTestEmbeddingProvider} disabled={embeddingBusy} />
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("embedding-save") && "animate-pulse")} />} label="Save embedding" onClick={onSaveEmbeddingProvider} primary disabled={embeddingBusy} />
           </div>
           {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
         </section>
@@ -913,7 +974,7 @@ function ProviderSettingsPage({
               </div>
               <div className="mt-1 text-[11px] text-muted-foreground">Only saved providers are listed here.</div>
             </div>
-            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New provider" onClick={onNewProvider} />
+            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New provider" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
           <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 uclaw-scrollbar">
@@ -921,11 +982,14 @@ function ProviderSettingsPage({
               <ProviderProfileRow
                 key={provider.id}
                 provider={provider}
-                active={false}
-                statusLabel={provider.enabled ? "Enabled" : "Disabled"}
+                active={provider.enabled}
+                statusLabel={provider.enabled ? "Active" : "Off"}
                 statusOn={provider.enabled}
                 onSelect={() => onSelectProvider(provider)}
+                onEdit={() => onSelectProvider(provider)}
+                onDelete={() => onDeleteProvider(provider)}
                 onToggle={() => onToggleProvider(provider)}
+                toggleDisabled={agentBusy || agentToggleBusy}
               />
             ))}
             {chatProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No agent providers yet. Create one to add it to this list.</div>}
@@ -942,7 +1006,7 @@ function ProviderSettingsPage({
               </div>
               <div className="mt-1 text-[11px] text-muted-foreground">Only saved providers are listed here.</div>
             </div>
-            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New embedding" onClick={onNewEmbeddingProvider} />
+            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
 
           <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 uclaw-scrollbar">
@@ -950,11 +1014,14 @@ function ProviderSettingsPage({
               <ProviderProfileRow
                 key={provider.id}
                 provider={provider}
-                active={false}
-                statusLabel={provider.enabled ? "Embedding" : "Off"}
+                active={provider.enabled}
+                statusLabel={provider.enabled ? "Active" : "Off"}
                 statusOn={Boolean(provider.enabled)}
                 onSelect={() => onSelectEmbeddingProvider(provider)}
+                onEdit={() => onSelectEmbeddingProvider(provider)}
+                onDelete={() => onDeleteEmbeddingProvider(provider)}
                 onToggle={() => onToggleEmbeddingProvider(provider)}
+                toggleDisabled={embeddingBusy || embeddingToggleBusy}
               />
             ))}
             {embeddingProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No embedding providers yet. Create one to add it to this list.</div>}
@@ -1608,17 +1675,24 @@ function ProviderProfileRow({
   statusLabel,
   statusOn,
   onSelect,
+  onEdit,
+  onDelete,
   onToggle,
+  toggleDisabled,
 }: {
   provider: ModelProviderConfig;
   active: boolean;
   statusLabel: string;
   statusOn: boolean;
   onSelect: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   onToggle: () => void;
+  toggleDisabled?: boolean;
 }) {
+  const actionsDisabled = Boolean(toggleDisabled);
   return (
-    <div className={cx("flex items-center gap-2 rounded-lg border p-2 transition", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
+    <div className={cx("group flex items-center gap-2 rounded-lg border p-2 transition", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="block truncate text-xs font-semibold">{provider.name}</span>
         <span className="mt-0.5 block truncate text-[10px]">
@@ -1628,15 +1702,39 @@ function ProviderProfileRow({
           {provider.selectedModel && <span className="max-w-[180px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.selectedModel}</span>}
         </span>
       </button>
-      <button
-        type="button"
-        className={cx("inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-medium", statusOn ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground")}
-        onClick={onToggle}
-      >
-        {statusOn ? <Check className="h-3 w-3" /> : <Circle className="h-2.5 w-2.5 fill-current" />}
-        {statusLabel}
-      </button>
+      <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-[72px] group-hover:opacity-100 group-focus-within:max-w-[72px] group-focus-within:opacity-100">
+          <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label={`Edit ${provider.name}`} onClick={onEdit} disabled={actionsDisabled} />
+          <IconActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label={`Delete ${provider.name}`} onClick={onDelete} disabled={actionsDisabled} danger />
+        </div>
+        <ProviderSwitch enabled={statusOn} label={statusLabel} onClick={onToggle} disabled={toggleDisabled} />
+      </div>
     </div>
+  );
+}
+
+function ProviderSwitch({ enabled, label, onClick, disabled }: { enabled: boolean; label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cx(
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:cursor-not-allowed",
+        enabled ? "border-emerald-500 bg-emerald-500" : "border-border bg-muted hover:bg-muted/80",
+      )}
+    >
+      <span
+        className={cx(
+          "pointer-events-none h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200",
+          enabled ? "translate-x-[21px]" : "translate-x-0.5",
+        )}
+      />
+    </button>
   );
 }
 
@@ -1727,11 +1825,12 @@ function AuthModeField({ label, value, onChange }: { label: string; value: Provi
   );
 }
 
-function TogglePill({ enabled, onClick, labelOn = "Enabled", labelOff = "Disabled" }: { enabled: boolean; onClick: () => void; labelOn?: string; labelOff?: string }) {
+function TogglePill({ enabled, onClick, labelOn = "Enabled", labelOff = "Disabled", disabled }: { enabled: boolean; onClick: () => void; labelOn?: string; labelOff?: string; disabled?: boolean }) {
   return (
     <button
       type="button"
-      className={cx("inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium", enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground")}
+      className={cx("inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45", enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground")}
+      disabled={disabled}
       onClick={onClick}
     >
       {enabled ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
@@ -1774,6 +1873,36 @@ function ActionButton({ icon, label, onClick, primary, disabled }: { icon: React
     >
       {icon}
       {label}
+    </button>
+  );
+}
+
+function IconActionButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  danger,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={cx(
+        "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground transition disabled:cursor-not-allowed disabled:opacity-45",
+        danger ? "hover:border-red-200 hover:bg-red-50 hover:text-red-700" : "hover:bg-accent hover:text-foreground",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      {icon}
     </button>
   );
 }

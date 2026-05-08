@@ -19,10 +19,14 @@ interface ParseInput {
 
 const TEXT_KINDS = new Set<WorkspaceFileKind>(["markdown", "code", "text"]);
 const MAX_TEXT_BYTES = 50 * 1024 * 1024;
+const MAX_INDEXING_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PARSED_CHARS = 900_000;
 
 export async function parseIndexingFile(input: ParseInput): Promise<ParsedIndexingFile> {
   const stats = statSync(input.sourcePath);
+  if (stats.size > MAX_INDEXING_FILE_BYTES) {
+    return emptyParsedFile(input, stats.size, `Skipped indexing because the file is larger than ${formatBytes(MAX_INDEXING_FILE_BYTES)}.`);
+  }
   if (TEXT_KINDS.has(input.kind)) {
     return parsePlainText(input, stats.size);
   }

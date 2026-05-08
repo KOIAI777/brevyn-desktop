@@ -81,6 +81,7 @@ const api: UclawAPI = {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.providersList),
     save: (input: ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersSave, input),
     delete: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersDelete, providerId),
+    decryptApiKey: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersDecryptApiKey, providerId),
     models: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersModels, providerId),
     test: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersTest, providerId),
   },

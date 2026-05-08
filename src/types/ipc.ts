@@ -45,6 +45,7 @@ export const IPC_CHANNELS = {
   providersList: "uclaw:providers:list",
   providersSave: "uclaw:providers:save",
   providersDelete: "uclaw:providers:delete",
+  providersDecryptApiKey: "uclaw:providers:decrypt-api-key",
   providersModels: "uclaw:providers:models",
   providersTest: "uclaw:providers:test",
   timetableRange: "uclaw:timetable:range",
