@@ -2,6 +2,8 @@ import { dirname, join } from "node:path";
 import type {
   Course,
   CourseFileSection,
+  ArchivedCourseScope,
+  ArchivedThreadScope,
   CreateCourseInput,
   CreateSemesterInput,
   CreateTaskInput,
@@ -116,8 +118,8 @@ export class LocalStore {
     return this.workspace.listCourses();
   }
 
-  listArchivedCourses(): Course[] {
-    return this.workspace.listArchivedCourses();
+  listArchivedCourses(scope?: ArchivedCourseScope): Course[] {
+    return this.workspace.listArchivedCourses(scope);
   }
 
   createCourse(input: CreateCourseInput): Course {
@@ -156,8 +158,8 @@ export class LocalStore {
     return this.workspace.listThreads(courseId);
   }
 
-  listArchivedThreads(courseId?: string): Thread[] {
-    return this.workspace.listArchivedThreads(courseId);
+  listArchivedThreads(scope?: ArchivedThreadScope): Thread[] {
+    return this.workspace.listArchivedThreads(scope);
   }
 
   createThread(input: CreateThreadInput): Thread {

@@ -1,6 +1,9 @@
 import {
   ArrowLeft,
+  Archive,
+  BookOpen,
   Bot,
+  CalendarDays,
   Check,
   Circle,
   Database,
@@ -12,9 +15,11 @@ import {
   GitBranch,
   KeyRound,
   Layers3,
+  MessageSquare,
   PlugZap,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Settings,
   Sparkles,
@@ -38,10 +43,11 @@ import type {
   ProviderPurpose,
   SemesterWorkspace,
   SkillItem,
+  Thread,
 } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
-type SettingsPage = "providers" | "skills";
+type SettingsPage = "providers" | "archive" | "skills";
 
 const agentProtocols: Array<{ value: ProviderProtocol; label: string }> = [
   { value: "anthropic_messages", label: "Anthropic Messages" },
@@ -56,6 +62,8 @@ const authModes: Array<{ value: ProviderAuthMode; label: string }> = [
   { value: "auth_token", label: "Auth token" },
   { value: "bearer", label: "Bearer token" },
 ];
+
+const SEMESTER_HOME_COURSE_ID = "semester-home";
 
 const emptyDraft: ProviderDraftInput = {
   purpose: "agent",
@@ -87,6 +95,7 @@ export function SettingsDialog({
   skills,
   gitStatus,
   onSkillsChange,
+  onWorkspaceChanged,
   onClose,
 }: {
   course?: Course;
@@ -94,6 +103,7 @@ export function SettingsDialog({
   skills: SkillItem[];
   gitStatus: GitStatus | null;
   onSkillsChange: (skills: SkillItem[]) => void;
+  onWorkspaceChanged?: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const [activePage, setActivePage] = useState<SettingsPage>("providers");
@@ -469,7 +479,7 @@ export function SettingsDialog({
               <Settings className="h-4 w-4" />
               Settings
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "no semester selected"} · providers, embeddings, skills</div>
+            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "no semester selected"} · providers, archive, skills</div>
           </div>
           <button
             type="button"
@@ -490,6 +500,13 @@ export function SettingsDialog({
                 title="Provider"
                 detail={`${enabledProviders} enabled · ${activeEmbeddingProvider?.selectedModel || "embedding TBD"}`}
                 onClick={() => setActivePage("providers")}
+              />
+              <SettingsNavButton
+                active={activePage === "archive"}
+                icon={<Archive className="h-4 w-4" />}
+                title="Archive"
+                detail="restore / permanent delete"
+                onClick={() => setActivePage("archive")}
               />
               <SettingsNavButton
                 active={activePage === "skills"}
@@ -537,6 +554,8 @@ export function SettingsDialog({
                 onSaveProvider={saveProvider}
                 onSaveEmbeddingProvider={saveEmbeddingProvider}
               />
+            ) : activePage === "archive" ? (
+              <ArchiveSettingsPage onWorkspaceChanged={onWorkspaceChanged} />
             ) : (
               <SkillSettingsPage
                 skills={localSkills}
@@ -851,6 +870,436 @@ function nextProviderDraftName(providers: ModelProviderConfig[]): string {
   let index = 1;
   while (used.has(String(index))) index += 1;
   return String(index);
+}
+
+interface ArchiveSemesterGroup {
+  semester: SemesterWorkspace;
+  archivedCourses: Course[];
+  archivedThreads: Thread[];
+}
+
+function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () => Promise<void> | void }) {
+  const [groups, setGroups] = useState<ArchiveSemesterGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void loadArchive();
+  }, []);
+
+  async function loadArchive() {
+    setLoading(true);
+    setError("");
+    try {
+      const [activeSemesters, archivedSemesters] = await Promise.all([
+        window.uclaw.semester.list(),
+        window.uclaw.semester.listArchived(),
+      ]);
+      const semesters = [...activeSemesters, ...archivedSemesters].sort(compareSemestersForArchive);
+      const nextGroups = await Promise.all(
+        semesters.map(async (item) => {
+          const [archivedCourses, archivedThreads] = await Promise.all([
+            window.uclaw.courses.listArchived({ semesterId: item.id }),
+            window.uclaw.threads.listArchived({ semesterId: item.id }),
+          ]);
+          return { semester: item, archivedCourses, archivedThreads };
+        }),
+      );
+      setGroups(nextGroups.filter((group) => group.semester.archivedAt || group.archivedCourses.length > 0 || group.archivedThreads.length > 0));
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function afterMutation() {
+    await loadArchive();
+    await onWorkspaceChanged?.();
+  }
+
+  async function restoreSemester(semester: SemesterWorkspace) {
+    setBusyKey(`semester:restore:${semester.id}`);
+    setError("");
+    try {
+      await window.uclaw.semester.restore(semester.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "Failed to restore semester."));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function deleteSemester(semester: SemesterWorkspace) {
+    const typed = window.prompt(`This permanently deletes "${semester.term}", all courses, files, sessions, and indexed data.\n\nType the semester term to confirm:`);
+    if (typed !== semester.term) return;
+    setBusyKey(`semester:delete:${semester.id}`);
+    setError("");
+    try {
+      await window.uclaw.semester.delete(semester.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "Failed to delete semester."));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function restoreCourse(course: Course, semesterArchived: boolean) {
+    if (semesterArchived) {
+      setError("Restore the parent semester before restoring this course.");
+      return;
+    }
+    setBusyKey(`course:restore:${course.id}`);
+    setError("");
+    try {
+      await window.uclaw.courses.restore(course.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "Failed to restore course."));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function deleteCourse(course: Course) {
+    const typed = window.prompt(`This permanently deletes "${course.name}", all files, sessions, and indexed data.\n\nType the course name to confirm:`);
+    if (typed !== course.name) return;
+    setBusyKey(`course:delete:${course.id}`);
+    setError("");
+    try {
+      await window.uclaw.courses.delete(course.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "Failed to delete course."));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function restoreThread(thread: Thread, blocked: boolean) {
+    if (blocked) {
+      setError("Restore the parent semester/course before restoring this session.");
+      return;
+    }
+    setBusyKey(`thread:restore:${thread.id}`);
+    setError("");
+    try {
+      await window.uclaw.threads.restore(thread.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "Failed to restore session."));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function deleteThread(thread: Thread) {
+    const typed = window.prompt(`This permanently deletes the archived session "${thread.title}".\n\nType the session title to confirm:`);
+    if (typed !== thread.title) return;
+    setBusyKey(`thread:delete:${thread.id}`);
+    setError("");
+    try {
+      await window.uclaw.threads.delete(thread.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "Failed to delete session."));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  const archivedSemesterCount = groups.filter((group) => group.semester.archivedAt).length;
+  const archivedCourseCount = groups.reduce((count, group) => count + group.archivedCourses.length, 0);
+  const archivedThreadCount = groups.reduce((count, group) => count + group.archivedThreads.length, 0);
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-lg border bg-background/70 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Archive className="h-4 w-4" />
+              Archive Center
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              Restore archived semesters, courses, and sessions. Permanent delete stays available only after archive.
+            </div>
+          </div>
+          <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", loading && "animate-spin")} />} label="Refresh" onClick={() => void loadArchive()} disabled={loading} />
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground md:grid-cols-3">
+          <ArchiveMetric label="Semesters" value={archivedSemesterCount} />
+          <ArchiveMetric label="Courses" value={archivedCourseCount} />
+          <ArchiveMetric label="Sessions" value={archivedThreadCount} />
+        </div>
+        {error && <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">{error}</div>}
+      </section>
+
+      {loading ? (
+        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">Loading archived items...</div>
+      ) : groups.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">No archived semesters, courses, or sessions yet.</div>
+      ) : (
+        <div className="space-y-4">
+          {groups.map((group) => {
+            const semesterArchived = Boolean(group.semester.archivedAt);
+            const homeThreads = group.archivedThreads.filter((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID);
+            const courseEntries = archiveCourseEntries(group);
+            return (
+              <section key={group.semester.id} className="overflow-hidden rounded-lg border bg-background/70">
+                <div className={cx("flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3", semesterArchived ? "bg-muted/45" : "bg-card/70")}>
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="truncate text-sm font-semibold">{group.semester.term}</span>
+                      <span className={cx("rounded px-1.5 py-0.5 text-[9px] uppercase", semesterArchived ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
+                        {semesterArchived ? "Archived semester" : "Active semester"}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {group.semester.semesterNo} · {group.archivedCourses.length} archived courses · {group.archivedThreads.length} archived sessions
+                    </div>
+                  </div>
+                  {semesterArchived && (
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <ArchiveActionButton
+                        icon={<RotateCcw className="h-3.5 w-3.5" />}
+                        label="Restore semester"
+                        busy={busyKey === `semester:restore:${group.semester.id}`}
+                        onClick={() => void restoreSemester(group.semester)}
+                      />
+                      <ArchiveActionButton
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
+                        label="Delete"
+                        danger
+                        busy={busyKey === `semester:delete:${group.semester.id}`}
+                        onClick={() => void deleteSemester(group.semester)}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3 p-4">
+                  {semesterArchived && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+                      This semester is archived. Restore it first before restoring child courses or sessions.
+                    </div>
+                  )}
+
+                  {homeThreads.length > 0 && (
+                    <ArchivePanel icon={<MessageSquare className="h-3.5 w-3.5" />} title="Home sessions" count={homeThreads.length}>
+                      <div className="space-y-2">
+                        {homeThreads.map((thread) => (
+                          <ArchivedThreadRow
+                            key={thread.id}
+                            thread={thread}
+                            restoreBlocked={semesterArchived}
+                            busyKey={busyKey}
+                            onRestore={() => void restoreThread(thread, semesterArchived)}
+                            onDelete={() => void deleteThread(thread)}
+                          />
+                        ))}
+                      </div>
+                    </ArchivePanel>
+                  )}
+
+                  {courseEntries.length > 0 && (
+                    <ArchivePanel icon={<BookOpen className="h-3.5 w-3.5" />} title="Courses" count={courseEntries.length}>
+                      <div className="space-y-2">
+                        {courseEntries.map((entry) => {
+                          const courseArchived = Boolean(entry.course?.archivedAt);
+                          const restoreBlocked = semesterArchived || courseArchived;
+                          return (
+                            <div key={entry.courseId} className="rounded-lg border bg-card p-3">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <span className="truncate text-xs font-semibold">{entry.course?.name || `Course ${shortId(entry.courseId)}`}</span>
+                                    {entry.course?.code && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{entry.course.code}</span>}
+                                    {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">Archived course</span>}
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-muted-foreground">
+                                    {entry.threads.length} archived sessions · {entry.course ? entry.course.instructor || "No instructor" : "Course metadata not loaded"}
+                                  </div>
+                                </div>
+                                {entry.course && (
+                                  <div className="flex shrink-0 flex-wrap gap-2">
+                                    <ArchiveActionButton
+                                      icon={<RotateCcw className="h-3.5 w-3.5" />}
+                                      label="Restore course"
+                                      disabled={semesterArchived}
+                                      busy={busyKey === `course:restore:${entry.course.id}`}
+                                      onClick={() => void restoreCourse(entry.course as Course, semesterArchived)}
+                                    />
+                                    <ArchiveActionButton
+                                      icon={<Trash2 className="h-3.5 w-3.5" />}
+                                      label="Delete"
+                                      danger
+                                      busy={busyKey === `course:delete:${entry.course.id}`}
+                                      onClick={() => void deleteCourse(entry.course as Course)}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+
+                              {entry.threads.length > 0 && (
+                                <div className="mt-3 space-y-2">
+                                  {entry.threads.map((thread) => (
+                                    <ArchivedThreadRow
+                                      key={thread.id}
+                                      thread={thread}
+                                      restoreBlocked={restoreBlocked}
+                                      busyKey={busyKey}
+                                      onRestore={() => void restoreThread(thread, restoreBlocked)}
+                                      onDelete={() => void deleteThread(thread)}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ArchivePanel>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArchiveMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md bg-muted/50 px-3 py-2">
+      <span className="font-medium text-foreground">{value}</span>
+      <span> {label.toLowerCase()}</span>
+    </div>
+  );
+}
+
+function ArchivePanel({ icon, title, count, children }: { icon: ReactNode; title: string; count: number; children: ReactNode }) {
+  return (
+    <section className="rounded-lg border bg-background/65 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-semibold">
+          {icon}
+          {title}
+        </div>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{count}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ArchivedThreadRow({
+  thread,
+  restoreBlocked,
+  busyKey,
+  onRestore,
+  onDelete,
+}: {
+  thread: Thread;
+  restoreBlocked: boolean;
+  busyKey: string;
+  onRestore: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/80 px-3 py-2">
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium">{thread.title}</div>
+        <div className="mt-0.5 text-[10px] text-muted-foreground">
+          {thread.threadType === "semester_home" ? "Home session" : `Task session · ${shortId(thread.taskId || thread.id)}`} · archived {formatArchiveDate(thread.archivedAt)}
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <ArchiveActionButton
+          icon={<RotateCcw className="h-3.5 w-3.5" />}
+          label="Restore"
+          disabled={restoreBlocked}
+          busy={busyKey === `thread:restore:${thread.id}`}
+          onClick={onRestore}
+        />
+        <ArchiveActionButton
+          icon={<Trash2 className="h-3.5 w-3.5" />}
+          label="Delete"
+          danger
+          busy={busyKey === `thread:delete:${thread.id}`}
+          onClick={onDelete}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ArchiveActionButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  busy,
+  danger,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={cx(
+        "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[10px] font-medium transition disabled:cursor-not-allowed disabled:opacity-45",
+        danger ? "bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+      disabled={disabled || busy}
+      onClick={onClick}
+    >
+      {icon}
+      {busy ? "Working..." : label}
+    </button>
+  );
+}
+
+function archiveCourseEntries(group: ArchiveSemesterGroup): Array<{ courseId: string; course?: Course; threads: Thread[] }> {
+  const entries = new Map<string, { courseId: string; course?: Course; threads: Thread[] }>();
+  for (const course of group.archivedCourses) {
+    entries.set(course.id, { courseId: course.id, course, threads: [] });
+  }
+  for (const thread of group.archivedThreads) {
+    if (thread.courseId === SEMESTER_HOME_COURSE_ID) continue;
+    const existing = entries.get(thread.courseId) || { courseId: thread.courseId, threads: [] };
+    existing.threads.push(thread);
+    entries.set(thread.courseId, existing);
+  }
+  return Array.from(entries.values()).sort((a, b) => (a.course?.name || a.courseId).localeCompare(b.course?.name || b.courseId));
+}
+
+function compareSemestersForArchive(a: SemesterWorkspace, b: SemesterWorkspace): number {
+  const aTime = Date.parse(a.archivedAt || a.startsAt || a.recognizedAt || "");
+  const bTime = Date.parse(b.archivedAt || b.startsAt || b.recognizedAt || "");
+  return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+}
+
+function formatArchiveDate(value?: string): string {
+  if (!value) return "unknown";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function shortId(value: string): string {
+  return value.replace(/^(course|task|thread|semester)-/, "").slice(0, 8) || value;
 }
 
 function SkillSettingsPage({
@@ -1180,9 +1629,14 @@ function ModelPicker({ purpose, models, onPick }: { purpose: ProviderPurpose; mo
   );
 }
 
-function ActionButton({ icon, label, onClick, primary }: { icon: ReactNode; label: string; onClick: () => void; primary?: boolean }) {
+function ActionButton({ icon, label, onClick, primary, disabled }: { icon: ReactNode; label: string; onClick: () => void; primary?: boolean; disabled?: boolean }) {
   return (
-    <button type="button" className={cx("inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium", primary ? "bg-foreground text-background" : "border bg-card text-muted-foreground hover:bg-accent hover:text-foreground")} onClick={onClick}>
+    <button
+      type="button"
+      className={cx("inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-45", primary ? "bg-foreground text-background" : "border bg-card text-muted-foreground hover:bg-accent hover:text-foreground")}
+      disabled={disabled}
+      onClick={onClick}
+    >
       {icon}
       {label}
     </button>
@@ -1227,7 +1681,7 @@ function protocolLabel(protocol: ProviderProtocol): string {
   return [...agentProtocols, ...embeddingProtocols].find((item) => item.value === protocol)?.label || protocol;
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, fallback = "Operation failed."): string {
   const message = error instanceof Error ? error.message : String(error || "");
-  return message.trim() || "Operation failed.";
+  return message.trim() || fallback;
 }

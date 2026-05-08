@@ -401,6 +401,7 @@ function App() {
           skills={skills}
           gitStatus={gitStatus}
           onSkillsChange={setSkills}
+          onWorkspaceChanged={() => reloadWorkspace(activeThreadId)}
           onClose={() => setSettingsOpen(false)}
         />
       )}

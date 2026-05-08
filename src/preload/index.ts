@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   CreateSemesterInput,
   CreateCourseInput,
+  ArchivedCourseScope,
+  ArchivedThreadScope,
   CreateTaskInput,
   UpdateTaskInput,
   CreateThreadInput,
@@ -28,7 +30,7 @@ const api: UclawAPI = {
   },
   courses: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.coursesList),
-    listArchived: () => ipcRenderer.invoke(IPC_CHANNELS.coursesListArchived),
+    listArchived: (scope?: ArchivedCourseScope) => ipcRenderer.invoke(IPC_CHANNELS.coursesListArchived, scope),
     create: (input: CreateCourseInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesCreate, input),
     archive: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesArchive, courseId),
     restore: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesRestore, courseId),
@@ -42,7 +44,7 @@ const api: UclawAPI = {
   },
   threads: {
     list: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsList, courseId),
-    listArchived: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsListArchived, courseId),
+    listArchived: (scope?: ArchivedThreadScope) => ipcRenderer.invoke(IPC_CHANNELS.threadsListArchived, scope),
     create: (input: CreateThreadInput) => ipcRenderer.invoke(IPC_CHANNELS.threadsCreate, input),
     archive: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsArchive, threadId),
     restore: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.threadsRestore, threadId),

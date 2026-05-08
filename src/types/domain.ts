@@ -43,6 +43,10 @@ export interface CreateCourseInput {
   description?: string;
 }
 
+export interface ArchivedCourseScope {
+  semesterId?: string;
+}
+
 /**
  * Task type is user-defined free-form string (e.g. "assignment", "exam", "读书报告", "小组项目").
  * It's a business label for display, filtering, icons, and section titles.
@@ -80,6 +84,11 @@ export interface CreateThreadInput {
   courseId: string;
   taskId?: string;
   title?: string;
+}
+
+export interface ArchivedThreadScope {
+  semesterId?: string;
+  courseId?: string;
 }
 
 export interface CreateTaskInput {
@@ -339,7 +348,7 @@ export interface UclawAPI {
   };
   courses: {
     list: () => Promise<Course[]>;
-    listArchived: () => Promise<Course[]>;
+    listArchived: (scope?: ArchivedCourseScope) => Promise<Course[]>;
     create: (input: CreateCourseInput) => Promise<Course>;
     archive: (courseId: string) => Promise<Course>;
     restore: (courseId: string) => Promise<Course>;
@@ -353,7 +362,7 @@ export interface UclawAPI {
   };
   threads: {
     list: (courseId?: string) => Promise<Thread[]>;
-    listArchived: (courseId?: string) => Promise<Thread[]>;
+    listArchived: (scope?: ArchivedThreadScope) => Promise<Thread[]>;
     create: (input: CreateThreadInput) => Promise<Thread>;
     archive: (threadId: string) => Promise<boolean>;
     restore: (threadId: string) => Promise<Thread>;

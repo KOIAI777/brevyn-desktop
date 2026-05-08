@@ -1,6 +1,9 @@
 import { existsSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type {
+  ArchivedCourseScope,
+  ArchivedThreadScope,
   Course,
   CreateCourseInput,
   CreateSemesterInput,
@@ -76,7 +79,7 @@ export class WorkspaceService {
     const timestamp = now();
     const term = input.term.trim() || "New Semester";
     const semester: SemesterWorkspace = {
-      id: `semester-${Date.now().toString(36)}`,
+      id: entityId("semester"),
       semesterNo: input.semesterNo?.trim() || term,
       term,
       folderName: sanitizeFsSegment(input.folderName?.trim() || term),
@@ -150,8 +153,10 @@ export class WorkspaceService {
     return normalizeCourses(this.options.businessStore.listCourses(semester.id), semester).filter((course) => course.id === SEMESTER_HOME_COURSE_ID || !course.archivedAt);
   }
 
-  listArchivedCourses(): Course[] {
-    const semester = currentActiveSemester(this.options.businessStore);
+  listArchivedCourses(scope?: ArchivedCourseScope): Course[] {
+    const semester = scope?.semesterId
+      ? this.options.businessStore.getSemester(scope.semesterId)
+      : currentActiveSemester(this.options.businessStore);
     if (!semester) return [];
     return normalizeCourses(this.options.businessStore.listCourses(semester.id), semester)
       .filter((course) => course.id !== SEMESTER_HOME_COURSE_ID && Boolean(course.archivedAt))
@@ -171,7 +176,7 @@ export class WorkspaceService {
     if (!course) throw new Error(`Course not found: ${input.courseId}`);
     if (isCourseArchived(this.options.businessStore, input.courseId)) throw new Error("Restore this course before creating tasks.");
     const task: UclawTask = {
-      id: `task-${Date.now().toString(36)}`,
+      id: entityId("task"),
       semesterId,
       courseId: input.courseId,
       title: input.title.trim() || "New Task",
@@ -240,7 +245,7 @@ export class WorkspaceService {
 
     const existingCourseCount = this.options.businessStore.countCourses(semester.id);
     const course: Course = {
-      id: `course-${Date.now().toString(36)}`,
+      id: entityId("course"),
       semesterId: semester.id,
       name,
       code,
@@ -306,11 +311,11 @@ export class WorkspaceService {
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
 
-  listArchivedThreads(courseId?: string): Thread[] {
-    if (isCurrentSemesterArchived(this.options.businessStore)) return [];
-    const semesterId = currentActiveSemesterId(this.options.businessStore);
+  listArchivedThreads(scope?: ArchivedThreadScope): Thread[] {
+    if (!scope?.semesterId && isCurrentSemesterArchived(this.options.businessStore)) return [];
+    const semesterId = scope?.semesterId || currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) return [];
-    return this.options.businessStore.listArchivedThreads(semesterId, courseId)
+    return this.options.businessStore.listArchivedThreads(semesterId, scope?.courseId)
       .sort((a, b) => Date.parse(b.archivedAt || b.updatedAt) - Date.parse(a.archivedAt || a.updatedAt));
   }
 
@@ -323,7 +328,7 @@ export class WorkspaceService {
       taskId: input.taskId,
     });
     const thread: Thread = {
-      id: `thread-${Date.now().toString(36)}`,
+      id: entityId("thread"),
       semesterId,
       courseId: input.courseId,
       taskId: input.taskId,
@@ -504,4 +509,8 @@ const COURSE_COLOR_PALETTE = [
 
 function pickCourseColor(index: number): string {
   return COURSE_COLOR_PALETTE[index % COURSE_COLOR_PALETTE.length];
+}
+
+function entityId(prefix: string): string {
+  return `${prefix}-${randomUUID()}`;
 }
