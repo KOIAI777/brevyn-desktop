@@ -64,6 +64,10 @@ export function CourseFilesUploadDialog({
         taskFileBucket: normalizedTargetSection === "task" ? taskFileBucket : undefined,
       });
       setLastResult(result);
+      if (result?.indexingError) {
+        setImportError(`Imported ${result.files.length} file${result.files.length === 1 ? "" : "s"}, but indexing did not queue: ${result.indexingError}`);
+        return;
+      }
       if (result?.files.length) onClose();
     } catch (error) {
       setImportError(errorMessage(error, "Failed to import files."));

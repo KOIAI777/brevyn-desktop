@@ -291,6 +291,7 @@ export interface FileImportResult {
   files: WorkspaceFileNode[];
   tree: WorkspaceFileNode[];
   indexingJob: IndexingJob | null;
+  indexingError?: string;
 }
 
 export type ProviderPurpose = "agent" | "embedding";

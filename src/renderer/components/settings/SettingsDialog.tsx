@@ -148,7 +148,10 @@ export function SettingsDialog({
   }, [skills]);
 
   useEffect(() => {
-    void window.uclaw.skills.list().then(setLocalSkills);
+    void window.uclaw.skills
+      .list()
+      .then(setLocalSkills)
+      .catch((error) => setSkillStatusLine(`Failed to load skills: ${errorMessage(error)}`));
   }, []);
 
   useEffect(() => {
@@ -182,10 +185,19 @@ export function SettingsDialog({
   }, [selectedSkillId]);
 
   async function loadProviders() {
-    const result = await window.uclaw.providers.list();
-    setProviders(result);
-    closeProviderEditor();
-    closeEmbeddingEditor();
+    try {
+      const result = await window.uclaw.providers.list();
+      setProviders(result);
+      closeProviderEditor();
+      closeEmbeddingEditor();
+      setStatusLine("");
+      setEmbeddingStatusLine("");
+    } catch (error) {
+      setProviders([]);
+      const message = errorMessage(error, "Failed to load providers.");
+      setStatusLine(message);
+      setEmbeddingStatusLine(message);
+    }
   }
 
   function selectProvider(provider: ModelProviderConfig) {
@@ -415,6 +427,9 @@ export function SettingsDialog({
     try {
       setModels(await window.uclaw.providers.models(selectedProviderId));
       setStatusLine("Fetched available models.");
+    } catch (error) {
+      setModels([]);
+      setStatusLine(`Failed to fetch agent models: ${errorMessage(error)}`);
     } finally {
       setBusy(false);
     }
@@ -429,6 +444,9 @@ export function SettingsDialog({
     try {
       setEmbeddingModels(await window.uclaw.providers.models(selectedEmbeddingProviderId));
       setEmbeddingStatusLine("Fetched embedding models.");
+    } catch (error) {
+      setEmbeddingModels([]);
+      setEmbeddingStatusLine(`Failed to fetch embedding models: ${errorMessage(error)}`);
     } finally {
       setBusy(false);
     }
@@ -467,10 +485,18 @@ export function SettingsDialog({
   }
 
   async function toggleSkill(skill: SkillItem) {
-    const updated = await window.uclaw.skills.update({ id: skill.id, enabled: !skill.enabled });
-    const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
-    setLocalSkills(next);
-    onSkillsChange(next);
+    setSkillBusy(true);
+    try {
+      const updated = await window.uclaw.skills.update({ id: skill.id, enabled: !skill.enabled });
+      const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
+      setLocalSkills(next);
+      onSkillsChange(next);
+      setSkillStatusLine(`${updated.enabled ? "Enabled" : "Disabled"} ${updated.name}.`);
+    } catch (error) {
+      setSkillStatusLine(errorMessage(error, "Failed to update skill."));
+    } finally {
+      setSkillBusy(false);
+    }
   }
 
   async function saveSkillContent() {

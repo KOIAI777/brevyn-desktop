@@ -29,14 +29,21 @@ export function SemesterManagementDialog({
   }, []);
 
   async function loadSemesters() {
-    const [active, archived, current] = await Promise.all([
-      window.uclaw.semester.list(),
-      window.uclaw.semester.listArchived(),
-      window.uclaw.semester.current(),
-    ]);
-    setActiveSemesters(active);
-    setArchivedSemesters(archived);
-    setCurrentSemester(current);
+    try {
+      const [active, archived, current] = await Promise.all([
+        window.uclaw.semester.list(),
+        window.uclaw.semester.listArchived(),
+        window.uclaw.semester.current(),
+      ]);
+      setActiveSemesters(active);
+      setArchivedSemesters(archived);
+      setCurrentSemester(current);
+    } catch (reason) {
+      setActiveSemesters([]);
+      setArchivedSemesters([]);
+      setCurrentSemester(null);
+      setError(errorMessage(reason, "Failed to load semesters."));
+    }
   }
 
   async function refreshWorkspace() {

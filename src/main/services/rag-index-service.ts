@@ -72,6 +72,7 @@ export class RagIndexService {
     }
 
     const vectors = await this.embedTexts(result.chunks, provider, apiKey);
+    assertEmbeddingVectors(vectors, result.chunks.length);
     const providerMeta = embeddingMeta(provider, vectors);
     if (!(await canWrite())) return false;
     const rows = result.chunks.map((chunk, index) => this.toRow(task, result, index, chunk, vectors[index], providerMeta));
@@ -208,6 +209,14 @@ export class RagIndexService {
     }
   }
 
+  async rebuildOutdatedSchemaForExplicitReindex(): Promise<boolean> {
+    const conn = await this.connection();
+    if (!(await this.tableNeedsRebuild(conn))) return false;
+    await this.closeCurrentTable();
+    await conn.dropTable(TABLE_NAME);
+    return true;
+  }
+
   private resolveEmbeddingProvider(): ModelProviderConfig | undefined {
     const provider = this.options.resolveEmbeddingProvider();
     if (!provider || provider.purpose !== "embedding" || provider.protocol !== "openai_compatible" || !provider.enabled || !provider.selectedModel || !provider.baseUrl) return undefined;
@@ -233,8 +242,10 @@ export class RagIndexService {
       if (!response.ok) {
         throw new Error(`Embedding request failed (${response.status}): ${await responseText(response)}`);
       }
-      const payload = (await response.json()) as { data?: Array<{ embedding?: number[]; index?: number }> };
-      const batchVectors = (payload.data || []).sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map((item) => item.embedding || []);
+      const payload = (await response.json()) as { data?: Array<{ embedding?: unknown; index?: number }> };
+      const batchVectors = (payload.data || [])
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+        .map((item) => Array.isArray(item.embedding) ? item.embedding as number[] : []);
       vectors.push(...batchVectors);
     }
     return vectors;
@@ -243,8 +254,7 @@ export class RagIndexService {
   private async ensureWritableTable(rows: RagChunkRow[]): Promise<Table> {
     const conn = await this.connection();
     if (await this.tableNeedsRebuild(conn)) {
-      await this.closeCurrentTable();
-      await conn.dropTable(TABLE_NAME);
+      throw new Error("Embedding index schema is outdated. Please re-index the current semester from Settings -> Provider.");
     }
     const table = await conn.createTable(TABLE_NAME, rows, { mode: "create", existOk: true });
     this.tablePromise = Promise.resolve(table);
@@ -379,6 +389,17 @@ function embeddingAuthHeaders(provider: ModelProviderConfig, apiKey: string): Re
 
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
+}
+
+function assertEmbeddingVectors(vectors: number[][], expectedCount: number): void {
+  if (vectors.length !== expectedCount) {
+    throw new Error(`Embedding provider returned ${vectors.length} vectors for ${expectedCount} chunks. Check the selected embedding model and re-index.`);
+  }
+  vectors.forEach((vector, index) => {
+    if (!Array.isArray(vector) || vector.length === 0 || vector.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+      throw new Error(`Embedding provider returned an invalid vector for chunk ${index + 1}. Check the selected embedding model and re-index.`);
+    }
+  });
 }
 
 function embeddingMeta(provider: ModelProviderConfig, vectors: number[][]): EmbeddingMeta {

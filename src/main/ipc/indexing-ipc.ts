@@ -9,8 +9,8 @@ export function registerIndexingIpc({ store, indexingQueue }: IpcContext): void 
     indexingQueue?.poke();
     return job;
   });
-  ipcMain.handle(IPC_CHANNELS.filesIndexActiveSemester, () => {
-    const result = store.indexActiveSemesterCourses();
+  ipcMain.handle(IPC_CHANNELS.filesIndexActiveSemester, async () => {
+    const result = await store.indexActiveSemesterCourses();
     if (result.jobs.length > 0) indexingQueue?.poke();
     return result;
   });

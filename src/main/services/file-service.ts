@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { copyFile, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import type {
   CourseFileSection,
@@ -221,7 +222,7 @@ export class FileService {
     };
   }
 
-  importFiles(input: FileImportInput): FileImportResult {
+  async importFiles(input: FileImportInput): Promise<FileImportResult> {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
     const sourcePaths = input.sourcePaths || [];
@@ -238,10 +239,11 @@ export class FileService {
     const managedTargetDir = this.ensureImportTargetDir(input);
     const copiedPaths: string[] = [];
     try {
-      const importedFiles = sourcePaths.map((sourcePath) => {
-        const stats = statSync(sourcePath);
+      const importedFiles: WorkspaceFileNode[] = [];
+      for (const sourcePath of sourcePaths) {
+        const stats = await stat(sourcePath);
         const managedPath = uniqueFilePath(managedTargetDir, basename(sourcePath));
-        copyFileSync(sourcePath, managedPath);
+        await copyFile(sourcePath, managedPath);
         copiedPaths.push(managedPath);
         const name = basename(managedPath);
         const file: WorkspaceFileNode = {
@@ -260,21 +262,24 @@ export class FileService {
           updatedAt: timestamp,
         };
         targetFolder.children = [...(targetFolder.children || []), file];
-        return file;
-      });
+        importedFiles.push(file);
+      }
 
       this.persistWorkspaceFilesForCourse(input.courseId, roots, semesterId);
       const sectionId = this.sectionIdForImport(input);
       let indexingJob: IndexingJob | null = null;
+      let indexingError: string | undefined;
       try {
         indexingJob = this.indexCourseFiles(input.courseId, sectionId);
       } catch (error) {
+        indexingError = errorMessage(error);
         console.warn("[indexing] Failed to create indexing job after import", error);
       }
       return {
         files: cloneFiles(importedFiles),
         tree: this.listFiles(input.courseId),
         indexingJob,
+        indexingError,
       };
     } catch (error) {
       for (const copiedPath of copiedPaths) this.safeRm(copiedPath, `[files] Failed to clean copied file ${copiedPath}`);
@@ -488,7 +493,8 @@ export class FileService {
     return { ...created };
   }
 
-  indexActiveSemesterCourses(): IndexActiveSemesterResult {
+  async indexActiveSemesterCourses(): Promise<IndexActiveSemesterResult> {
+    await this.options.ragIndex.rebuildOutdatedSchemaForExplicitReindex();
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("Select a semester before indexing files.");
     const courses = new Map<string, string>([[SEMESTER_HOME_COURSE_ID, "Home"]]);

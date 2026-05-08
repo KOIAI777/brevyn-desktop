@@ -108,7 +108,12 @@ export function CourseManagementDialog({
   }
 
   async function loadArchivedCourses() {
-    setArchivedCourses(await window.uclaw.courses.listArchived());
+    try {
+      setArchivedCourses(await window.uclaw.courses.listArchived());
+    } catch (error) {
+      setArchivedCourses([]);
+      setCourseActionError(errorMessage(error, "Failed to load archived courses."));
+    }
   }
 
   async function loadSections(courseId: string) {
@@ -218,13 +223,16 @@ export function CourseManagementDialog({
     setUploadingSectionId(section.id);
     setCourseActionError("");
     try {
-      await window.uclaw.files.import({
+      const result = await window.uclaw.files.import({
         courseId: activeCourse.id,
         targetSection: section.kind,
         taskId: section.taskId,
         taskFileBucket: section.kind === "task" ? "materials" : undefined,
       });
       await loadCourseView(activeCourse.id);
+      if (result.indexingError) {
+        setCourseActionError(`Imported ${result.files.length} file${result.files.length === 1 ? "" : "s"}, but indexing did not queue: ${result.indexingError}`);
+      }
     } catch (error) {
       setCourseActionError(errorMessage(error, "Failed to import files."));
     } finally {
@@ -234,8 +242,13 @@ export function CourseManagementDialog({
 
   async function cancelIndexing(jobId: string) {
     if (!activeCourse?.id) return;
-    await window.uclaw.files.cancelIndexing(jobId);
-    await loadCourseView(activeCourse.id);
+    setCourseActionError("");
+    try {
+      await window.uclaw.files.cancelIndexing(jobId);
+      await loadCourseView(activeCourse.id);
+    } catch (error) {
+      setCourseActionError(errorMessage(error, "Failed to cancel indexing."));
+    }
   }
 
   async function searchRag() {

@@ -10,6 +10,7 @@ import type {
 } from "../../types/domain";
 import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
+import { ProviderTransactionStore } from "./provider-transaction-store";
 
 const PROVIDER_FETCH_TIMEOUT_MS = 8_000;
 
@@ -23,7 +24,11 @@ export class ProviderService {
   constructor(
     private readonly configs: ProviderConfigStore,
     private readonly secrets?: ProviderSecretStore,
-  ) {}
+    private readonly transactions?: ProviderTransactionStore,
+  ) {
+    this.transactions?.reconcile(this.configs, this.secrets);
+    this.reconcileSecretRecords();
+  }
 
   list(): ModelProviderConfig[] {
     return normalizeProviders(this.configs.listProviders()).map(cloneProvider);
@@ -43,15 +48,18 @@ export class ProviderService {
     let apiKeySecretRef = existing?.apiKeySecretRef;
     let apiKeyMasked = existing?.apiKeyMasked || "";
     const secretSnapshot = this.secrets?.snapshot();
+    let nextSecretSnapshot = secretSnapshot;
     let secretChanged = false;
     try {
       if (draft.clearApiKey) {
-        this.secrets?.deleteApiKey(providerId);
+        nextSecretSnapshot = this.secrets?.snapshotWithoutApiKey(providerId);
         secretChanged = Boolean(this.secrets);
         apiKeySecretRef = undefined;
         apiKeyMasked = "";
       } else if (apiKey) {
-        apiKeySecretRef = this.secrets?.saveApiKey(providerId, apiKey);
+        const nextSecret = this.secrets?.snapshotWithApiKey(providerId, apiKey);
+        nextSecretSnapshot = nextSecret?.snapshot;
+        apiKeySecretRef = nextSecret?.secretRef;
         secretChanged = Boolean(this.secrets);
         apiKeyMasked = maskApiKey(apiKey);
       }
@@ -75,7 +83,15 @@ export class ProviderService {
           ? { ...provider, enabled: false, updatedAt: timestamp }
           : provider,
       );
-      this.configs.replaceProviders(nextProviders);
+      this.commitProviderMutation({
+        type: "save",
+        providerId,
+        beforeProfiles: providers,
+        afterProfiles: nextProviders,
+        beforeSecrets: secretSnapshot,
+        afterSecrets: nextSecretSnapshot,
+        secretChanged,
+      });
       const embeddingFingerprintAfter = activeEmbeddingProviderFingerprint(nextProviders);
       return {
         provider: cloneProvider(next),
@@ -104,9 +120,17 @@ export class ProviderService {
     const existedInMemory = providers.some((provider) => provider.id === id);
     if (!existedInMemory) return false;
     const secretSnapshot = this.secrets?.snapshot();
+    const nextSecretSnapshot = this.secrets?.snapshotWithoutApiKey(id);
     try {
-      this.secrets?.deleteApiKey(id);
-      this.configs.replaceProviders(providers.filter((provider) => provider.id !== id));
+      this.commitProviderMutation({
+        type: "delete",
+        providerId: id,
+        beforeProfiles: providers,
+        afterProfiles: providers.filter((provider) => provider.id !== id),
+        beforeSecrets: secretSnapshot,
+        afterSecrets: nextSecretSnapshot,
+        secretChanged: Boolean(this.secrets),
+      });
       return true;
     } catch (error) {
       if (secretSnapshot && this.secrets) {
@@ -126,7 +150,8 @@ export class ProviderService {
     const provider = this.list().find((item) => item.id === id);
     if (!provider) return [];
     const apiKey = this.apiKey(provider.id) || envApiKeyForProvider(provider);
-    if (!provider.baseUrl || !apiKey) return provider.models;
+    if (!provider.baseUrl) throw new Error("Base URL is required before fetching models.");
+    if (!apiKey) throw new Error("API key is required before fetching models.");
     try {
       const fetched = await fetchProviderModels(provider, apiKey);
       const compatibleModels = filterModelsForPurpose(provider.purpose, fetched);
@@ -135,7 +160,7 @@ export class ProviderService {
       return models;
     } catch (error) {
       console.warn(`[providers] Failed to fetch models for ${provider.id}`, error);
-      return provider.models;
+      throw new Error(`Failed to fetch ${provider.purpose} models: ${error instanceof Error ? error.message : String(error || "Unknown error")}`);
     }
   }
 
@@ -222,6 +247,76 @@ export class ProviderService {
 
   envApiKeyFor(provider: ModelProviderConfig): string | undefined {
     return envApiKeyForProvider(provider);
+  }
+
+  private commitProviderMutation({
+    type,
+    providerId,
+    beforeProfiles,
+    afterProfiles,
+    beforeSecrets,
+    afterSecrets,
+    secretChanged,
+  }: {
+    type: "save" | "delete";
+    providerId: string;
+    beforeProfiles: ModelProviderConfig[];
+    afterProfiles: ModelProviderConfig[];
+    beforeSecrets?: ReturnType<ProviderSecretStore["snapshot"]>;
+    afterSecrets?: ReturnType<ProviderSecretStore["snapshot"]>;
+    secretChanged: boolean;
+  }): void {
+    const transaction = secretChanged && this.transactions
+      ? this.transactions.begin({
+          type,
+          providerId,
+          beforeProfiles,
+          afterProfiles,
+          beforeSecrets,
+          afterSecrets,
+        })
+      : undefined;
+    try {
+      if (secretChanged && afterSecrets && this.secrets) this.secrets.restore(afterSecrets);
+      this.configs.replaceProviders(afterProfiles);
+      this.transactions?.clear(transaction?.id);
+    } catch (error) {
+      try {
+        if (secretChanged && beforeSecrets && this.secrets) this.secrets.restore(beforeSecrets);
+        this.configs.replaceProviders(beforeProfiles);
+        this.transactions?.clear(transaction?.id);
+      } catch (rollbackError) {
+        console.warn("[providers] Failed to roll back provider mutation", rollbackError);
+      }
+      throw error;
+    }
+  }
+
+  private reconcileSecretRecords(): void {
+    if (!this.secrets) return;
+    const providers = normalizeProviders(this.configs.listProviders());
+    const providerIds = new Set(providers.map((provider) => provider.id));
+    const nextProviders = providers.map((provider) => {
+      if (!provider.apiKeySecretRef || this.secrets?.hasStoredApiKeyRecord(provider.id)) return provider;
+      return {
+        ...provider,
+        apiKeySecretRef: undefined,
+        apiKeyMasked: "",
+      };
+    });
+    let nextSecrets = this.secrets.snapshot();
+    for (const providerId of this.secrets.storedProviderIds()) {
+      if (!providerIds.has(providerId)) {
+        nextSecrets = {
+          ...nextSecrets,
+          providers: Object.fromEntries(Object.entries(nextSecrets.providers).filter(([id]) => id !== providerId)),
+        };
+      }
+    }
+    const profilesChanged = JSON.stringify(nextProviders) !== JSON.stringify(providers);
+    const secretsChanged = this.secrets.storedProviderIds().some((providerId) => !providerIds.has(providerId));
+    if (secretsChanged) this.secrets.restore(nextSecrets);
+    if (profilesChanged) this.configs.replaceProviders(nextProviders);
   }
 }
 

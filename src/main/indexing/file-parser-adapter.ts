@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { extname } from "node:path";
 import JSZip from "jszip";
 import mammoth from "mammoth";
@@ -18,7 +18,7 @@ interface ParseInput {
 }
 
 const TEXT_KINDS = new Set<WorkspaceFileKind>(["markdown", "code", "text"]);
-const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+const MAX_TEXT_BYTES = 50 * 1024 * 1024;
 const MAX_PARSED_CHARS = 900_000;
 
 export async function parseIndexingFile(input: ParseInput): Promise<ParsedIndexingFile> {
@@ -53,19 +53,35 @@ export function normalizeText(value: string): string {
 
 function parsePlainText(input: ParseInput, byteCount: number): ParsedIndexingFile {
   const bytesToRead = Math.min(byteCount, MAX_TEXT_BYTES);
-  const buffer = readFileSync(input.sourcePath);
-  const raw = buffer.subarray(0, bytesToRead).toString("utf8");
-  const truncated = byteCount > MAX_TEXT_BYTES;
+  const raw = readFilePrefix(input.sourcePath, bytesToRead).toString("utf8");
+  const warnings: string[] = [];
+  const byteTruncated = byteCount > MAX_TEXT_BYTES;
+  if (byteTruncated) warnings.push(`Read first ${formatBytes(MAX_TEXT_BYTES)} only; streaming text parsing is still pending.`);
+  const capped = capParsedText(raw, warnings);
   return {
-    text: normalizeText(raw),
+    text: normalizeText(capped.text),
     byteCount,
-    warnings: truncated ? [`Read first ${MAX_TEXT_BYTES} bytes only; streaming text parsing is still pending.`] : [],
+    warnings,
     metadata: {
       parser: "plain-text",
       kind: input.kind,
-      truncated,
+      truncated: byteTruncated || capped.truncated,
+      bytesRead: bytesToRead,
     },
   };
+}
+
+function readFilePrefix(sourcePath: string, bytesToRead: number): Buffer {
+  if (bytesToRead <= 0) return Buffer.alloc(0);
+  const buffer = Buffer.allocUnsafe(bytesToRead);
+  let fd: number | undefined;
+  try {
+    fd = openSync(sourcePath, "r");
+    const bytesRead = readSync(fd, buffer, 0, bytesToRead, 0);
+    return bytesRead === bytesToRead ? buffer : buffer.subarray(0, bytesRead);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 async function parseDocx(input: ParseInput, byteCount: number): Promise<ParsedIndexingFile> {
@@ -180,6 +196,11 @@ function capParsedText(text: string, warnings: string[]): { text: string; trunca
   }
   warnings.push(`Parsed text was capped at ${MAX_PARSED_CHARS} characters for this indexing pass.`);
   return { text: text.slice(0, MAX_PARSED_CHARS), truncated: true };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${Math.round(bytes / (1024 * 1024))}MB`;
 }
 
 function emptyParsedFile(input: ParseInput, byteCount: number, warning: string): ParsedIndexingFile {

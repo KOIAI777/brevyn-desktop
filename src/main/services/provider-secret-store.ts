@@ -35,6 +35,14 @@ export class ProviderSecretStore {
     return Boolean(this.data.providers[providerId] && this.isEncryptionAvailable());
   }
 
+  hasStoredApiKeyRecord(providerId: string): boolean {
+    return Boolean(this.data.providers[providerId]);
+  }
+
+  storedProviderIds(): string[] {
+    return Object.keys(this.data.providers);
+  }
+
   snapshot(): ProviderSecretSnapshot {
     return cloneSecretFile(this.data);
   }
@@ -43,9 +51,9 @@ export class ProviderSecretStore {
     this.writeData(cloneSecretFile(snapshot));
   }
 
-  saveApiKey(providerId: string, apiKey: string): string {
+  snapshotWithApiKey(providerId: string, apiKey: string): { snapshot: ProviderSecretSnapshot; secretRef: string } {
     const trimmed = apiKey.trim();
-    if (!trimmed) return this.secretRef(providerId);
+    if (!trimmed) return { snapshot: this.snapshot(), secretRef: this.secretRef(providerId) };
     if (!this.isEncryptionAvailable()) {
       throw new Error("Secure key storage is unavailable on this system. UCLAW will not save plaintext provider keys.");
     }
@@ -55,15 +63,24 @@ export class ProviderSecretStore {
       ciphertext: safeStorage.encryptString(trimmed).toString("base64"),
       updatedAt: now(),
     };
-    this.writeData(next);
-    return this.secretRef(providerId);
+    return { snapshot: next, secretRef: this.secretRef(providerId) };
+  }
+
+  snapshotWithoutApiKey(providerId: string): ProviderSecretSnapshot {
+    const next = cloneSecretFile(this.data);
+    delete next.providers[providerId];
+    return next;
+  }
+
+  saveApiKey(providerId: string, apiKey: string): string {
+    const next = this.snapshotWithApiKey(providerId, apiKey);
+    this.writeData(next.snapshot);
+    return next.secretRef;
   }
 
   deleteApiKey(providerId: string): void {
     if (!this.data.providers[providerId]) return;
-    const next = cloneSecretFile(this.data);
-    delete next.providers[providerId];
-    this.writeData(next);
+    this.writeData(this.snapshotWithoutApiKey(providerId));
   }
 
   readApiKey(providerId: string): string | undefined {

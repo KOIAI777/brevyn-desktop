@@ -42,6 +42,7 @@ import { FileService } from "./file-service";
 import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
+import { ProviderTransactionStore } from "./provider-transaction-store";
 import { RagIndexService } from "./rag-index-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
@@ -63,7 +64,7 @@ export class LocalStore {
     providerSecrets?: ProviderSecretStore,
   ) {
     this.rootDataDir = dirname(this.filePath);
-    this.providers = new ProviderService(providerConfigs, providerSecrets);
+    this.providers = new ProviderService(providerConfigs, providerSecrets, new ProviderTransactionStore(join(this.rootDataDir, "provider-transactions.json")));
     this.skillFiles = new SkillFileStore(this.rootDataDir);
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
     this.ragIndex = new RagIndexService({
@@ -200,7 +201,7 @@ export class LocalStore {
     return this.files.previewFile(fileId);
   }
 
-  importFiles(input: FileImportInput): FileImportResult {
+  importFiles(input: FileImportInput): Promise<FileImportResult> {
     return this.files.importFiles(input);
   }
 
@@ -220,7 +221,7 @@ export class LocalStore {
     return this.files.indexCourseFiles(courseId, sectionId);
   }
 
-  indexActiveSemesterCourses(): IndexActiveSemesterResult {
+  indexActiveSemesterCourses(): Promise<IndexActiveSemesterResult> {
     return this.files.indexActiveSemesterCourses();
   }
 

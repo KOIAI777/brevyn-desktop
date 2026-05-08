@@ -48,7 +48,7 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
       return { files: [], tree: store.listFiles(input.courseId), indexingJob: null };
     }
     const sourcePaths = dialogResult.filePaths;
-    const result = store.importFiles({ ...input, sourcePaths });
+    const result = await store.importFiles({ ...input, sourcePaths });
     if (result.indexingJob) indexingQueue?.poke();
     return result;
   });
