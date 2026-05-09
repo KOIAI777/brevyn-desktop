@@ -1,13 +1,21 @@
-import type {
-  ModelProviderConfig,
-  ProviderAuthMode,
-  ProviderDraftInput,
-  ProviderModel,
-  ProviderProtocol,
-  ProviderPurpose,
-  ProviderSaveResult,
-  ProviderTestResult,
+import {
+  AGENT_PROVIDER_PRESETS,
+  EMBEDDING_PROVIDER_PRESETS,
+  PROVIDER_PRESETS,
+  type AgentProviderKind,
+  type EmbeddingProviderKind,
+  type ModelProviderConfig,
+  type ProviderAdapterKind,
+  type ProviderAuthMode,
+  type ProviderDraftInput,
+  type ProviderKind,
+  type ProviderModel,
+  type ProviderPurpose,
+  type ProviderPreset,
+  type ProviderSaveResult,
+  type ProviderTestResult,
 } from "../../types/domain";
+import { getAgentProviderAdapter, getEmbeddingProviderAdapter, normalizeBaseUrl } from "../providers";
 import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderTransactionStore } from "./provider-transaction-store";
@@ -16,6 +24,8 @@ const PROVIDER_FETCH_TIMEOUT_MS = 8_000;
 
 type LegacyProviderConfig = Partial<ModelProviderConfig> & {
   purpose?: string;
+  providerKind?: string;
+  adapterKind?: string;
   protocol?: string;
   authMode?: string;
 };
@@ -42,8 +52,12 @@ export class ProviderService {
     const existing = draft.id ? providers.find((provider) => provider.id === draft.id) : undefined;
     const providerId = draft.id || `provider-${Date.now().toString(36)}`;
     const purpose = normalizeProviderPurpose(draft);
-    const protocol = normalizeProviderProtocol(draft.protocol, purpose);
-    const selectedModel = draft.selectedModel;
+    const providerKind = normalizeProviderKind(draft.providerKind, purpose, draft.protocol, draft.baseUrl);
+    const preset = providerPreset(providerKind);
+    const protocol = preset.protocol;
+    const draftModels = draft.models || [];
+    const modelSeed = draftModels.length > 0 ? draftModels : existing?.models || presetModels(preset);
+    const selectedModel = draft.selectedModel || modelSeed.find((model) => model.enabled)?.id || "";
     const apiKey = draft.apiKey;
     let apiKeySecretRef = existing?.apiKeySecretRef;
     let apiKeyMasked = existing?.apiKeyMasked || "";
@@ -66,13 +80,15 @@ export class ProviderService {
       const next: ModelProviderConfig = {
         id: providerId,
         purpose,
+        providerKind,
+        adapterKind: preset.adapterKind,
         name: uniqueProviderName(draft.name || nextProviderName(providers, purpose, providerId), providers, purpose, providerId),
         protocol,
-        baseUrl: normalizeBaseUrl(draft.baseUrl),
+        baseUrl: normalizeBaseUrl(draft.baseUrl || preset.baseUrl),
         apiKeyMasked,
         apiKeySecretRef,
-        authMode: normalizeProviderAuthMode(draft.authMode, purpose),
-        models: normalizeProviderModels(draft.models || existing?.models || [], selectedModel),
+        authMode: normalizeProviderAuthMode(draft.authMode, purpose, providerKind),
+        models: normalizeProviderModels(modelSeed, selectedModel),
         selectedModel,
         enabled: draft.enabled ?? existing?.enabled ?? false,
         createdAt: existing?.createdAt || timestamp,
@@ -189,9 +205,7 @@ export class ProviderService {
       const embeddingDimension = provider.purpose === "embedding"
         ? await testEmbeddingProvider(provider, apiKey)
         : undefined;
-      if (provider.purpose === "agent") {
-        await fetchProviderModels(provider, apiKey, { limit: 1 });
-      }
+      if (provider.purpose === "agent") await testAgentProvider(provider, apiKey);
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
@@ -227,6 +241,7 @@ export class ProviderService {
     return singleActiveProvider(this.list().filter((provider) =>
       provider.purpose === "agent" &&
       provider.protocol === "anthropic_messages" &&
+      provider.adapterKind === "anthropic" &&
       provider.enabled &&
       Boolean(provider.selectedModel) &&
       Boolean(provider.baseUrl) &&
@@ -239,6 +254,7 @@ export class ProviderService {
     return singleActiveProvider(this.list().filter((provider) =>
       provider.purpose === "embedding" &&
       provider.protocol === "openai_compatible" &&
+      provider.adapterKind === "openai_embedding" &&
       provider.enabled &&
       Boolean(provider.selectedModel) &&
       Boolean(provider.baseUrl),
@@ -323,18 +339,23 @@ export class ProviderService {
 export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProviderConfig[] {
   return providers.map((provider) => {
     const purpose = normalizeProviderPurpose(provider);
-    const protocol = normalizeProviderProtocol(provider.protocol, purpose);
+    const providerKind = normalizeProviderKind(provider.providerKind, purpose, provider.protocol, provider.baseUrl);
+    const preset = providerPreset(providerKind);
+    const protocol = preset.protocol;
     const selectedModel = normalizeSelectedModel(provider);
+    const modelSeed = Array.isArray(provider.models) && provider.models.length > 0 ? provider.models : presetModels(preset);
     return {
       id: stringValue(provider.id) || `provider-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       purpose,
+      providerKind,
+      adapterKind: normalizeProviderAdapterKind(provider.adapterKind, providerKind),
       name: stringValue(provider.name) || (purpose === "agent" ? "Agent Provider" : "Embedding Provider"),
       protocol,
-      baseUrl: normalizeBaseUrl(provider.baseUrl),
+      baseUrl: normalizeBaseUrl(provider.baseUrl || preset.baseUrl),
       apiKeyMasked: stringValue(provider.apiKeyMasked) === "sk-...local" ? "" : stringValue(provider.apiKeyMasked),
       apiKeySecretRef: stringValue(provider.apiKeySecretRef) || (provider.id ? `provider-secret:${provider.id}` : undefined),
-      authMode: normalizeProviderAuthMode(provider.authMode, purpose),
-      models: normalizeProviderModels(provider.models, selectedModel),
+      authMode: normalizeProviderAuthMode(provider.authMode, purpose, providerKind),
+      models: normalizeProviderModels(modelSeed, selectedModel),
       selectedModel,
       enabled: normalizeProviderEnabled(provider),
       createdAt: stringValue(provider.createdAt) || new Date().toISOString(),
@@ -345,19 +366,40 @@ export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProv
 
 export function envApiKeyForProvider(provider: ModelProviderConfig): string | undefined {
   if (provider.purpose === "agent") {
-    return envAgentApiKey(provider.authMode);
+    return envAgentApiKey(provider);
   }
-  return envEmbeddingApiKey();
+  return envEmbeddingApiKey(provider);
 }
 
-function envAgentApiKey(authMode: ProviderAuthMode): string | undefined {
-  if (authMode === "auth_token" || authMode === "bearer") {
+function envAgentApiKey(provider: ModelProviderConfig): string | undefined {
+  if (provider.providerKind === "deepseek") {
+    return process.env.UCLAW_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
+  }
+  if (provider.providerKind === "kimi-api") {
+    return process.env.UCLAW_KIMI_API_KEY || process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
+  }
+  if (provider.providerKind === "kimi-coding") {
+    return process.env.UCLAW_KIMI_CODING_API_KEY || process.env.KIMI_CODING_API_KEY || process.env.KIMI_API_KEY;
+  }
+  if (provider.authMode === "auth_token" || provider.authMode === "bearer") {
     return process.env.UCLAW_ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
   }
   return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
 }
 
-function envEmbeddingApiKey(): string | undefined {
+function envEmbeddingApiKey(provider: ModelProviderConfig): string | undefined {
+  if (provider.providerKind === "qwen") {
+    return process.env.UCLAW_QWEN_API_KEY || process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
+  }
+  if (provider.providerKind === "doubao") {
+    return process.env.UCLAW_DOUBAO_API_KEY || process.env.DOUBAO_API_KEY || process.env.ARK_API_KEY;
+  }
+  if (provider.providerKind === "zhipu") {
+    return process.env.UCLAW_ZHIPU_API_KEY || process.env.ZHIPU_API_KEY;
+  }
+  if (provider.providerKind === "minimax") {
+    return process.env.UCLAW_MINIMAX_API_KEY || process.env.MINIMAX_API_KEY;
+  }
   return process.env.UCLAW_OPENAI_COMPATIBLE_API_KEY || process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 }
 
@@ -366,10 +408,6 @@ function maskApiKey(apiKey: string): string {
   if (!trimmed) return "";
   if (trimmed.length <= 8) return "....";
   return `${trimmed.slice(0, 3)}...${trimmed.slice(-4)}`;
-}
-
-function normalizeBaseUrl(baseUrl?: string): string {
-  return stringValue(baseUrl).trim().replace(/\/+$/, "");
 }
 
 function nextProviderName(providers: ModelProviderConfig[], purpose: ProviderPurpose, excludeId?: string): string {
@@ -401,20 +439,86 @@ function normalizeNameKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function normalizeProviderPurpose(provider: Pick<LegacyProviderConfig, "purpose" | "protocol">): ProviderPurpose {
+function normalizeProviderPurpose(provider: Pick<LegacyProviderConfig, "purpose" | "protocol" | "providerKind">): ProviderPurpose {
   if (provider.purpose === "agent" || provider.purpose === "embedding") return provider.purpose;
+  const kindPurpose = providerPurposeForKind(provider.providerKind);
+  if (kindPurpose) return kindPurpose;
   if (provider.protocol === "anthropic_messages") return "agent";
   return "embedding";
 }
 
-function normalizeProviderProtocol(protocol: string | undefined, purpose: ProviderPurpose): ProviderProtocol {
-  if (purpose === "agent") return "anthropic_messages";
-  return "openai_compatible";
+function normalizeProviderAuthMode(authMode: string | undefined, purpose: ProviderPurpose, providerKind?: ProviderKind): ProviderAuthMode {
+  if (authMode === "api_key" || authMode === "auth_token" || authMode === "bearer") return authMode;
+  if (providerKind) return providerPreset(providerKind).authMode;
+  return purpose === "agent" ? "api_key" : "bearer";
 }
 
-function normalizeProviderAuthMode(authMode: string | undefined, purpose: ProviderPurpose): ProviderAuthMode {
-  if (authMode === "api_key" || authMode === "auth_token" || authMode === "bearer") return authMode;
-  return purpose === "agent" ? "api_key" : "bearer";
+function normalizeProviderAdapterKind(adapterKind: string | undefined, providerKind: ProviderKind): ProviderAdapterKind {
+  const expected = providerPreset(providerKind).adapterKind;
+  if (adapterKind === expected) return adapterKind;
+  return expected;
+}
+
+function normalizeProviderKind(kind: string | undefined, purpose: ProviderPurpose, protocol?: string, baseUrl?: string): ProviderKind {
+  const normalized = normalizeKindAlias(kind);
+  if (purpose === "agent") {
+    if (isAgentProviderKind(normalized)) return normalized;
+    return inferAgentProviderKind(protocol, baseUrl);
+  }
+  if (isEmbeddingProviderKind(normalized)) return normalized;
+  return inferEmbeddingProviderKind(baseUrl);
+}
+
+function normalizeKindAlias(kind: string | undefined): string {
+  const value = stringValue(kind).trim().toLowerCase();
+  if (value === "kimi_api") return "kimi-api";
+  if (value === "kimi_coding") return "kimi-coding";
+  if (value === "custom_anthropic") return "custom-anthropic";
+  if (value === "custom_openai" || value === "custom") return "custom-openai";
+  return value;
+}
+
+function providerPurposeForKind(kind: string | undefined): ProviderPurpose | undefined {
+  const normalized = normalizeKindAlias(kind);
+  if (isAgentProviderKind(normalized)) return "agent";
+  if (isEmbeddingProviderKind(normalized)) return "embedding";
+  return undefined;
+}
+
+function isAgentProviderKind(kind: string): kind is AgentProviderKind {
+  return Object.prototype.hasOwnProperty.call(AGENT_PROVIDER_PRESETS, kind);
+}
+
+function isEmbeddingProviderKind(kind: string): kind is EmbeddingProviderKind {
+  return Object.prototype.hasOwnProperty.call(EMBEDDING_PROVIDER_PRESETS, kind);
+}
+
+function inferAgentProviderKind(protocol?: string, baseUrl?: string): AgentProviderKind {
+  const url = normalizeBaseUrl(baseUrl).toLowerCase();
+  if (url.includes("deepseek.com")) return "deepseek";
+  if (url.includes("api.kimi.com/coding")) return "kimi-coding";
+  if (url.includes("moonshot.cn/anthropic")) return "kimi-api";
+  if (url && !url.includes("api.anthropic.com")) return "custom-anthropic";
+  if (protocol === "anthropic_messages" || !url) return "anthropic";
+  return "custom-anthropic";
+}
+
+function inferEmbeddingProviderKind(baseUrl?: string): EmbeddingProviderKind {
+  const url = normalizeBaseUrl(baseUrl).toLowerCase();
+  if (url.includes("dashscope.aliyuncs.com")) return "qwen";
+  if (url.includes("volces.com")) return "doubao";
+  if (url.includes("bigmodel.cn")) return "zhipu";
+  if (url.includes("minimax.chat")) return "minimax";
+  if (url.includes("api.openai.com") || !url) return "openai";
+  return "custom-openai";
+}
+
+function providerPreset(providerKind: ProviderKind): ProviderPreset {
+  return PROVIDER_PRESETS[providerKind];
+}
+
+function presetModels(preset: ProviderPreset): ProviderModel[] {
+  return (preset.models || []).map((model) => ({ ...model }));
 }
 
 function normalizeSelectedModel(provider: LegacyProviderConfig): string {
@@ -429,12 +533,13 @@ function activeEmbeddingProviderFingerprint(providers: ModelProviderConfig[]): s
   const provider = singleActiveProvider(providers.filter((item) =>
     item.purpose === "embedding" &&
     item.protocol === "openai_compatible" &&
+    item.adapterKind === "openai_embedding" &&
     item.enabled &&
     Boolean(item.selectedModel) &&
     Boolean(item.baseUrl),
   ));
   if (!provider) return undefined;
-  return [provider.id, normalizeBaseUrl(provider.baseUrl), provider.selectedModel.trim()].join("|");
+  return [provider.id, provider.providerKind, normalizeBaseUrl(provider.baseUrl), provider.selectedModel.trim()].join("|");
 }
 
 function singleActiveProvider(providers: ModelProviderConfig[]): ModelProviderConfig | undefined {
@@ -477,74 +582,45 @@ async function fetchProviderModels(
   options: { limit?: number } = {},
 ): Promise<ProviderModel[]> {
   if (!provider.baseUrl) throw new Error("Base URL is required.");
-  const authHeaders = authHeadersForProvider(provider, apiKey);
-  const modelEndpoints = candidateModelEndpoints(provider.baseUrl);
-  let lastError: Error | null = null;
-  let modelsPayload: { data?: Array<{ id?: string; display_name?: string; name?: string }> } | null = null;
-  for (const endpoint of modelEndpoints) {
-    const response = await fetchWithTimeout(endpoint, { headers: authHeaders });
-    if (!response.ok) {
-      lastError = new Error(`Connection failed (${response.status}) ${await responseShortText(response)}`);
-      continue;
-    }
-    const payload = (await responseJson(response)) as { data?: Array<{ id?: string; display_name?: string; name?: string }> } | null;
-    if (!payload) {
-      lastError = new Error(`Expected JSON from ${endpoint} but received non-JSON response.`);
-      continue;
-    }
-    modelsPayload = payload;
-    break;
+  const adapter = provider.purpose === "agent"
+    ? getAgentProviderAdapter(provider)
+    : getEmbeddingProviderAdapter(provider);
+  const request = adapter.buildModelListRequest(provider, apiKey);
+  const response = await fetchWithTimeout(request.url, request.init);
+  if (!response.ok) {
+    throw new Error(`Connection failed (${response.status}) ${await responseShortText(response)}`);
   }
-  if (!modelsPayload) {
-    throw lastError || new Error(`Unable to load models from ${provider.baseUrl}.`);
-  }
-  const models = (modelsPayload.data || []).flatMap((item) => providerModelFromId(item.id || "", item.display_name || item.name));
+  const payload = await responseJson(response);
+  if (!payload) throw new Error(`Expected JSON from ${request.url} but received non-JSON response.`);
+  const models = adapter.parseModelList(payload);
   return typeof options.limit === "number" ? models.slice(0, options.limit) : models;
+}
+
+async function testAgentProvider(provider: ModelProviderConfig, apiKey: string): Promise<void> {
+  const adapter = getAgentProviderAdapter(provider);
+  const request = adapter.buildConnectionTestRequest(provider, apiKey);
+  const response = await fetchWithTimeout(request.url, request.init);
+  if (response.ok) return;
+  const text = await responseShortText(response);
+  if (response.status === 401) throw new Error(`API key is invalid${text ? `: ${text}` : ""}`);
+  throw new Error(`Agent request failed (${response.status}): ${text}`);
 }
 
 async function testEmbeddingProvider(provider: ModelProviderConfig, apiKey: string): Promise<number> {
   const model = provider.selectedModel.trim();
   if (!model) throw new Error("Embedding model is required before testing the provider.");
-  const response = await fetchWithTimeout(`${normalizeBaseUrl(provider.baseUrl)}/embeddings`, {
-    method: "POST",
-    headers: {
-      ...authHeadersForProvider(provider, apiKey),
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      input: ["test"],
-      model,
-      encoding_format: "float",
-    }),
-  });
+  const adapter = getEmbeddingProviderAdapter(provider);
+  const request = adapter.buildEmbeddingRequest(provider, apiKey, ["test"]);
+  const response = await fetchWithTimeout(request.url, request.init);
   if (!response.ok) {
     throw new Error(`Embedding request failed (${response.status}): ${await responseShortText(response)}`);
   }
-  const payload = (await responseJson(response)) as { data?: Array<{ embedding?: unknown }> } | null;
-  const embedding = payload?.data?.[0]?.embedding;
-  if (!Array.isArray(embedding) || embedding.length === 0 || embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
-    throw new Error("Embedding endpoint returned an invalid embedding payload.");
-  }
+  const payload = await responseJson(response);
+  if (!payload) throw new Error("Embedding endpoint returned non-JSON response.");
+  const vectors = adapter.parseEmbeddingResponse(payload);
+  const embedding = vectors[0];
+  if (!embedding) throw new Error("Embedding endpoint returned no vectors.");
   return embedding.length;
-}
-
-function authHeadersForProvider(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
-  if (provider.purpose === "agent") {
-    if (provider.authMode === "auth_token" || provider.authMode === "bearer") {
-      return {
-        "anthropic-version": "2023-06-01",
-        authorization: `Bearer ${apiKey}`,
-      };
-    }
-    return {
-      "anthropic-version": "2023-06-01",
-      "x-api-key": apiKey,
-    };
-  }
-  if (provider.authMode === "api_key") {
-    return { "x-api-key": apiKey };
-  }
-  return { authorization: `Bearer ${apiKey}` };
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -560,12 +636,6 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function providerModelFromId(id: string, displayName?: string): ProviderModel[] {
-  const modelId = id.trim();
-  if (!modelId) return [];
-  return [{ id: modelId, name: displayName || modelId, enabled: true }];
 }
 
 function filterModelsForPurpose(purpose: ProviderPurpose, models: ProviderModel[]): ProviderModel[] {
@@ -608,27 +678,26 @@ async function responseJson(response: Response): Promise<unknown | null> {
   return null;
 }
 
-function candidateModelEndpoints(baseUrl: string): string[] {
-  const normalized = normalizeBaseUrl(baseUrl);
-  return [`${normalized}/models`];
-}
-
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
 }
 
 function normalizeProviderDraftInput(input: unknown): ProviderDraftInput {
   const draft = input && typeof input === "object" ? input as Partial<ProviderDraftInput> : {};
-  const purpose = draft.purpose === "agent" || draft.purpose === "embedding" ? draft.purpose : draft.protocol === "anthropic_messages" ? "agent" : "embedding";
+  const purpose = draft.purpose === "agent" || draft.purpose === "embedding"
+    ? draft.purpose
+    : providerPurposeForKind(stringValue(draft.providerKind)) || (draft.protocol === "anthropic_messages" ? "agent" : "embedding");
+  const providerKind = normalizeProviderKind(stringValue(draft.providerKind), purpose, stringValue(draft.protocol), stringValue(draft.baseUrl));
   return {
     id: stringValue(draft.id).trim() || undefined,
     purpose,
+    providerKind,
     name: stringValue(draft.name).trim(),
-    protocol: normalizeProviderProtocol(stringValue(draft.protocol), purpose),
+    protocol: providerPreset(providerKind).protocol,
     baseUrl: stringValue(draft.baseUrl),
     apiKey: stringValue(draft.apiKey).trim(),
     clearApiKey: Boolean(draft.clearApiKey),
-    authMode: normalizeProviderAuthMode(stringValue(draft.authMode), purpose),
+    authMode: normalizeProviderAuthMode(stringValue(draft.authMode), purpose, providerKind),
     models: Array.isArray(draft.models) ? draft.models : [],
     selectedModel: stringValue(draft.selectedModel).trim(),
     enabled: typeof draft.enabled === "boolean" ? draft.enabled : undefined,

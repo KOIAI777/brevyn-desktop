@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { Connection, Table } from "@lancedb/lancedb";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import type { ModelProviderConfig, RagSearchResult, WorkspaceFileKind } from "../../types/domain";
+import { getEmbeddingProviderAdapter } from "../providers";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 
@@ -219,7 +220,7 @@ export class RagIndexService {
 
   private resolveEmbeddingProvider(): ModelProviderConfig | undefined {
     const provider = this.options.resolveEmbeddingProvider();
-    if (!provider || provider.purpose !== "embedding" || provider.protocol !== "openai_compatible" || !provider.enabled || !provider.selectedModel || !provider.baseUrl) return undefined;
+    if (!provider || provider.purpose !== "embedding" || provider.protocol !== "openai_compatible" || provider.adapterKind !== "openai_embedding" || !provider.enabled || !provider.selectedModel || !provider.baseUrl) return undefined;
     return provider;
   }
 
@@ -229,24 +230,14 @@ export class RagIndexService {
 
     const batches = chunkArray(filtered, EMBEDDING_BATCH_SIZE);
     const vectors: number[][] = [];
+    const adapter = getEmbeddingProviderAdapter(provider);
     for (const batch of batches) {
-      const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/embeddings`, {
-        method: "POST",
-        headers: embeddingAuthHeaders(provider, apiKey),
-        body: JSON.stringify({
-          input: batch,
-          model: provider.selectedModel,
-          encoding_format: "float",
-        }),
-      });
+      const request = adapter.buildEmbeddingRequest(provider, apiKey, batch);
+      const response = await fetch(request.url, request.init);
       if (!response.ok) {
         throw new Error(`Embedding request failed (${response.status}): ${await responseText(response)}`);
       }
-      const payload = (await response.json()) as { data?: Array<{ embedding?: unknown; index?: number }> };
-      const batchVectors = (payload.data || [])
-        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-        .map((item) => Array.isArray(item.embedding) ? item.embedding as number[] : []);
-      vectors.push(...batchVectors);
+      vectors.push(...adapter.parseEmbeddingResponse(await response.json()));
     }
     return vectors;
   }
@@ -368,23 +359,6 @@ function chunkArray<T>(values: T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, "");
-}
-
-function embeddingAuthHeaders(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
-  if (provider.authMode === "api_key") {
-    return {
-      "x-api-key": apiKey,
-      "content-type": "application/json",
-    };
-  }
-  return {
-    authorization: `Bearer ${apiKey}`,
-    "content-type": "application/json",
-  };
 }
 
 function escapeSql(value: string): string {

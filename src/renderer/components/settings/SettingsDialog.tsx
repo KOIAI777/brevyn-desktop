@@ -32,20 +32,24 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type {
-  Course,
-  GitStatus,
-  ModelProviderConfig,
-  ProviderAuthMode,
-  ProviderDraftInput,
-  ProviderModel,
-  ProviderProtocol,
-  ProviderPurpose,
-  ProviderSaveResult,
-  SemesterWorkspace,
-  SkillItem,
-  Thread,
-} from "@/types/domain";
+import {
+  AGENT_PROVIDER_PRESETS,
+  EMBEDDING_PROVIDER_PRESETS,
+  PROVIDER_PRESETS,
+  type AgentProviderKind,
+  type EmbeddingProviderKind,
+  type Course,
+  type GitStatus,
+  type ModelProviderConfig,
+  type ProviderDraftInput,
+  type ProviderKind,
+  type ProviderModel,
+  type ProviderPurpose,
+  type ProviderSaveResult,
+  type SemesterWorkspace,
+  type SkillItem,
+  type Thread,
+} from "../../../types/domain";
 import { cx } from "@/lib/cn";
 
 type SettingsPage = "providers" | "archive" | "skills";
@@ -61,28 +65,18 @@ type ProviderBusyAction =
   | "embedding-fetch"
   | "embedding-test";
 
-const agentProtocols: Array<{ value: ProviderProtocol; label: string }> = [
-  { value: "anthropic_messages", label: "Anthropic Messages" },
-];
-
-const embeddingProtocols: Array<{ value: ProviderProtocol; label: string }> = [
-  { value: "openai_compatible", label: "OpenAI-compatible" },
-];
-
-const authModes: Array<{ value: ProviderAuthMode; label: string }> = [
-  { value: "api_key", label: "API key" },
-  { value: "auth_token", label: "Auth token" },
-  { value: "bearer", label: "Bearer token" },
-];
+const agentProviderKinds = Object.keys(AGENT_PROVIDER_PRESETS) as AgentProviderKind[];
+const embeddingProviderKinds = Object.keys(EMBEDDING_PROVIDER_PRESETS) as EmbeddingProviderKind[];
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 
 const emptyDraft: ProviderDraftInput = {
   purpose: "agent",
+  providerKind: "anthropic",
   name: "",
   protocol: "anthropic_messages",
-  authMode: "api_key",
-  baseUrl: "",
+  authMode: AGENT_PROVIDER_PRESETS.anthropic.authMode,
+  baseUrl: AGENT_PROVIDER_PRESETS.anthropic.baseUrl,
   apiKey: "",
   clearApiKey: false,
   models: [],
@@ -92,10 +86,11 @@ const emptyDraft: ProviderDraftInput = {
 
 const emptyEmbeddingDraft: ProviderDraftInput = {
   purpose: "embedding",
+  providerKind: "openai",
   name: "",
   protocol: "openai_compatible",
-  authMode: "bearer",
-  baseUrl: "",
+  authMode: EMBEDDING_PROVIDER_PRESETS.openai.authMode,
+  baseUrl: EMBEDDING_PROVIDER_PRESETS.openai.baseUrl,
   apiKey: "",
   clearApiKey: false,
   models: [],
@@ -104,6 +99,7 @@ const emptyEmbeddingDraft: ProviderDraftInput = {
 };
 
 export function SettingsDialog({
+  initialPage = "providers",
   course,
   semester,
   skills,
@@ -112,6 +108,7 @@ export function SettingsDialog({
   onWorkspaceChanged,
   onClose,
 }: {
+  initialPage?: SettingsPage;
   course?: Course;
   semester?: SemesterWorkspace | null;
   skills: SkillItem[];
@@ -120,7 +117,7 @@ export function SettingsDialog({
   onWorkspaceChanged?: () => Promise<void> | void;
   onClose: () => void;
 }) {
-  const [activePage, setActivePage] = useState<SettingsPage>("providers");
+  const [activePage, setActivePage] = useState<SettingsPage>(initialPage);
   const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedEmbeddingProviderId, setSelectedEmbeddingProviderId] = useState("");
@@ -379,6 +376,7 @@ export function SettingsDialog({
         ...current,
         id: saved.id,
         purpose: saved.purpose,
+        providerKind: saved.providerKind,
         name: saved.name,
         protocol: saved.protocol,
         authMode: saved.authMode,
@@ -426,6 +424,7 @@ export function SettingsDialog({
         ...current,
         id: saved.id,
         purpose: saved.purpose,
+        providerKind: saved.providerKind,
         name: saved.name,
         protocol: saved.protocol,
         authMode: saved.authMode,
@@ -632,7 +631,7 @@ export function SettingsDialog({
               <Settings className="h-4 w-4" />
               Settings
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "no semester selected"} · providers, archive, skills</div>
+            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "no semester selected"} · model config, archive, skills</div>
           </div>
           <button
             type="button"
@@ -650,7 +649,7 @@ export function SettingsDialog({
               <SettingsNavButton
                 active={activePage === "providers"}
                 icon={<PlugZap className="h-4 w-4" />}
-                title="Provider"
+                title="模型配置"
                 detail={`${enabledProviders} active · ${embeddingProviderDetail}`}
                 onClick={() => setActivePage("providers")}
               />
@@ -859,8 +858,8 @@ function ProviderSettingsPage({
           <div className="grid gap-2 md:grid-cols-2">
             <Field label="Profile name" value={draft.name} onChange={(value) => onDraftChange({ ...draft, name: value })} />
             <ReadOnlyField label="Purpose" value="Agent" />
-            <ProtocolField purpose="agent" value={draft.protocol} onChange={(value) => onDraftChange({ ...draft, protocol: value })} />
-            <AuthModeField label="Auth mode" value={draft.authMode} onChange={(value) => onDraftChange({ ...draft, authMode: value })} />
+            <ProviderKindField purpose="agent" value={draft.providerKind as AgentProviderKind} onChange={(value) => onDraftChange(applyProviderPreset(draft, value))} />
+            <ReadOnlyField label="Adapter" value={adapterLabel(draft.providerKind)} />
             <Field label="Base URL" value={draft.baseUrl} onChange={(value) => onDraftChange({ ...draft, baseUrl: value })} />
             <Field
               label="API Key"
@@ -928,8 +927,8 @@ function ProviderSettingsPage({
           <div className="grid gap-2 md:grid-cols-2">
             <Field label="Profile name" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
             <ReadOnlyField label="Purpose" value="Embedding" />
-            <ProtocolField purpose="embedding" value={embeddingDraft.protocol} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, protocol: value })} />
-            <AuthModeField label="Auth mode" value={embeddingDraft.authMode} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, authMode: value })} />
+            <ProviderKindField purpose="embedding" value={embeddingDraft.providerKind as EmbeddingProviderKind} onChange={(value) => onEmbeddingDraftChange(applyProviderPreset(embeddingDraft, value))} />
+            <ReadOnlyField label="Adapter" value={adapterLabel(embeddingDraft.providerKind)} />
             <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
             <Field
               label="API Key"
@@ -1696,7 +1695,7 @@ function ProviderProfileRow({
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="block truncate text-xs font-semibold">{provider.name}</span>
         <span className="mt-0.5 block truncate text-[10px]">
-          {protocolLabel(provider.protocol)} · {provider.baseUrl || "URL not set"}
+          {providerKindLabel(provider.providerKind)} · {provider.baseUrl || "URL not set"}
         </span>
         <span className="mt-1 flex min-w-0 flex-wrap gap-1">
           {provider.selectedModel && <span className="max-w-[180px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.selectedModel}</span>}
@@ -1794,30 +1793,23 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ProtocolField({ purpose, value, onChange }: { purpose: ProviderPurpose; value: ProviderProtocol; onChange: (value: ProviderProtocol) => void }) {
-  const options = purpose === "agent" ? agentProtocols : embeddingProtocols;
+function ProviderKindField({
+  purpose,
+  value,
+  onChange,
+}: {
+  purpose: ProviderPurpose;
+  value: AgentProviderKind | EmbeddingProviderKind;
+  onChange: (value: ProviderKind) => void;
+}) {
+  const options = purpose === "agent" ? agentProviderKinds : embeddingProviderKinds;
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
-      <span>Protocol</span>
-      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderProtocol)}>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function AuthModeField({ label, value, onChange }: { label: string; value: ProviderAuthMode; onChange: (value: ProviderAuthMode) => void }) {
-  return (
-    <label className="space-y-1 text-[11px] text-muted-foreground">
-      <span>{label}</span>
-      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderAuthMode)}>
-        {authModes.map((mode) => (
-          <option key={mode.value} value={mode.value}>
-            {mode.label}
+      <span>Provider</span>
+      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderKind)}>
+        {options.map((kind) => (
+          <option key={kind} value={kind}>
+            {providerKindLabel(kind)}
           </option>
         ))}
       </select>
@@ -1929,6 +1921,7 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
   return {
     id: provider.id,
     purpose: provider.purpose,
+    providerKind: provider.providerKind,
     name: provider.name,
     protocol: provider.protocol,
     authMode: provider.authMode,
@@ -1942,8 +1935,34 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
   };
 }
 
-function protocolLabel(protocol: ProviderProtocol): string {
-  return [...agentProtocols, ...embeddingProtocols].find((item) => item.value === protocol)?.label || protocol;
+function applyProviderPreset(draft: ProviderDraftInput, providerKind: ProviderKind): ProviderDraftInput {
+  const preset = PROVIDER_PRESETS[providerKind];
+  const models = presetModels(providerKind);
+  return {
+    ...draft,
+    purpose: preset.purpose,
+    providerKind,
+    protocol: preset.protocol,
+    authMode: preset.authMode,
+    baseUrl: preset.baseUrl,
+    models,
+    selectedModel: models[0]?.id || "",
+  };
+}
+
+function presetModels(providerKind: ProviderKind): ProviderModel[] {
+  const preset = PROVIDER_PRESETS[providerKind];
+  if (!("models" in preset)) return [];
+  return preset.models.map((model) => ({ ...model }));
+}
+
+function providerKindLabel(providerKind: ProviderKind): string {
+  return PROVIDER_PRESETS[providerKind]?.label || providerKind;
+}
+
+function adapterLabel(providerKind: ProviderKind): string {
+  const preset = PROVIDER_PRESETS[providerKind];
+  return preset.adapterKind === "anthropic" ? "Anthropic Messages" : "OpenAI-compatible Embeddings";
 }
 
 function errorMessage(error: unknown, fallback = "Operation failed."): string {

@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Course,
@@ -25,6 +25,7 @@ import { TimetableDialog } from "@/components/timetable/TimetableDialog";
 import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
+type SettingsPage = "providers" | "archive" | "skills";
 
 function App() {
   const mountedRef = useRef(true);
@@ -52,6 +53,7 @@ function App() {
   const [fileRailCollapsed, setFileRailCollapsed] = useState(false);
   const [previewRailCollapsed, setPreviewRailCollapsed] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("providers");
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [courseFilesUploadOpen, setCourseFilesUploadOpen] = useState(false);
@@ -91,6 +93,7 @@ function App() {
   const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId), [threads, activeThreadId]);
   const workspaceScope = useMemo(() => describeWorkspaceScope(activeCourse, activeTask, activeThread), [activeCourse, activeTask, activeThread]);
   const needsSemesterSelection = !semester && semesters.length > 0;
+  const noActiveSemesters = !semester && semesters.length === 0 && threads.length === 0;
 
   function commitActiveCourseId(courseId: string) {
     activeCourseIdRef.current = courseId;
@@ -402,6 +405,11 @@ function App() {
     setActiveThreadId(thread.id);
   }
 
+  function openSettings(page: SettingsPage = "providers") {
+    setSettingsInitialPage(page);
+    setSettingsOpen(true);
+  }
+
   function handleCourseCreated(course: Course) {
     setCourses((current) => (current.some((item) => item.id === course.id) ? current : [...current, course]));
     setTasksByCourse((current) => ({ ...current, [course.id]: current[course.id] || [] }));
@@ -459,7 +467,7 @@ function App() {
           onCreateThread={createThread}
           onOpenCourses={() => setCoursesOpen(true)}
           onOpenTimetable={() => setTimetableOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings("providers")}
         />
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
@@ -475,26 +483,58 @@ function App() {
               <p>Thread: {activeThread.title}</p>
             ) : (
               <div className="flex flex-col items-center gap-3 text-center">
-                <div>
-                  <p className="font-medium text-foreground">{needsSemesterSelection ? "No semester selected." : threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {needsSemesterSelection ? "Choose a semester explicitly before loading courses, sessions, and files." : "Workspace files are ready. Create a session when you want to start chatting."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!needsSemesterSelection && ((!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask))}
-                  onClick={() => {
-                    if (needsSemesterSelection) {
-                      setTimetableOpen(true);
-                      return;
-                    }
-                    void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id);
-                  }}
-                >
-                  {needsSemesterSelection ? "Select semester" : activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
-                </button>
+                {noActiveSemesters ? (
+                  <>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border bg-background text-amber-700">
+                      <Archive className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground">No active semesters.</p>
+                      <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+                        Your semesters may all be archived. Restore one from Archive, or create a new semester from Manage semesters.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90"
+                        onClick={() => openSettings("archive")}
+                      >
+                        Open Archive
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent"
+                        onClick={() => setTimetableOpen(true)}
+                      >
+                        Manage semesters
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <p className="font-medium text-foreground">{needsSemesterSelection ? "No semester selected." : threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {needsSemesterSelection ? "Choose a semester explicitly before loading courses, sessions, and files." : "Workspace files are ready. Create a session when you want to start chatting."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!needsSemesterSelection && ((!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask))}
+                      onClick={() => {
+                        if (needsSemesterSelection) {
+                          setTimetableOpen(true);
+                          return;
+                        }
+                        void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id);
+                      }}
+                    >
+                      {needsSemesterSelection ? "Select semester" : activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -519,6 +559,7 @@ function App() {
 
       {settingsOpen && (
         <SettingsDialog
+          initialPage={settingsInitialPage}
           course={activeCourse}
           semester={semester}
           skills={skills}
@@ -532,6 +573,7 @@ function App() {
       )}
       {coursesOpen && (
         <CourseManagementDialog
+          semester={semester}
           courses={courses.filter((course) => course.workspaceKind !== "semester_home")}
           activeCourseId={activeCourseId}
           onSelectCourse={selectCourseHome}

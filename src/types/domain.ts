@@ -298,6 +298,10 @@ export type ProviderPurpose = "agent" | "embedding";
 export type AgentProtocol = "anthropic_messages";
 export type EmbeddingProtocol = "openai_compatible";
 export type ProviderProtocol = AgentProtocol | EmbeddingProtocol;
+export type ProviderAdapterKind = "anthropic" | "openai_embedding";
+export type AgentProviderKind = "anthropic" | "deepseek" | "kimi-api" | "kimi-coding" | "custom-anthropic";
+export type EmbeddingProviderKind = "openai" | "qwen" | "doubao" | "zhipu" | "minimax" | "custom-openai";
+export type ProviderKind = AgentProviderKind | EmbeddingProviderKind;
 export type ProviderAuthMode = "api_key" | "auth_token" | "bearer";
 
 export interface ProviderModel {
@@ -306,9 +310,138 @@ export interface ProviderModel {
   enabled: boolean;
 }
 
+export interface ProviderPreset {
+  kind: ProviderKind;
+  purpose: ProviderPurpose;
+  label: string;
+  adapterKind: ProviderAdapterKind;
+  protocol: ProviderProtocol;
+  baseUrl: string;
+  authMode: ProviderAuthMode;
+  models?: readonly ProviderModel[];
+}
+
+export const AGENT_PROVIDER_PRESETS = {
+  anthropic: {
+    kind: "anthropic",
+    purpose: "agent",
+    label: "Anthropic",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "https://api.anthropic.com",
+    authMode: "api_key",
+  },
+  deepseek: {
+    kind: "deepseek",
+    purpose: "agent",
+    label: "DeepSeek",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "https://api.deepseek.com/anthropic",
+    authMode: "api_key",
+    models: [
+      { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", enabled: true },
+      { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", enabled: true },
+    ],
+  },
+  "kimi-api": {
+    kind: "kimi-api",
+    purpose: "agent",
+    label: "Kimi API",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "https://api.moonshot.cn/anthropic",
+    authMode: "api_key",
+    models: [{ id: "kimi-k2.6", name: "Kimi K2.6", enabled: true }],
+  },
+  "kimi-coding": {
+    kind: "kimi-coding",
+    purpose: "agent",
+    label: "Kimi for Coding",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "https://api.kimi.com/coding/v1",
+    authMode: "bearer",
+    models: [{ id: "kimi-for-coding", name: "Kimi for Coding", enabled: true }],
+  },
+  "custom-anthropic": {
+    kind: "custom-anthropic",
+    purpose: "agent",
+    label: "Custom Anthropic",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "",
+    authMode: "api_key",
+  },
+} as const satisfies Record<AgentProviderKind, ProviderPreset>;
+
+export const EMBEDDING_PROVIDER_PRESETS = {
+  openai: {
+    kind: "openai",
+    purpose: "embedding",
+    label: "OpenAI",
+    adapterKind: "openai_embedding",
+    protocol: "openai_compatible",
+    baseUrl: "https://api.openai.com/v1",
+    authMode: "bearer",
+  },
+  qwen: {
+    kind: "qwen",
+    purpose: "embedding",
+    label: "Qwen",
+    adapterKind: "openai_embedding",
+    protocol: "openai_compatible",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    authMode: "bearer",
+  },
+  doubao: {
+    kind: "doubao",
+    purpose: "embedding",
+    label: "Doubao",
+    adapterKind: "openai_embedding",
+    protocol: "openai_compatible",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    authMode: "bearer",
+  },
+  zhipu: {
+    kind: "zhipu",
+    purpose: "embedding",
+    label: "Zhipu AI",
+    adapterKind: "openai_embedding",
+    protocol: "openai_compatible",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    authMode: "bearer",
+  },
+  minimax: {
+    kind: "minimax",
+    purpose: "embedding",
+    label: "MiniMax",
+    adapterKind: "openai_embedding",
+    protocol: "openai_compatible",
+    baseUrl: "https://api.minimax.chat/v1",
+    authMode: "bearer",
+  },
+  "custom-openai": {
+    kind: "custom-openai",
+    purpose: "embedding",
+    label: "Custom OpenAI Compatible",
+    adapterKind: "openai_embedding",
+    protocol: "openai_compatible",
+    baseUrl: "",
+    authMode: "bearer",
+  },
+} as const satisfies Record<EmbeddingProviderKind, ProviderPreset>;
+
+export const PROVIDER_PRESETS = {
+  ...AGENT_PROVIDER_PRESETS,
+  ...EMBEDDING_PROVIDER_PRESETS,
+} as const satisfies Record<ProviderKind, ProviderPreset>;
+
 export interface ModelProviderConfig {
   id: string;
   purpose: ProviderPurpose;
+  providerKind: ProviderKind;
+  adapterKind: ProviderAdapterKind;
   name: string;
   protocol: ProviderProtocol;
   baseUrl: string;
@@ -325,6 +458,7 @@ export interface ModelProviderConfig {
 export interface ProviderDraftInput {
   id?: string;
   purpose: ProviderPurpose;
+  providerKind: ProviderKind;
   name: string;
   protocol: ProviderProtocol;
   baseUrl: string;

@@ -2,7 +2,6 @@ import {
   AlertCircle,
   Archive,
   BookOpen,
-  Check,
   ChevronRight,
   CircleStop,
   Database,
@@ -20,12 +19,13 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Course, CourseFileSection, IndexingJob, RagSearchResult, TaskType, UclawTask } from "@/types/domain";
+import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, UclawTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
 const DEFAULT_TASK_TYPE = "Assignment";
 
 export function CourseManagementDialog({
+  semester,
   courses,
   activeCourseId,
   onSelectCourse,
@@ -34,6 +34,7 @@ export function CourseManagementDialog({
   onWorkspaceChanged,
   onClose,
 }: {
+  semester?: SemesterWorkspace | null;
   courses: Course[];
   activeCourseId: string;
   onSelectCourse: (courseId: string) => void;
@@ -71,6 +72,7 @@ export function CourseManagementDialog({
   const [newCourseError, setNewCourseError] = useState("");
   const [uploadingSectionId, setUploadingSectionId] = useState("");
   const courseViewRequestRef = useRef(0);
+  const canCreateCourse = Boolean(semester?.id);
 
   const existingTaskTypes = useMemo(() => {
     const seen = new Set<string>();
@@ -145,6 +147,10 @@ export function CourseManagementDialog({
   }
 
   async function createCourse() {
+    if (!canCreateCourse) {
+      setNewCourseError("Select or create a semester before creating courses.");
+      return;
+    }
     const name = newCourseName.trim();
     const code = newCourseCode.trim();
     if (!name || !code) {
@@ -395,7 +401,7 @@ export function CourseManagementDialog({
                   className={cx(
                     "flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-3 text-left transition",
                     course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
-                    course.id === activeCourseId ? "border-border shadow-sm ring-1 ring-border/60" : "border-border/60 hover:bg-accent/55",
+                    course.id === activeCourseId && !course.archivedAt ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
                   )}
                 >
                   <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => !course.archivedAt && onSelectCourse(course.id)}>
@@ -426,7 +432,6 @@ export function CourseManagementDialog({
                     <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "Delete permanently" : "Archive before deleting"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                    {course.id === activeCourseId && !course.archivedAt && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}
                   </div>
                 </div>
               ))}
@@ -465,11 +470,16 @@ export function CourseManagementDialog({
                 />
               </label>
               {newCourseError && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
+              {!canCreateCourse && !newCourseError && (
+                <div className="mb-2 rounded-md bg-muted/55 px-2 py-1 text-[11px] leading-5 text-muted-foreground">
+                  Select or create a semester before adding courses.
+                </div>
+              )}
               <button
                 type="button"
                 className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={createCourse}
-                disabled={creatingCourse}
+                disabled={creatingCourse || !canCreateCourse}
               >
                 {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                 {creatingCourse ? "Creating..." : "Create course"}

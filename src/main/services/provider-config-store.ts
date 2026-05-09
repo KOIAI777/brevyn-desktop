@@ -76,6 +76,8 @@ function cloneProvider(provider: ModelProviderConfig): ModelProviderConfig {
   return {
     id: provider.id,
     purpose: provider.purpose,
+    providerKind: provider.providerKind,
+    adapterKind: provider.adapterKind,
     name: provider.name,
     protocol: provider.protocol,
     baseUrl: provider.baseUrl,
