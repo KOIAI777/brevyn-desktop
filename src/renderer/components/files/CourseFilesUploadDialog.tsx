@@ -1,8 +1,9 @@
 import { CalendarDays, Check, FileArchive, FileCode, FileImage, FileText, FolderOpen, Layers3, Library, Loader2, Upload, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { Course, CourseFileSectionKind, FileImportInput, FileImportResult, TaskFileBucket, UclawTask } from "@/types/domain";
+import type { Course, CourseFileSectionKind, FileImportInput, FileImportResult, TaskFileBucket, BrevynTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
 
 const TASK_BUCKET_LABELS: Record<TaskFileBucket, string> = {
   materials: "Materials",
@@ -20,19 +21,31 @@ export function CourseFilesUploadDialog({
 }: {
   course?: Course;
   courses: Course[];
-  tasksByCourse: Record<string, UclawTask[]>;
+  tasksByCourse: Record<string, BrevynTask[]>;
   activeTaskId?: string;
   onClose: () => void;
   onImportFiles: (input: FileImportInput) => Promise<FileImportResult | null>;
 }) {
   const initialCourseId = course?.id || courses[0]?.id || "";
+  const initialCourseTasks = tasksByCourse[initialCourseId] || [];
+  const initialTaskId = initialCourseTasks.some((task) => task.id === activeTaskId) ? activeTaskId || "" : "";
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
   const [importing, setImporting] = useState(false);
-  const [targetSection, setTargetSection] = useState<CourseFileSectionKind>("course_shared");
-  const [taskId, setTaskId] = useState(activeTaskId || "");
+  const [targetSection, setTargetSection] = useState<CourseFileSectionKind>(initialTaskId ? "task" : "course_shared");
+  const [taskId, setTaskId] = useState(initialTaskId);
   const [taskFileBucket, setTaskFileBucket] = useState<TaskFileBucket>("materials");
   const [lastResult, setLastResult] = useState<FileImportResult | null>(null);
   const [importError, setImportError] = useState("");
+
+  useEffect(() => {
+    if (importing) return;
+    setSelectedCourseId(initialCourseId);
+    setTaskId(initialTaskId);
+    setTargetSection(initialTaskId ? "task" : "course_shared");
+    setTaskFileBucket("materials");
+    setLastResult(null);
+    setImportError("");
+  }, [activeTaskId, course?.id, importing, initialCourseId, initialTaskId]);
 
   const selectedCourse = courses.find((item) => item.id === selectedCourseId);
   const isSemesterTarget = selectedCourse?.workspaceKind === "semester_home";
@@ -85,7 +98,7 @@ export function CourseFilesUploadDialog({
               <Upload className="h-4 w-4" />
               Course File Upload
             </div>
-              <div className="truncate text-[11px] text-muted-foreground">Route files into Course shared, Lecture, or task outputs for indexing</div>
+              <div className="truncate text-[11px] text-muted-foreground">Route course files into shared or lecture folders for indexing</div>
           </div>
           <button
             type="button"
@@ -97,7 +110,7 @@ export function CourseFilesUploadDialog({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1.05fr_0.95fr] uclaw-scrollbar">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1.05fr_0.95fr] brevyn-scrollbar">
           <section className="rounded-lg border border-dashed bg-background/70 p-4">
             <div className="flex min-h-[300px] flex-col items-center justify-center rounded-md bg-card px-5 text-center">
               <div className="flex h-11 w-11 items-center justify-center rounded-md bg-foreground text-background">
@@ -105,7 +118,7 @@ export function CourseFilesUploadDialog({
               </div>
               <div className="mt-4 text-sm font-semibold">Choose files from this Mac</div>
               <div className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">
-                Files stay local. The main process places them into the selected folder and queues an embedding indexing job.
+                Files stay local. The selected workspace decides the default target, and you can still route files into an existing task.
               </div>
               <button
                 type="button"
@@ -128,26 +141,27 @@ export function CourseFilesUploadDialog({
           <aside className="space-y-3">
             <section className="rounded-lg border bg-background/70 p-3">
               <div className="text-xs font-semibold">Target Course</div>
-              <select
-                className="mt-2 h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none"
+              <DropdownSelect
+                className="mt-2"
                 value={selectedCourseId}
-                onChange={(event) => {
-                  setSelectedCourseId(event.target.value);
+                options={courses.map((item) => ({
+                  value: item.id,
+                  label: item.name,
+                  detail: `${item.code || "Brevyn"} · ${item.term || "local"}`,
+                }))}
+                placeholder="Select a course"
+                ariaLabel="Select course"
+                onChange={(value) => {
+                  setSelectedCourseId(value);
                   setTaskId("");
-                  const next = courses.find((item) => item.id === event.target.value);
+                  const next = courses.find((item) => item.id === value);
                   if (next?.workspaceKind === "semester_home") setTargetSection("course_shared");
                 }}
-              >
-                {courses.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+              />
               <div className="mt-2 rounded-md bg-muted/55 px-3 py-2">
                 <div className="truncate text-sm font-medium">{selectedCourse?.name || "No course selected"}</div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {selectedCourse?.code || "UCLAW"} · {selectedCourse?.term || "local"}
+                  {selectedCourse?.code || "Brevyn"} · {selectedCourse?.term || "local"}
                 </div>
               </div>
             </section>
@@ -164,16 +178,18 @@ export function CourseFilesUploadDialog({
                 <div className="mt-3 space-y-3">
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
                     <span>Task</span>
-                    <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={selectedTaskId || ""} onChange={(event) => setTaskId(event.target.value)}>
-                      <option value="" disabled>
-                        Select a task
-                      </option>
-                      {courseTasks.map((task) => (
-                        <option key={task.id} value={task.id}>
-                          {task.taskType} / {task.title}
-                        </option>
-                      ))}
-                    </select>
+                    <DropdownSelect
+                      value={selectedTaskId || ""}
+                      options={courseTasks.map((task) => ({
+                        value: task.id,
+                        label: task.title,
+                        detail: task.taskType,
+                      }))}
+                      placeholder="Select a task"
+                      ariaLabel="Select task"
+                      disabled={courseTasks.length === 0}
+                      onChange={(value) => setTaskId(value)}
+                    />
                     {courseTasks.length === 0 && <span className="block rounded-md bg-muted/55 px-2 py-2">Create a task first, then import into the task workspace.</span>}
                   </label>
 

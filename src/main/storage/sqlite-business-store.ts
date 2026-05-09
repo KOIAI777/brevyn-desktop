@@ -12,7 +12,7 @@ import type {
   TimetableEventKind,
   TimetableEventSource,
   UpdateTaskInput,
-  UclawTask,
+  BrevynTask,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -103,7 +103,7 @@ export class SQLiteBusinessStore {
     return numberValue(row?.count) || 0;
   }
 
-  listTasks(semesterId?: string, courseId?: string): UclawTask[] {
+  listTasks(semesterId?: string, courseId?: string): BrevynTask[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (semesterId) {
@@ -118,7 +118,7 @@ export class SQLiteBusinessStore {
     return this.all(sql, ...params).map(rowToTask);
   }
 
-  getTask(taskId: string): UclawTask | null {
+  getTask(taskId: string): BrevynTask | null {
     const row = this.db.prepare("select * from tasks where id = ?").get(taskId) as Row | undefined;
     return row ? rowToTask(row) : null;
   }
@@ -340,6 +340,24 @@ export class SQLiteBusinessStore {
     return course;
   }
 
+  updateCourseDetails(course: Course): Course {
+    const timestamp = now();
+    this.run(
+      `update courses
+       set code = ?, instructor = ?, schedule_json = ?, raw_json = ?, updated_at = ?
+       where id = ?`,
+      course.code,
+      course.instructor ?? null,
+      json({ meetingTime: course.meetingTime, location: course.location }),
+      json(course),
+      timestamp,
+      course.id,
+    );
+    const row = this.db.prepare("select * from courses where id = ?").get(course.id) as Row | undefined;
+    if (!row) throw new Error(`Course not found: ${course.id}`);
+    return rowToCourse(row);
+  }
+
   saveCourseWithWorkspaceFiles(course: Course, files: WorkspaceFileNode[]): Course {
     this.db.exec("begin immediate;");
     try {
@@ -379,12 +397,12 @@ export class SQLiteBusinessStore {
     }
   }
 
-  saveTask(task: UclawTask): UclawTask {
+  saveTask(task: BrevynTask): BrevynTask {
     this.insertTask(task);
     return task;
   }
 
-  saveTaskWithWorkspaceFiles(task: UclawTask, files: WorkspaceFileNode[]): UclawTask {
+  saveTaskWithWorkspaceFiles(task: BrevynTask, files: WorkspaceFileNode[]): BrevynTask {
     this.db.exec("begin immediate;");
     try {
       this.insertTask(task);
@@ -398,7 +416,7 @@ export class SQLiteBusinessStore {
     }
   }
 
-  updateTask(input: UpdateTaskInput): UclawTask | null {
+  updateTask(input: UpdateTaskInput): BrevynTask | null {
     const row = this.db.prepare("select * from tasks where id = ?").get(input.id) as Row | undefined;
     if (!row) return null;
 
@@ -406,7 +424,7 @@ export class SQLiteBusinessStore {
     const dueAt = input.dueAt === undefined ? existing.dueAt : input.dueAt?.trim() || undefined;
     const status = input.status ?? existing.status;
     const summary = input.summary === undefined ? existing.summary : input.summary;
-    const nextTask: UclawTask = {
+    const nextTask: BrevynTask = {
       ...existing,
       dueAt,
       status,
@@ -922,7 +940,7 @@ export class SQLiteBusinessStore {
     );
   }
 
-  private insertTask(task: UclawTask): void {
+  private insertTask(task: BrevynTask): void {
     const timestamp = now();
     this.run(
       `insert or replace into tasks(id, semester_id, course_id, title, task_type, due_at, status, raw_json, created_at, updated_at)
@@ -1482,8 +1500,8 @@ function rowToCourse(row: Row): Course {
   };
 }
 
-function rowToTask(row: Row): UclawTask {
-  const raw = rawJson<UclawTask>(row.raw_json, {});
+function rowToTask(row: Row): BrevynTask {
+  const raw = rawJson<BrevynTask>(row.raw_json, {});
   return {
     summary: "",
     ...raw,

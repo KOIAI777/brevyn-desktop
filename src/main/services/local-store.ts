@@ -30,7 +30,8 @@ import type {
   Thread,
   TimetableEvent,
   TimetableRangeQuery,
-  UclawTask,
+  BrevynTask,
+  UpdateCourseInput,
   UpdateTaskInput,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -129,6 +130,10 @@ export class LocalStore {
     return this.workspace.createCourse(input);
   }
 
+  updateCourse(input: UpdateCourseInput): Course {
+    return this.workspace.updateCourse(input);
+  }
+
   archiveCourse(courseId: string): Course {
     return this.workspace.archiveCourse(courseId);
   }
@@ -141,15 +146,15 @@ export class LocalStore {
     return this.workspace.deleteCourse(courseId);
   }
 
-  listTasks(courseId: string): UclawTask[] {
+  listTasks(courseId: string): BrevynTask[] {
     return this.workspace.listTasks(courseId);
   }
 
-  createTask(input: CreateTaskInput): UclawTask {
+  createTask(input: CreateTaskInput): BrevynTask {
     return this.workspace.createTask(input);
   }
 
-  updateTask(input: UpdateTaskInput): UclawTask {
+  updateTask(input: UpdateTaskInput): BrevynTask {
     return this.workspace.updateTask(input);
   }
 
@@ -343,8 +348,24 @@ export class LocalStore {
   }
 
   async close(): Promise<void> {
-    await this.ragIndex.close();
-    this.businessStore.close();
+    let closeError: unknown;
+    try {
+      await this.ragIndex.close();
+    } catch (error) {
+      closeError = error;
+    }
+
+    try {
+      this.businessStore.close();
+    } catch (error) {
+      if (!closeError) {
+        closeError = error;
+      } else {
+        console.warn("[local-store] Failed to close SQLite store after RAG close failure", error);
+      }
+    }
+
+    if (closeError) throw closeError;
   }
 }
 
@@ -369,11 +390,11 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
 }
 
-export function createLocalStore(userDataPath: string): LocalStore {
+export function createLocalStore(rootDataPath: string): LocalStore {
   return new LocalStore(
-    join(userDataPath, "uclaw-state.json"),
-    new SQLiteBusinessStore(join(userDataPath, "indexes", "uclaw.sqlite")),
-    new ProviderConfigStore(join(userDataPath, "provider-profiles.json")),
-    new ProviderSecretStore(join(userDataPath, "provider-secrets.json")),
+    join(rootDataPath, "brevyn-state.json"),
+    new SQLiteBusinessStore(join(rootDataPath, "indexes", "brevyn.sqlite")),
+    new ProviderConfigStore(join(rootDataPath, "provider-profiles.json")),
+    new ProviderSecretStore(join(rootDataPath, "provider-secrets.json")),
   );
 }

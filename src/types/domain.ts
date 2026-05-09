@@ -6,12 +6,27 @@ export interface Course {
   term: string;
   instructor: string;
   workspaceKind?: "semester_home" | "course";
+  icon?: CourseIconKey;
   meetingTime?: string;
   location?: string;
   color: string;
   description: string;
   archivedAt?: string;
 }
+
+export type CourseIconKey =
+  | "graduation-cap"
+  | "book-open"
+  | "scale"
+  | "landmark"
+  | "briefcase"
+  | "file-text"
+  | "gavel"
+  | "library"
+  | "microscope"
+  | "calculator"
+  | "globe"
+  | "presentation";
 
 export interface SemesterWorkspace {
   id: string;
@@ -43,6 +58,16 @@ export interface CreateCourseInput {
   description?: string;
 }
 
+export interface UpdateCourseInput {
+  id: string;
+  code?: string;
+  instructor?: string;
+  meetingTime?: string | null;
+  location?: string | null;
+  color?: string;
+  icon?: CourseIconKey;
+}
+
 export interface ArchivedCourseScope {
   semesterId?: string;
 }
@@ -57,7 +82,7 @@ export type TaskType = string;
 export type TaskStatus = "not_started" | "in_progress" | "due_soon" | "done";
 export type TaskFileBucket = "materials" | "drafts" | "submitted";
 
-export interface UclawTask {
+export interface BrevynTask {
   id: string;
   semesterId?: string;
   courseId: string;
@@ -485,7 +510,7 @@ export interface ProviderTestResult {
   message: string;
 }
 
-export interface UclawAPI {
+export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
     listArchived: () => Promise<SemesterWorkspace[]>;
@@ -500,14 +525,15 @@ export interface UclawAPI {
     list: () => Promise<Course[]>;
     listArchived: (scope?: ArchivedCourseScope) => Promise<Course[]>;
     create: (input: CreateCourseInput) => Promise<Course>;
+    update: (input: UpdateCourseInput) => Promise<Course>;
     archive: (courseId: string) => Promise<Course>;
     restore: (courseId: string) => Promise<Course>;
     delete: (courseId: string) => Promise<boolean>;
   };
   tasks: {
-    list: (courseId: string) => Promise<UclawTask[]>;
-    create: (input: CreateTaskInput) => Promise<UclawTask>;
-    update: (input: UpdateTaskInput) => Promise<UclawTask>;
+    list: (courseId: string) => Promise<BrevynTask[]>;
+    create: (input: CreateTaskInput) => Promise<BrevynTask>;
+    update: (input: UpdateTaskInput) => Promise<BrevynTask>;
     delete: (taskId: string) => Promise<boolean>;
   };
   threads: {

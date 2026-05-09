@@ -1,13 +1,12 @@
 import { app, BrowserWindow, Menu, nativeTheme, shell } from "electron";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc";
 import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
 
-if (!app.isPackaged) {
-  app.setPath("userData", join(app.getPath("appData"), "@uclaw/electron-dev"));
-}
+app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Brevyn" : "Brevyn Dev"));
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -30,7 +29,7 @@ function createWindow(): void {
     minWidth: 1040,
     minHeight: 720,
     show: false,
-    title: "UCLAW",
+    title: "Brevyn",
     icon: existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0f14" : "#f7f7f4",
     trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
@@ -76,12 +75,12 @@ function createWindow(): void {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   try {
-    store = createLocalStore(app.getPath("userData"));
+    store = createLocalStore(brevynDataRoot());
     indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
     registerIpcHandlers({ store, indexingQueue });
     indexingQueue.start();
   } catch (error) {
-    console.error("[uclaw] Failed to initialize local store", error);
+    console.error("[brevyn] Failed to initialize local store", error);
     store = createUnavailableStore(error);
     indexingQueue = null;
     registerIpcHandlers({ store });
@@ -108,7 +107,7 @@ app.on("before-quit", (event) => {
     app.exit(0);
   };
   const timeout = setTimeout(() => {
-    console.warn("[uclaw] Shutdown timed out, forcing exit.");
+    console.warn("[brevyn] Shutdown timed out, forcing exit.");
     forceExit();
   }, 5_000);
   void (async () => {
@@ -116,7 +115,7 @@ app.on("before-quit", (event) => {
       await indexingQueue?.stop();
       await store?.close();
     } catch (error) {
-      console.error("[uclaw] Failed to shut down cleanly", error);
+      console.error("[brevyn] Failed to shut down cleanly", error);
     } finally {
       clearTimeout(timeout);
       forceExit();
@@ -134,4 +133,8 @@ function createUnavailableStore(error: unknown): LocalStore {
       };
     },
   });
+}
+
+function brevynDataRoot(): string {
+  return join(homedir(), app.isPackaged ? ".brevyn" : ".brevyn-dev");
 }

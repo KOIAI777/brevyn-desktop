@@ -64,7 +64,7 @@ export function FilePreviewPane({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 uclaw-scrollbar">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 brevyn-scrollbar">
         {preview.summary && <div className="mb-3 rounded-lg border bg-background/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">{preview.summary}</div>}
 
         {preview.kind === "markdown" && preview.content && (

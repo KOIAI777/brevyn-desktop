@@ -7,29 +7,34 @@ import {
   Database,
   FileText,
   FolderOpen,
-  GraduationCap,
   Layers3,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, UclawTask } from "@/types/domain";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, BrevynTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon";
 
 const DEFAULT_TASK_TYPE = "Assignment";
+const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
+type CoursePanel = "files" | "tasks" | "indexing" | "search";
 
 export function CourseManagementDialog({
   semester,
   courses,
   activeCourseId,
-  onSelectCourse,
   onCourseCreated,
+  onCourseUpdated,
   onTaskCreated,
   onWorkspaceChanged,
   onClose,
@@ -37,20 +42,37 @@ export function CourseManagementDialog({
   semester?: SemesterWorkspace | null;
   courses: Course[];
   activeCourseId: string;
-  onSelectCourse: (courseId: string) => void;
   onCourseCreated: (course: Course) => void;
-  onTaskCreated: (task: UclawTask) => void;
+  onCourseUpdated: (course: Course) => void;
+  onTaskCreated: (task: BrevynTask) => void;
   onWorkspaceChanged?: () => void;
   onClose: () => void;
 }) {
   const [archivedCourses, setArchivedCourses] = useState<Course[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [viewingCourseId, setViewingCourseId] = useState(activeCourseId);
   const [courseBusyId, setCourseBusyId] = useState("");
   const [courseActionError, setCourseActionError] = useState("");
+  const [editingCourseDetails, setEditingCourseDetails] = useState(false);
+  const [savingCourseDetails, setSavingCourseDetails] = useState(false);
+  const [courseDetailsDraft, setCourseDetailsDraft] = useState({
+    code: "",
+    instructor: "",
+    meetingTime: "",
+    location: "",
+    color: "#111827",
+    icon: "graduation-cap" as Course["icon"],
+  });
+  const [coursePanel, setCoursePanel] = useState<CoursePanel>("files");
+
+  useEffect(() => {
+    setViewingCourseId(activeCourseId);
+  }, [activeCourseId]);
+
   const archivedCourseIds = useMemo(() => new Set(archivedCourses.map((course) => course.id)), [archivedCourses]);
   const activeCourses = useMemo(() => courses.filter((course) => !course.archivedAt && !archivedCourseIds.has(course.id)), [archivedCourseIds, courses]);
   const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
-  const activeCourse = displayedCourses.find((course) => course.id === activeCourseId);
+  const activeCourse = displayedCourses.find((course) => course.id === viewingCourseId);
   const activeCourseArchived = Boolean(activeCourse?.archivedAt);
   const courseReadOnlyReason = !activeCourse ? "Select a course before changing files, tasks, indexing, or RAG search." : activeCourseArchived ? "Restore this course before changing files, tasks, indexing, or RAG search." : "";
   const [sections, setSections] = useState<CourseFileSection[]>([]);
@@ -72,6 +94,8 @@ export function CourseManagementDialog({
   const [newCourseError, setNewCourseError] = useState("");
   const [uploadingSectionId, setUploadingSectionId] = useState("");
   const courseViewRequestRef = useRef(0);
+  const ragSearchRequestRef = useRef(0);
+  const { confirm, confirmDialog } = useConfirmDialog();
   const canCreateCourse = Boolean(semester?.id);
 
   const existingTaskTypes = useMemo(() => {
@@ -90,8 +114,11 @@ export function CourseManagementDialog({
   useEffect(() => {
     setRagResults([]);
     setRagError("");
+    ragSearchRequestRef.current += 1;
     setTaskError("");
     setCourseActionError("");
+    setEditingCourseDetails(false);
+    resetCourseDetailsDraft(activeCourse);
     if (!activeCourse?.id) {
       courseViewRequestRef.current += 1;
       setSections([]);
@@ -114,7 +141,7 @@ export function CourseManagementDialog({
 
   async function loadArchivedCourses() {
     try {
-      setArchivedCourses(await window.uclaw.courses.listArchived());
+      setArchivedCourses(await window.brevyn.courses.listArchived());
     } catch (error) {
       setArchivedCourses([]);
       setCourseActionError(errorMessage(error, "Failed to load archived courses."));
@@ -127,8 +154,8 @@ export function CourseManagementDialog({
     setLoadingIndexingJobs(true);
     try {
       const [nextSections, nextIndexingJobs] = await Promise.all([
-        window.uclaw.files.sections(courseId),
-        window.uclaw.files.indexingJobs(courseId),
+        window.brevyn.files.sections(courseId),
+        window.brevyn.files.indexingJobs(courseId),
       ]);
       if (courseViewRequestRef.current !== requestId) return false;
       setSections(nextSections);
@@ -160,13 +187,13 @@ export function CourseManagementDialog({
     setNewCourseError("");
     setCreatingCourse(true);
     try {
-      const created = await window.uclaw.courses.create({
+      const created = await window.brevyn.courses.create({
         name,
         code,
         instructor: newCourseInstructor.trim() || undefined,
       });
       onCourseCreated(created);
-      onSelectCourse(created.id);
+      setViewingCourseId(created.id);
       await loadArchivedCourses();
       setNewCourseName("");
       setNewCourseCode("");
@@ -176,6 +203,41 @@ export function CourseManagementDialog({
       setNewCourseError(error instanceof Error ? error.message : "Failed to create course.");
     } finally {
       setCreatingCourse(false);
+    }
+  }
+
+  function resetCourseDetailsDraft(course?: Course) {
+    setCourseDetailsDraft({
+      code: course?.code || "",
+      instructor: course?.instructor || "",
+      meetingTime: course?.meetingTime || "",
+      location: course?.location || "",
+      color: course?.color || "#111827",
+      icon: course?.icon || "graduation-cap",
+    });
+  }
+
+  async function saveCourseDetails() {
+    if (!activeCourse?.id || activeCourseArchived || savingCourseDetails) return;
+    setSavingCourseDetails(true);
+    setCourseActionError("");
+    try {
+      const updated = await window.brevyn.courses.update({
+        id: activeCourse.id,
+        code: courseDetailsDraft.code,
+        instructor: courseDetailsDraft.instructor,
+        meetingTime: courseDetailsDraft.meetingTime || null,
+        location: courseDetailsDraft.location || null,
+        color: courseDetailsDraft.color,
+        icon: courseDetailsDraft.icon,
+      });
+      onCourseUpdated(updated);
+      resetCourseDetailsDraft(updated);
+      setEditingCourseDetails(false);
+    } catch (error) {
+      setCourseActionError(errorMessage(error, "Failed to update course details."));
+    } finally {
+      setSavingCourseDetails(false);
     }
   }
 
@@ -197,7 +259,7 @@ export function CourseManagementDialog({
     setCreatingTask(true);
     setTaskError("");
     try {
-      const task = await window.uclaw.tasks.create({
+      const task = await window.brevyn.tasks.create({
         courseId: activeCourse.id,
         title,
         taskType,
@@ -229,7 +291,7 @@ export function CourseManagementDialog({
     setIndexingSectionId(indicatorId);
     setCourseActionError("");
     try {
-      await window.uclaw.files.index(activeCourse.id, sectionId);
+      await window.brevyn.files.index(activeCourse.id, sectionId);
       setRagError("");
       await loadCourseView(activeCourse.id);
     } catch (error) {
@@ -248,7 +310,7 @@ export function CourseManagementDialog({
     setUploadingSectionId(section.id);
     setCourseActionError("");
     try {
-      const result = await window.uclaw.files.import({
+      const result = await window.brevyn.files.import({
         courseId: activeCourse.id,
         targetSection: section.kind,
         taskId: section.taskId,
@@ -272,7 +334,7 @@ export function CourseManagementDialog({
     }
     setCourseActionError("");
     try {
-      await window.uclaw.files.cancelIndexing(jobId);
+      await window.brevyn.files.cancelIndexing(jobId);
       await loadCourseView(activeCourse.id);
     } catch (error) {
       setCourseActionError(errorMessage(error, "Failed to cancel indexing."));
@@ -292,24 +354,36 @@ export function CourseManagementDialog({
     }
     const query = ragQuery.trim();
     if (!query) return;
+    const courseId = activeCourse.id;
+    const requestId = ragSearchRequestRef.current + 1;
+    ragSearchRequestRef.current = requestId;
     setRagSearching(true);
     setRagError("");
     try {
-      setRagResults(await window.uclaw.rag.search(query, activeCourse.id));
+      const results = await window.brevyn.rag.search(query, courseId);
+      if (ragSearchRequestRef.current !== requestId) return;
+      setRagResults(results);
     } catch (error) {
+      if (ragSearchRequestRef.current !== requestId) return;
       setRagError(errorMessage(error, "RAG search failed."));
       setRagResults([]);
     } finally {
-      setRagSearching(false);
+      if (ragSearchRequestRef.current === requestId) setRagSearching(false);
     }
   }
 
   async function archiveCourse(course: Course) {
-    if (!window.confirm(`Archive "${course.name}"? It will disappear from the main workspace until restored.`)) return;
+    const ok = await confirm({
+      title: `Archive "${course.name}"?`,
+      message: "It will disappear from the main workspace until restored.",
+      confirmLabel: "Archive",
+      cancelLabel: "Keep it",
+    });
+    if (!ok) return;
     setCourseBusyId(course.id);
     setCourseActionError("");
     try {
-      await window.uclaw.courses.archive(course.id);
+      await window.brevyn.courses.archive(course.id);
       await loadArchivedCourses();
       onWorkspaceChanged?.();
     } catch (reason) {
@@ -323,10 +397,10 @@ export function CourseManagementDialog({
     setCourseBusyId(course.id);
     setCourseActionError("");
     try {
-      const restored = await window.uclaw.courses.restore(course.id);
+      const restored = await window.brevyn.courses.restore(course.id);
       await loadArchivedCourses();
       onCourseCreated(restored);
-      onSelectCourse(restored.id);
+      setViewingCourseId(restored.id);
       onWorkspaceChanged?.();
     } catch (reason) {
       setCourseActionError(errorMessage(reason, "Failed to restore course."));
@@ -337,15 +411,23 @@ export function CourseManagementDialog({
 
   async function deleteCourse(course: Course) {
     if (!course.archivedAt) {
-      window.alert("Archive this course before deleting it permanently.");
+      setCourseActionError("Archive this course before deleting it permanently.");
       return;
     }
-    const typed = window.prompt(`This permanently deletes "${course.name}", all files, and indexed data.\n\nType the course name to confirm:`);
-    if (typed !== course.name) return;
+    const ok = await confirm({
+      title: `Delete "${course.name}" permanently?`,
+      message: "This removes all files and indexed data.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: course.name,
+      verificationLabel: "Type the course name to confirm",
+    });
+    if (!ok) return;
     setCourseBusyId(course.id);
     setCourseActionError("");
     try {
-      await window.uclaw.courses.delete(course.id);
+      await window.brevyn.courses.delete(course.id);
       await loadArchivedCourses();
       onWorkspaceChanged?.();
     } catch (reason) {
@@ -357,11 +439,12 @@ export function CourseManagementDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
+      {confirmDialog}
+      <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <GraduationCap className="h-4 w-4" />
+              <BookOpen className="h-4 w-4" />
               Courses
             </div>
             <div className="truncate text-[11px] text-muted-foreground">Course recognition, file organization, task sections, and embedding indexing</div>
@@ -376,7 +459,7 @@ export function CourseManagementDialog({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[360px_1fr] uclaw-scrollbar">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[360px_1fr] brevyn-scrollbar">
           <aside className="min-h-0 space-y-3">
             <section className="rounded-lg border bg-background/70 p-2">
               <button
@@ -401,12 +484,12 @@ export function CourseManagementDialog({
                   className={cx(
                     "flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-3 text-left transition",
                     course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
-                    course.id === activeCourseId && !course.archivedAt ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
+                    course.id === viewingCourseId && !course.archivedAt ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
                   )}
                 >
-                  <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => !course.archivedAt && onSelectCourse(course.id)}>
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => !course.archivedAt && setViewingCourseId(course.id)}>
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
-                      <GraduationCap className="h-4 w-4" />
+                      <CourseIcon course={course} className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-1.5">
@@ -492,21 +575,35 @@ export function CourseManagementDialog({
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{activeCourse?.name || "No course selected"}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {activeCourse?.code || "UCLAW"} · {activeCourse?.term || "local"} · {activeCourse?.instructor || "Instructor TBD"}
+                  {activeCourse?.code || "Brevyn"} · {activeCourse?.term || "local"} · {activeCourse?.instructor || "Instructor TBD"}
                 </div>
                 <div className="mt-1 truncate text-[11px] text-muted-foreground/80">
                   {activeCourse?.meetingTime || "Time TBD"} · {activeCourse?.location || "Location TBD"}
                 </div>
               </div>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void indexAllSections()}
-                disabled={!activeCourse?.id || activeCourseArchived || Boolean(indexingSectionId)}
-              >
-                {indexingSectionId === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
-                Index all
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    resetCourseDetailsDraft(activeCourse);
+                    setEditingCourseDetails((value) => !value);
+                  }}
+                  disabled={!activeCourse?.id || activeCourseArchived || savingCourseDetails}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Details
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void indexAllSections()}
+                  disabled={!activeCourse?.id || activeCourseArchived || Boolean(indexingSectionId)}
+                >
+                  {indexingSectionId === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
+                  Index all
+                </button>
+              </div>
             </div>
             {courseReadOnlyReason && (
               <div className="mt-3 flex gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-900">
@@ -514,72 +611,190 @@ export function CourseManagementDialog({
                 <span>{courseReadOnlyReason}</span>
               </div>
             )}
-
-            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="space-y-2">
-                {!activeCourse && (
-                  <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
-                    Select a course on the left before viewing sections, files, indexing jobs, or RAG search.
+            {activeCourse && editingCourseDetails && !activeCourseArchived && (
+              <section className="mt-3 rounded-lg border bg-card p-3">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <label className="block space-y-1 text-[11px] text-muted-foreground">
+                    <span>Course code</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      value={courseDetailsDraft.code}
+                      onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, code: event.target.value }))}
+                    />
+                  </label>
+                  <label className="block space-y-1 text-[11px] text-muted-foreground">
+                    <span>Instructor</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      value={courseDetailsDraft.instructor}
+                      onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, instructor: event.target.value }))}
+                    />
+                  </label>
+                  <label className="block space-y-1 text-[11px] text-muted-foreground">
+                    <span>Meeting time</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      value={courseDetailsDraft.meetingTime}
+                      onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, meetingTime: event.target.value }))}
+                    />
+                  </label>
+                  <label className="block space-y-1 text-[11px] text-muted-foreground">
+                    <span>Location</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      value={courseDetailsDraft.location}
+                      onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, location: event.target.value }))}
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {COURSE_ICON_OPTIONS.map(({ key, label, Icon }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={cx(
+                          "flex h-8 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground",
+                          courseDetailsDraft.icon === key && "border-foreground/30 bg-muted text-foreground ring-1 ring-foreground/10",
+                        )}
+                        onClick={() => setCourseDetailsDraft((current) => ({ ...current, icon: key }))}
+                        title={label}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                      </button>
+                    ))}
                   </div>
-                )}
-                {activeCourse && sections.map((section) => (
-                  <SectionCard
-                    key={section.id}
-                    section={section}
-                    indexing={indexingSectionId === section.id}
-                    disabled={activeCourseArchived || Boolean(indexingSectionId)}
-                    onIndex={() => void indexSection(section.id)}
-                    onUpload={() => uploadToSection(section)}
-                    uploading={uploadingSectionId === section.id}
-                    onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
-                  />
-                ))}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-1.5">
+                    {COURSE_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        className={cx("h-6 w-6 rounded-md border transition ring-offset-2 ring-offset-card", courseDetailsDraft.color === color && "ring-2 ring-foreground/30")}
+                        style={{ backgroundColor: color }}
+                        onClick={() => setCourseDetailsDraft((current) => ({ ...current, color }))}
+                        title={color}
+                      />
+                    ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                      onClick={() => {
+                        resetCourseDetailsDraft(activeCourse);
+                        setEditingCourseDetails(false);
+                      }}
+                      disabled={savingCourseDetails}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void saveCourseDetails()}
+                      disabled={savingCourseDetails || !courseDetailsDraft.code.trim()}
+                    >
+                      {savingCourseDetails ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      Save
+                    </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <div className="mt-4">
+              <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1">
+                <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="Files" onClick={() => setCoursePanel("files")} />
+                <CoursePanelButton active={coursePanel === "tasks"} icon={<Plus className="h-3.5 w-3.5" />} label="Tasks" onClick={() => setCoursePanel("tasks")} />
+                <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="Indexing" onClick={() => setCoursePanel("indexing")} />
+                <CoursePanelButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="Search" onClick={() => setCoursePanel("search")} />
               </div>
 
-              <aside className="space-y-3">
+              {!activeCourse && (
+                <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
+                  Select a course on the left before viewing files, tasks, indexing jobs, or RAG search.
+                </div>
+              )}
+
+              {activeCourse && coursePanel === "files" && (
+                <div className="space-y-2">
+                  {sections.map((section) => (
+                    <SectionCard
+                      key={section.id}
+                      section={section}
+                      indexing={indexingSectionId === section.id}
+                      disabled={activeCourseArchived || Boolean(indexingSectionId)}
+                      onIndex={() => void indexSection(section.id)}
+                      onUpload={() => uploadToSection(section)}
+                      uploading={uploadingSectionId === section.id}
+                      onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {activeCourse && coursePanel === "tasks" && (
                 <section className="rounded-lg border bg-card p-3">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
                     <Plus className="h-3.5 w-3.5" />
                     New Task Section
                   </div>
-                  <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                    <span>Task type</span>
-                    <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
-                      value={taskType}
-                      onChange={(event) => setTaskType(event.target.value)}
-                      placeholder="e.g. Assignment, Exam, Reading Report"
-                      list="task-type-suggestions"
-                      disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
-                    />
-                    <datalist id="task-type-suggestions">
-                      {existingTaskTypes.map((item) => (
-                        <option key={item} value={item} />
+                  <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto]">
+                    <label className="block space-y-1 text-[11px] text-muted-foreground">
+                      <span>Task type</span>
+                      <input
+                        className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                        value={taskType}
+                        onChange={(event) => setTaskType(event.target.value)}
+                        placeholder="Assignment"
+                        disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
+                      />
+                    </label>
+                    <label className="block space-y-1 text-[11px] text-muted-foreground">
+                      <span>Task name</span>
+                      <input
+                        className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                        value={taskName}
+                        onChange={(event) => setTaskName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !creatingTask) void createTask();
+                        }}
+                        placeholder="Custom task name"
+                        disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={createTask}
+                      disabled={!activeCourse?.id || activeCourseArchived || creatingTask || !taskName.trim()}
+                    >
+                      {creatingTask ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      {creatingTask ? "Creating..." : "Create"}
+                    </button>
+                  </div>
+                  {existingTaskTypes.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {existingTaskTypes.slice(0, 8).map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          className="rounded-full border bg-background px-2.5 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                          onClick={() => setTaskType(item)}
+                          disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
+                        >
+                          {item}
+                        </button>
                       ))}
-                    </datalist>
-                  </label>
-                  <input
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
-                    value={taskName}
-                    onChange={(event) => setTaskName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !creatingTask) void createTask();
-                    }}
-                    placeholder="Custom task name"
-                    disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
-                  />
-                  {taskError && <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{taskError}</div>}
-                  <button
-                    type="button"
-                    className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-background px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={createTask}
-                    disabled={!activeCourse?.id || activeCourseArchived || creatingTask || !taskName.trim()}
-                  >
-                    {creatingTask ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                    {creatingTask ? "Creating..." : "Create task"}
-                  </button>
+                    </div>
+                  )}
+                  {taskError && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{taskError}</div>}
                 </section>
+              )}
 
+              {activeCourse && coursePanel === "indexing" && (
                 <IndexingProgressPanel
                   jobs={indexingJobs}
                   loading={loadingIndexingJobs}
@@ -587,7 +802,9 @@ export function CourseManagementDialog({
                   onRefresh={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
                   onCancel={(jobId) => void cancelIndexing(jobId)}
                 />
+              )}
 
+              {activeCourse && coursePanel === "search" && (
                 <RagDebugPanel
                   query={ragQuery}
                   results={ragResults}
@@ -597,24 +814,28 @@ export function CourseManagementDialog({
                   onSearch={() => void searchRag()}
                   disabled={!activeCourse?.id || activeCourseArchived}
                 />
-
-                <section className="rounded-lg border bg-card p-3">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
-                    <Upload className="h-3.5 w-3.5" />
-                    Upload Behavior
-                  </div>
-                  <div className="space-y-2 text-[11px] leading-5 text-muted-foreground">
-                    <div className="rounded-md bg-muted/55 px-2 py-2">Semester recognition creates the semester folder first.</div>
-                    <div className="rounded-md bg-muted/55 px-2 py-2">Course recognition creates each course folder inside the semester workspace.</div>
-                    <div className="rounded-md bg-muted/55 px-2 py-2">Course files use Course shared, Lecture, and Task / task-id__Task title / Materials, Drafts, or Submitted.</div>
-                  </div>
-                </section>
-              </aside>
+              )}
             </div>
           </section>
         </div>
       </div>
     </div>
+  );
+}
+
+function CoursePanelButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={cx(
+        "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition",
+        active ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -798,15 +1019,27 @@ function SectionCard({
   const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "lecture" ? BookOpen : FileText;
   const [open, setOpen] = useState(false);
   const [deletingFileId, setDeletingFileId] = useState("");
+  const [fileActionError, setFileActionError] = useState("");
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   async function deleteFile(fileId: string, fileName: string) {
-    if (!window.confirm(`Delete "${fileName}"? The local copy will be removed.`)) return;
+    const ok = await confirm({
+      title: `Delete "${fileName}"?`,
+      message: "The local copy will be removed.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: fileName,
+      verificationLabel: "Type the file name to confirm",
+    });
+    if (!ok) return;
     setDeletingFileId(fileId);
+    setFileActionError("");
     try {
-      await window.uclaw.files.delete(fileId);
+      await window.brevyn.files.delete(fileId);
       onFileDeleted();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Delete failed");
+      setFileActionError(error instanceof Error ? error.message : "Delete failed");
     } finally {
       setDeletingFileId("");
     }
@@ -814,14 +1047,15 @@ function SectionCard({
 
   async function revealFile(fileId: string) {
     try {
-      await window.uclaw.files.reveal(fileId);
+      await window.brevyn.files.reveal(fileId);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Reveal failed");
+      setFileActionError(error instanceof Error ? error.message : "Reveal failed");
     }
   }
 
   return (
     <div className="rounded-lg border bg-card px-3 py-3">
+      {confirmDialog}
       <div className="flex items-start justify-between gap-3">
         <button
           type="button"
@@ -894,6 +1128,7 @@ function SectionCard({
           ))}
         </div>
       )}
+      {fileActionError && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-900">{fileActionError}</div>}
     </div>
   );
 }

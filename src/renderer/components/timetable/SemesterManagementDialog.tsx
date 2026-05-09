@@ -2,6 +2,7 @@ import { Archive, CalendarDays, Check, Loader2, Plus, RotateCcw, Trash2, X } fro
 import { useEffect, useMemo, useState } from "react";
 import type { SemesterWorkspace } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export function SemesterManagementDialog({
   onSelectSemester,
@@ -20,6 +21,7 @@ export function SemesterManagementDialog({
   const [term, setTerm] = useState("");
   const [folderName, setFolderName] = useState("");
   const [error, setError] = useState("");
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const hasArchived = archivedSemesters.length > 0;
   const allSemesters = useMemo(() => [...activeSemesters, ...archivedSemesters], [activeSemesters, archivedSemesters]);
@@ -31,9 +33,9 @@ export function SemesterManagementDialog({
   async function loadSemesters() {
     try {
       const [active, archived, current] = await Promise.all([
-        window.uclaw.semester.list(),
-        window.uclaw.semester.listArchived(),
-        window.uclaw.semester.current(),
+        window.brevyn.semester.list(),
+        window.brevyn.semester.listArchived(),
+        window.brevyn.semester.current(),
       ]);
       setActiveSemesters(active);
       setArchivedSemesters(archived);
@@ -60,7 +62,7 @@ export function SemesterManagementDialog({
     setError("");
     setCreating(true);
     try {
-      await window.uclaw.semester.create({
+      await window.brevyn.semester.create({
         term: nextTerm,
         folderName: folderName.trim() || undefined,
       });
@@ -89,11 +91,18 @@ export function SemesterManagementDialog({
   }
 
   async function archiveSemester(semester: SemesterWorkspace) {
-    if (!window.confirm(`Archive "${semester.term}"? It will disappear from the active workspace until restored.`)) return;
+    const ok = await confirm({
+      title: `Archive "${semester.term}"?`,
+      message: "It will disappear from the active workspace until restored.",
+      confirmLabel: "Archive",
+      cancelLabel: "Keep it",
+      tone: "default",
+    });
+    if (!ok) return;
     setBusyId(semester.id);
     setError("");
     try {
-      await window.uclaw.semester.archive(semester.id);
+      await window.brevyn.semester.archive(semester.id);
       await refreshWorkspace();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to archive semester."));
@@ -106,7 +115,7 @@ export function SemesterManagementDialog({
     setBusyId(semester.id);
     setError("");
     try {
-      await window.uclaw.semester.restore(semester.id);
+      await window.brevyn.semester.restore(semester.id);
       await refreshWorkspace();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to restore semester."));
@@ -117,15 +126,23 @@ export function SemesterManagementDialog({
 
   async function deleteSemester(semester: SemesterWorkspace) {
     if (!semester.archivedAt) {
-      window.alert("Archive this semester before deleting it permanently.");
+      setError("Archive this semester before deleting it permanently.");
       return;
     }
-    const typed = window.prompt(`This permanently deletes "${semester.term}", all courses, files, and indexed data.\n\nType the semester term to confirm:`);
-    if (typed !== semester.term) return;
+    const ok = await confirm({
+      title: `Delete "${semester.term}" permanently?`,
+      message: "This removes all courses, files, sessions, and indexed data.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: semester.term,
+      verificationLabel: "Type the semester term to confirm",
+    });
+    if (!ok) return;
     setBusyId(semester.id);
     setError("");
     try {
-      await window.uclaw.semester.delete(semester.id);
+      await window.brevyn.semester.delete(semester.id);
       await refreshWorkspace();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to delete semester."));
@@ -136,6 +153,7 @@ export function SemesterManagementDialog({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm">
+      {confirmDialog}
       <div className="flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
@@ -155,7 +173,7 @@ export function SemesterManagementDialog({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1fr_280px] uclaw-scrollbar">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1fr_280px] brevyn-scrollbar">
           <section className="min-h-0 space-y-4">
             <SemesterGroup
               title="Active semesters"

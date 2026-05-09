@@ -49,11 +49,24 @@ export class ProviderTransactionStore {
   reconcile(configs: ProviderConfigStore, secrets?: ProviderSecretStore): void {
     const transaction = this.load();
     if (!transaction) return;
-    if (transaction.afterSecrets && secrets) {
-      secrets.restore(transaction.afterSecrets);
+    try {
+      configs.replaceProviders(transaction.afterProfiles);
+      if (transaction.afterSecrets && secrets) {
+        secrets.restore(transaction.afterSecrets);
+      }
+      this.clear(transaction.id);
+    } catch (error) {
+      try {
+        configs.replaceProviders(transaction.beforeProfiles);
+        if (transaction.beforeSecrets && secrets) {
+          secrets.restore(transaction.beforeSecrets);
+        }
+        this.clear(transaction.id);
+      } catch (rollbackError) {
+        console.warn("[providers] Failed to reconcile or roll back pending provider transaction", rollbackError);
+      }
+      throw error;
     }
-    configs.replaceProviders(transaction.afterProfiles);
-    this.clear(transaction.id);
   }
 
   private load(): ProviderPendingTransaction | null {

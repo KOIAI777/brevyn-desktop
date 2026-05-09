@@ -10,7 +10,7 @@ import type {
   SemesterWorkspace,
   SkillItem,
   Thread,
-  UclawTask,
+  BrevynTask,
   WorkspaceFileNode,
 } from "@/types/domain";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
@@ -37,7 +37,7 @@ function App() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [semesters, setSemesters] = useState<SemesterWorkspace[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
-  const [tasksByCourse, setTasksByCourse] = useState<Record<string, UclawTask[]>>({});
+  const [tasksByCourse, setTasksByCourse] = useState<Record<string, BrevynTask[]>>({});
   const [threads, setThreads] = useState<Thread[]>([]);
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
@@ -126,14 +126,14 @@ function App() {
     setWorkspaceError("");
     try {
       const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
-        window.uclaw.semester.list(),
-        window.uclaw.semester.current(),
-        window.uclaw.courses.list(),
-        window.uclaw.skills.list(),
-        window.uclaw.git.status(),
+        window.brevyn.semester.list(),
+        window.brevyn.semester.current(),
+        window.brevyn.courses.list(),
+        window.brevyn.skills.list(),
+        window.brevyn.git.status(),
       ]);
-      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
-      const threadList = await window.uclaw.threads.list();
+      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.brevyn.tasks.list(course.id)] as const));
+      const threadList = await window.brevyn.threads.list();
 
       if (!mountedRef.current || isCancelled()) return;
       const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
@@ -166,12 +166,12 @@ function App() {
     setWorkspaceError("");
     try {
       const [semesterList, currentSemester, courseList, threadList] = await Promise.all([
-        window.uclaw.semester.list(),
-        window.uclaw.semester.current(),
-        window.uclaw.courses.list(),
-        window.uclaw.threads.list(),
+        window.brevyn.semester.list(),
+        window.brevyn.semester.current(),
+        window.brevyn.courses.list(),
+        window.brevyn.threads.list(),
       ]);
-      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.uclaw.tasks.list(course.id)] as const));
+      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.brevyn.tasks.list(course.id)] as const));
 
       if (!mountedRef.current || workspaceReloadRequestRef.current !== requestId) return false;
 
@@ -213,7 +213,7 @@ function App() {
   async function selectSemester(semesterId: string) {
     setWorkspaceError("");
     try {
-      await window.uclaw.semester.select(semesterId);
+      await window.brevyn.semester.select(semesterId);
       await reloadWorkspace();
     } catch (error) {
       if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to switch semester."));
@@ -225,7 +225,7 @@ function App() {
     fileLoadRequestRef.current = requestId;
     setFilesLoading(true);
     try {
-      const [tree, stats] = await Promise.all([window.uclaw.files.tree(courseId), window.uclaw.files.stats(courseId)]);
+      const [tree, stats] = await Promise.all([window.brevyn.files.tree(courseId), window.brevyn.files.stats(courseId)]);
       if (!isLatestFileLoad(requestId, courseId)) return false;
 
       const current = selectedFileIdRef.current ? findFileNode(tree, selectedFileIdRef.current) : null;
@@ -235,7 +235,7 @@ function App() {
       let preview: FilePreview | null = null;
       if (next) {
         try {
-          preview = await window.uclaw.files.preview(next.id);
+          preview = await window.brevyn.files.preview(next.id);
         } catch (error) {
           if (isLatestFileLoad(requestId, courseId) && filePreviewRequestRef.current === previewRequestId) {
             setWorkspaceError(errorMessage(error, "Failed to preview file."));
@@ -272,7 +272,7 @@ function App() {
       return;
     }
     try {
-      const preview = await window.uclaw.files.preview(file.id);
+      const preview = await window.brevyn.files.preview(file.id);
       if (!mountedRef.current || filePreviewRequestRef.current !== requestId || selectedFileIdRef.current !== file.id) return;
       setFilePreview(preview);
       setPreviewRailCollapsed(false);
@@ -287,19 +287,19 @@ function App() {
     const targetCourseId = input.courseId;
     setWorkspaceError("");
     try {
-      const result = await window.uclaw.files.import(input);
+      const result = await window.brevyn.files.import(input);
       if (!mountedRef.current || activeCourseIdRef.current !== targetCourseId) return result;
 
       const requestId = fileLoadRequestRef.current + 1;
       fileLoadRequestRef.current = requestId;
-      const stats = await window.uclaw.files.stats(targetCourseId);
+      const stats = await window.brevyn.files.stats(targetCourseId);
       const next = result.files.find((file) => file.kind !== "folder") || firstPreviewableFile(result.tree);
       const previewRequestId = filePreviewRequestRef.current + 1;
       filePreviewRequestRef.current = previewRequestId;
       let preview: FilePreview | null = null;
       if (next) {
         try {
-          preview = await window.uclaw.files.preview(next.id);
+          preview = await window.brevyn.files.preview(next.id);
         } catch (error) {
           if (isLatestFileLoad(requestId, targetCourseId) && filePreviewRequestRef.current === previewRequestId) {
             setWorkspaceError(errorMessage(error, "Imported files, but preview failed."));
@@ -324,7 +324,7 @@ function App() {
 
   async function refreshThreads(): Promise<Thread[]> {
     try {
-      const next = await window.uclaw.threads.list();
+      const next = await window.brevyn.threads.list();
       const deduped = filterThreadsForSemester(dedupeThreads(next), semester?.id);
       if (mountedRef.current) setThreads(deduped);
       return deduped;
@@ -348,7 +348,7 @@ function App() {
     }
     setWorkspaceError("");
     try {
-      const thread = await window.uclaw.threads.create({
+      const thread = await window.brevyn.threads.create({
         courseId,
         taskId,
         title: threadTitleForScope(courseId, taskId),
@@ -366,7 +366,7 @@ function App() {
   async function archiveThread(thread: Thread) {
     setWorkspaceError("");
     try {
-      await window.uclaw.threads.archive(thread.id);
+      await window.brevyn.threads.archive(thread.id);
       await refreshThreads();
       if (thread.id !== activeThreadId) return;
 
@@ -413,12 +413,13 @@ function App() {
   function handleCourseCreated(course: Course) {
     setCourses((current) => (current.some((item) => item.id === course.id) ? current : [...current, course]));
     setTasksByCourse((current) => ({ ...current, [course.id]: current[course.id] || [] }));
-    commitActiveCourseId(course.id);
-    setActiveTaskId(undefined);
-    selectCourseHome(course.id);
   }
 
-  function handleTaskCreated(task: UclawTask) {
+  function handleCourseUpdated(course: Course) {
+    setCourses((current) => current.map((item) => (item.id === course.id ? course : item)));
+  }
+
+  function handleTaskCreated(task: BrevynTask) {
     setTasksByCourse((current) => ({
       ...current,
       [task.courseId]: [...(current[task.courseId] || []), task],
@@ -576,8 +577,8 @@ function App() {
           semester={semester}
           courses={courses.filter((course) => course.workspaceKind !== "semester_home")}
           activeCourseId={activeCourseId}
-          onSelectCourse={selectCourseHome}
           onCourseCreated={handleCourseCreated}
+          onCourseUpdated={handleCourseUpdated}
           onTaskCreated={handleTaskCreated}
           onWorkspaceChanged={() => void reloadWorkspace()}
           onClose={() => setCoursesOpen(false)}
@@ -610,7 +611,7 @@ function App() {
 
 export default App;
 
-function describeWorkspaceScope(course?: Course, task?: UclawTask, thread?: Thread): string {
+function describeWorkspaceScope(course?: Course, task?: BrevynTask, thread?: Thread): string {
   if (task || thread?.taskId) return "Task workspace shared across sessions";
   if (course?.workspaceKind === "semester_home" || thread?.threadType === "semester_home") return "Semester workspace";
   if (course) return "Course workspace";
@@ -650,7 +651,7 @@ interface WorkspaceSelection {
 
 function pickWorkspaceSelection(
   courses: Course[],
-  tasksByCourse: Record<string, UclawTask[]>,
+  tasksByCourse: Record<string, BrevynTask[]>,
   threads: Thread[],
   current?: WorkspaceSelection,
   preferredThreadId?: string,
@@ -675,7 +676,7 @@ function pickWorkspaceSelection(
   };
 }
 
-function validThreadSelection(thread: Thread | undefined, courses: Course[], tasksByCourse: Record<string, UclawTask[]>): WorkspaceSelection | undefined {
+function validThreadSelection(thread: Thread | undefined, courses: Course[], tasksByCourse: Record<string, BrevynTask[]>): WorkspaceSelection | undefined {
   if (!thread || !courses.some((course) => course.id === thread.courseId)) return undefined;
   if (thread.taskId && !taskBelongsToCourse(tasksByCourse, thread.courseId, thread.taskId)) return undefined;
   return {
@@ -685,7 +686,7 @@ function validThreadSelection(thread: Thread | undefined, courses: Course[], tas
   };
 }
 
-function taskBelongsToCourse(tasksByCourse: Record<string, UclawTask[]>, courseId: string, taskId: string): boolean {
+function taskBelongsToCourse(tasksByCourse: Record<string, BrevynTask[]>, courseId: string, taskId: string): boolean {
   return Boolean((tasksByCourse[courseId] || []).some((task) => task.id === taskId));
 }
 
@@ -717,7 +718,7 @@ function AppBootErrorScreen({ error, onRetry }: { error: string; onRetry: () => 
           Failed to load workspace
         </div>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          UCLAW could not finish startup. Try again, and if it keeps happening we will need the error text below.
+          Brevyn could not finish startup. Try again, and if it keeps happening we will need the error text below.
         </p>
         <div className="mt-4 rounded-lg border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
           {error || "Unknown startup error."}

@@ -1,11 +1,11 @@
 import { BookOpen, ClipboardList, FileText, Presentation } from "lucide-react";
-import type { UclawTask } from "@/types/domain";
+import type { BrevynTask } from "@/types/domain";
 
 /**
  * Pick an icon for a user-defined task type by keyword match.
  * Falls back to a clipboard icon for unknown types.
  */
-export function TaskTypeIcon({ task }: { task: UclawTask }) {
+export function TaskTypeIcon({ task }: { task: BrevynTask }) {
   const type = (task.taskType || "").toLowerCase();
   if (type.includes("exam") || type.includes("考试") || type.includes("测试")) {
     return <BookOpen className="h-3.5 w-3.5 shrink-0 text-red-500" />;

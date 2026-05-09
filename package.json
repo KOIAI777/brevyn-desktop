@@ -1,10 +1,10 @@
 {
-  "name": "@uclaw/electron",
+  "name": "@brevyn/electron",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
-  "description": "UCLAW local-first Electron workspace for courses, RAG, and agent workflows.",
+  "description": "Brevyn local-first Electron workspace for courses, RAG, and agent workflows.",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,green \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --host 127.0.0.1",

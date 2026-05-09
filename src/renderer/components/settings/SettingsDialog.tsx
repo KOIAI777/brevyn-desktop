@@ -32,6 +32,8 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   AGENT_PROVIDER_PRESETS,
   EMBEDDING_PROVIDER_PRESETS,
@@ -138,6 +140,7 @@ export function SettingsDialog({
   const [skillContent, setSkillContent] = useState("");
   const [skillStatusLine, setSkillStatusLine] = useState("");
   const [skillBusy, setSkillBusy] = useState(false);
+  const { confirm: confirmProviderAction, confirmDialog: providerConfirmDialog } = useConfirmDialog();
   const providerApiKeyLoadRequestRef = useRef(0);
   const embeddingApiKeyLoadRequestRef = useRef(0);
 
@@ -171,7 +174,7 @@ export function SettingsDialog({
     const provider = providers.find((item) => item.id === selectedProviderId);
     if (!provider) return;
     const requestId = ++providerApiKeyLoadRequestRef.current;
-    void window.uclaw.providers
+    void window.brevyn.providers
       .decryptApiKey(provider.id)
       .then((apiKey) => {
         if (providerApiKeyLoadRequestRef.current !== requestId) return;
@@ -195,7 +198,7 @@ export function SettingsDialog({
     const provider = providers.find((item) => item.id === selectedEmbeddingProviderId);
     if (!provider) return;
     const requestId = ++embeddingApiKeyLoadRequestRef.current;
-    void window.uclaw.providers
+    void window.brevyn.providers
       .decryptApiKey(provider.id)
       .then((apiKey) => {
         if (embeddingApiKeyLoadRequestRef.current !== requestId) return;
@@ -215,7 +218,7 @@ export function SettingsDialog({
   }, [creatingEmbeddingProvider, providers, selectedEmbeddingProviderId]);
 
   useEffect(() => {
-    void window.uclaw.skills
+    void window.brevyn.skills
       .list()
       .then(setLocalSkills)
       .catch((error) => setSkillStatusLine(`Failed to load skills: ${errorMessage(error)}`));
@@ -232,7 +235,7 @@ export function SettingsDialog({
     }
     let cancelled = false;
     setSkillBusy(true);
-    void window.uclaw.skills
+    void window.brevyn.skills
       .readContent(selectedSkillId)
       .then((content) => {
         if (cancelled) return;
@@ -253,7 +256,7 @@ export function SettingsDialog({
 
   async function loadProviders() {
     try {
-      const result = await window.uclaw.providers.list();
+      const result = await window.brevyn.providers.list();
       setProviders(result);
       closeProviderEditor();
       closeEmbeddingEditor();
@@ -343,7 +346,7 @@ export function SettingsDialog({
   async function reindexActiveSemester() {
     setReindexingActiveSemester(true);
     try {
-      const result = await window.uclaw.files.indexActiveSemester();
+      const result = await window.brevyn.files.indexActiveSemester();
       const queued = result.jobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
       const failed = result.failures.length;
       if (failed > 0) {
@@ -366,9 +369,9 @@ export function SettingsDialog({
   async function saveProvider() {
     setProviderBusy("agent-save", true);
     try {
-      const result = await window.uclaw.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
+      const result = await window.brevyn.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
       const saved = result.provider;
-      const next = await window.uclaw.providers.list();
+      const next = await window.brevyn.providers.list();
       setProviders(next);
       setCreatingProvider(false);
       setSelectedProviderId(saved.id);
@@ -395,12 +398,20 @@ export function SettingsDialog({
   }
 
   async function deleteProvider(provider: ModelProviderConfig) {
-    const ok = window.confirm(`Delete provider profile "${provider.name}"?`);
+    const ok = await confirmProviderAction({
+      title: `Delete provider profile "${provider.name}"?`,
+      message: "This removes the saved profile and its local metadata.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: provider.name,
+      verificationLabel: "Type the provider name to confirm",
+    });
     if (!ok) return;
     setProviderBusy("agent-delete", true);
     try {
-      await window.uclaw.providers.delete(provider.id);
-      const next = await window.uclaw.providers.list();
+      await window.brevyn.providers.delete(provider.id);
+      const next = await window.brevyn.providers.list();
       setProviders(next);
       closeProviderEditor();
       setStatusLine(`Deleted provider profile "${provider.name}".`);
@@ -414,9 +425,9 @@ export function SettingsDialog({
   async function saveEmbeddingProvider() {
     setProviderBusy("embedding-save", true);
     try {
-      const result = await window.uclaw.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
+      const result = await window.brevyn.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
       const saved = result.provider;
-      const next = await window.uclaw.providers.list();
+      const next = await window.brevyn.providers.list();
       setProviders(next);
       setCreatingEmbeddingProvider(false);
       setSelectedEmbeddingProviderId(saved.id);
@@ -442,12 +453,20 @@ export function SettingsDialog({
   }
 
   async function deleteEmbeddingProvider(provider: ModelProviderConfig) {
-    const ok = window.confirm(`Delete embedding provider profile "${provider.name}"?`);
+    const ok = await confirmProviderAction({
+      title: `Delete embedding provider profile "${provider.name}"?`,
+      message: "This removes the saved profile and its local metadata.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: provider.name,
+      verificationLabel: "Type the provider name to confirm",
+    });
     if (!ok) return;
     setProviderBusy("embedding-delete", true);
     try {
-      await window.uclaw.providers.delete(provider.id);
-      const next = await window.uclaw.providers.list();
+      await window.brevyn.providers.delete(provider.id);
+      const next = await window.brevyn.providers.list();
       setProviders(next);
       closeEmbeddingEditor();
       setEmbeddingStatusLine(`Deleted embedding provider profile "${provider.name}".`);
@@ -461,9 +480,9 @@ export function SettingsDialog({
   async function toggleProvider(provider: ModelProviderConfig) {
     setProviderBusy("agent-toggle", true);
     try {
-      const result = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const result = await window.brevyn.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
       const saved = result.provider;
-      const next = await window.uclaw.providers.list();
+      const next = await window.brevyn.providers.list();
       setProviders(next);
       if (provider.id === selectedProviderId) selectProvider(saved);
     } catch (error) {
@@ -476,9 +495,9 @@ export function SettingsDialog({
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
     setProviderBusy("embedding-toggle", true);
     try {
-      const result = await window.uclaw.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const result = await window.brevyn.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
       const saved = result.provider;
-      const next = await window.uclaw.providers.list();
+      const next = await window.brevyn.providers.list();
       setProviders(next);
       if (provider.id === selectedEmbeddingProviderId) selectEmbeddingProvider(saved);
       await handleEmbeddingIndexNotice(result, `Updated embedding provider "${saved.name}".`);
@@ -496,7 +515,7 @@ export function SettingsDialog({
     }
     setProviderBusy("agent-fetch", true);
     try {
-      setModels(await window.uclaw.providers.models(selectedProviderId));
+      setModels(await window.brevyn.providers.models(selectedProviderId));
       setStatusLine("Fetched available models.");
     } catch (error) {
       setModels([]);
@@ -513,7 +532,7 @@ export function SettingsDialog({
     }
     setProviderBusy("embedding-fetch", true);
     try {
-      setEmbeddingModels(await window.uclaw.providers.models(selectedEmbeddingProviderId));
+      setEmbeddingModels(await window.brevyn.providers.models(selectedEmbeddingProviderId));
       setEmbeddingStatusLine("Fetched embedding models.");
     } catch (error) {
       setEmbeddingModels([]);
@@ -530,7 +549,7 @@ export function SettingsDialog({
     }
     setProviderBusy("agent-test", true);
     try {
-      const result = await window.uclaw.providers.test(selectedProviderId);
+      const result = await window.brevyn.providers.test(selectedProviderId);
       setStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
     } catch (error) {
       setStatusLine(errorMessage(error));
@@ -546,7 +565,7 @@ export function SettingsDialog({
     }
     setProviderBusy("embedding-test", true);
     try {
-      const result = await window.uclaw.providers.test(selectedEmbeddingProviderId);
+      const result = await window.brevyn.providers.test(selectedEmbeddingProviderId);
       setEmbeddingStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
@@ -558,7 +577,7 @@ export function SettingsDialog({
   async function toggleSkill(skill: SkillItem) {
     setSkillBusy(true);
     try {
-      const updated = await window.uclaw.skills.update({ id: skill.id, enabled: !skill.enabled });
+      const updated = await window.brevyn.skills.update({ id: skill.id, enabled: !skill.enabled });
       const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
       setLocalSkills(next);
       onSkillsChange(next);
@@ -578,7 +597,7 @@ export function SettingsDialog({
         setSkillStatusLine("SKILL.md cannot be saved empty.");
         return;
       }
-      const updated = await window.uclaw.skills.writeContent({ id: selectedSkillId, content: skillContent });
+      const updated = await window.brevyn.skills.writeContent({ id: selectedSkillId, content: skillContent });
       const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
       setLocalSkills(next);
       onSkillsChange(next);
@@ -593,8 +612,8 @@ export function SettingsDialog({
   async function importSkillFolder() {
     setSkillBusy(true);
     try {
-      const imported = await window.uclaw.skills.importFolder({});
-      const next = await window.uclaw.skills.list();
+      const imported = await window.brevyn.skills.importFolder({});
+      const next = await window.brevyn.skills.list();
       setLocalSkills(next);
       onSkillsChange(next);
       setSelectedSkillId(imported.id);
@@ -609,7 +628,7 @@ export function SettingsDialog({
   async function openSkillFolder(skillId: string) {
     if (!skillId) return;
     try {
-      await window.uclaw.skills.openFolder(skillId);
+      await window.brevyn.skills.openFolder(skillId);
       setSkillStatusLine("Opened skill folder.");
     } catch (error) {
       setSkillStatusLine(errorMessage(error));
@@ -618,6 +637,7 @@ export function SettingsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
+      {providerConfirmDialog}
       {providerToast && (
         <div className="pointer-events-none absolute top-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-lg ring-1 ring-border/60">
           <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -631,7 +651,6 @@ export function SettingsDialog({
               <Settings className="h-4 w-4" />
               Settings
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{course?.name || "UCLAW"} · {semester?.term || "no semester selected"} · model config, archive, skills</div>
           </div>
           <button
             type="button"
@@ -670,7 +689,7 @@ export function SettingsDialog({
             </div>
           </aside>
 
-          <main className="min-h-0 overflow-y-auto p-4 uclaw-scrollbar">
+          <main className="min-h-0 overflow-y-auto p-4 brevyn-scrollbar">
             {activePage === "providers" ? (
               <ProviderSettingsPage
                 providers={providers}
@@ -976,7 +995,7 @@ function ProviderSettingsPage({
             <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New provider" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
-          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 uclaw-scrollbar">
+          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
             {chatProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1008,7 +1027,7 @@ function ProviderSettingsPage({
             <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
 
-          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 uclaw-scrollbar">
+          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
             {embeddingProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1084,6 +1103,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   useEffect(() => {
     void loadArchive();
@@ -1094,15 +1114,15 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
     setError("");
     try {
       const [activeSemesters, archivedSemesters] = await Promise.all([
-        window.uclaw.semester.list(),
-        window.uclaw.semester.listArchived(),
+        window.brevyn.semester.list(),
+        window.brevyn.semester.listArchived(),
       ]);
       const semesters = [...activeSemesters, ...archivedSemesters].sort(compareSemestersForArchive);
       const nextGroups = await Promise.all(
         semesters.map(async (item) => {
           const [archivedCourses, archivedThreads] = await Promise.all([
-            window.uclaw.courses.listArchived({ semesterId: item.id }),
-            window.uclaw.threads.listArchived({ semesterId: item.id }),
+            window.brevyn.courses.listArchived({ semesterId: item.id }),
+            window.brevyn.threads.listArchived({ semesterId: item.id }),
           ]);
           return { semester: item, archivedCourses, archivedThreads };
         }),
@@ -1124,7 +1144,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
     setBusyKey(`semester:restore:${semester.id}`);
     setError("");
     try {
-      await window.uclaw.semester.restore(semester.id);
+      await window.brevyn.semester.restore(semester.id);
       await afterMutation();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to restore semester."));
@@ -1134,12 +1154,20 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   }
 
   async function deleteSemester(semester: SemesterWorkspace) {
-    const typed = window.prompt(`This permanently deletes "${semester.term}", all courses, files, sessions, and indexed data.\n\nType the semester term to confirm:`);
-    if (typed !== semester.term) return;
+    const ok = await confirm({
+      title: `Delete "${semester.term}" permanently?`,
+      message: "This removes all courses, files, sessions, and indexed data.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: semester.term,
+      verificationLabel: "Type the semester term to confirm",
+    });
+    if (!ok) return;
     setBusyKey(`semester:delete:${semester.id}`);
     setError("");
     try {
-      await window.uclaw.semester.delete(semester.id);
+      await window.brevyn.semester.delete(semester.id);
       await afterMutation();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to delete semester."));
@@ -1156,7 +1184,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
     setBusyKey(`course:restore:${course.id}`);
     setError("");
     try {
-      await window.uclaw.courses.restore(course.id);
+      await window.brevyn.courses.restore(course.id);
       await afterMutation();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to restore course."));
@@ -1166,12 +1194,20 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   }
 
   async function deleteCourse(course: Course) {
-    const typed = window.prompt(`This permanently deletes "${course.name}", all files, sessions, and indexed data.\n\nType the course name to confirm:`);
-    if (typed !== course.name) return;
+    const ok = await confirm({
+      title: `Delete "${course.name}" permanently?`,
+      message: "This removes all files, sessions, and indexed data.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: course.name,
+      verificationLabel: "Type the course name to confirm",
+    });
+    if (!ok) return;
     setBusyKey(`course:delete:${course.id}`);
     setError("");
     try {
-      await window.uclaw.courses.delete(course.id);
+      await window.brevyn.courses.delete(course.id);
       await afterMutation();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to delete course."));
@@ -1188,7 +1224,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
     setBusyKey(`thread:restore:${thread.id}`);
     setError("");
     try {
-      await window.uclaw.threads.restore(thread.id);
+      await window.brevyn.threads.restore(thread.id);
       await afterMutation();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to restore session."));
@@ -1198,12 +1234,20 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   }
 
   async function deleteThread(thread: Thread) {
-    const typed = window.prompt(`This permanently deletes the archived session "${thread.title}".\n\nType the session title to confirm:`);
-    if (typed !== thread.title) return;
+    const ok = await confirm({
+      title: `Delete archived session "${thread.title}"?`,
+      message: "This removes the archived session permanently.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      verificationText: thread.title,
+      verificationLabel: "Type the session title to confirm",
+    });
+    if (!ok) return;
     setBusyKey(`thread:delete:${thread.id}`);
     setError("");
     try {
-      await window.uclaw.threads.delete(thread.id);
+      await window.brevyn.threads.delete(thread.id);
       await afterMutation();
     } catch (reason) {
       setError(errorMessage(reason, "Failed to delete session."));
@@ -1218,6 +1262,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       <section className="rounded-lg border bg-background/70 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1806,13 +1851,13 @@ function ProviderKindField({
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
       <span>Provider</span>
-      <select className="h-8 w-full rounded-md border bg-card px-2 text-xs text-foreground outline-none" value={value} onChange={(event) => onChange(event.target.value as ProviderKind)}>
-        {options.map((kind) => (
-          <option key={kind} value={kind}>
-            {providerKindLabel(kind)}
-          </option>
-        ))}
-      </select>
+      <DropdownSelect
+        value={value}
+        options={options.map((kind) => ({ value: kind, label: providerKindLabel(kind) }))}
+        placeholder="Select provider"
+        ariaLabel="Select provider kind"
+        onChange={(next) => onChange(next as ProviderKind)}
+      />
     </label>
   );
 }

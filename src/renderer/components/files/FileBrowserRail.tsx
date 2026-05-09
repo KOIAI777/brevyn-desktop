@@ -56,7 +56,7 @@ export function FileBrowserRail({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2 uclaw-scrollbar">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2 brevyn-scrollbar">
         {loading ? (
           <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

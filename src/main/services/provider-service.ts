@@ -293,13 +293,13 @@ export class ProviderService {
         })
       : undefined;
     try {
-      if (secretChanged && afterSecrets && this.secrets) this.secrets.restore(afterSecrets);
       this.configs.replaceProviders(afterProfiles);
+      if (secretChanged && afterSecrets && this.secrets) this.secrets.restore(afterSecrets);
       this.transactions?.clear(transaction?.id);
     } catch (error) {
       try {
-        if (secretChanged && beforeSecrets && this.secrets) this.secrets.restore(beforeSecrets);
         this.configs.replaceProviders(beforeProfiles);
+        if (secretChanged && beforeSecrets && this.secrets) this.secrets.restore(beforeSecrets);
         this.transactions?.clear(transaction?.id);
       } catch (rollbackError) {
         console.warn("[providers] Failed to roll back provider mutation", rollbackError);
@@ -373,34 +373,34 @@ export function envApiKeyForProvider(provider: ModelProviderConfig): string | un
 
 function envAgentApiKey(provider: ModelProviderConfig): string | undefined {
   if (provider.providerKind === "deepseek") {
-    return process.env.UCLAW_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
+    return process.env.BREVYN_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
   }
   if (provider.providerKind === "kimi-api") {
-    return process.env.UCLAW_KIMI_API_KEY || process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
+    return process.env.BREVYN_KIMI_API_KEY || process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
   }
   if (provider.providerKind === "kimi-coding") {
-    return process.env.UCLAW_KIMI_CODING_API_KEY || process.env.KIMI_CODING_API_KEY || process.env.KIMI_API_KEY;
+    return process.env.BREVYN_KIMI_CODING_API_KEY || process.env.KIMI_CODING_API_KEY || process.env.KIMI_API_KEY;
   }
   if (provider.authMode === "auth_token" || provider.authMode === "bearer") {
-    return process.env.UCLAW_ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+    return process.env.BREVYN_ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
   }
-  return process.env.UCLAW_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+  return process.env.BREVYN_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
 }
 
 function envEmbeddingApiKey(provider: ModelProviderConfig): string | undefined {
   if (provider.providerKind === "qwen") {
-    return process.env.UCLAW_QWEN_API_KEY || process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
+    return process.env.BREVYN_QWEN_API_KEY || process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
   }
   if (provider.providerKind === "doubao") {
-    return process.env.UCLAW_DOUBAO_API_KEY || process.env.DOUBAO_API_KEY || process.env.ARK_API_KEY;
+    return process.env.BREVYN_DOUBAO_API_KEY || process.env.DOUBAO_API_KEY || process.env.ARK_API_KEY;
   }
   if (provider.providerKind === "zhipu") {
-    return process.env.UCLAW_ZHIPU_API_KEY || process.env.ZHIPU_API_KEY;
+    return process.env.BREVYN_ZHIPU_API_KEY || process.env.ZHIPU_API_KEY;
   }
   if (provider.providerKind === "minimax") {
-    return process.env.UCLAW_MINIMAX_API_KEY || process.env.MINIMAX_API_KEY;
+    return process.env.BREVYN_MINIMAX_API_KEY || process.env.MINIMAX_API_KEY;
   }
-  return process.env.UCLAW_OPENAI_COMPATIBLE_API_KEY || process.env.UCLAW_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  return process.env.BREVYN_OPENAI_COMPATIBLE_API_KEY || process.env.BREVYN_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 }
 
 function maskApiKey(apiKey: string): string {

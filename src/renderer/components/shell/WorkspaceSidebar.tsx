@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Archive, CalendarDays, ChevronRight, FolderOpen, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Plus, Settings } from "lucide-react";
-import type { Course, Thread, UclawTask } from "@/types/domain";
+import type { Course, Thread, BrevynTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { formatRelative } from "@/lib/workspace-files";
+import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
 
 export function WorkspaceSidebar({
@@ -25,7 +26,7 @@ export function WorkspaceSidebar({
 }: {
   collapsed: boolean;
   courses: Course[];
-  tasksByCourse: Record<string, UclawTask[]>;
+  tasksByCourse: Record<string, BrevynTask[]>;
   threads: Thread[];
   activeCourseId: string;
   activeTaskId?: string;
@@ -92,7 +93,7 @@ export function WorkspaceSidebar({
       <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-3 py-3">
         <div className="min-w-0">
           <div className="text-[10px] uppercase text-muted-foreground">TaskAgent</div>
-          <div className="truncate text-sm font-semibold">UCLAW Workspace</div>
+          <div className="truncate text-sm font-semibold">Brevyn Workspace</div>
         </div>
         <button className="no-drag rounded-md border bg-background/70 p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
@@ -113,21 +114,25 @@ export function WorkspaceSidebar({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2.5 uclaw-scrollbar">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2.5 brevyn-scrollbar">
         {homeCourse && (
           <div className="mb-3 rounded-lg border bg-background/70 p-1.5">
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={homeOpen ? "Collapse Home" : "Expand Home"}
+                onClick={() => setHomeOpen((value) => !value)}
+              >
+                <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", homeOpen && "rotate-90")} />
+              </button>
               <button
                 className={cx(
                   "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors",
                   homeCourse.id === activeCourseId ? "bg-muted text-foreground ring-1 ring-border/70" : "text-foreground hover:bg-accent/70",
                 )}
-                onClick={() => {
-                  setHomeOpen((value) => !value);
-                  onSelectHome(homeCourse.id);
-                }}
+                onClick={() => onSelectHome(homeCourse.id)}
               >
-                <ChevronRight className={cx("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", homeOpen && "rotate-90")} />
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
                   <Home className="h-3.5 w-3.5" />
                 </span>
@@ -163,27 +168,33 @@ export function WorkspaceSidebar({
 
           return (
             <div key={course.id} className="mb-2">
-              <button
-                className={cx(
-                  "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors",
-                  course.id === activeCourseId && !activeTaskId ? "bg-muted text-foreground ring-1 ring-border/70" : "text-foreground hover:bg-accent/70",
-                )}
-                onClick={() => {
-                  setOpenCourses((current) => ({ ...current, [course.id]: !courseOpen }));
-                  onSelectHome(course.id);
-                }}
-              >
-                <ChevronRight className={cx("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", courseOpen && "rotate-90")} />
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f`, boxShadow: `inset 0 0 0 1px ${course.color}33` }}>
-                  <GraduationCap className="h-3.5 w-3.5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{course.name}</span>
-                  <span className="block truncate text-[10px] text-muted-foreground">
-                    {course.code} · {course.term}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={courseOpen ? `Collapse ${course.name}` : `Expand ${course.name}`}
+                  onClick={() => setOpenCourses((current) => ({ ...current, [course.id]: !courseOpen }))}
+                >
+                  <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", courseOpen && "rotate-90")} />
+                </button>
+                <button
+                  className={cx(
+                    "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors",
+                    course.id === activeCourseId && !activeTaskId ? "bg-muted text-foreground ring-1 ring-border/70" : "text-foreground hover:bg-accent/70",
+                  )}
+                  onClick={() => onSelectHome(course.id)}
+                >
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f`, boxShadow: `inset 0 0 0 1px ${course.color}33` }}>
+                    <CourseIcon course={course} className="h-3.5 w-3.5" />
                   </span>
-                </span>
-              </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{course.name}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {course.code} · {course.term}
+                    </span>
+                  </span>
+                </button>
+              </div>
 
               {courseOpen && (
                 <div className="ml-4 mt-1 space-y-1 border-l border-border/60 pl-2">
@@ -194,16 +205,20 @@ export function WorkspaceSidebar({
                       <div key={task.id}>
                         <div className="flex items-center gap-1">
                           <button
+                            type="button"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                            title={taskOpen ? `Collapse ${task.title}` : `Expand ${task.title}`}
+                            onClick={() => setOpenTasks((current) => ({ ...current, [task.id]: !taskOpen }))}
+                          >
+                            <ChevronRight className={cx("h-3 w-3 transition-transform", taskOpen && "rotate-90")} />
+                          </button>
+                          <button
                             className={cx(
                               "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px]",
                               task.id === activeTaskId ? "bg-muted/80 text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
-                            onClick={() => {
-                              setOpenTasks((current) => ({ ...current, [task.id]: !taskOpen }));
-                              onSelectTask(course.id, task.id);
-                            }}
+                            onClick={() => onSelectTask(course.id, task.id)}
                           >
-                            <ChevronRight className={cx("h-3 w-3 shrink-0 transition-transform", taskOpen && "rotate-90")} />
                             <TaskTypeIcon task={task} />
                             <span className="min-w-0 flex-1 truncate">{task.title}</span>
                             <SessionCount count={taskThreads.length} />

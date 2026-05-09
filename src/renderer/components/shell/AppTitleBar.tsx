@@ -1,5 +1,5 @@
 import { CalendarDays, ChevronRight, Eye, EyeOff, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
-import type { Course, SemesterWorkspace, Thread, UclawTask } from "@/types/domain";
+import type { Course, SemesterWorkspace, Thread, BrevynTask } from "@/types/domain";
 
 export function AppTitleBar({
   course,
@@ -14,7 +14,7 @@ export function AppTitleBar({
   onTogglePreviewRail,
 }: {
   course?: Course;
-  task?: UclawTask;
+  task?: BrevynTask;
   thread?: Thread;
   semester?: SemesterWorkspace | null;
   sidebarCollapsed: boolean;
@@ -48,7 +48,7 @@ export function AppTitleBar({
       </div>
 
       <div className="min-w-0 flex flex-1 items-center gap-2">
-        <div className="min-w-0 truncate text-sm font-semibold">{course?.name || "UCLAW"}</div>
+        <div className="min-w-0 truncate text-sm font-semibold">{course?.name || "Brevyn"}</div>
         {task && (
           <>
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

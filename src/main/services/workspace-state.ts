@@ -1,4 +1,4 @@
-import type { Course, SemesterWorkspace, UclawTask } from "../../types/domain";
+import type { Course, SemesterWorkspace, BrevynTask } from "../../types/domain";
 import type { SQLiteBusinessStore } from "../storage";
 import { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
@@ -66,7 +66,7 @@ export function activeCourseInSemesterOrThrow(businessStore: SQLiteBusinessStore
   return course;
 }
 
-export function taskInCourseOrThrow(businessStore: SQLiteBusinessStore, taskId: string | undefined, courseId: string, semesterId: string): UclawTask {
+export function taskInCourseOrThrow(businessStore: SQLiteBusinessStore, taskId: string | undefined, courseId: string, semesterId: string): BrevynTask {
   if (!taskId) throw new Error("Select a task before using the task workspace.");
   const task = businessStore.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);

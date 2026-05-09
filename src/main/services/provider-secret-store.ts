@@ -55,7 +55,7 @@ export class ProviderSecretStore {
     const trimmed = apiKey.trim();
     if (!trimmed) return { snapshot: this.snapshot(), secretRef: this.secretRef(providerId) };
     if (!this.isEncryptionAvailable()) {
-      throw new Error("Secure key storage is unavailable on this system. UCLAW will not save plaintext provider keys.");
+      throw new Error("Secure key storage is unavailable on this system. Brevyn will not save plaintext provider keys.");
     }
 
     const next = cloneSecretFile(this.data);

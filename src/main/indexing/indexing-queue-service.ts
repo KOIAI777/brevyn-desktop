@@ -10,7 +10,7 @@ export interface IndexingQueueOptions {
 }
 
 export class IndexingQueueService {
-  private readonly workerId = `uclaw-indexer-${randomUUID()}`;
+  private readonly workerId = `brevyn-indexer-${randomUUID()}`;
   private readonly concurrency: number;
   private readonly pollMs: number;
   private readonly lockMs: number;

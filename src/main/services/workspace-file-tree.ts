@@ -4,7 +4,7 @@ import type {
   FileImportInput,
   SemesterWorkspace,
   TaskType,
-  UclawTask,
+  BrevynTask,
   WorkspaceFileNode,
 } from "../../types/domain";
 import {
@@ -119,7 +119,7 @@ export function ensureCourseFolderInTree({
   courseId: string;
   semester?: SemesterWorkspace | null;
   course?: Course | null;
-  tasks?: UclawTask[];
+  tasks?: BrevynTask[];
   timestamp: string;
 }): WorkspaceFileNode {
   const effectiveCourse = courseId === SEMESTER_HOME_COURSE_ID ? semesterHomeCourse(semester) : course;
@@ -156,7 +156,7 @@ export function ensureCourseFolderInTree({
   return root;
 }
 
-export function ensureTargetFolderInTree(root: WorkspaceFileNode, input: FileImportInput, task: UclawTask | undefined, timestamp: string): WorkspaceFileNode {
+export function ensureTargetFolderInTree(root: WorkspaceFileNode, input: FileImportInput, task: BrevynTask | undefined, timestamp: string): WorkspaceFileNode {
   if (root.courseId === SEMESTER_HOME_COURSE_ID) {
     return ensureFolderPath(root, [{ name: "Semester shared", extra: { sectionKind: "course_shared" } }], timestamp);
   }
@@ -185,7 +185,7 @@ export function ensureTargetFolderInTree(root: WorkspaceFileNode, input: FileImp
   );
 }
 
-function ensureTaskWorkspace(root: WorkspaceFileNode, task: UclawTask, timestamp: string): WorkspaceFileNode {
+function ensureTaskWorkspace(root: WorkspaceFileNode, task: BrevynTask, timestamp: string): WorkspaceFileNode {
   const taskRoot = ensureFolderPath(root, [{ name: "Task", extra: { sectionKind: "task" } }], timestamp);
   return ensureFolderChild(
     taskRoot,
@@ -195,7 +195,7 @@ function ensureTaskWorkspace(root: WorkspaceFileNode, task: UclawTask, timestamp
   );
 }
 
-function resolveTaskFolderName(taskRoot: WorkspaceFileNode, task: UclawTask): string {
+function resolveTaskFolderName(taskRoot: WorkspaceFileNode, task: BrevynTask): string {
   const preferredName = taskFolderName(task);
   const prefix = taskFolderPrefix(task.id);
   const existingNames = (taskRoot.children || [])

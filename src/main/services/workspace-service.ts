@@ -12,7 +12,8 @@ import type {
   GitStatus,
   SemesterWorkspace,
   Thread,
-  UclawTask,
+  BrevynTask,
+  UpdateCourseInput,
   UpdateTaskInput,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -48,6 +49,33 @@ import {
 } from "./workspace-state";
 
 const now = () => new Date().toISOString();
+const colorPattern = /^#[0-9a-f]{6}$/i;
+const courseIconKeys = new Set([
+  "graduation-cap",
+  "book-open",
+  "scale",
+  "landmark",
+  "briefcase",
+  "file-text",
+  "gavel",
+  "library",
+  "microscope",
+  "calculator",
+  "globe",
+  "presentation",
+]);
+
+function normalizeCourseColor(value: string, fallback: string): string {
+  const color = value.trim();
+  if (!color) return fallback;
+  if (!colorPattern.test(color)) throw new Error("Course color must be a hex color like #2563eb.");
+  return color.toLowerCase();
+}
+
+function normalizeCourseIcon(value: string): Course["icon"] {
+  if (!courseIconKeys.has(value)) throw new Error("Course icon is not supported.");
+  return value as Course["icon"];
+}
 
 export interface WorkspaceServiceOptions {
   rootDataDir: string;
@@ -165,17 +193,17 @@ export class WorkspaceService {
       .sort((a, b) => Date.parse(b.archivedAt || "") - Date.parse(a.archivedAt || ""));
   }
 
-  listTasks(courseId: string): UclawTask[] {
+  listTasks(courseId: string): BrevynTask[] {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId || isCourseArchived(this.options.businessStore, courseId) || isCurrentSemesterArchived(this.options.businessStore)) return [];
     return this.options.businessStore.listTasks(semesterId, courseId);
   }
 
-  createTask(input: CreateTaskInput): UclawTask {
+  createTask(input: CreateTaskInput): BrevynTask {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("Select or recognize a semester before creating tasks.");
     const course = activeCourseInSemesterOrThrow(this.options.businessStore, input.courseId, semesterId);
-    const task: UclawTask = {
+    const task: BrevynTask = {
       id: entityId("task"),
       semesterId,
       courseId: input.courseId,
@@ -203,7 +231,7 @@ export class WorkspaceService {
     }
   }
 
-  updateTask(input: UpdateTaskInput): UclawTask {
+  updateTask(input: UpdateTaskInput): BrevynTask {
     const task = this.options.businessStore.getTask(input.id);
     if (!task) throw new Error(`Task not found: ${input.id}`);
     const semesterId = currentActiveSemesterId(this.options.businessStore);
@@ -266,6 +294,28 @@ export class WorkspaceService {
       this.deleteCourseDir(course.id, semester.id);
       throw error;
     }
+  }
+
+  updateCourse(input: UpdateCourseInput): Course {
+    const course = this.options.businessStore.getCourse(input.id);
+    if (!course) throw new Error(`Course not found: ${input.id}`);
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || course.semesterId !== semesterId) throw new Error("Select this course's semester before editing it.");
+    if (course.archivedAt) throw new Error("Restore this course before editing it.");
+    if (course.workspaceKind === "semester_home") throw new Error("Semester Home course details cannot be edited here.");
+
+    const code = input.code === undefined ? course.code : input.code.trim();
+    if (!code) throw new Error("Course code is required.");
+    const next: Course = {
+      ...course,
+      code,
+      instructor: input.instructor === undefined ? course.instructor : input.instructor.trim(),
+      meetingTime: input.meetingTime === undefined ? course.meetingTime : input.meetingTime?.trim() || undefined,
+      location: input.location === undefined ? course.location : input.location?.trim() || undefined,
+      color: input.color === undefined ? course.color : normalizeCourseColor(input.color, course.color),
+      icon: input.icon === undefined ? course.icon : normalizeCourseIcon(input.icon),
+    };
+    return this.options.businessStore.updateCourseDetails(next);
   }
 
   archiveCourse(courseId: string): Course {
@@ -386,7 +436,7 @@ export class WorkspaceService {
     return thread;
   }
 
-  private assertThreadParentUsable(thread: Pick<Thread, "id" | "semesterId" | "courseId" | "taskId">): UclawTask | null {
+  private assertThreadParentUsable(thread: Pick<Thread, "id" | "semesterId" | "courseId" | "taskId">): BrevynTask | null {
     if (!thread.semesterId) throw new Error(`Thread ${thread.id} has no semester scope.`);
     const semester = this.options.businessStore.getSemester(thread.semesterId);
     if (!semester) throw new Error(`Semester not found: ${thread.semesterId}`);
@@ -428,7 +478,7 @@ export class WorkspaceService {
     semesterId: string,
     semester: SemesterWorkspace,
     course: Course | undefined,
-    tasks: UclawTask[],
+    tasks: BrevynTask[],
   ): WorkspaceFileNode[] {
     const roots: WorkspaceFileNode[] = [];
     ensureCourseFolderInTree({
@@ -453,7 +503,7 @@ export class WorkspaceService {
     });
   }
 
-  private deleteTaskDir(task: UclawTask): void {
+  private deleteTaskDir(task: BrevynTask): void {
     const semesterId = task.semesterId || currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) return;
     const courseDir = courseWorkspaceDir(this.options.rootDataDir, semesterId, task.courseId);

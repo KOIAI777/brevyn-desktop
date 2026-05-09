@@ -7,7 +7,7 @@ import type {
   TaskFileBucket,
   TaskType,
   Thread,
-  UclawTask,
+  BrevynTask,
 } from "../../types/domain";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
@@ -116,15 +116,15 @@ export function taskFolderPrefix(taskId: string): string {
   return `${idPathSegment(taskId)}__`;
 }
 
-export function taskFolderName(task: UclawTask): string {
+export function taskFolderName(task: BrevynTask): string {
   return `${taskFolderPrefix(task.id)}${sanitizeFsSegment(task.title)}`;
 }
 
-export function taskWorkspaceDirForTask(courseDir: string, task: UclawTask): string {
+export function taskWorkspaceDirForTask(courseDir: string, task: BrevynTask): string {
   return join(courseDir, resolveTaskRelativeWorkspacePath(courseDir, task));
 }
 
-function resolveTaskRelativeWorkspacePath(courseDir: string, task: UclawTask): string {
+function resolveTaskRelativeWorkspacePath(courseDir: string, task: BrevynTask): string {
   const taskRoot = join(courseDir, "Task");
   const preferredName = taskFolderName(task);
   if (!existsSync(taskRoot)) return join("Task", preferredName);
@@ -141,7 +141,7 @@ function resolveTaskRelativeWorkspacePath(courseDir: string, task: UclawTask): s
   }
 }
 
-export function ensureTaskWorkspaceDir(rootDataDir: string, semesterId: string, task: UclawTask): string {
+export function ensureTaskWorkspaceDir(rootDataDir: string, semesterId: string, task: BrevynTask): string {
   const courseDir = ensureCourseWorkspaceDir(rootDataDir, semesterId, task.courseId);
   const taskDir = taskWorkspaceDirForTask(courseDir, task);
   mkdirSync(taskDir, { recursive: true });
@@ -160,7 +160,7 @@ export function ensureTaskWorkspaceDir(rootDataDir: string, semesterId: string, 
 export function workspacePathForThread(
   rootDataDir: string,
   thread: Thread,
-  resolveTask: (taskId: string) => UclawTask | undefined,
+  resolveTask: (taskId: string) => BrevynTask | undefined,
 ): string {
   const semesterId = thread.semesterId;
   if (!semesterId) {
@@ -189,7 +189,7 @@ export function ensureImportTargetDir(
   rootDataDir: string,
   semesterId: string,
   input: FileImportInput,
-  resolveTask: (taskId: string) => UclawTask | undefined,
+  resolveTask: (taskId: string) => BrevynTask | undefined,
 ): string {
   if (input.courseId === SEMESTER_HOME_COURSE_ID) {
     const dir = join(ensureSemesterWorkspaceDir(rootDataDir, semesterId), "Semester shared");

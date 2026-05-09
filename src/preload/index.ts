@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   CreateSemesterInput,
   CreateCourseInput,
+  UpdateCourseInput,
   ArchivedCourseScope,
   ArchivedThreadScope,
   CreateTaskInput,
@@ -13,11 +14,11 @@ import type {
   SkillWriteInput,
   SkillUpdateInput,
   TimetableRangeQuery,
-  UclawAPI,
+  BrevynAPI,
 } from "../types/domain";
 import { IPC_CHANNELS } from "../types/ipc";
 
-const api: UclawAPI = {
+const api: BrevynAPI = {
   semester: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.semesterList),
     listArchived: () => ipcRenderer.invoke(IPC_CHANNELS.semesterListArchived),
@@ -32,6 +33,7 @@ const api: UclawAPI = {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.coursesList),
     listArchived: (scope?: ArchivedCourseScope) => ipcRenderer.invoke(IPC_CHANNELS.coursesListArchived, scope),
     create: (input: CreateCourseInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesCreate, input),
+    update: (input: UpdateCourseInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesUpdate, input),
     archive: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesArchive, courseId),
     restore: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesRestore, courseId),
     delete: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.coursesDelete, courseId),
@@ -93,4 +95,4 @@ const api: UclawAPI = {
   },
 };
 
-contextBridge.exposeInMainWorld("uclaw", api);
+contextBridge.exposeInMainWorld("brevyn", api);

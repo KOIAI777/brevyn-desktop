@@ -1,7 +1,8 @@
 import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, Clock3, FileText, GraduationCap, Image, Loader2, RefreshCw, Settings2, X } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Course, SemesterWorkspace, TimetableEvent, TimetableViewMode } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { SemesterManagementDialog } from "./SemesterManagementDialog";
 
 export function TimetableDialog({
@@ -26,6 +27,7 @@ export function TimetableDialog({
   const [eventsLoading, setEventsLoading] = useState(false);
   const [semesterError, setSemesterError] = useState("");
   const [eventsError, setEventsError] = useState("");
+  const eventsRequestRef = useRef(0);
 
   const range = useMemo(() => getRange(anchorDate, viewMode), [anchorDate, viewMode]);
   const loadError = semesterError || eventsError;
@@ -41,7 +43,7 @@ export function TimetableDialog({
   async function loadSemester() {
     setSemesterLoading(true);
     try {
-      setSemester(await window.uclaw.semester.current());
+      setSemester(await window.brevyn.semester.current());
       setSemesterError("");
     } catch (error) {
       setSemester(null);
@@ -52,9 +54,11 @@ export function TimetableDialog({
   }
 
   async function loadEvents() {
+    const requestId = eventsRequestRef.current + 1;
+    eventsRequestRef.current = requestId;
     setEventsLoading(true);
     try {
-      const result = await window.uclaw.timetable.range({
+      const result = await window.brevyn.timetable.range({
         viewMode,
         rangeStart: range.start.toISOString(),
         rangeEnd: range.end.toISOString(),
@@ -62,13 +66,15 @@ export function TimetableDialog({
         includeDeadlines: true,
         includeSchoolEvents: true,
       });
+      if (eventsRequestRef.current !== requestId) return;
       setEvents(result);
       setEventsError("");
     } catch (error) {
+      if (eventsRequestRef.current !== requestId) return;
       setEvents([]);
       setEventsError(errorMessage(error, "Failed to load timetable events."));
     } finally {
-      setEventsLoading(false);
+      if (eventsRequestRef.current === requestId) setEventsLoading(false);
     }
   }
 
@@ -157,7 +163,7 @@ export function TimetableDialog({
           </div>
         )}
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1.35fr_0.75fr] uclaw-scrollbar">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1.35fr_0.75fr] brevyn-scrollbar">
           <section className="rounded-lg border bg-background/70 p-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-xs font-semibold">{viewModeLabel(viewMode)}</div>
@@ -176,19 +182,18 @@ export function TimetableDialog({
               </div>
               {semesters.length > 0 && (
                 <div className="mb-3 space-y-2">
-                  <select
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none"
+                  <DropdownSelect
                     value={semester?.id || ""}
+                    options={semesters.map((item) => ({
+                      value: item.id,
+                      label: item.term,
+                      detail: item.folderName || "semester folder",
+                    }))}
+                    placeholder="Select a semester"
                     disabled={semesterLoading}
-                    onChange={(event) => void selectSemester(event.target.value)}
-                  >
-                    {!semester && <option value="">Select a semester</option>}
-                    {semesters.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.term}
-                      </option>
-                    ))}
-                  </select>
+                    ariaLabel="Select semester"
+                    onChange={(value) => void selectSemester(value)}
+                  />
                   <div className="truncate text-[11px] text-muted-foreground">{semester?.folderName || "semester folder"}</div>
                 </div>
               )}

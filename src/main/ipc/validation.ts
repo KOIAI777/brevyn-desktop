@@ -1,6 +1,7 @@
 import type {
   ArchivedCourseScope,
   ArchivedThreadScope,
+  CourseIconKey,
   CreateCourseInput,
   CreateSemesterInput,
   CreateTaskInput,
@@ -10,6 +11,7 @@ import type {
   SkillUpdateInput,
   SkillWriteInput,
   TimetableRangeQuery,
+  UpdateCourseInput,
   UpdateTaskInput,
 } from "../../types/domain";
 
@@ -53,6 +55,25 @@ export function normalizeCreateCourseInput(value: unknown): CreateCourseInput {
     color: optionalString(input.color),
     description: optionalString(input.description),
   };
+}
+
+export function normalizeUpdateCourseInput(value: unknown): UpdateCourseInput {
+  const input = requireObject(value, "Course update input");
+  return {
+    id: requireString(input.id, "Course id"),
+    code: input.code === undefined ? undefined : stringValue(input.code),
+    instructor: input.instructor === undefined ? undefined : stringValue(input.instructor),
+    meetingTime: input.meetingTime === null ? null : input.meetingTime === undefined ? undefined : stringValue(input.meetingTime),
+    location: input.location === null ? null : input.location === undefined ? undefined : stringValue(input.location),
+    color: input.color === undefined ? undefined : stringValue(input.color),
+    icon: input.icon === undefined ? undefined : normalizeCourseIcon(input.icon),
+  };
+}
+
+function normalizeCourseIcon(value: unknown): CourseIconKey {
+  const icon = requireString(value, "Course icon");
+  if (!COURSE_ICON_KEYS.has(icon as CourseIconKey)) throw new Error("Course icon is not supported.");
+  return icon as CourseIconKey;
 }
 
 export function normalizeCreateTaskInput(value: unknown): CreateTaskInput {
@@ -177,3 +198,18 @@ function normalizeNumber(value: unknown): number | undefined {
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
 }
+
+const COURSE_ICON_KEYS = new Set<CourseIconKey>([
+  "graduation-cap",
+  "book-open",
+  "scale",
+  "landmark",
+  "briefcase",
+  "file-text",
+  "gavel",
+  "library",
+  "microscope",
+  "calculator",
+  "globe",
+  "presentation",
+]);

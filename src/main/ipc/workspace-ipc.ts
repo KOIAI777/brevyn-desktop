@@ -8,6 +8,7 @@ import {
   normalizeCreateSemesterInput,
   normalizeCreateTaskInput,
   normalizeCreateThreadInput,
+  normalizeUpdateCourseInput,
   normalizeUpdateTaskInput,
   optionalString,
   requireString,
@@ -25,6 +26,7 @@ export function registerWorkspaceIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.coursesList, () => store.listCourses());
   ipcMain.handle(IPC_CHANNELS.coursesListArchived, (_event, scope?: unknown) => store.listArchivedCourses(normalizeArchivedCourseScope(scope)));
   ipcMain.handle(IPC_CHANNELS.coursesCreate, (_event, input: unknown) => store.createCourse(normalizeCreateCourseInput(input)));
+  ipcMain.handle(IPC_CHANNELS.coursesUpdate, (_event, input: unknown) => store.updateCourse(normalizeUpdateCourseInput(input)));
   ipcMain.handle(IPC_CHANNELS.coursesArchive, (_event, courseId: unknown) => store.archiveCourse(requireString(courseId, "Course id")));
   ipcMain.handle(IPC_CHANNELS.coursesRestore, (_event, courseId: unknown) => store.restoreCourse(requireString(courseId, "Course id")));
   ipcMain.handle(IPC_CHANNELS.coursesDelete, (_event, courseId: unknown) => store.deleteCourse(requireString(courseId, "Course id")));

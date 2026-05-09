@@ -392,17 +392,15 @@ export class FileService {
     const embeddingModel = provider?.selectedModel;
     const leafFiles = flattenFiles(files);
     const lectureFiles = leafFiles.filter((file) => file.sectionKind === "lecture");
-    const lectureSections: CourseFileSection[] = lectureFiles.length > 0
-      ? [{
-          id: `${courseId}:lecture`,
-          courseId,
-          kind: "lecture",
-          title: "Lecture",
-          indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:lecture`),
-          embeddingModel,
-          files: lectureFiles,
-        }]
-      : [];
+    const lectureSection: CourseFileSection = {
+      id: `${courseId}:lecture`,
+      courseId,
+      kind: "lecture",
+      title: "Lecture",
+      indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:lecture`),
+      embeddingModel,
+      files: lectureFiles,
+    };
     const taskSections: CourseFileSection[] = tasks.map((task) => ({
       id: `${courseId}:task-${task.id}`,
       courseId,
@@ -426,7 +424,7 @@ export class FileService {
         embeddingModel,
         files: sharedFiles,
       },
-      ...lectureSections,
+      lectureSection,
       ...taskSections,
     ];
   }

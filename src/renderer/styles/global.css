@@ -97,17 +97,17 @@
     animation: taskagent-panel-content-in 180ms ease-out 90ms both;
   }
 
-  .uclaw-scrollbar {
+  .brevyn-scrollbar {
     scrollbar-color: hsl(var(--border)) transparent;
     scrollbar-width: thin;
   }
 
-  .uclaw-scrollbar::-webkit-scrollbar {
+  .brevyn-scrollbar::-webkit-scrollbar {
     height: 10px;
     width: 10px;
   }
 
-  .uclaw-scrollbar::-webkit-scrollbar-thumb {
+  .brevyn-scrollbar::-webkit-scrollbar-thumb {
     background: hsl(var(--border));
     border: 3px solid transparent;
     border-radius: 999px;
