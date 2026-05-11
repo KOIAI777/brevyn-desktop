@@ -1,6 +1,5 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
 import type { ToolCardHelpers, ToolResultBlock, WebSearchLink } from "./types";
-import { CompactProcessCard } from "./shared";
+import { CompactProcessCard, ProcessCardHeader } from "./shared";
 
 export function WebToolCard({
   toolName,
@@ -40,21 +39,12 @@ export function WebToolCard({
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/82 px-4 py-3 text-xs text-foreground shadow-sm ring-1 ring-white/45 backdrop-blur-xl">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          {helpers.renderToolGlyph(toolName, "h-4 w-4 shrink-0 text-muted-foreground")}
-          <div className="min-w-0 truncate font-medium text-muted-foreground">{title}</div>
-        </div>
-        <button
-          type="button"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand web tool" : "Collapse web tool"}
-        >
-          {collapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </button>
-      </div>
+    <div className="overflow-hidden border-l border-border/60 py-1 pl-3 text-xs text-foreground">
+      <ProcessCardHeader
+        title={<span className="inline-flex min-w-0 items-center gap-2">{helpers.renderToolGlyph(toolName, "h-3.5 w-3.5 shrink-0")}<span className="min-w-0 truncate">{title}</span></span>}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+      />
       {isSearch ? (
         <WebSearchSummary query={target} links={links} result={result} output={output} />
       ) : (
@@ -76,7 +66,7 @@ function WebSearchSummary({
   output: string;
 }) {
   return (
-    <div className="rounded-xl border bg-background/70 px-3 py-2">
+    <div className="px-1 py-1">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Search</p>
       <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
       {result && (
@@ -87,7 +77,7 @@ function WebSearchSummary({
               href={link.url}
               target="_blank"
               rel="noreferrer"
-              className="flex min-w-0 items-center gap-2 rounded-lg border bg-card/70 px-2.5 py-2 text-xs text-foreground transition hover:bg-accent/60"
+              className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-foreground transition hover:bg-accent/45"
               title={link.url}
             >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
@@ -109,7 +99,7 @@ function WebSearchSummary({
 
 function WebFetchSummary({ url, result, output }: { url: string; result?: ToolResultBlock; output: string }) {
   return (
-    <div className="rounded-xl border bg-background/70 px-3 py-2">
+    <div className="px-1 py-1">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">URL</p>
       <p className="mt-1 break-words text-xs leading-5 text-foreground">{url}</p>
       {result && (

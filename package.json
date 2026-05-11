@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.138",
     "@lancedb/lancedb": "^0.27.2",
+    "@react-symbols/icons": "^1.3.1",
     "clsx": "^2.1.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.460.0",

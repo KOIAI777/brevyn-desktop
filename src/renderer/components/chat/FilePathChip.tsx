@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { FileCode, FileImage, FileText, FileVideo, FolderOpen } from "lucide-react";
+import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "m4v"]);
@@ -63,6 +63,10 @@ type FilePathPreviewHandler = (filePath: string) => void | Promise<void>;
 
 const FilePathPreviewContext = createContext<FilePathPreviewHandler | undefined>(undefined);
 
+export function useFilePathPreviewHandler(): FilePathPreviewHandler | undefined {
+  return useContext(FilePathPreviewContext);
+}
+
 export function FilePathPreviewProvider({
   onPreviewFilePath,
   children,
@@ -81,11 +85,8 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
   const normalizedPath = filePath.trim();
   const filename = fileName(filePath);
   const displayName = compactMiddleFileName(filename);
-  const extension = extensionName(filename);
-  const Icon = filePathIcon(extension);
-  const badge = fileTypeBadge(extension, normalizedPath);
   const isDirectory = isDirectoryPath(normalizedPath);
-  const onPreviewFilePath = useContext(FilePathPreviewContext);
+  const onPreviewFilePath = useFilePathPreviewHandler();
 
   async function handleClick() {
     if (onPreviewFilePath) {
@@ -105,16 +106,10 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
       type="button"
       disabled={!threadId && !onPreviewFilePath}
       onClick={() => void handleClick()}
-      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md bg-muted/58 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-foreground/82 align-baseline transition hover:bg-accent hover:text-foreground disabled:cursor-default disabled:hover:bg-muted/58"
+      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md border border-sky-200/70 bg-sky-50/60 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-sky-900 align-baseline shadow-[inset_0_-1px_0_rgba(2,132,199,0.24)] transition hover:border-sky-300 hover:bg-sky-100/70 hover:text-sky-950 disabled:cursor-default disabled:hover:bg-sky-50/60"
       title={filePath}
     >
-      {badge ? (
-        <span className={`inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] px-0.5 text-[9px] font-bold leading-none ${badge.className}`}>
-          {badge.label}
-        </span>
-      ) : (
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${isDirectory ? "text-amber-600" : "text-muted-foreground"}`} />
-      )}
+      <FileTypeIcon name={filename} isDirectory={isDirectory} size={14} />
       <span className="max-w-[22rem] truncate">{displayName}</span>
     </button>
   );
@@ -141,50 +136,6 @@ function isRelativeFilePath(value: string): boolean {
   if (!/^[\w .()@/-]+$/.test(value)) return false;
   if (value.startsWith(".") && !value.startsWith("./") && !value.includes("/")) return false;
   return true;
-}
-
-function filePathIcon(extension: string) {
-  if (!extension) return FolderOpen;
-  if (IMAGE_EXTENSIONS.has(extension)) return FileImage;
-  if (VIDEO_EXTENSIONS.has(extension)) return FileVideo;
-  if (CODE_EXTENSIONS.has(extension)) return FileCode;
-  return FileText;
-}
-
-function fileTypeBadge(extension: string, path: string): { label: string; className: string } | null {
-  if (isDirectoryPath(path)) return null;
-  const normalized = extension || "file";
-  const labelMap: Record<string, string> = {
-    ts: "TS",
-    tsx: "TSX",
-    js: "JS",
-    jsx: "JSX",
-    md: "MD",
-    markdown: "MD",
-    json: "JSON",
-    jsonl: "JSON",
-    doc: "DOC",
-    docx: "DOC",
-    ppt: "PPT",
-    pptx: "PPT",
-    pdf: "PDF",
-    xls: "XLS",
-    xlsx: "XLS",
-    py: "PY",
-    txt: "TXT",
-  };
-  const label = labelMap[normalized] || normalized.slice(0, 4).toUpperCase();
-  const className = (() => {
-    if (["ts", "tsx", "js", "jsx"].includes(normalized)) return "bg-blue-50 text-blue-700";
-    if (["md", "markdown", "txt"].includes(normalized)) return "bg-slate-100 text-slate-700";
-    if (["doc", "docx"].includes(normalized)) return "bg-sky-50 text-sky-700";
-    if (["ppt", "pptx"].includes(normalized)) return "bg-orange-50 text-orange-700";
-    if (["xls", "xlsx", "csv"].includes(normalized)) return "bg-emerald-50 text-emerald-700";
-    if (normalized === "pdf") return "bg-red-50 text-red-700";
-    if (["json", "jsonl", "jsonc"].includes(normalized)) return "bg-violet-50 text-violet-700";
-    return "bg-stone-100 text-stone-700";
-  })();
-  return { label, className };
 }
 
 function fileName(filePath: string): string {

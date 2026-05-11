@@ -2,8 +2,8 @@ import type { MouseEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import type { WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
-import { fileIcon } from "./file-icons";
 import { fileDisplayName } from "./FileContextMenu";
+import { FileTypeIcon } from "./FileTypeIcon";
 
 export function FileTreeNode({
   node,
@@ -25,7 +25,6 @@ export function FileTreeNode({
   const isFolder = node.kind === "folder";
   const open = isFolder && !collapsedFolderIds.has(node.id);
   const active = selectedFileId === node.id;
-  const Icon = fileIcon(node.kind);
   const displayName = fileDisplayName(node);
 
   return (
@@ -45,7 +44,7 @@ export function FileTreeNode({
         title={node.path}
       >
         {isFolder ? <ChevronRight className={cx("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-90")} /> : <span className="w-3.5 shrink-0" />}
-        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <FileTypeIcon name={node.name || displayName} isDirectory={isFolder} size={16} />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
         {node.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground/70">{node.sizeLabel}</span>}
       </button>

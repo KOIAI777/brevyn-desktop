@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { AgentPermissionMode } from "@/types/domain";
 import { Markdownish } from "@/components/chat/Markdownish";
 
@@ -92,7 +92,7 @@ export function ProcessTimelinePanel({
     <div className="w-full">
       <button
         type="button"
-        className={`flex w-fit items-center gap-2 rounded-xl px-1 py-1 text-left text-[13px] font-semibold transition-[background-color,color,opacity,transform] duration-300 hover:bg-accent/45 hover:text-foreground disabled:hover:bg-transparent ${tone.text}`}
+        className={`flex w-fit items-center gap-2 rounded-lg px-1 py-1 text-left text-[13px] font-semibold transition-[background-color,color,opacity,transform] duration-300 hover:bg-accent/35 hover:text-foreground disabled:hover:bg-transparent ${tone.text}`}
         onClick={onToggle}
         disabled={lockedOpen}
       >
@@ -111,7 +111,7 @@ export function ProcessTimelinePanel({
             {summary.permissionMode === "full_access" ? "Full Access" : "Review"}
           </span>
         )}
-        {!isThinkingOnly && (expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
+        {!isThinkingOnly && <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />}
       </button>
       {summary.detail && summary.status !== "completed" && !expanded && (
         <p className="mt-0.5 max-w-xl truncate px-1 text-[11px] text-muted-foreground">{summary.detail}</p>
@@ -120,7 +120,7 @@ export function ProcessTimelinePanel({
       <div className={`${hasTimeline && expanded ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out`}>
         <div className="min-h-0 overflow-hidden">
           {summary.detail && summary.status !== "completed" && (
-            <div className={`mb-2 rounded-xl border px-3 py-2 text-[11px] leading-5 ${tone.detail}`}>
+            <div className={`mb-2 border-l px-3 py-1.5 text-[11px] leading-5 ${tone.detail}`}>
               {summary.detail}
             </div>
           )}
@@ -159,7 +159,7 @@ export function InlineProcessTimeline({ events, ...helpers }: { events: ProcessE
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {groups.map((group) => (
         <ProcessGroupRow
           key={group.id}
@@ -204,7 +204,7 @@ function ProcessGroupRow({
 } & ProcessTimelineHelpers) {
   if (group.kind === "thinking") {
     return (
-      <div className="space-y-2 animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both]">
+      <div className="space-y-1.5 animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both]">
         {group.events.map((event) => (
           <ProcessEventRow
             key={event.id}
@@ -221,16 +221,16 @@ function ProcessGroupRow({
     <div className="animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] text-xs text-muted-foreground">
       <button
         type="button"
-        className="flex w-fit max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-[background-color,color,transform] duration-200 hover:bg-accent/55"
+        className="flex w-fit max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-[background-color,color,transform] duration-200 hover:bg-accent/35 hover:text-foreground"
         onClick={onToggle}
       >
         {helpers.renderToolGlyph(groupPrimaryToolName(group), "h-3.5 w-3.5 shrink-0")}
         <span className="min-w-0 truncate">{group.summary}</span>
-        {expanded ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </button>
-      <div className={`${expanded ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-220 ease-out`}>
+      <div className={`${expanded ? "mt-1.5 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
         <div className="min-h-0 overflow-hidden">
-          <div className="space-y-2">
+          <div className="space-y-1.5 border-l border-border/60 pl-3">
             {group.events.map((event) => (
               <ProcessEventRow
                 key={event.id}
@@ -259,7 +259,7 @@ function ProcessEventRow({
 } & ProcessTimelineHelpers) {
   if (event.kind === "thinking" || event.kind === "narration") {
     return (
-      <div className="w-full animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-2xl border border-border/65 bg-card/78 px-4 py-3 text-xs leading-5 text-foreground shadow-sm ring-1 ring-white/45 backdrop-blur-xl">
+      <div className="w-full animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] px-1 py-1 text-xs leading-5 text-foreground">
         {event.text && (
           <div className="brevyn-thinking-markdown opacity-95">
             <Markdownish content={event.text} threadId={helpers.threadId} />
@@ -276,7 +276,7 @@ function ProcessEventRow({
       <div
         role="button"
         tabIndex={0}
-        className="flex w-fit max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-[background-color,color,transform] duration-200 hover:bg-accent/55"
+        className="flex w-fit max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-[background-color,color,transform] duration-200 hover:bg-accent/35 hover:text-foreground"
         onClick={onToggle}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -289,9 +289,9 @@ function ProcessEventRow({
         <span className="min-w-0 truncate">{title}</span>
         {event.approvalDecision && <ApprovalStatusPill decision={event.approvalDecision} />}
         <span className="shrink-0 text-muted-foreground/80">{status}</span>
-        {expanded ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </div>
-      <div className={`${expanded ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
+      <div className={`${expanded ? "mt-1.5 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
         <div className="min-h-0 overflow-hidden">
           {helpers.renderToolUseCard(event, onToggle)}
         </div>

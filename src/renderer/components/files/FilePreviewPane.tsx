@@ -1,7 +1,7 @@
 import { Eye, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import type { FilePreview } from "@/types/domain";
 import { Markdownish } from "@/components/chat/Markdownish";
-import { fileIcon } from "./file-icons";
+import { FileTypeIcon } from "./FileTypeIcon";
 
 export function FilePreviewPane({
   preview,
@@ -41,12 +41,10 @@ export function FilePreviewPane({
     );
   }
 
-  const Icon = fileIcon(preview.kind);
-
   return (
     <div className="flex min-h-0 flex-col overflow-hidden">
       <div className="flex items-center gap-2 border-b px-3 py-2.5">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <FileTypeIcon name={preview.title || preview.path} isDirectory={preview.kind === "folder"} size={16} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-semibold">{preview.title}</div>
           <div className="truncate text-[10px] text-muted-foreground">{preview.path}</div>
