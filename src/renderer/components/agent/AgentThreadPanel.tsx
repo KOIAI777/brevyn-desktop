@@ -6,6 +6,7 @@ import { AgentComposer } from "@/components/agent/AgentComposer";
 import { CompactContextNote, MessageBubble, PromptTooLongCard, ResolvedRuntimeNote, RevealedAssistantBubble, StreamingMessageBubble } from "@/components/agent/AgentMessageParts";
 import { InlineProcessTimeline as BaseInlineProcessTimeline, ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
 import { ToolInputPreview, ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
+import { FilePathChip, FilePathPreviewProvider } from "@/components/chat/FilePathChip";
 import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, ProcessEvent, RunSummary, ToolResultBlock, ToolUseBlock } from "@/components/agent/agentTimelineModel";
 import {
   agentErrorMessage,
@@ -19,6 +20,7 @@ import {
   exitPlanDecision,
   exitPlanResolutionMap,
   exitPlanSummary,
+  formatDiffStats,
   formatToolResultContent,
   formatUnknown,
   isBoundaryRecord,
@@ -36,6 +38,7 @@ import {
   latestTurnBounds,
   singleLine,
   stringValue,
+  toolDiffStats,
   toolResultBlocks,
   toolResultSummary,
   toolTitle,
@@ -59,6 +62,7 @@ interface AgentThreadPanelProps {
   activeProviderId: string;
   onSelectProvider: (providerId: string) => Promise<void>;
   files: WorkspaceFileNode[];
+  onPreviewFilePath?: (filePath: string) => void | Promise<void>;
 }
 
 const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[54rem]";
@@ -81,6 +85,7 @@ export function AgentThreadPanel({
   activeProviderId,
   onSelectProvider,
   files,
+  onPreviewFilePath,
 }: AgentThreadPanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +193,7 @@ export function AgentThreadPanel({
 
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
+    <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
     <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(247,244,236,0.62))]">
       <div className="flex items-center justify-between border-b bg-card/70 px-5 py-3">
         <div className="min-w-0">
@@ -271,6 +277,7 @@ export function AgentThreadPanel({
         files={files}
       />
     </section>
+    </FilePathPreviewProvider>
     </AgentThreadIdContext.Provider>
   );
 }
@@ -298,6 +305,7 @@ function ProcessTimelinePanel({
       onToggle={onToggle}
       threadId={threadId}
       toolTitle={toolTitle}
+      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
       toolResultSummary={toolResultSummary}
       runSummaryTone={runSummaryTone}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
@@ -320,6 +328,7 @@ function InlineProcessTimeline({ events }: { events: ProcessEvent[] }) {
       events={events}
       threadId={threadId}
       toolTitle={toolTitle}
+      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
       toolResultSummary={toolResultSummary}
       runSummaryTone={runSummaryTone}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
@@ -416,13 +425,7 @@ function AgentRecordItem({
   if (isRuntimeRecord(record)) {
     if (record.event.type === "approval_requested") {
       if (approvalDecision) {
-        return (
-          <ResolvedRuntimeNote
-            tone={approvalDecision === "allow" ? "approved" : "denied"}
-            label={approvalDecision === "allow" ? "已批准工具" : "已拒绝工具"}
-            detail={toolTitle(record.event.request.toolName, record.event.request.input)}
-          />
-        );
+        return null;
       }
       return (
         <ApprovalCard
@@ -594,6 +597,44 @@ function AgentRecordItem({
   return null;
 }
 
+function ToolTitle({ toolName, input, threadId, isError = false }: { toolName: string; input: unknown; threadId?: string; isError?: boolean }) {
+  const data = recordObject(input);
+  const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
+  const diff = toolDiffStats(toolName, input);
+  const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
+
+  if (path && (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
+    const action = toolName === "Read" ? "Read" : toolName === "Write" ? "已写入" : "已编辑";
+    return (
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+        <span className="shrink-0">{action}</span>
+        <span
+          className="min-w-0"
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <FilePathChip filePath={path} threadId={threadId} />
+        </span>
+        {diffLabel && <DiffStatsText value={diffLabel} />}
+      </span>
+    );
+  }
+
+  return <span>{toolTitle(toolName, input)}</span>;
+}
+
+function DiffStatsText({ value }: { value: string }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[11px]">
+      {value.split(" ").map((part) => {
+        if (part.startsWith("+")) return <span key={part} className="text-emerald-500">{part}</span>;
+        if (part.startsWith("-")) return <span key={part} className="text-red-500">{part}</span>;
+        return <span key={part}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 function ToolUseCard({
   block,
   result,
@@ -605,6 +646,7 @@ function ToolUseCard({
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }) {
+  const threadId = useContext(AgentThreadIdContext);
   return (
     <BaseToolUseCard
       block={block}
@@ -617,6 +659,7 @@ function ToolUseCard({
       stringValue={stringValue}
       toolResultSummary={toolResultSummary}
       toolTitle={toolTitle}
+      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
       truncatePreview={truncatePreview}
       singleLine={singleLine}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
@@ -636,6 +679,7 @@ function ApprovalCard({
   onReject: (requestId: string) => Promise<void>;
 }) {
   const [pending, setPending] = useState<"allow" | "deny" | null>(null);
+  const threadId = useContext(AgentThreadIdContext);
   const resolved = Boolean(decision);
 
   async function resolveApproval(next: "allow" | "deny") {
@@ -679,6 +723,7 @@ function ApprovalCard({
               stringValue={stringValue}
               toolResultSummary={toolResultSummary}
               toolTitle={toolTitle}
+              renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
               truncatePreview={truncatePreview}
               singleLine={singleLine}
               renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
@@ -1390,6 +1435,7 @@ function ToolGlyph({ toolName, className }: { toolName: string; className?: stri
   if (toolName === "Write") return <FileText className={className} />;
   if (toolName === "Edit" || toolName === "MultiEdit") return <Pencil className={className} />;
   if (toolName === "TodoWrite" || toolName === "TodoRead") return <ListTodo className={className} />;
+  if (toolName === "mcp__brevyn__rag_search") return <Search className={className} />;
   if (toolName === "WebFetch" || toolName === "WebSearch") return <Globe className={className} />;
   if (toolName === "AskUserQuestion") return <MessageCircleQuestion className={className} />;
   if (toolName === "EnterPlanMode" || toolName === "ExitPlanMode") return <ShieldAlert className={className} />;

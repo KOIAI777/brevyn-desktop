@@ -1,5 +1,6 @@
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
 import { GenericToolResultCard, GenericToolUseCard } from "@/components/agent/tool-cards/GenericToolCard";
+import { RagSearchToolCard } from "@/components/agent/tool-cards/RagSearchToolCard";
 import { ShellToolCard } from "@/components/agent/tool-cards/ShellToolCard";
 import { WebToolCard } from "@/components/agent/tool-cards/WebToolCard";
 export { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
@@ -18,6 +19,18 @@ export function ToolUseCard({
   onToggleCollapsed,
   ...helpers
 }: ToolUseCardProps) {
+  if (block.name === "mcp__brevyn__rag_search") {
+    return (
+      <RagSearchToolCard
+        input={block.input}
+        result={result}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        {...helpers}
+      />
+    );
+  }
+
   if (block.name === "WebSearch" || block.name === "WebFetch") {
     return (
       <WebToolCard
@@ -70,6 +83,18 @@ export function ToolResultCard({
   onToggleCollapsed,
   ...helpers
 }: ToolResultCardProps) {
+  if (toolUse?.name === "mcp__brevyn__rag_search") {
+    return (
+      <RagSearchToolCard
+        input={toolUse.input}
+        result={tool}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        {...helpers}
+      />
+    );
+  }
+
   if (toolUse?.name === "WebSearch" || toolUse?.name === "WebFetch") {
     return (
       <WebToolCard

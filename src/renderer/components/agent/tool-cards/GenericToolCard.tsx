@@ -29,9 +29,9 @@ export function GenericToolUseCard({
 
   return (
     <div className="rounded-xl border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
-      <ProcessCardHeader title={helpers.toolTitle(block.name, block.input)} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} />
+      <ProcessCardHeader title={helpers.renderToolTitle(block.name, block.input, { isError: result?.isError })} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} />
       <ToolInputPreview toolName={block.name} input={block.input} compact {...helpers} />
-      {result && <InlineToolResult result={result} {...helpers} />}
+      {result && (!isFileEditTool(block.name) || result.isError) && <InlineToolResult result={result} {...helpers} />}
     </div>
   );
 }
@@ -61,7 +61,7 @@ export function GenericToolResultCard({
 
   return (
     <div className="rounded-xl border bg-background px-3 py-2 text-xs text-muted-foreground">
-      <ProcessCardHeader title={toolUse ? helpers.toolTitle(toolUse.name, toolUse.input) : "Tool result"} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} />
+      <ProcessCardHeader title={toolUse ? helpers.renderToolTitle(toolUse.name, toolUse.input, { isError: tool.isError }) : "Tool result"} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} />
       <pre className="mt-2 max-h-44 overflow-auto rounded-lg bg-muted/40 p-2 text-[11px] leading-5">
         {helpers.formatToolResultContent(tool.content)}
       </pre>
@@ -81,4 +81,8 @@ function InlineToolResult({ result, ...helpers }: { result: ToolResultBlock } & 
       </pre>
     </div>
   );
+}
+
+function isFileEditTool(toolName: string): boolean {
+  return toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit";
 }

@@ -160,11 +160,18 @@ export interface SkillImportInput {
 export interface RagSearchResult {
   id: string;
   courseId: string;
+  fileId?: string;
+  fileName?: string;
   title: string;
   source: string;
   citation: string;
   excerpt: string;
   score: number;
+  path?: string;
+  sectionKind?: CourseFileSectionKind;
+  taskId?: string;
+  chunkIndex?: number;
+  chunkCount?: number;
 }
 
 export interface GitStatus {

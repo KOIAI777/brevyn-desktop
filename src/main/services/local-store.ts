@@ -106,6 +106,7 @@ export class LocalStore {
       askUsers: new AskUserService(),
       exitPlans: new ExitPlanService(),
       sdk: new ClaudeSdkAdapter(),
+      ragSearch: (input) => this.files.searchRag(input.query, input.courseId, input),
     });
   }
 

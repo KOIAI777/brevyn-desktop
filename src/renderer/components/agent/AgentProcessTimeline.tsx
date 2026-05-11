@@ -30,7 +30,7 @@ interface RunSummary {
 type ProcessEvent =
   | { kind: "thinking"; id: string; text: string }
   | { kind: "narration"; id: string; text: string }
-  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock };
+  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny" };
 
 interface ProcessGroup {
   id: string;
@@ -48,6 +48,7 @@ interface TimelineTone {
 interface ProcessTimelineHelpers {
   threadId?: string;
   toolTitle: (toolName: string, input: unknown) => string;
+  renderToolTitle: (toolName: string, input: unknown, options?: { isError?: boolean }) => ReactNode;
   toolResultSummary: (tool: ToolResultBlock) => string;
   runSummaryTone: (status: RunSummary["status"]) => TimelineTone;
   renderToolGlyph: (toolName: string, className: string) => ReactNode;
@@ -84,6 +85,7 @@ export function ProcessTimelinePanel({
 
   const hasTimeline = events.length > 0;
   const isThinkingOnly = summary.running && !hasTimeline;
+  const showPendingThinking = summary.running && shouldShowPendingThinking(events);
   const tone = helpers.runSummaryTone(summary.status);
 
   return (
@@ -134,6 +136,7 @@ export function ProcessTimelinePanel({
                 {...helpers}
               />
             ))}
+            {showPendingThinking && <PendingThinkingRow />}
           </div>
         </div>
       </div>
@@ -170,6 +173,19 @@ export function InlineProcessTimeline({ events, ...helpers }: { events: ProcessE
       ))}
     </div>
   );
+}
+
+function PendingThinkingRow() {
+  return (
+    <div className="animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] px-1 py-1">
+      <span className="taskagent-sweep-text text-xs font-semibold">Thinking</span>
+    </div>
+  );
+}
+
+function shouldShowPendingThinking(events: ProcessEvent[]): boolean {
+  const last = events.at(-1);
+  return last?.kind === "tool_use" && Boolean(last.result);
 }
 
 function ProcessGroupRow({
@@ -253,26 +269,47 @@ function ProcessEventRow({
     );
   }
 
-  const title = helpers.toolTitle(event.tool.name, event.tool.input);
+  const title = helpers.renderToolTitle(event.tool.name, event.tool.input, { isError: event.result?.isError });
   const status = event.result ? helpers.toolResultSummary(event.result) : "运行中";
   return (
     <div className="animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] text-xs text-muted-foreground">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className="flex w-fit max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-[background-color,color,transform] duration-200 hover:bg-accent/55"
         onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggle?.();
+          }
+        }}
       >
         {helpers.renderToolGlyph(event.tool.name, "h-3.5 w-3.5 shrink-0")}
         <span className="min-w-0 truncate">{title}</span>
+        {event.approvalDecision && <ApprovalStatusPill decision={event.approvalDecision} />}
         <span className="shrink-0 text-muted-foreground/80">{status}</span>
         {expanded ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
-      </button>
+      </div>
       <div className={`${expanded ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
         <div className="min-h-0 overflow-hidden">
           {helpers.renderToolUseCard(event, onToggle)}
         </div>
       </div>
     </div>
+  );
+}
+
+function ApprovalStatusPill({ decision }: { decision: "allow" | "deny" }) {
+  const approved = decision === "allow";
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+      approved
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-red-200 bg-red-50 text-red-700"
+    }`}>
+      {approved ? "已批准" : "已拒绝"}
+    </span>
   );
 }
 

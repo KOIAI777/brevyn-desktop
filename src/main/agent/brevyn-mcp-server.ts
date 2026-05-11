@@ -7,6 +7,7 @@ import type {
   BrevynTask,
   Course,
   CourseFileSectionKind,
+  RagSearchResult,
   SemesterWorkspace,
   Thread,
   WorkspaceFileNode,
@@ -34,6 +35,7 @@ export interface BrevynMcpServerOptions {
   sdk: ClaudeSdkRuntime;
   rootDataDir: string;
   businessStore: SQLiteBusinessStore;
+  ragSearch?: (input: { query: string; courseId?: string; taskId?: string; sectionKind?: CourseFileSectionKind; limit?: number }) => Promise<RagSearchResult[]>;
   context: BrevynMcpContext;
 }
 
@@ -75,6 +77,19 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
           fileId: z.string().min(1).describe("Brevyn workspace file id returned by list_course_files."),
         },
         async (args) => jsonToolResult(getFileRecord(options, args.fileId)),
+        { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+      ),
+      sdk.tool(
+        "rag_search",
+        "Semantic search over indexed Brevyn course materials. Use this for course-material questions, rubric evidence, lecture concepts, and assignment evidence before opening files with Read.",
+        {
+          query: z.string().min(1).describe("Natural language search query for course materials."),
+          courseId: z.string().optional().describe("Optional course id in the current semester. Omit to use the current agent scope."),
+          taskId: z.string().optional().describe("Optional task id filter. In a task workspace, omitted filters default to the current task."),
+          sectionKind: SECTION_SCHEMA.optional().describe("Optional semantic section filter: course_shared, lecture, or task."),
+          limit: z.number().int().min(1).max(12).optional().describe("Maximum evidence chunks to return. Defaults to 6, max 12."),
+        },
+        async (args) => jsonToolResult(await ragSearch(options, args)),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
     ],
@@ -176,6 +191,38 @@ function getFileRecord(options: BrevynMcpServerOptions, fileId: string) {
   };
 }
 
+async function ragSearch(
+  options: BrevynMcpServerOptions,
+  args: { query: string; courseId?: string; taskId?: string; sectionKind?: CourseFileSectionKind; limit?: number },
+) {
+  if (!options.ragSearch) throw new Error("RAG search is not available in this Brevyn runtime.");
+  const courseId = resolveCourseId(options, args.courseId);
+  if (courseId === SEMESTER_HOME_COURSE_ID) {
+    throw new Error("RAG search requires a course or task scoped thread.");
+  }
+  requireCourseInSemester(options, courseId);
+  const taskId = resolveTaskFilter(options, courseId, args);
+  const limit = args.limit || 6;
+  const results = await options.ragSearch({
+    query: args.query,
+    courseId,
+    taskId,
+    sectionKind: args.sectionKind,
+    limit,
+  });
+  return {
+    query: args.query,
+    filters: {
+      courseId,
+      taskId: taskId || null,
+      sectionKind: args.sectionKind || null,
+      limit,
+    },
+    count: results.length,
+    results: results.map(compactRagResult),
+  };
+}
+
 function resolveCourseId(options: BrevynMcpServerOptions, requestedCourseId?: string): string {
   const requested = requestedCourseId?.trim();
   if (requested) {
@@ -263,6 +310,21 @@ function compactFile(file: WorkspaceFileNode) {
     sectionKind: file.sectionKind,
     taskFileBucket: file.taskFileBucket,
     weekNumber: file.weekNumber,
+  };
+}
+
+function compactRagResult(result: RagSearchResult) {
+  return {
+    fileId: result.fileId || "",
+    fileName: result.fileName || result.title,
+    path: result.path || result.source,
+    sectionKind: result.sectionKind || null,
+    taskId: result.taskId || null,
+    chunkIndex: result.chunkIndex,
+    chunkCount: result.chunkCount,
+    score: result.score,
+    citation: result.citation,
+    text: result.excerpt,
   };
 }
 

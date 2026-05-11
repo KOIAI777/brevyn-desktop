@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Check, ChevronDown, ChevronUp, Loader2, X } from "lucide-react";
 
 export function ProcessCardHeader({
@@ -5,7 +6,7 @@ export function ProcessCardHeader({
   collapsed,
   onToggleCollapsed,
 }: {
-  title: string;
+  title: ReactNode;
   collapsed: boolean;
   onToggleCollapsed?: () => void;
 }) {
@@ -33,7 +34,7 @@ export function CompactProcessCard({
   isError = false,
   onToggleCollapsed,
 }: {
-  title: string;
+  title: ReactNode;
   status: string;
   running?: boolean;
   isError?: boolean;

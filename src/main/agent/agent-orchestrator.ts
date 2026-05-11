@@ -16,6 +16,7 @@ import type {
   Course,
   SemesterWorkspace,
   Thread,
+  RagSearchResult,
 } from "../../types/domain";
 import { SkillFileStore } from "../skills/skill-file-store";
 import { SQLiteBusinessStore } from "../storage";
@@ -42,6 +43,7 @@ interface AgentOrchestratorOptions {
   askUsers: AskUserService;
   exitPlans: ExitPlanService;
   sdk: ClaudeSdkAdapter;
+  ragSearch?: (input: { query: string; courseId?: string; taskId?: string; sectionKind?: "course_shared" | "lecture" | "task"; limit?: number }) => Promise<RagSearchResult[]>;
 }
 
 interface ActiveRun {
@@ -156,6 +158,7 @@ export class AgentOrchestrator {
           sdk: sdkRuntime,
           rootDataDir: this.options.rootDataDir,
           businessStore: this.options.businessStore,
+          ragSearch: this.options.ragSearch,
           context,
         }),
       };

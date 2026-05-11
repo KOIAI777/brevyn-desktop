@@ -27,7 +27,7 @@ import { AppTitleBar } from "@/components/shell/AppTitleBar";
 import { TopBar } from "@/components/shell/TopBar";
 import { WorkspaceSidebar } from "@/components/shell/WorkspaceSidebar";
 import { TimetableDialog } from "@/components/timetable/TimetableDialog";
-import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
+import { findFileNode, findFileNodeByPath, firstPreviewableFile } from "@/lib/workspace-files";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 type SettingsPage = "providers" | "archive" | "skills";
@@ -44,8 +44,10 @@ function App() {
   const activeCourseIdRef = useRef("");
   const selectedFileIdRef = useRef("");
   const activeThreadIdRef = useRef("");
+  const fileTreeRef = useRef<WorkspaceFileNode[]>([]);
   const fileLoadRequestRef = useRef(0);
   const filePreviewRequestRef = useRef(0);
+  const pendingWriteToolPathsRef = useRef<Map<string, string>>(new Map());
   const workspaceReloadRequestRef = useRef(0);
   const agentLoadRequestRef = useRef(0);
   const contentGridRef = useRef<HTMLDivElement | null>(null);
@@ -91,6 +93,7 @@ function App() {
   activeCourseIdRef.current = activeCourseId;
   selectedFileIdRef.current = selectedFileId;
   activeThreadIdRef.current = activeThreadId;
+  fileTreeRef.current = fileTree;
   railWidthsRef.current = { files: fileRailWidth, preview: previewRailWidth };
 
   useEffect(() => {
@@ -107,6 +110,7 @@ function App() {
     if (!activeCourseId) {
       fileLoadRequestRef.current += 1;
       setFilesLoading(false);
+      fileTreeRef.current = [];
       setFileTree([]);
       setFileStats(null);
       commitSelectedFileId("");
@@ -137,6 +141,9 @@ function App() {
             : event.event.threadId;
       if (!eventThreadId || eventThreadId !== activeThreadIdRef.current) return;
       if (event.kind === "sdk_message") {
+        rememberWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
+        const completedWritePaths = completedWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
+        for (const path of completedWritePaths) scheduleWorkspacePathPreview(path);
         setAgentRecords((current) => [...current, event.message]);
         if (event.message.type === "result") {
           setAgentRunning(false);
@@ -255,6 +262,7 @@ function App() {
     fileLoadRequestRef.current += 1;
     filePreviewRequestRef.current += 1;
     setFilesLoading(false);
+    fileTreeRef.current = [];
     setFileTree([]);
     setFileStats(null);
     commitSelectedFileId("");
@@ -391,6 +399,7 @@ function App() {
       }
 
       if (!isLatestFileLoad(requestId, courseId) || filePreviewRequestRef.current !== previewRequestId) return false;
+      fileTreeRef.current = tree;
       setFileTree(tree);
       setFileStats(stats);
       commitSelectedFileId(next?.id || "");
@@ -399,6 +408,7 @@ function App() {
     } catch (error) {
       if (isLatestFileLoad(requestId, courseId)) {
         setWorkspaceError(errorMessage(error, "Failed to load course files."));
+        fileTreeRef.current = [];
         setFileTree([]);
         setFileStats(null);
         commitSelectedFileId("");
@@ -414,8 +424,10 @@ function App() {
     const requestId = filePreviewRequestRef.current + 1;
     filePreviewRequestRef.current = requestId;
     commitSelectedFileId(file.id);
+    setWorkspaceError("");
     if (file.kind === "folder") {
       setFilePreview(null);
+      setFileRailCollapsed(false);
       return;
     }
     try {
@@ -428,6 +440,38 @@ function App() {
       setFilePreview(null);
       setWorkspaceError(errorMessage(error, "Failed to preview file."));
     }
+  }
+
+  function scheduleWorkspacePathPreview(filePath: string) {
+    if (!filePath.trim()) return;
+    for (const delay of [420, 900]) {
+      window.setTimeout(() => {
+        if (!mountedRef.current) return;
+        void previewWorkspacePath(filePath, { silent: true });
+      }, delay);
+    }
+  }
+
+  async function previewWorkspacePath(filePath: string, options: { silent?: boolean } = {}) {
+    const courseId = activeCourseIdRef.current;
+    let nextFile = findFileNodeByPath(fileTreeRef.current, filePath);
+    if (!nextFile && courseId) {
+      try {
+        const latestTree = await window.brevyn.files.tree(courseId);
+        if (!mountedRef.current || activeCourseIdRef.current !== courseId) return;
+        setFileTree(latestTree);
+        fileTreeRef.current = latestTree;
+        nextFile = findFileNodeByPath(latestTree, filePath);
+      } catch (error) {
+        if (mountedRef.current && !options.silent) setWorkspaceError(errorMessage(error, "Failed to refresh files before preview."));
+        return;
+      }
+    }
+    if (!nextFile) {
+      if (!options.silent) setWorkspaceError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
+      return;
+    }
+    await selectFile(nextFile);
   }
 
   async function importCourseFiles(input: FileImportInput): Promise<FileImportResult | null> {
@@ -455,6 +499,7 @@ function App() {
       }
       if (!isLatestFileLoad(requestId, targetCourseId) || filePreviewRequestRef.current !== previewRequestId) return result;
 
+      fileTreeRef.current = result.tree;
       setFileTree(result.tree);
       setFileStats(stats);
       setFileRailCollapsed(false);
@@ -763,6 +808,7 @@ function App() {
                   activeProviderId={activeAgentProviderId(agentProviders)}
                   onSelectProvider={selectAgentProvider}
                   files={fileTree}
+                  onPreviewFilePath={previewWorkspacePath}
                 />
               ) : (
                 <div className="flex flex-col items-center gap-3 text-center">
@@ -1046,6 +1092,57 @@ function hasOpenAgentRun(records: BrevynAgentTimelineRecord[]): boolean {
 
 function isAgentRuntimeRecord(record: BrevynAgentTimelineRecord): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
   return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "runtime");
+}
+
+const WRITE_PREVIEW_TOOL_NAMES = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+function rememberWriteToolPaths(message: unknown, pending: Map<string, string>): void {
+  const record = objectValue(message);
+  if (record.type !== "assistant") return;
+  for (const block of messageContentBlocks(record)) {
+    const data = objectValue(block);
+    if (data.type !== "tool_use") continue;
+    const toolName = stringValue(data.name);
+    if (!WRITE_PREVIEW_TOOL_NAMES.has(toolName)) continue;
+    const path = toolInputPath(data.input);
+    const id = stringValue(data.id);
+    if (id && path) pending.set(id, path);
+  }
+}
+
+function completedWriteToolPaths(message: unknown, pending: Map<string, string>): string[] {
+  const record = objectValue(message);
+  if (record.type !== "user") return [];
+  const paths: string[] = [];
+  for (const block of messageContentBlocks(record)) {
+    const data = objectValue(block);
+    if (data.type !== "tool_result") continue;
+    const id = stringValue(data.tool_use_id);
+    if (!id || !pending.has(id)) continue;
+    const path = pending.get(id) || "";
+    pending.delete(id);
+    if (data.is_error === true) continue;
+    if (path) paths.push(path);
+  }
+  return paths;
+}
+
+function messageContentBlocks(record: Record<string, unknown>): unknown[] {
+  const envelope = objectValue(record.message);
+  return Array.isArray(envelope.content) ? envelope.content : [];
+}
+
+function toolInputPath(input: unknown): string {
+  const data = objectValue(input);
+  return stringValue(data.file_path) || stringValue(data.filePath) || stringValue(data.path) || stringValue(data.notebook_path);
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function AppLoadingScreen() {

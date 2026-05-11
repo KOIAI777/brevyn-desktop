@@ -1,3 +1,4 @@
+import { createContext, useContext, type ReactNode } from "react";
 import { FileCode, FileImage, FileText, FileVideo, FolderOpen } from "lucide-react";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
@@ -58,15 +59,39 @@ const PREVIEWABLE_EXTENSIONS = new Set([
   ...DOCUMENT_EXTENSIONS,
 ]);
 
+type FilePathPreviewHandler = (filePath: string) => void | Promise<void>;
+
+const FilePathPreviewContext = createContext<FilePathPreviewHandler | undefined>(undefined);
+
+export function FilePathPreviewProvider({
+  onPreviewFilePath,
+  children,
+}: {
+  onPreviewFilePath?: FilePathPreviewHandler;
+  children: ReactNode;
+}) {
+  return (
+    <FilePathPreviewContext.Provider value={onPreviewFilePath}>
+      {children}
+    </FilePathPreviewContext.Provider>
+  );
+}
+
 export function FilePathChip({ filePath, threadId }: { filePath: string; threadId?: string }) {
   const normalizedPath = filePath.trim();
   const filename = fileName(filePath);
+  const displayName = compactMiddleFileName(filename);
   const extension = extensionName(filename);
   const Icon = filePathIcon(extension);
   const badge = fileTypeBadge(extension, normalizedPath);
   const isDirectory = isDirectoryPath(normalizedPath);
+  const onPreviewFilePath = useContext(FilePathPreviewContext);
 
   async function handleClick() {
+    if (onPreviewFilePath) {
+      await onPreviewFilePath(normalizedPath);
+      return;
+    }
     if (!threadId) return;
     try {
       await window.brevyn.app.openWorkspacePath({ threadId, path: normalizedPath });
@@ -78,7 +103,7 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
   return (
     <button
       type="button"
-      disabled={!threadId}
+      disabled={!threadId && !onPreviewFilePath}
       onClick={() => void handleClick()}
       className="not-prose inline-flex max-w-full items-center gap-1 rounded-md bg-muted/58 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-foreground/82 align-baseline transition hover:bg-accent hover:text-foreground disabled:cursor-default disabled:hover:bg-muted/58"
       title={filePath}
@@ -90,7 +115,7 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
       ) : (
         <Icon className={`h-3.5 w-3.5 shrink-0 ${isDirectory ? "text-amber-600" : "text-muted-foreground"}`} />
       )}
-      <span className="max-w-[22rem] truncate">{filename}</span>
+      <span className="max-w-[22rem] truncate">{displayName}</span>
     </button>
   );
 }
@@ -172,6 +197,18 @@ function extensionName(filePath: string): string {
   const dotIndex = name.lastIndexOf(".");
   if (dotIndex <= 0 || dotIndex === name.length - 1) return "";
   return name.slice(dotIndex + 1).toLowerCase();
+}
+
+function compactMiddleFileName(value: string): string {
+  const maxLength = 38;
+  if (value.length <= maxLength) return value;
+  const dotIndex = value.lastIndexOf(".");
+  const extension = dotIndex > 0 ? value.slice(dotIndex) : "";
+  const basename = extension ? value.slice(0, dotIndex) : value;
+  const headLength = Math.max(10, Math.floor((maxLength - extension.length - 3) * 0.48));
+  const tailLength = Math.max(8, maxLength - extension.length - 3 - headLength);
+  if (basename.length <= headLength + tailLength + 3) return value;
+  return `${basename.slice(0, headLength)}...${basename.slice(-tailLength)}${extension}`;
 }
 
 function isDirectoryPath(value: string): boolean {

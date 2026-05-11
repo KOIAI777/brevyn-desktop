@@ -113,6 +113,7 @@ const SAFE_TOOLS = new Set([
   "mcp__brevyn__course_structure",
   "mcp__brevyn__list_course_files",
   "mcp__brevyn__get_file_record",
+  "mcp__brevyn__rag_search",
 ]);
 
 const WRITE_TOOLS = new Set([

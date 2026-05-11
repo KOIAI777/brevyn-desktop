@@ -26,6 +26,7 @@ export interface ToolCardHelpers {
   stringValue: (value: unknown, fallback: string) => string;
   toolResultSummary: (tool: ToolResultBlock) => string;
   toolTitle: (toolName: string, input: unknown) => string;
+  renderToolTitle: (toolName: string, input: unknown, options?: { isError?: boolean }) => ReactNode;
   truncatePreview: (value: string) => string;
   singleLine: (value: string) => string;
   renderToolGlyph: (toolName: string, className: string) => ReactNode;

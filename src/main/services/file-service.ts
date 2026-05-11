@@ -22,7 +22,7 @@ import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } fro
 import type { SQLiteBusinessStore } from "../storage";
 import { recordCleanupFailure, type CleanupFailure } from "./cleanup-log";
 import type { ProviderService } from "./provider-service";
-import type { RagIndexService } from "./rag-index-service";
+import type { RagIndexService, RagSearchOptions } from "./rag-index-service";
 import {
   cloneFile,
   cloneFiles,
@@ -69,7 +69,7 @@ export interface FileServiceOptions {
 export class FileService {
   constructor(private readonly options: FileServiceOptions) {}
 
-  async searchRag(query: string, courseId?: string): Promise<RagSearchResult[]> {
+  async searchRag(query: string, courseId?: string, options: RagSearchOptions & { limit?: number } = {}): Promise<RagSearchResult[]> {
     try {
       if (isCurrentSemesterArchived(this.options.businessStore)) return [];
       if (courseId && courseId !== SEMESTER_HOME_COURSE_ID && isCourseArchived(this.options.businessStore, courseId)) return [];
@@ -80,8 +80,9 @@ export class FileService {
         query,
         semesterId,
         courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
-        undefined,
+        options.limit,
         archivedCourseIds,
+        options,
       );
     } catch (error) {
       console.warn("[rag] Search failed", error);

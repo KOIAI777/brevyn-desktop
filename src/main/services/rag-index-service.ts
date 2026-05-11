@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Connection, Table } from "@lancedb/lancedb";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
-import type { ModelProviderConfig, RagSearchResult, WorkspaceFileKind } from "../../types/domain";
+import type { CourseFileSectionKind, ModelProviderConfig, RagSearchResult, WorkspaceFileKind } from "../../types/domain";
 import { getEmbeddingProviderAdapter } from "../providers";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
@@ -37,6 +37,12 @@ type EmbeddingMeta = {
   model: string;
   dimension: number;
 };
+
+export interface RagSearchOptions {
+  taskId?: string;
+  sectionKind?: CourseFileSectionKind;
+  perFileMax?: number;
+}
 
 interface RagIndexServiceOptions {
   dbPath: string;
@@ -148,6 +154,7 @@ export class RagIndexService {
     courseId?: string,
     maxResults = DEFAULT_TOP_K,
     excludeCourseIds: string[] = [],
+    options: RagSearchOptions = {},
   ): Promise<RagSearchResult[]> {
     const table = await this.getReadableTable();
     if (!table) return [];
@@ -157,6 +164,7 @@ export class RagIndexService {
     if (courseId && courseId !== SEMESTER_HOME_COURSE_ID) {
       filterParts.push(`course_id = '${escapeSql(courseId)}'`);
     }
+    filterParts.push(...ragFilterParts(courseId, options));
     for (const archivedCourseId of excludeCourseIds) {
       filterParts.push(`course_id != '${escapeSql(archivedCourseId)}'`);
     }
@@ -187,28 +195,50 @@ export class RagIndexService {
       .select([
         "id",
         "course_id",
+        "file_id",
         "file_name",
         "file_path",
         "section_id",
+        "task_file_bucket",
         "chunk_index",
         "chunk_count",
         "text",
         "citation",
         "_distance",
       ])
-      .limit(maxResults)
+      .limit(Math.max(maxResults, maxResults * 3))
       .toArray();
 
-    return rows.map((row: any) => {
+    const perFileMax = clampInteger(options.perFileMax ?? 2, 1, Math.max(1, maxResults));
+    const seenByFile = new Map<string, number>();
+    const filteredRows: any[] = [];
+    for (const row of rows) {
+      const fileId = String(row.file_id || row.file_path || row.id);
+      const currentCount = seenByFile.get(fileId) || 0;
+      if (currentCount >= perFileMax) continue;
+      seenByFile.set(fileId, currentCount + 1);
+      filteredRows.push(row);
+      if (filteredRows.length >= maxResults) break;
+    }
+
+    return filteredRows.map((row: any) => {
       const distance = Number(row._distance);
+      const filePath = String(row.file_path || row.file_name || "workspace");
       return {
         id: String(row.id),
         courseId: String(row.course_id),
+        fileId: String(row.file_id || ""),
+        fileName: String(row.file_name || filePath),
         title: String(row.file_name || row.file_path || "RAG chunk"),
-        source: String(row.file_path || row.file_name || "workspace"),
-        citation: String(row.citation || row.file_path || "workspace"),
+        source: filePath,
+        citation: String(row.citation || filePath),
         excerpt: excerptText(String(row.text || ""), normalized),
         score: Number.isFinite(distance) ? 1 / (1 + Math.max(0, distance)) : 0,
+        path: filePath,
+        sectionKind: sectionKindForRow(String(row.section_id || ""), filePath),
+        taskId: taskIdForRow(String(row.section_id || ""), filePath),
+        chunkIndex: numberValue(row.chunk_index),
+        chunkCount: numberValue(row.chunk_count),
       };
     });
   }
@@ -477,6 +507,44 @@ function isEmbeddingBatchSizeError(status: number, body: string): boolean {
 
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
+}
+
+function ragFilterParts(courseId: string | undefined, options: RagSearchOptions): string[] {
+  const parts: string[] = [];
+  if (courseId && courseId !== SEMESTER_HOME_COURSE_ID) {
+    if (options.taskId) {
+      const escapedTaskId = escapeSql(options.taskId);
+      parts.push(`(section_id = '${escapeSql(`${courseId}:task-${options.taskId}`)}' OR file_path LIKE '%${escapedTaskId}%')`);
+    }
+    if (options.sectionKind) {
+      parts.push(sectionKindFilter(courseId, options.sectionKind));
+    }
+  }
+  return parts.filter(Boolean);
+}
+
+function sectionKindFilter(courseId: string, sectionKind: CourseFileSectionKind): string {
+  if (sectionKind === "course_shared") {
+    return `(section_id = '${escapeSql(`${courseId}:shared`)}' OR file_path LIKE '%/Course shared/%' OR file_path LIKE '%/Semester shared/%')`;
+  }
+  if (sectionKind === "lecture") {
+    return `(section_id = '${escapeSql(`${courseId}:lecture`)}' OR file_path LIKE '%/Lecture/%')`;
+  }
+  return `(section_id LIKE '${escapeSql(`${courseId}:task-`)}%' OR file_path LIKE '%/Task/%')`;
+}
+
+function sectionKindForRow(sectionId: string, filePath: string): CourseFileSectionKind | undefined {
+  if (sectionId.includes(":lecture") || filePath.includes("/Lecture/")) return "lecture";
+  if (sectionId.includes(":task-") || filePath.includes("/Task/")) return "task";
+  if (sectionId.includes(":shared") || filePath.includes("/Course shared/") || filePath.includes("/Semester shared/")) return "course_shared";
+  return undefined;
+}
+
+function taskIdForRow(sectionId: string, filePath: string): string | undefined {
+  const sectionMatch = sectionId.match(/:task-(.+)$/);
+  if (sectionMatch?.[1]) return sectionMatch[1];
+  const pathMatch = filePath.match(/\/Task\/(task-[^/]+)/);
+  return pathMatch?.[1];
 }
 
 function assertEmbeddingVectors(vectors: number[][], expectedCount: number): void {

@@ -91,7 +91,7 @@ export function MessageBubble({
   return (
     <div className="group/message flex justify-end">
       <div className="flex max-w-[76%] flex-col items-end">
-        <div className="min-w-0 animate-[message-rise-in_180ms_cubic-bezier(0.22,1,0.36,1)] rounded-2xl bg-foreground px-4 py-3 text-sm leading-6 text-background shadow-sm transition-[box-shadow,border-color,background-color] duration-200">
+        <div className="min-w-0 animate-[message-rise-in_180ms_cubic-bezier(0.22,1,0.36,1)] rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.96),rgba(246,242,232,0.86))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200">
           <Markdownish content={content} threadId={threadId} />
         </div>
         <MessageCopyAction content={content} align="right" />

@@ -40,7 +40,7 @@ export interface ContextUsage {
 export type ProcessEvent =
   | { kind: "thinking"; id: string; text: string }
   | { kind: "narration"; id: string; text: string }
-  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock };
+  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny" };
 
 export type AgentTimelineRecord =
   | BrevynAgentTimelineRecord
@@ -265,6 +265,7 @@ function processEventsFromItems(
 ): ProcessEvent[] {
   const events: ProcessEvent[] = [];
   const toolById = new Map<string, Extract<ProcessEvent, { kind: "tool_use" }>>();
+  const approvalByToolUseId = approvalDecisionByToolUseId(items);
   let thinkingIndex = 0;
 
   for (const { record, index } of items) {
@@ -286,7 +287,12 @@ function processEventsFromItems(
       }
       for (const block of blocks) {
         if (block.type !== "tool_use" || block.name === "TodoWrite") continue;
-        const event: Extract<ProcessEvent, { kind: "tool_use" }> = { kind: "tool_use", id: `tool-use-${block.id}`, tool: block };
+        const event: Extract<ProcessEvent, { kind: "tool_use" }> = {
+          kind: "tool_use",
+          id: `tool-use-${block.id}`,
+          tool: block,
+          approvalDecision: approvalByToolUseId.get(block.id),
+        };
         toolById.set(block.id, event);
         events.push(event);
       }
@@ -301,6 +307,28 @@ function processEventsFromItems(
   }
 
   return events;
+}
+
+function approvalDecisionByToolUseId(
+  items: Array<{ record: AgentTimelineRecord; index: number }>,
+): Map<string, "allow" | "deny"> {
+  const requestToolUseIds = new Map<string, string>();
+  const decisions = new Map<string, "allow" | "deny">();
+  for (const { record } of items) {
+    if (!isRuntimeRecord(record)) continue;
+    if (record.event.type === "approval_requested") {
+      requestToolUseIds.set(record.event.request.requestId, record.event.request.toolUseId);
+    } else if (record.event.type === "approval_resolved") {
+      decisions.set(record.event.requestId, record.event.decision);
+    }
+  }
+
+  const approvalByToolUseId = new Map<string, "allow" | "deny">();
+  for (const [requestId, decision] of decisions) {
+    const toolUseId = requestToolUseIds.get(requestId);
+    if (toolUseId) approvalByToolUseId.set(toolUseId, decision);
+  }
+  return approvalByToolUseId;
 }
 
 function lastTextAssistantItemIndex(items: Array<{ record: AgentTimelineRecord; index: number }>): number {
@@ -581,25 +609,80 @@ export function formatToolResultContent(value: unknown): string {
 }
 
 export function toolResultSummary(tool: ToolResultBlock): string {
-  if (tool.isError) return "失败";
+  if (tool.isError) return `失败 · ${shortErrorSummary(formatToolResultContent(tool.content))}`;
   const content = formatToolResultContent(tool.content);
   const lines = content.split("\n").filter((line) => line.trim().length > 0);
   return lines.length > 1 ? `${lines.length} lines` : "成功";
 }
 
+function shortErrorSummary(value: string): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return "未知错误";
+  const quoted = text.match(/(?:Error|error):\s*([^".。]+)|([^".。]+(?:not found|does not exist|permission denied|denied|failed)[^".。]*)/i);
+  const summary = (quoted?.[1] || quoted?.[2] || text).trim();
+  return summary.length > 42 ? `${summary.slice(0, 39)}...` : summary;
+}
+
 export function toolTitle(toolName: string, input: unknown): string {
   const data = recordObject(input);
+  const diff = toolDiffStats(toolName, input);
+  const diffSuffix = diff ? formatDiffStats(diff) : "";
   if (toolName === "Read") return `Read · ${stringValue(data.file_path ?? data.path, "file")}`;
-  if (toolName === "Edit" || toolName === "MultiEdit") return `${toolName} · ${stringValue(data.file_path ?? data.path, "file")}`;
-  if (toolName === "Write") return `Write · ${stringValue(data.file_path ?? data.path, "file")}`;
+  if (toolName === "Edit" || toolName === "MultiEdit") return `${toolName} · ${stringValue(data.file_path ?? data.path, "file")}${diffSuffix ? ` ${diffSuffix}` : ""}`;
+  if (toolName === "Write") return `Write · ${stringValue(data.file_path ?? data.path, "file")}${diffSuffix ? ` ${diffSuffix}` : ""}`;
   if (toolName === "Bash") return `Bash · ${singleLine(stringValue(data.command, "command"))}`;
   if (toolName === "Grep") return `Grep · ${singleLine(stringValue(data.pattern, "pattern"))}`;
   if (toolName === "Glob") return `Glob · ${singleLine(stringValue(data.pattern, "pattern"))}`;
   if (toolName === "WebFetch") return `WebFetch · ${stringValue(data.url, "URL")}`;
   if (toolName === "WebSearch") return `WebSearch · ${singleLine(stringValue(data.query, "query"))}`;
   if (toolName === "TodoWrite") return "Update todo list";
+  if (toolName === "mcp__brevyn__rag_search") return `检索课程材料 · ${singleLine(stringValue(data.query, "query"))}`;
   if (toolName.startsWith("mcp__brevyn__")) return `Brevyn · ${toolName.replace("mcp__brevyn__", "")}`;
   return `Tool · ${toolName}`;
+}
+
+export interface ToolDiffStats {
+  additions: number;
+  deletions: number;
+}
+
+export function toolDiffStats(toolName: string, input: unknown): ToolDiffStats | null {
+  const data = recordObject(input);
+  if (toolName === "Write") {
+    const content = data.content;
+    if (typeof content !== "string") return null;
+    return { additions: countLines(content), deletions: 0 };
+  }
+  if (toolName === "Edit") {
+    const oldString = data.old_string;
+    const newString = data.new_string;
+    if (typeof oldString !== "string" || typeof newString !== "string") return null;
+    return { additions: countLines(newString), deletions: countLines(oldString) };
+  }
+  if (toolName === "MultiEdit") {
+    const edits = Array.isArray(data.edits) ? data.edits : [];
+    let additions = 0;
+    let deletions = 0;
+    for (const edit of edits) {
+      const item = recordObject(edit);
+      if (typeof item.new_string === "string") additions += countLines(item.new_string);
+      if (typeof item.old_string === "string") deletions += countLines(item.old_string);
+    }
+    return additions > 0 || deletions > 0 ? { additions, deletions } : null;
+  }
+  return null;
+}
+
+export function formatDiffStats(diff: ToolDiffStats): string {
+  const parts: string[] = [];
+  if (diff.additions > 0) parts.push(`+${diff.additions}`);
+  if (diff.deletions > 0) parts.push(`-${diff.deletions}`);
+  return parts.join(" ");
+}
+
+function countLines(value: string): number {
+  if (!value) return 0;
+  return value.split("\n").length;
 }
 
 export function exitPlanSummary(request: AgentExitPlanRequest): string {
