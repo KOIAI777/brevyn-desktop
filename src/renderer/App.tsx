@@ -1,5 +1,5 @@
 import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type {
   Course,
   FileImportInput,
@@ -7,12 +7,17 @@ import type {
   FilePreview,
   FileStats,
   GitStatus,
+  ModelProviderConfig,
+  ProviderDraftInput,
   SemesterWorkspace,
   SkillItem,
   Thread,
+  BrevynAgentSessionRecord,
+  BrevynAgentTimelineRecord,
   BrevynTask,
   WorkspaceFileNode,
 } from "@/types/domain";
+import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { CourseFilesUploadDialog } from "@/components/files/CourseFilesUploadDialog";
 import { FileBrowserRail } from "@/components/files/FileBrowserRail";
@@ -26,14 +31,24 @@ import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 type SettingsPage = "providers" | "archive" | "skills";
+type ResizableRail = "files" | "preview";
+
+const CHAT_MIN_WIDTH = 240;
+const RAIL_WIDTHS = {
+  files: { min: 260, default: 320 },
+  preview: { min: 320, default: 440 },
+} as const;
 
 function App() {
   const mountedRef = useRef(true);
   const activeCourseIdRef = useRef("");
   const selectedFileIdRef = useRef("");
+  const activeThreadIdRef = useRef("");
   const fileLoadRequestRef = useRef(0);
   const filePreviewRequestRef = useRef(0);
   const workspaceReloadRequestRef = useRef(0);
+  const agentLoadRequestRef = useRef(0);
+  const contentGridRef = useRef<HTMLDivElement | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
   const [semesters, setSemesters] = useState<SemesterWorkspace[]>([]);
   const [semester, setSemester] = useState<SemesterWorkspace | null>(null);
@@ -60,9 +75,23 @@ function App() {
   const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
   const [bootError, setBootError] = useState("");
   const [workspaceError, setWorkspaceError] = useState("");
+  const [agentRecords, setAgentRecords] = useState<BrevynAgentTimelineRecord[]>([]);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentError, setAgentError] = useState("");
+  const [agentProviders, setAgentProviders] = useState<ModelProviderConfig[]>([]);
+  const [fileRailWidth, setFileRailWidth] = useState<number>(RAIL_WIDTHS.files.default);
+  const [previewRailWidth, setPreviewRailWidth] = useState<number>(RAIL_WIDTHS.preview.default);
+  const [resizingRail, setResizingRail] = useState<ResizableRail | null>(null);
+  const resizeStateRef = useRef<{ rail: ResizableRail; startX: number; startWidth: number } | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
+  const resizePointerXRef = useRef(0);
+  const railWidthsRef = useRef<{ files: number; preview: number }>({ files: RAIL_WIDTHS.files.default, preview: RAIL_WIDTHS.preview.default });
 
   activeCourseIdRef.current = activeCourseId;
   selectedFileIdRef.current = selectedFileId;
+  activeThreadIdRef.current = activeThreadId;
+  railWidthsRef.current = { files: fileRailWidth, preview: previewRailWidth };
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +115,123 @@ function App() {
     }
     void loadCourseFiles(activeCourseId);
   }, [activeCourseId]);
+
+  useEffect(() => {
+    const unsubscribe = window.brevyn.files.onChanged(() => {
+      const activeCourseId = activeCourseIdRef.current;
+      if (activeCourseId) void loadCourseFiles(activeCourseId);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.brevyn.agent.onEvent((event) => {
+      const eventThreadId = event.kind === "sdk_message"
+        ? event.threadId
+        : event.event.type === "approval_requested"
+          ? event.event.request.threadId
+          : event.event.type === "ask_user_requested"
+            ? event.event.request.threadId
+          : event.event.type === "exit_plan_requested"
+            ? event.event.request.threadId
+            : event.event.threadId;
+      if (!eventThreadId || eventThreadId !== activeThreadIdRef.current) return;
+      if (event.kind === "sdk_message") {
+        setAgentRecords((current) => [...current, event.message]);
+        if (event.message.type === "result") {
+          setAgentRunning(false);
+          const subtype = String((event.message as { subtype?: unknown }).subtype || "");
+          if (subtype && subtype !== "success" && subtype !== "stopped_by_user" && subtype !== "interrupted") {
+            setAgentError(resultErrorMessage(event.message));
+          }
+        }
+        return;
+      }
+      setAgentRecords((current) => [...current, { kind: "runtime", event: event.event }]);
+      if (event.event.type === "run_started") {
+        setAgentRunning(true);
+        setAgentError("");
+      } else if (isTerminalRunEvent(event.event.type)) {
+        setAgentRunning(false);
+        if (event.event.type === "run_failed") setAgentError(event.event.error);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      agentLoadRequestRef.current += 1;
+      setAgentRecords([]);
+      setAgentLoading(false);
+      setAgentRunning(false);
+      setAgentError("");
+      return;
+    }
+    void loadAgentMessages(activeThreadId);
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!resizingRail) return;
+    function applyResize(clientX: number) {
+      const state = resizeStateRef.current;
+      if (!state) return;
+      const config = RAIL_WIDTHS[state.rail];
+      const gridWidth = contentGridRef.current?.getBoundingClientRect().width || window.innerWidth;
+      const otherRailWidth = state.rail === "files"
+        ? (previewRailCollapsed ? 0 : railWidthsRef.current.preview)
+        : (fileRailCollapsed ? 0 : railWidthsRef.current.files);
+      const gridGapWidth = otherRailWidth > 0 ? 16 : 8;
+      const availableMax = gridWidth - otherRailWidth - gridGapWidth - CHAT_MIN_WIDTH;
+      const maxWidth = Math.max(config.min, availableMax);
+      const nextWidth = clamp(state.startWidth - (clientX - state.startX), config.min, maxWidth);
+      railWidthsRef.current = { ...railWidthsRef.current, [state.rail]: nextWidth };
+      if (contentGridRef.current) {
+        contentGridRef.current.style.gridTemplateColumns = gridColumnsForWidths(
+          fileRailCollapsed,
+          previewRailCollapsed,
+          state.rail === "files" ? nextWidth : railWidthsRef.current.files,
+          state.rail === "preview" ? nextWidth : railWidthsRef.current.preview,
+        );
+      }
+      return nextWidth;
+    }
+    function handlePointerMove(event: PointerEvent) {
+      resizePointerXRef.current = event.clientX;
+      if (resizeFrameRef.current !== null) return;
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        applyResize(resizePointerXRef.current);
+      });
+    }
+    function handlePointerUp() {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+      const nextWidth = applyResize(resizePointerXRef.current);
+      if (resizeStateRef.current?.rail === "files" && typeof nextWidth === "number") setFileRailWidth(nextWidth);
+      if (resizeStateRef.current?.rail === "preview" && typeof nextWidth === "number") setPreviewRailWidth(nextWidth);
+      resizeStateRef.current = null;
+      setResizingRail(null);
+    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [fileRailCollapsed, previewRailCollapsed, resizingRail]);
 
   const activeCourse = useMemo(() => courses.find((course) => course.id === activeCourseId), [courses, activeCourseId]);
   const courseTasks = activeCourse ? tasksByCourse[activeCourse.id] || [] : [];
@@ -153,6 +299,7 @@ function App() {
       setActiveThreadId(selection.threadId);
       if (!selection.courseId) clearFileState();
       setBootState("ready");
+      void refreshAgentProviders();
     } catch (error) {
       if (!mountedRef.current || isCancelled()) return;
       setBootError(errorMessage(error, "Failed to load workspace."));
@@ -334,6 +481,87 @@ function App() {
     }
   }
 
+  async function loadAgentMessages(threadId: string): Promise<boolean> {
+    const requestId = agentLoadRequestRef.current + 1;
+    agentLoadRequestRef.current = requestId;
+    setAgentLoading(true);
+    setAgentError("");
+    try {
+      const records = await window.brevyn.agent.messages(threadId);
+      if (!mountedRef.current || agentLoadRequestRef.current !== requestId || activeThreadIdRef.current !== threadId) return false;
+      setAgentRecords(records);
+      setAgentRunning(hasOpenAgentRun(records));
+      return true;
+    } catch (error) {
+      if (mountedRef.current && agentLoadRequestRef.current === requestId) {
+        setAgentError(errorMessage(error, "Failed to load agent timeline."));
+        setAgentRecords([]);
+        setAgentRunning(false);
+      }
+      return false;
+    } finally {
+      if (agentLoadRequestRef.current === requestId) setAgentLoading(false);
+    }
+  }
+
+  async function runAgent(prompt: string, mode: "execute" | "plan" = "execute", permissionMode: "review" | "full_access" = "review"): Promise<void> {
+    if (!activeThreadId) return;
+    setAgentError("");
+    setAgentRunning(true);
+    try {
+      await window.brevyn.agent.run({ threadId: activeThreadId, prompt, mode, permissionMode });
+    } catch (error) {
+      setAgentRunning(false);
+      setAgentError(errorMessage(error, "Failed to start agent run."));
+    }
+  }
+
+  async function stopAgent(): Promise<void> {
+    if (!activeThreadId) return;
+    try {
+      await window.brevyn.agent.stop(activeThreadId);
+      setAgentRunning(false);
+    } catch (error) {
+      setAgentError(errorMessage(error, "Failed to stop agent run."));
+    }
+  }
+
+  async function approveAgent(requestId: string): Promise<void> {
+    if (!activeThreadId) return;
+    try {
+      await window.brevyn.agent.approve({ threadId: activeThreadId, requestId });
+    } catch (error) {
+      setAgentError(errorMessage(error, "Failed to approve tool call."));
+    }
+  }
+
+  async function rejectAgent(requestId: string): Promise<void> {
+    if (!activeThreadId) return;
+    try {
+      await window.brevyn.agent.reject({ threadId: activeThreadId, requestId });
+    } catch (error) {
+      setAgentError(errorMessage(error, "Failed to deny tool call."));
+    }
+  }
+
+  async function answerAgentQuestion(requestId: string, answers: Record<string, string>): Promise<void> {
+    if (!activeThreadId) return;
+    try {
+      await window.brevyn.agent.answerQuestion({ threadId: activeThreadId, requestId, answers });
+    } catch (error) {
+      setAgentError(errorMessage(error, "Failed to answer agent question."));
+    }
+  }
+
+  async function resolveAgentExitPlan(requestId: string, decision: "approve" | "deny", feedback?: string): Promise<void> {
+    if (!activeThreadId) return;
+    try {
+      await window.brevyn.agent.resolveExitPlan({ threadId: activeThreadId, requestId, decision, feedback });
+    } catch (error) {
+      setAgentError(errorMessage(error, "Failed to resolve plan request."));
+    }
+  }
+
   function threadTitleForScope(courseId: string, taskId?: string): string {
     const task = taskId ? (tasksByCourse[courseId] || []).find((item) => item.id === taskId) : undefined;
     const course = courses.find((item) => item.id === courseId);
@@ -410,6 +638,28 @@ function App() {
     setSettingsOpen(true);
   }
 
+  async function refreshAgentProviders() {
+    try {
+      const providers = await window.brevyn.providers.list();
+      if (!mountedRef.current) return;
+      setAgentProviders(providers.filter((provider) => provider.purpose === "agent"));
+    } catch {
+      if (mountedRef.current) setAgentProviders([]);
+    }
+  }
+
+  async function selectAgentProvider(providerId: string) {
+    const provider = agentProviders.find((item) => item.id === providerId);
+    if (!provider || provider.enabled) return;
+    setWorkspaceError("");
+    try {
+      await window.brevyn.providers.save(providerDraftForActivation(provider));
+      await refreshAgentProviders();
+    } catch (error) {
+      if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to switch agent model."));
+    }
+  }
+
   function handleCourseCreated(course: Course) {
     setCourses((current) => (current.some((item) => item.id === course.id) ? current : [...current, course]));
     setTasksByCourse((current) => ({ ...current, [course.id]: current[course.id] || [] }));
@@ -425,6 +675,17 @@ function App() {
       [task.courseId]: [...(current[task.courseId] || []), task],
     }));
   }
+
+  function startRailResize(rail: ResizableRail, event: ReactPointerEvent) {
+    const startWidth = rail === "files" ? fileRailWidth : previewRailWidth;
+    resizeStateRef.current = { rail, startX: event.clientX, startWidth };
+    resizePointerXRef.current = event.clientX;
+    setResizingRail(rail);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  const contentGridColumns = gridColumnsForWidths(fileRailCollapsed, previewRailCollapsed, fileRailWidth, previewRailWidth);
 
   if (bootState === "loading") {
     return <AppLoadingScreen />;
@@ -471,91 +732,122 @@ function App() {
           onOpenSettings={() => openSettings("providers")}
         />
 
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
-          <TopBar course={activeCourse} task={activeTask} thread={activeThread} workspaceScope={workspaceScope} />
-          {workspaceError && (
-            <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
-              {workspaceError}
-            </div>
-          )}
-
-          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-            {activeThread ? (
-              <p>Thread: {activeThread.title}</p>
-            ) : (
-              <div className="flex flex-col items-center gap-3 text-center">
-                {noActiveSemesters ? (
-                  <>
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full border bg-background text-amber-700">
-                      <Archive className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">No active semesters.</p>
-                      <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-                        Your semesters may all be archived. Restore one from Archive, or create a new semester from Manage semesters.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90"
-                        onClick={() => openSettings("archive")}
-                      >
-                        Open Archive
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent"
-                        onClick={() => setTimetableOpen(true)}
-                      >
-                        Manage semesters
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <p className="font-medium text-foreground">{needsSemesterSelection ? "No semester selected." : threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {needsSemesterSelection ? "Choose a semester explicitly before loading courses, sessions, and files." : "Workspace files are ready. Create a session when you want to start chatting."}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={!needsSemesterSelection && ((!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask))}
-                      onClick={() => {
-                        if (needsSemesterSelection) {
-                          setTimetableOpen(true);
-                          return;
-                        }
-                        void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id);
-                      }}
-                    >
-                      {needsSemesterSelection ? "Select semester" : activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
-                    </button>
-                  </>
-                )}
+        <div
+          ref={contentGridRef}
+          className={`grid min-w-0 flex-1 gap-2 ${resizingRail ? "" : "transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"}`}
+          style={{ gridTemplateColumns: contentGridColumns }}
+        >
+          <main className="flex min-w-0 max-w-full flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
+            <TopBar course={activeCourse} task={activeTask} thread={activeThread} workspaceScope={workspaceScope} />
+            {workspaceError && (
+              <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+                {workspaceError}
               </div>
             )}
-          </div>
-        </main>
 
-        <FileBrowserRail
-          collapsed={fileRailCollapsed}
-          course={activeCourse}
-          stats={fileStats}
-          files={fileTree}
-          loading={filesLoading}
-          selectedFileId={selectedFileId}
-          onSelectFile={selectFile}
-          onOpenUpload={() => {
-            if (activeCourse?.archivedAt) return;
-            setCourseFilesUploadOpen(true);
-          }}
-        />
+            <div className={`min-h-0 flex-1 ${activeThread ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
+              {activeThread ? (
+                <AgentThreadPanel
+                  thread={activeThread}
+                  records={agentRecords}
+                  loading={agentLoading}
+                  running={agentRunning}
+                  error={agentError}
+                  onRun={runAgent}
+                  onStop={stopAgent}
+                  onApprove={approveAgent}
+                  onReject={rejectAgent}
+                  onAnswerQuestion={answerAgentQuestion}
+                  onResolveExitPlan={resolveAgentExitPlan}
+                  agentProviders={agentProviders}
+                  activeProviderId={activeAgentProviderId(agentProviders)}
+                  onSelectProvider={selectAgentProvider}
+                  files={fileTree}
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-center">
+                  {noActiveSemesters ? (
+                    <>
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full border bg-background text-amber-700">
+                        <Archive className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">No active semesters.</p>
+                        <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+                          Your semesters may all be archived. Restore one from Archive, or create a new semester from Manage semesters.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90"
+                          onClick={() => openSettings("archive")}
+                        >
+                          Open Archive
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent"
+                          onClick={() => setTimetableOpen(true)}
+                        >
+                          Manage semesters
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="font-medium text-foreground">{needsSemesterSelection ? "No semester selected." : threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {needsSemesterSelection ? "Choose a semester explicitly before loading courses, sessions, and files." : "Workspace files are ready. Create a session when you want to start chatting."}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!needsSemesterSelection && ((!activeCourse?.id && !semester?.id) || Boolean(activeCourse && activeCourse.workspaceKind !== "semester_home" && !activeTask))}
+                        onClick={() => {
+                          if (needsSemesterSelection) {
+                            setTimetableOpen(true);
+                            return;
+                          }
+                          void createThread(activeCourse?.id || SEMESTER_HOME_COURSE_ID, activeTask?.id);
+                        }}
+                      >
+                        {needsSemesterSelection ? "Select semester" : activeTask ? "Create task session" : activeCourse?.workspaceKind === "semester_home" || !activeCourse ? "Create Home session" : "Select a task to create session"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </main>
 
-        <FilePreviewRail collapsed={previewRailCollapsed} preview={filePreview} />
+          <FileBrowserRail
+            collapsed={fileRailCollapsed}
+            course={activeCourse}
+            stats={fileStats}
+            files={fileTree}
+            loading={filesLoading}
+            selectedFileId={selectedFileId}
+            onSelectFile={selectFile}
+            onOpenUpload={() => {
+              if (activeCourse?.archivedAt) return;
+              setCourseFilesUploadOpen(true);
+            }}
+            width={fileRailWidth}
+            resizing={resizingRail === "files"}
+            onResizeStart={(event) => startRailResize("files", event)}
+          />
+
+          <FilePreviewRail
+            collapsed={previewRailCollapsed}
+            preview={filePreview}
+            width={previewRailWidth}
+            resizing={resizingRail === "preview"}
+            onResizeStart={(event) => startRailResize("preview", event)}
+          />
+        </div>
       </div>
 
       {settingsOpen && (
@@ -568,8 +860,12 @@ function App() {
           onSkillsChange={setSkills}
           onWorkspaceChanged={async () => {
             await reloadWorkspace(activeThreadId);
+            await refreshAgentProviders();
           }}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            void refreshAgentProviders();
+          }}
         />
       )}
       {coursesOpen && (
@@ -622,6 +918,17 @@ function errorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error || "");
   const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
   return message.trim() || fallback;
+}
+
+function resultErrorMessage(message: BrevynAgentSessionRecord): string {
+  const errors = (message as { errors?: unknown }).errors;
+  if (Array.isArray(errors)) {
+    const first = errors.find((item) => typeof item === "string" && item.trim());
+    if (typeof first === "string") return first;
+  }
+  const result = (message as { result?: unknown }).result;
+  if (typeof result === "string" && result.trim()) return result;
+  return "Agent run failed.";
 }
 
 function dedupeThreads(threads: Thread[]): Thread[] {
@@ -688,6 +995,57 @@ function validThreadSelection(thread: Thread | undefined, courses: Course[], tas
 
 function taskBelongsToCourse(tasksByCourse: Record<string, BrevynTask[]>, courseId: string, taskId: string): boolean {
   return Boolean((tasksByCourse[courseId] || []).some((task) => task.id === taskId));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function gridColumnsForWidths(fileRailCollapsed: boolean, previewRailCollapsed: boolean, fileRailWidth: number, previewRailWidth: number): string {
+  return `minmax(${CHAT_MIN_WIDTH}px, 1fr) ${fileRailCollapsed ? "0px" : `${fileRailWidth}px`} ${previewRailCollapsed ? "0px" : `${previewRailWidth}px`}`;
+}
+
+function activeAgentProviderId(providers: ModelProviderConfig[]): string {
+  return providers.find((provider) => provider.enabled)?.id || "";
+}
+
+function providerDraftForActivation(provider: ModelProviderConfig): ProviderDraftInput {
+  return {
+    id: provider.id,
+    purpose: provider.purpose,
+    providerKind: provider.providerKind,
+    name: provider.name,
+    protocol: provider.protocol,
+    authMode: provider.authMode,
+    baseUrl: provider.baseUrl,
+    apiKey: "",
+    clearApiKey: false,
+    models: provider.models.map((model) => ({ ...model })),
+    selectedModel: provider.selectedModel,
+    enabled: true,
+  };
+}
+
+function isTerminalRunEvent(type: string): boolean {
+  return type === "run_completed" || type === "run_stopped" || type === "run_failed" || type === "run_interrupted";
+}
+
+function hasOpenAgentRun(records: BrevynAgentTimelineRecord[]): boolean {
+  const terminalRunIds = new Set<string>();
+  for (const record of records) {
+    if (!isAgentRuntimeRecord(record)) continue;
+    if (isTerminalRunEvent(record.event.type) && "runId" in record.event) terminalRunIds.add(record.event.runId);
+  }
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (!record || !isAgentRuntimeRecord(record)) continue;
+    if (record.event.type === "run_started" && !terminalRunIds.has(record.event.runId)) return true;
+  }
+  return false;
+}
+
+function isAgentRuntimeRecord(record: BrevynAgentTimelineRecord): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
+  return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "runtime");
 }
 
 function AppLoadingScreen() {

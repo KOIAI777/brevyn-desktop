@@ -15,6 +15,7 @@ export interface AgentProviderAdapter {
 
 export interface EmbeddingProviderAdapter {
   readonly providerKind: EmbeddingProviderKind;
+  embeddingBatchSize?(provider: ModelProviderConfig): number;
   buildModelListRequest(provider: ModelProviderConfig, apiKey: string): ProviderHttpRequest;
   buildEmbeddingRequest(provider: ModelProviderConfig, apiKey: string, input: string[]): ProviderHttpRequest;
   parseModelList(payload: unknown): ProviderModel[];

@@ -1,9 +1,16 @@
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type {
   Course,
   CourseFileSection,
   ArchivedCourseScope,
   ArchivedThreadScope,
+  AgentApprovalInput,
+  AgentAskUserResponseInput,
+  AgentExitPlanResponseInput,
+  AgentRunInput,
+  AgentRunResult,
+  BrevynAgentEvent,
+  BrevynAgentTimelineRecord,
   CreateCourseInput,
   CreateSemesterInput,
   CreateTaskInput,
@@ -35,6 +42,7 @@ import type {
   UpdateTaskInput,
   WorkspaceFileNode,
 } from "../../types/domain";
+import { AgentEventBus, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import { SkillFileStore } from "../skills/skill-file-store";
 import { BUILTIN_SKILL_BLUEPRINTS } from "../skills/skill-registry";
@@ -47,6 +55,7 @@ import { ProviderTransactionStore } from "./provider-transaction-store";
 import { RagIndexService } from "./rag-index-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
+import { isPathInside, workspacePathForThread } from "./workspace-paths";
 
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
@@ -57,6 +66,7 @@ export class LocalStore {
   private readonly providers: ProviderService;
   private readonly workspace: WorkspaceService;
   private readonly files: FileService;
+  private readonly agent: AgentOrchestrator;
 
   constructor(
     private readonly filePath: string,
@@ -84,6 +94,19 @@ export class LocalStore {
       providers: this.providers,
       ragIndex: this.ragIndex,
     });
+    this.agent = new AgentOrchestrator({
+      rootDataDir: this.rootDataDir,
+      businessStore,
+      providers: this.providers,
+      skillFiles: this.skillFiles,
+      sessions: new AgentSessionStore(this.rootDataDir),
+      eventBus: new AgentEventBus(),
+      promptBuilder: new PromptBuilder(),
+      permissions: new PermissionService(),
+      askUsers: new AskUserService(),
+      exitPlans: new ExitPlanService(),
+      sdk: new ClaudeSdkAdapter(),
+    });
   }
 
   listSemesters(): SemesterWorkspace[] {
@@ -103,7 +126,9 @@ export class LocalStore {
   }
 
   selectSemester(semesterId: string): SemesterWorkspace {
-    return this.workspace.selectSemester(semesterId);
+    const semester = this.workspace.selectSemester(semesterId);
+    this.syncActiveSemesterDiskFiles();
+    return semester;
   }
 
   archiveSemester(semesterId: string): SemesterWorkspace {
@@ -198,11 +223,15 @@ export class LocalStore {
     return this.files.listFiles(courseId);
   }
 
+  syncActiveSemesterDiskFiles(): boolean {
+    return this.files.syncActiveSemesterDiskFiles();
+  }
+
   fileStats(courseId?: string): FileStats {
     return this.files.fileStats(courseId);
   }
 
-  previewFile(fileId: string): FilePreview | null {
+  previewFile(fileId: string): Promise<FilePreview | null> {
     return this.files.previewFile(fileId);
   }
 
@@ -212,6 +241,10 @@ export class LocalStore {
 
   fileSourcePath(fileId: string): string | undefined {
     return this.files.fileSourcePath(fileId);
+  }
+
+  renameFile(fileId: string, name: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
+    return this.files.renameFile(fileId, name);
   }
 
   deleteFile(fileId: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
@@ -224,6 +257,10 @@ export class LocalStore {
 
   indexCourseFiles(courseId: string, sectionId?: string): IndexingJob {
     return this.files.indexCourseFiles(courseId, sectionId);
+  }
+
+  reindexCourseFiles(courseId: string, sectionId?: string): Promise<IndexingJob> {
+    return this.files.reindexCourseFiles(courseId, sectionId);
   }
 
   indexActiveSemesterCourses(): Promise<IndexActiveSemesterResult> {
@@ -242,8 +279,8 @@ export class LocalStore {
     return this.files.claimNextIndexingTask(workerId, lockMs);
   }
 
-  recoverExpiredIndexingTasks(): void {
-    this.files.recoverExpiredIndexingTasks();
+  recoverExpiredIndexingTasks(currentWorkerId?: string): void {
+    this.files.recoverExpiredIndexingTasks(currentWorkerId);
   }
 
   completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
@@ -347,12 +384,65 @@ export class LocalStore {
       .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   }
 
+  agentMessages(threadId: string): BrevynAgentTimelineRecord[] {
+    return this.agent.messages(threadId);
+  }
+
+  runAgent(input: AgentRunInput): Promise<AgentRunResult> {
+    return this.agent.run(input);
+  }
+
+  stopAgent(threadId: string): boolean {
+    return this.agent.stop(threadId);
+  }
+
+  stopAllAgents(): void {
+    this.agent.stopAll();
+  }
+
+  approveAgent(input: AgentApprovalInput): boolean {
+    return this.agent.approve(input);
+  }
+
+  rejectAgent(input: AgentApprovalInput): boolean {
+    return this.agent.reject(input);
+  }
+
+  answerAgentQuestion(input: AgentAskUserResponseInput): boolean {
+    return this.agent.answerQuestion(input);
+  }
+
+  resolveAgentExitPlan(input: AgentExitPlanResponseInput): boolean {
+    return this.agent.resolveExitPlan(input);
+  }
+
+  onAgentEvent(listener: (event: BrevynAgentEvent) => void): () => void {
+    return this.agent.onEvent(listener);
+  }
+
+  resolveThreadWorkspacePath(threadId: string, requestedPath: string): string {
+    const thread = this.businessStore.getThread(threadId);
+    if (!thread) throw new Error(`Thread not found: ${threadId}`);
+    const cwd = workspacePathForThread(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    const target = isAbsolute(requestedPath) ? resolve(requestedPath) : resolve(cwd, requestedPath);
+    if (!isPathInside(target, cwd)) {
+      throw new Error("File references can only open paths inside the current workspace.");
+    }
+    return target;
+  }
+
   async close(): Promise<void> {
     let closeError: unknown;
     try {
-      await this.ragIndex.close();
+      this.stopAllAgents();
     } catch (error) {
       closeError = error;
+    }
+
+    try {
+      await this.ragIndex.close();
+    } catch (error) {
+      if (!closeError) closeError = error;
     }
 
     try {

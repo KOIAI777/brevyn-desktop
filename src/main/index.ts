@@ -1,10 +1,11 @@
 import { app, BrowserWindow, Menu, nativeTheme, shell } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc";
 import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
+import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
 
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Brevyn" : "Brevyn Dev"));
 
@@ -70,15 +71,24 @@ function createWindow(): void {
       shell.openExternal(url);
     }
   });
+
+  mainWindow.on("closed", () => {
+    stopWorkspaceFileWatcher();
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  const dataRoot = brevynDataRoot();
+  let storeReady = false;
   try {
-    store = createLocalStore(brevynDataRoot());
+    configureClaudeSdk(dataRoot);
+    store = createLocalStore(dataRoot);
     indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
     registerIpcHandlers({ store, indexingQueue });
     indexingQueue.start();
+    storeReady = true;
   } catch (error) {
     console.error("[brevyn] Failed to initialize local store", error);
     store = createUnavailableStore(error);
@@ -86,9 +96,13 @@ app.whenReady().then(() => {
     registerIpcHandlers({ store });
   }
   createWindow();
+  if (storeReady) startWatcherForMainWindow(dataRoot);
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      startWatcherForMainWindow(dataRoot);
+    }
   });
 });
 
@@ -110,6 +124,12 @@ app.on("before-quit", (event) => {
     console.warn("[brevyn] Shutdown timed out, forcing exit.");
     forceExit();
   }, 5_000);
+  try {
+    stopWorkspaceFileWatcher();
+    store?.stopAllAgents();
+  } catch (error) {
+    console.warn("[brevyn] Failed to stop active agents before shutdown", error);
+  }
   void (async () => {
     try {
       await indexingQueue?.stop();
@@ -137,4 +157,16 @@ function createUnavailableStore(error: unknown): LocalStore {
 
 function brevynDataRoot(): string {
   return join(homedir(), app.isPackaged ? ".brevyn" : ".brevyn-dev");
+}
+
+function configureClaudeSdk(dataRoot: string): void {
+  const configDir = join(dataRoot, "sdk-config");
+  mkdirSync(configDir, { recursive: true });
+  process.env.CLAUDE_CONFIG_DIR = configDir;
+}
+
+function startWatcherForMainWindow(dataRoot: string): void {
+  if (store && mainWindow) {
+    startWorkspaceFileWatcher(dataRoot, store, mainWindow);
+  }
 }

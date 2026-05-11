@@ -1,3 +1,5 @@
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+
 export interface Course {
   id: string;
   semesterId?: string;
@@ -194,9 +196,16 @@ export interface WorkspaceFileNode {
   weekNumber?: number;
   sourcePath?: string;
   name: string;
+  displayName?: string;
   path: string;
   kind: WorkspaceFileKind;
   sizeLabel?: string;
+  indexingStatus?: FileIndexingStatus;
+  indexingProgress?: number;
+  indexingError?: string;
+  indexingWarning?: string;
+  indexingUpdatedAt?: string;
+  indexedAt?: string;
   updatedAt: string;
   children?: WorkspaceFileNode[];
 }
@@ -207,7 +216,9 @@ export interface FilePreview {
   path: string;
   kind: WorkspaceFileKind;
   mimeType?: string;
+  fileUrl?: string;
   content?: string;
+  html?: string;
   summary?: string;
   pages?: string[];
   metadata?: Record<string, string | number | boolean>;
@@ -260,6 +271,7 @@ export interface TimetableEvent {
 
 export type CourseFileSectionKind = "course_shared" | "lecture" | "task";
 export type IndexingStatus = "idle" | "queued" | "indexing" | "indexed" | "failed" | "cancelled";
+export type FileIndexingStatus = IndexingStatus | "warning" | "skipped";
 
 export interface CourseFileSection {
   id: string;
@@ -510,6 +522,115 @@ export interface ProviderTestResult {
   message: string;
 }
 
+export type AgentPermissionMode = "review" | "full_access";
+
+export interface AgentRunInput {
+  threadId: string;
+  prompt: string;
+  mode?: "execute" | "plan";
+  permissionMode?: AgentPermissionMode;
+}
+
+export interface AgentApprovalInput {
+  threadId: string;
+  requestId: string;
+}
+
+export type AgentApprovalDecision = "allow" | "deny";
+export type AgentExitPlanDecision = "approve" | "deny";
+export type AgentRunTerminalStatus = "completed" | "stopped" | "failed" | "interrupted";
+
+export interface AgentExitPlanAllowedPrompt {
+  tool: "Bash";
+  prompt: string;
+}
+
+export interface AgentExitPlanRequest {
+  requestId: string;
+  threadId: string;
+  runId: string;
+  toolInput: Record<string, unknown>;
+  allowedPrompts: AgentExitPlanAllowedPrompt[];
+  createdAt: string;
+}
+
+export interface AgentExitPlanResponseInput {
+  threadId: string;
+  requestId: string;
+  decision: AgentExitPlanDecision;
+  feedback?: string;
+}
+
+export interface AgentAskUserQuestionOption {
+  label: string;
+  description?: string;
+  preview?: string;
+}
+
+export interface AgentAskUserQuestion {
+  question: string;
+  header?: string;
+  options: AgentAskUserQuestionOption[];
+  multiSelect?: boolean;
+}
+
+export interface AgentAskUserRequest {
+  requestId: string;
+  threadId: string;
+  runId: string;
+  questions: AgentAskUserQuestion[];
+  toolInput: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AgentAskUserResponseInput {
+  threadId: string;
+  requestId: string;
+  answers: Record<string, string>;
+}
+
+export interface AgentApprovalRequest {
+  requestId: string;
+  threadId: string;
+  runId: string;
+  toolName: string;
+  toolUseId: string;
+  input: unknown;
+  riskLevel?: "normal" | "dangerous";
+  title?: string;
+  displayName?: string;
+  description?: string;
+  createdAt: string;
+}
+
+export type BrevynAgentRuntimeEvent =
+  | { type: "run_started"; runId: string; threadId: string; permissionMode?: AgentPermissionMode; createdAt: string }
+  | { type: "run_completed"; runId: string; threadId: string; resultSubtype?: string; createdAt: string }
+  | { type: "run_stopped"; runId: string; threadId: string; reason?: string; createdAt: string }
+  | { type: "run_failed"; runId: string; threadId: string; error: string; createdAt: string }
+  | { type: "run_interrupted"; runId: string; threadId: string; reason: string; createdAt: string }
+  | { type: "plan_mode_entered"; runId: string; threadId: string; createdAt: string }
+  | { type: "exit_plan_requested"; request: AgentExitPlanRequest; createdAt: string }
+  | { type: "exit_plan_resolved"; runId: string; threadId: string; requestId: string; decision: AgentExitPlanDecision; feedback?: string; createdAt: string }
+  | { type: "approval_requested"; request: AgentApprovalRequest; createdAt: string }
+  | { type: "approval_resolved"; runId: string; threadId: string; requestId: string; decision: AgentApprovalDecision; createdAt: string }
+  | { type: "ask_user_requested"; request: AgentAskUserRequest; createdAt: string }
+  | { type: "ask_user_resolved"; runId: string; threadId: string; requestId: string; answers: Record<string, string>; createdAt: string };
+
+export type BrevynAgentSessionRecord = SDKMessage;
+
+export type BrevynAgentTimelineRecord =
+  | BrevynAgentSessionRecord
+  | { kind: "runtime"; event: BrevynAgentRuntimeEvent };
+
+export type BrevynAgentEvent =
+  | { kind: "sdk_message"; threadId: string; message: SDKMessage }
+  | { kind: "brevyn_event"; event: BrevynAgentRuntimeEvent };
+
+export interface AgentRunResult {
+  runId: string;
+}
+
 export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
@@ -568,8 +689,11 @@ export interface BrevynAPI {
     indexActiveSemester: () => Promise<IndexActiveSemesterResult>;
     indexingJobs: (courseId?: string) => Promise<IndexingJob[]>;
     cancelIndexing: (jobId: string) => Promise<IndexingJob | null>;
+    open: (fileId: string) => Promise<void>;
+    rename: (input: { fileId: string; name: string }) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
     delete: (fileId: string) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
     reveal: (fileId: string) => Promise<void>;
+    onChanged: (callback: () => void) => () => void;
   };
   providers: {
     list: () => Promise<ModelProviderConfig[]>;
@@ -582,7 +706,18 @@ export interface BrevynAPI {
   timetable: {
     range: (query: TimetableRangeQuery) => Promise<TimetableEvent[]>;
   };
+  agent: {
+    messages: (threadId: string) => Promise<BrevynAgentTimelineRecord[]>;
+    run: (input: AgentRunInput) => Promise<AgentRunResult>;
+    stop: (threadId: string) => Promise<boolean>;
+    approve: (input: AgentApprovalInput) => Promise<boolean>;
+    reject: (input: AgentApprovalInput) => Promise<boolean>;
+    answerQuestion: (input: AgentAskUserResponseInput) => Promise<boolean>;
+    resolveExitPlan: (input: AgentExitPlanResponseInput) => Promise<boolean>;
+    onEvent: (callback: (event: BrevynAgentEvent) => void) => () => void;
+  };
   app: {
     openExternal: (url: string) => Promise<void>;
+    openWorkspacePath: (input: { threadId: string; path: string }) => Promise<void>;
   };
 }

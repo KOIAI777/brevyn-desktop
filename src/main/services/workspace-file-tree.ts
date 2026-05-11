@@ -190,7 +190,7 @@ function ensureTaskWorkspace(root: WorkspaceFileNode, task: BrevynTask, timestam
   return ensureFolderChild(
     taskRoot,
     resolveTaskFolderName(taskRoot, task),
-    { sectionKind: "task", taskId: task.id, taskType: task.taskType },
+    { sectionKind: "task", taskId: task.id, taskType: task.taskType, displayName: task.title },
     timestamp,
   );
 }
@@ -237,7 +237,7 @@ function ensureFolderPath(root: WorkspaceFileNode, segments: FolderSegment[], ti
   return segments.reduce((parent, segment) => ensureFolderChild(parent, segment.name, segment.extra || {}, timestamp), root);
 }
 
-function ensureFolderChild(
+export function ensureFolderChild(
   parent: WorkspaceFileNode,
   name: string,
   extra: Partial<WorkspaceFileNode> = {},

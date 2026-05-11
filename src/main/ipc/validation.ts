@@ -1,6 +1,10 @@
 import type {
   ArchivedCourseScope,
   ArchivedThreadScope,
+  AgentAskUserResponseInput,
+  AgentApprovalInput,
+  AgentExitPlanResponseInput,
+  AgentRunInput,
   CourseIconKey,
   CreateCourseInput,
   CreateSemesterInput,
@@ -170,6 +174,48 @@ export function normalizeTimetableRangeQuery(value: unknown): TimetableRangeQuer
     courseId: optionalString(input.courseId),
     includeSchoolEvents: input.includeSchoolEvents === undefined ? undefined : Boolean(input.includeSchoolEvents),
     includeDeadlines: input.includeDeadlines === undefined ? undefined : Boolean(input.includeDeadlines),
+  };
+}
+
+export function normalizeAgentRunInput(value: unknown): AgentRunInput {
+  const input = requireObject(value, "Agent run input");
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    prompt: requireString(input.prompt, "Prompt"),
+    mode: input.mode === "plan" ? "plan" : "execute",
+    permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
+  };
+}
+
+export function normalizeAgentApprovalInput(value: unknown): AgentApprovalInput {
+  const input = requireObject(value, "Agent approval input");
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    requestId: requireString(input.requestId, "Approval request id"),
+  };
+}
+
+export function normalizeAgentAskUserResponseInput(value: unknown): AgentAskUserResponseInput {
+  const input = requireObject(value, "Agent question response input");
+  const answersInput = requireObject(input.answers, "Agent question answers");
+  const answers: Record<string, string> = {};
+  for (const [key, answer] of Object.entries(answersInput)) {
+    answers[key] = typeof answer === "string" ? answer : String(answer ?? "");
+  }
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    requestId: requireString(input.requestId, "Question request id"),
+    answers,
+  };
+}
+
+export function normalizeAgentExitPlanResponseInput(value: unknown): AgentExitPlanResponseInput {
+  const input = requireObject(value, "Agent exit plan response input");
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    requestId: requireString(input.requestId, "Exit plan request id"),
+    decision: input.decision === "approve" ? "approve" : "deny",
+    feedback: optionalString(input.feedback),
   };
 }
 

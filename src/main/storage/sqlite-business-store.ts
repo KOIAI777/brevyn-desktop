@@ -13,6 +13,7 @@ import type {
   TimetableEventSource,
   UpdateTaskInput,
   BrevynTask,
+  FileIndexingStatus,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -249,19 +250,19 @@ export class SQLiteBusinessStore {
     const where: string[] = [];
     const params: unknown[] = [];
     if (semesterId) {
-      where.push("semester_id = ?");
+      where.push("workspace_files.semester_id = ?");
       params.push(semesterId);
     }
     if (courseId) {
-      where.push("course_id = ?");
+      where.push("workspace_files.course_id = ?");
       params.push(courseId);
     }
-    const sql = `select * from workspace_files${where.length ? ` where ${where.join(" and ")}` : ""} order by path, name`;
+    const sql = `${workspaceFilesWithLatestIndexingSql()}${where.length ? ` where ${where.join(" and ")}` : ""} order by workspace_files.path, workspace_files.name`;
     return rowsToFileTree(this.all(sql, ...params));
   }
 
   getWorkspaceFile(fileId: string): WorkspaceFileNode | null {
-    const row = this.db.prepare("select * from workspace_files where id = ?").get(fileId) as Row | undefined;
+    const row = this.db.prepare(`${workspaceFilesWithLatestIndexingSql()} where workspace_files.id = ?`).get(fileId) as Row | undefined;
     return row ? rowToWorkspaceFileNode(row) : null;
   }
 
@@ -703,7 +704,7 @@ export class SQLiteBusinessStore {
     }
   }
 
-  recoverExpiredIndexingTasks(): void {
+  recoverExpiredIndexingTasks(currentWorkerId?: string): void {
     const timestamp = now();
     this.db.exec("begin immediate;");
     try {
@@ -714,9 +715,14 @@ export class SQLiteBusinessStore {
              locked_until = null,
              progress = 0,
              updated_at = ?
-         where status = 'running' and locked_until is not null and locked_until < ?`,
+         where status = 'running'
+           and locked_until is not null
+           and locked_until < ?
+           and (? is null or locked_by is null or locked_by != ?)`,
         timestamp,
         timestamp,
+        currentWorkerId ?? null,
+        currentWorkerId ?? null,
       );
       this.run(
         `update indexing_jobs
@@ -810,7 +816,7 @@ export class SQLiteBusinessStore {
         this.db.exec("commit;");
         return null;
       }
-      const retry = task.attempts < task.maxAttempts;
+      const retry = task.attempts < task.maxAttempts && shouldRetryIndexingError(message);
       const backoffMs = Math.min(120_000, 10_000 * Math.max(1, 2 ** Math.max(0, task.attempts - 1)));
       const updateResult = this.run(
         `update indexing_tasks
@@ -825,7 +831,7 @@ export class SQLiteBusinessStore {
            ${lease ? "and status = 'running' and locked_by = ? and locked_until = ?" : ""}`,
         retry ? "queued" : "failed",
         retry ? new Date(Date.now() + backoffMs).toISOString() : timestamp,
-        message,
+        retry ? null : message,
         timestamp,
         taskId,
         ...(lease ? [lease.workerId, lease.lockedUntil ?? ""] : []),
@@ -976,7 +982,7 @@ export class SQLiteBusinessStore {
   }
 
   private insertFile(file: WorkspaceFileNode, parentId?: string): void {
-    const raw = { ...file, children: undefined };
+    const raw = fileBusinessJson(file);
     this.run(
       `insert or replace into workspace_files(id, semester_id, course_id, task_id, parent_id, name, path, kind, mime_type, size_bytes, section_kind, week_number, task_file_bucket, source_path, indexed_at, raw_json, created_at, updated_at)
        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1537,6 +1543,20 @@ function threadBusinessJson(thread: Thread): Thread {
   return thread;
 }
 
+function fileBusinessJson(file: WorkspaceFileNode): Partial<WorkspaceFileNode> {
+  const {
+    children: _children,
+    indexingStatus: _indexingStatus,
+    indexingProgress: _indexingProgress,
+    indexingError: _indexingError,
+    indexingWarning: _indexingWarning,
+    indexingUpdatedAt: _indexingUpdatedAt,
+    indexedAt: _indexedAt,
+    ...raw
+  } = file;
+  return raw;
+}
+
 function rowsToFileTree(rows: Row[]): WorkspaceFileNode[] {
   const entries = rows.map((row) => {
     const node = rowToWorkspaceFileNode(row);
@@ -1558,6 +1578,7 @@ function rowsToFileTree(rows: Row[]): WorkspaceFileNode[] {
 
 function rowToWorkspaceFileNode(row: Row): WorkspaceFileNode {
   const raw = rawJson<WorkspaceFileNode>(row.raw_json, {});
+  const indexing = fileIndexingStatusFromRow(row);
   return {
     ...raw,
     id: stringValue(row.id),
@@ -1571,9 +1592,108 @@ function rowToWorkspaceFileNode(row: Row): WorkspaceFileNode {
     name: stringValue(row.name),
     path: stringValue(row.path),
     kind: stringValue(row.kind) as WorkspaceFileKind,
+    indexingStatus: indexing.status,
+    indexingProgress: indexing.progress,
+    indexingError: indexing.error,
+    indexingWarning: indexing.warning,
+    indexingUpdatedAt: indexing.updatedAt,
+    indexedAt: nullableString(row.indexed_at),
     updatedAt: stringValue(row.updated_at),
     children: stringValue(row.kind) === "folder" ? [] : undefined,
   };
+}
+
+function workspaceFilesWithLatestIndexingSql(): string {
+  return `select workspace_files.*,
+                 latest_task.status as indexing_task_status,
+                 latest_task.progress as indexing_task_progress,
+                 latest_task.error as indexing_task_error,
+                 latest_task.payload_json as indexing_task_payload_json,
+                 latest_task.updated_at as indexing_task_updated_at
+          from workspace_files
+          left join indexing_tasks latest_task
+            on latest_task.id = (
+              select id from indexing_tasks
+              where indexing_tasks.file_id = workspace_files.id
+              order by indexing_tasks.updated_at desc, indexing_tasks.created_at desc
+              limit 1
+            )`;
+}
+
+function fileIndexingStatusFromRow(row: Row): {
+  status: FileIndexingStatus;
+  progress?: number;
+  error?: string;
+  warning?: string;
+  updatedAt?: string;
+} {
+  if (stringValue(row.kind) === "folder") {
+    return { status: "idle" };
+  }
+  const taskStatus = nullableString(row.indexing_task_status);
+  const result = rawJson<{ result?: { chunkCount?: number; warnings?: string[] } }>(row.indexing_task_payload_json, {});
+  const warnings = Array.isArray(result.result?.warnings) ? result.result.warnings.filter(Boolean) : [];
+  const progress = numberValue(row.indexing_task_progress);
+  const updatedAt = nullableString(row.indexing_task_updated_at) || nullableString(row.indexed_at);
+  if (taskStatus === "queued") return { status: "queued", progress, updatedAt };
+  if (taskStatus === "running") return { status: "indexing", progress, updatedAt };
+  if (taskStatus === "failed") return { status: "failed", progress, error: nullableString(row.indexing_task_error), updatedAt };
+  if (taskStatus === "cancelled") return { status: "cancelled", progress, updatedAt };
+  if (taskStatus === "done") {
+    if ((result.result?.chunkCount || 0) === 0 && warnings.length > 0) {
+      return { status: "skipped", progress: 100, warning: warnings[0], updatedAt };
+    }
+    if (warnings.length > 0) {
+      return { status: "warning", progress: 100, warning: warnings[0], updatedAt };
+    }
+    return { status: "indexed", progress: 100, updatedAt };
+  }
+  return nullableString(row.indexed_at) ? { status: "indexed", progress: 100, updatedAt } : { status: "idle" };
+}
+
+function shouldRetryIndexingError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  if (!normalized.trim()) return false;
+  if (
+    normalized.includes("no embedding provider") ||
+    normalized.includes("no api key") ||
+    normalized.includes("api key is available") ||
+    normalized.includes("embedding model is required") ||
+    normalized.includes("invalid model") ||
+    normalized.includes("model_not_found") ||
+    normalized.includes("not found model") ||
+    normalized.includes("unauthorized") ||
+    normalized.includes("forbidden") ||
+    normalized.includes("401") ||
+    normalized.includes("403") ||
+    normalized.includes("invalidparameter") ||
+    normalized.includes("invalid parameter") ||
+    normalized.includes("invalid_request") ||
+    normalized.includes("unsupported") ||
+    normalized.includes("legacy .doc") ||
+    normalized.includes("legacy .ppt") ||
+    normalized.includes("larger than")
+  ) {
+    return false;
+  }
+  return (
+    normalized.includes("429") ||
+    normalized.includes("408") ||
+    normalized.includes("500") ||
+    normalized.includes("502") ||
+    normalized.includes("503") ||
+    normalized.includes("504") ||
+    normalized.includes("timeout") ||
+    normalized.includes("timed out") ||
+    normalized.includes("econnreset") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("enotfound") ||
+    normalized.includes("network") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("temporar") ||
+    normalized.includes("overloaded") ||
+    normalized.includes("try again")
+  );
 }
 
 function rowToTimetableEvent(row: Row): TimetableEvent {

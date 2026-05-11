@@ -5,6 +5,15 @@ import { normalizeBaseUrl } from "./url-utils";
 export class OpenAIEmbeddingAdapter implements EmbeddingProviderAdapter {
   constructor(readonly providerKind: EmbeddingProviderKind = "openai") {}
 
+  embeddingBatchSize(provider: ModelProviderConfig): number {
+    const model = provider.selectedModel.toLowerCase();
+    const baseUrl = provider.baseUrl.toLowerCase();
+    if (this.providerKind === "qwen" || baseUrl.includes("dashscope.aliyuncs.com") || model.includes("text-embedding-v4")) {
+      return 10;
+    }
+    return 24;
+  }
+
   buildModelListRequest(provider: ModelProviderConfig, apiKey: string): ProviderHttpRequest {
     return {
       url: `${normalizeBaseUrl(provider.baseUrl)}/models`,

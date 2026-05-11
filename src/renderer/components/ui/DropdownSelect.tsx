@@ -21,6 +21,7 @@ export function DropdownSelect({
   className,
   buttonClassName,
   menuClassName,
+  menuMinWidth = 220,
 }: {
   value: string;
   options: DropdownOption[];
@@ -31,6 +32,7 @@ export function DropdownSelect({
   className?: string;
   buttonClassName?: string;
   menuClassName?: string;
+  menuMinWidth?: number;
 }) {
   const id = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -46,16 +48,25 @@ export function DropdownSelect({
     const button = buttonRef.current;
     if (!button) return;
     const rect = button.getBoundingClientRect();
-    const menuWidth = Math.max(rect.width, 220);
+    const menuWidth = Math.max(rect.width, menuMinWidth);
     const width = Math.min(Math.max(menuWidth, rect.width), window.innerWidth - 24);
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - 12 - width));
-    const menuHeight = menuRef.current?.getBoundingClientRect().height || 288;
+    const estimatedHeight = Math.min(288, Math.max(44, options.length * 44 + 8));
+    const menuHeight = menuRef.current?.getBoundingClientRect().height || estimatedHeight;
     const belowTop = rect.bottom + 6;
-    const aboveTop = Math.max(12, rect.top - 6 - menuHeight);
-    const placeAbove = belowTop + menuHeight > window.innerHeight - 12 && aboveTop < belowTop;
-    const top = placeAbove ? aboveTop : belowTop;
-    setPosition({ top, left, width });
-  }, []);
+    const belowSpace = window.innerHeight - 12 - belowTop;
+    const aboveSpace = rect.top - 18;
+    const placeAbove = belowSpace < menuHeight && aboveSpace > belowSpace;
+    const top = placeAbove
+      ? Math.max(12, rect.top - 6 - menuHeight)
+      : Math.min(belowTop, window.innerHeight - 12 - Math.min(menuHeight, window.innerHeight - 24));
+    setPosition((current) => {
+      if (current && Math.abs(current.top - top) < 0.5 && Math.abs(current.left - left) < 0.5 && Math.abs(current.width - width) < 0.5) {
+        return current;
+      }
+      return { top, left, width };
+    });
+  }, [menuMinWidth, options.length]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -64,6 +75,12 @@ export function DropdownSelect({
     const frame = window.requestAnimationFrame(updatePosition);
     return () => window.cancelAnimationFrame(frame);
   }, [open, options, selectedIndex, updatePosition]);
+
+  useLayoutEffect(() => {
+    if (!open || !position) return;
+    const frame = window.requestAnimationFrame(updatePosition);
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, position, updatePosition]);
 
   useEffect(() => {
     if (!open) return;

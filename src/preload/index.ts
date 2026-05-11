@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { IpcRendererEvent } from "electron";
 import type {
   CreateSemesterInput,
   CreateCourseInput,
@@ -8,6 +9,11 @@ import type {
   CreateTaskInput,
   UpdateTaskInput,
   CreateThreadInput,
+  AgentApprovalInput,
+  AgentAskUserResponseInput,
+  AgentExitPlanResponseInput,
+  AgentRunInput,
+  BrevynAgentEvent,
   FileImportInput,
   ProviderDraftInput,
   SkillImportInput,
@@ -76,8 +82,15 @@ const api: BrevynAPI = {
     indexActiveSemester: () => ipcRenderer.invoke(IPC_CHANNELS.filesIndexActiveSemester),
     indexingJobs: (courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingJobs, courseId),
     cancelIndexing: (jobId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingCancel, jobId),
+    open: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesOpen, fileId),
+    rename: (input: { fileId: string; name: string }) => ipcRenderer.invoke(IPC_CHANNELS.filesRename, input),
     delete: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesDelete, fileId),
     reveal: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesReveal, fileId),
+    onChanged: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(IPC_CHANNELS.filesChanged, listener);
+      return () => ipcRenderer.off(IPC_CHANNELS.filesChanged, listener);
+    },
   },
   providers: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.providersList),
@@ -90,8 +103,23 @@ const api: BrevynAPI = {
   timetable: {
     range: (query: TimetableRangeQuery) => ipcRenderer.invoke(IPC_CHANNELS.timetableRange, query),
   },
+  agent: {
+    messages: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentMessages, threadId),
+    run: (input: AgentRunInput) => ipcRenderer.invoke(IPC_CHANNELS.agentRun, input),
+    stop: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentStop, threadId),
+    approve: (input: AgentApprovalInput) => ipcRenderer.invoke(IPC_CHANNELS.agentApprove, input),
+    reject: (input: AgentApprovalInput) => ipcRenderer.invoke(IPC_CHANNELS.agentReject, input),
+    answerQuestion: (input: AgentAskUserResponseInput) => ipcRenderer.invoke(IPC_CHANNELS.agentAnswerQuestion, input),
+    resolveExitPlan: (input: AgentExitPlanResponseInput) => ipcRenderer.invoke(IPC_CHANNELS.agentResolveExitPlan, input),
+    onEvent: (callback: (event: BrevynAgentEvent) => void) => {
+      const listener = (_event: IpcRendererEvent, event: BrevynAgentEvent) => callback(event);
+      ipcRenderer.on(IPC_CHANNELS.agentEvent, listener);
+      return () => ipcRenderer.off(IPC_CHANNELS.agentEvent, listener);
+    },
+  },
   app: {
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, url),
+    openWorkspacePath: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.appOpenWorkspacePath, input),
   },
 };
 

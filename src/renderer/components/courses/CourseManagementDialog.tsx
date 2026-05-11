@@ -2,6 +2,7 @@ import {
   AlertCircle,
   Archive,
   BookOpen,
+  ChevronLeft,
   ChevronRight,
   CircleStop,
   Database,
@@ -24,8 +25,10 @@ import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterW
 import { cx } from "@/lib/cn";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon";
+import { FileIndexingBadge } from "@/components/files/FileIndexingBadge";
 
 const DEFAULT_TASK_TYPE = "Assignment";
+const RAG_RESULTS_PAGE_SIZE = 5;
 const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
 type CoursePanel = "files" | "tasks" | "indexing" | "search";
 
@@ -83,6 +86,7 @@ export function CourseManagementDialog({
   const [ragResults, setRagResults] = useState<RagSearchResult[]>([]);
   const [ragSearching, setRagSearching] = useState(false);
   const [ragError, setRagError] = useState("");
+  const [indexingNotice, setIndexingNotice] = useState<{ jobId: string; message: string } | null>(null);
   const [taskName, setTaskName] = useState("");
   const [taskType, setTaskType] = useState<TaskType>(DEFAULT_TASK_TYPE);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -95,6 +99,8 @@ export function CourseManagementDialog({
   const [uploadingSectionId, setUploadingSectionId] = useState("");
   const courseViewRequestRef = useRef(0);
   const ragSearchRequestRef = useRef(0);
+  const seenIndexingFailuresRef = useRef(new Set<string>());
+  const indexingFailureBaselineCourseRef = useRef("");
   const { confirm, confirmDialog } = useConfirmDialog();
   const canCreateCourse = Boolean(semester?.id);
 
@@ -114,6 +120,9 @@ export function CourseManagementDialog({
   useEffect(() => {
     setRagResults([]);
     setRagError("");
+    setIndexingNotice(null);
+    seenIndexingFailuresRef.current.clear();
+    indexingFailureBaselineCourseRef.current = "";
     ragSearchRequestRef.current += 1;
     setTaskError("");
     setCourseActionError("");
@@ -132,12 +141,31 @@ export function CourseManagementDialog({
   useEffect(() => {
     if (!activeCourse?.id) return;
     const hasActiveJob = indexingJobs.some((job) => job.status === "queued" || job.status === "indexing");
-    if (!hasActiveJob) return;
     const timer = window.setInterval(() => {
       void loadCourseView(activeCourse.id);
-    }, 1600);
+    }, hasActiveJob ? 1600 : 5000);
     return () => window.clearInterval(timer);
   }, [activeCourse?.id, indexingJobs]);
+
+  useEffect(() => {
+    const courseId = activeCourse?.id || "";
+    if (!courseId) return;
+    if (indexingFailureBaselineCourseRef.current !== courseId) {
+      seenIndexingFailuresRef.current = new Set(indexingJobs.filter((job) => job.status === "failed").map((job) => job.id));
+      indexingFailureBaselineCourseRef.current = courseId;
+      return;
+    }
+    const failedJob = indexingJobs.find((job) => job.status === "failed" && job.error && !seenIndexingFailuresRef.current.has(job.id));
+    if (!failedJob?.error) return;
+    seenIndexingFailuresRef.current.add(failedJob.id);
+    setIndexingNotice({ jobId: failedJob.id, message: failedJob.error });
+  }, [activeCourse?.id, indexingJobs]);
+
+  useEffect(() => {
+    if (!indexingNotice) return;
+    const timer = window.setTimeout(() => setIndexingNotice(null), 9000);
+    return () => window.clearTimeout(timer);
+  }, [indexingNotice]);
 
   async function loadArchivedCourses() {
     try {
@@ -440,6 +468,25 @@ export function CourseManagementDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
       {confirmDialog}
+      {indexingNotice && (
+        <div className="pointer-events-auto absolute left-1/2 top-5 z-[60] w-[min(620px,calc(100vw-40px))] -translate-x-1/2 rounded-2xl border border-red-200 bg-red-50/95 px-4 py-3 text-red-800 shadow-[0_18px_54px_rgba(127,29,29,0.18)] ring-1 ring-white/60 backdrop-blur-xl">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold">Embedding provider error</div>
+              <div className="mt-1 max-h-24 overflow-y-auto break-words pr-1 text-[11px] leading-5 brevyn-scrollbar">{indexingNotice.message}</div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded-md p-1 text-red-700/70 transition hover:bg-red-100 hover:text-red-900"
+              onClick={() => setIndexingNotice(null)}
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
@@ -853,7 +900,8 @@ function IndexingProgressPanel({
   onCancel: (jobId: string) => void;
 }) {
   const sectionTitles = new Map(sections.map((section) => [section.id, section.title]));
-  const activeCount = jobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
+  const visibleJobs = latestIndexingJobsBySection(jobs);
+  const activeCount = visibleJobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
 
   return (
     <section className="rounded-lg border bg-card p-3">
@@ -873,11 +921,11 @@ function IndexingProgressPanel({
         </button>
       </div>
 
-      {jobs.length === 0 ? (
+      {visibleJobs.length === 0 ? (
         <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">No indexing jobs</div>
       ) : (
         <div className="space-y-2">
-          {jobs.slice(0, 5).map((job) => {
+          {visibleJobs.slice(0, 5).map((job) => {
             const progress = Math.max(0, Math.min(100, job.progress || 0));
             const cancellable = job.status === "queued" || job.status === "indexing";
             return (
@@ -921,6 +969,18 @@ function IndexingProgressPanel({
   );
 }
 
+function latestIndexingJobsBySection(jobs: IndexingJob[]): IndexingJob[] {
+  const latest = new Map<string, IndexingJob>();
+  for (const job of jobs) {
+    const key = job.sectionId || `course:${job.courseId}:all`;
+    const current = latest.get(key);
+    if (!current || new Date(job.updatedAt).getTime() > new Date(current.updatedAt).getTime()) {
+      latest.set(key, job);
+    }
+  }
+  return Array.from(latest.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
 function RagDebugPanel({
   query,
   results,
@@ -938,6 +998,15 @@ function RagDebugPanel({
   onSearch: () => void;
   disabled?: boolean;
 }) {
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(results.length / RAG_RESULTS_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visibleResults = results.slice(safePage * RAG_RESULTS_PAGE_SIZE, safePage * RAG_RESULTS_PAGE_SIZE + RAG_RESULTS_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, results]);
+
   return (
     <section className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
@@ -977,26 +1046,65 @@ function RagDebugPanel({
         </div>
       )}
 
-      <div className="mt-2 space-y-2">
+      <div className="mt-2 max-h-[420px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
         {results.length === 0 ? (
           <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">
             {query.trim() ? "No chunks returned" : "No query"}
           </div>
         ) : (
-          results.map((result) => (
-            <div key={result.id} className="rounded-md border bg-background/70 p-2.5">
+          visibleResults.map((result) => {
+            const citation = result.citation || result.source;
+            const displayCitation = compactRagCitation(citation);
+            return (
+            <div key={result.id} className="min-w-0 overflow-hidden rounded-md border bg-background/70 p-2.5">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 truncate text-[11px] font-semibold">{result.title}</div>
+                <div className="min-w-0 truncate text-[11px] font-semibold" title={result.title}>{result.title}</div>
                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{Math.round(result.score * 100)}%</span>
               </div>
-              <div className="mt-1 line-clamp-3 break-words text-[11px] leading-5 text-muted-foreground">{result.excerpt}</div>
-              <div className="mt-1 truncate text-[10px] text-muted-foreground/80">{result.citation || result.source}</div>
+              <div className="mt-1 line-clamp-3 min-w-0 break-words text-[11px] leading-5 text-muted-foreground">{result.excerpt}</div>
+              <div className="mt-1 min-w-0 truncate text-[10px] text-muted-foreground/80" title={citation}>{displayCitation}</div>
             </div>
-          ))
+          );
+          })
         )}
       </div>
+      {results.length > RAG_RESULTS_PAGE_SIZE && (
+        <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2 text-[10px] text-muted-foreground">
+          <span>{results.length} results · Page {safePage + 1}/{pageCount}</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={safePage === 0}
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+              title="Previous results"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+              title="Next results"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function compactRagCitation(citation: string): string {
+  const value = citation.trim();
+  if (!value) return "";
+  const [pathPart, ...rest] = value.split(" · ");
+  const normalized = pathPart.replace(/\\/g, "/");
+  const semanticMatch = normalized.match(/(?:Course shared|Lecture|Materials|Drafts|Submitted)\/[^/]+$/);
+  const compactPath = semanticMatch?.[0] || normalized.split("/").slice(-2).join("/");
+  return [compactPath, ...rest].filter(Boolean).join(" · ");
 }
 
 function SectionCard({
@@ -1106,6 +1214,7 @@ function SectionCard({
             <div key={file.id} className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
               <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-[12px]">{file.name}</span>
+              <FileIndexingBadge file={file} />
               {file.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground">{file.sizeLabel}</span>}
               <button
                 type="button"

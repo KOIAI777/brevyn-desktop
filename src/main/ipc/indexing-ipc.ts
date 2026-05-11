@@ -4,8 +4,8 @@ import type { IpcContext } from "./context";
 import { optionalString, requireString } from "./validation";
 
 export function registerIndexingIpc({ store, indexingQueue }: IpcContext): void {
-  ipcMain.handle(IPC_CHANNELS.filesIndex, (_event, courseId: unknown, sectionId?: unknown) => {
-    const job = store.indexCourseFiles(requireString(courseId, "Course id"), optionalString(sectionId));
+  ipcMain.handle(IPC_CHANNELS.filesIndex, async (_event, courseId: unknown, sectionId?: unknown) => {
+    const job = await store.reindexCourseFiles(requireString(courseId, "Course id"), optionalString(sectionId));
     indexingQueue?.poke();
     return job;
   });

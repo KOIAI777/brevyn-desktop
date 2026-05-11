@@ -32,7 +32,7 @@ export class IndexingQueueService {
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    this.store.recoverExpiredIndexingTasks();
+    this.store.recoverExpiredIndexingTasks(this.workerId);
     this.poke();
     this.timer = setInterval(() => this.poke(), this.pollMs);
   }
@@ -55,6 +55,7 @@ export class IndexingQueueService {
     if (this.draining) return;
     this.draining = true;
     try {
+      this.store.recoverExpiredIndexingTasks(this.workerId);
       while (!this.stopped && this.active.size < this.concurrency) {
         const task = this.store.claimNextIndexingTask(this.workerId, this.lockMs);
         if (!task) break;

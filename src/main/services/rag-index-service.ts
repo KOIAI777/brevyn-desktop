@@ -11,14 +11,14 @@ type RagChunkRow = {
   id: string;
   semester_id: string;
   course_id: string;
-  section_id?: string;
+  section_id: string;
   file_id: string;
   file_name: string;
   file_path: string;
-  source_path?: string;
+  source_path: string;
   kind: WorkspaceFileKind;
-  week_number?: number;
-  task_file_bucket?: string;
+  week_number: number;
+  task_file_bucket: string;
   chunk_index: number;
   chunk_count: number;
   text: string;
@@ -47,10 +47,39 @@ interface RagIndexServiceOptions {
 const TABLE_NAME = "rag_chunks";
 const DEFAULT_TOP_K = 6;
 const EMBEDDING_BATCH_SIZE = 24;
+const MIN_EMBEDDING_BATCH_SIZE = 1;
+const EMBEDDING_REQUEST_TIMEOUT_MS = 45_000;
+const VECTOR_WRITE_TIMEOUT_MS = 60_000;
+const SCHEMA_REBUILD_MESSAGE = "Embedding index schema is outdated. Please re-index the current semester from Settings -> Provider.";
+const REQUIRED_RAG_FIELDS = [
+  "id",
+  "semester_id",
+  "course_id",
+  "section_id",
+  "file_id",
+  "file_name",
+  "file_path",
+  "source_path",
+  "kind",
+  "week_number",
+  "task_file_bucket",
+  "chunk_index",
+  "chunk_count",
+  "text",
+  "title",
+  "citation",
+  "vector",
+  "embedding_provider_id",
+  "embedding_model",
+  "embedding_dimension",
+  "created_at",
+  "updated_at",
+] as const;
 
 export class RagIndexService {
   private connectionPromise: Promise<Connection> | null = null;
   private tablePromise: Promise<Table | null> | null = null;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: RagIndexServiceOptions) {
     mkdirSync(dirname(options.dbPath), { recursive: true });
@@ -75,17 +104,42 @@ export class RagIndexService {
     const vectors = await this.embedTexts(result.chunks, provider, apiKey);
     assertEmbeddingVectors(vectors, result.chunks.length);
     const providerMeta = embeddingMeta(provider, vectors);
-    if (!(await canWrite())) return false;
     const rows = result.chunks.map((chunk, index) => this.toRow(task, result, index, chunk, vectors[index], providerMeta));
-    const table = await this.ensureWritableTable(rows);
-    if (!(await canWrite())) return false;
-    await table
-      .mergeInsert("id")
-      .whenMatchedUpdateAll()
-      .whenNotMatchedInsertAll()
-      .whenNotMatchedBySourceDelete({ where: `file_id = '${escapeSql(task.payload.fileId)}'` })
-      .execute(rows);
-    return true;
+
+    return this.withWriteLock(async () => {
+      if (!(await canWrite())) return false;
+      const table = await this.ensureWritableTable(rows);
+      if (!(await canWrite())) return false;
+      try {
+        await withTimeout(
+          table
+            .mergeInsert("id")
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .whenNotMatchedBySourceDelete({ where: `file_id = '${escapeSql(task.payload.fileId)}'` })
+            .execute(rows),
+          VECTOR_WRITE_TIMEOUT_MS,
+          `Embedding index write timed out after ${Math.round(VECTOR_WRITE_TIMEOUT_MS / 1000)}s.`,
+        );
+      } catch (error) {
+        if (isLanceSchemaMismatch(error)) {
+          const rebuiltTable = await this.recreateWritableTable(rows);
+          await withTimeout(
+            rebuiltTable
+              .mergeInsert("id")
+              .whenMatchedUpdateAll()
+              .whenNotMatchedInsertAll()
+              .whenNotMatchedBySourceDelete({ where: `file_id = '${escapeSql(task.payload.fileId)}'` })
+              .execute(rows),
+            VECTOR_WRITE_TIMEOUT_MS,
+            `Embedding index write timed out after ${Math.round(VECTOR_WRITE_TIMEOUT_MS / 1000)}s.`,
+          );
+          return true;
+        }
+        throw error;
+      }
+      return true;
+    });
   }
 
   async search(
@@ -109,7 +163,7 @@ export class RagIndexService {
     const filter = filterParts.join(" AND ");
     const rowCount = await table.countRows(filter);
     if (rowCount === 0) return [];
-    if (!(await tableHasEmbeddingMeta(table))) {
+    if (!(await tableHasRequiredSchema(table))) {
       throw new Error("Embedding index schema is outdated. Please re-index this course.");
     }
 
@@ -228,26 +282,58 @@ export class RagIndexService {
     const filtered = texts.map((text) => text.trim()).filter((text) => text.length > 0);
     if (filtered.length === 0) return [];
 
-    const batches = chunkArray(filtered, EMBEDDING_BATCH_SIZE);
     const vectors: number[][] = [];
     const adapter = getEmbeddingProviderAdapter(provider);
-    for (const batch of batches) {
-      const request = adapter.buildEmbeddingRequest(provider, apiKey, batch);
-      const response = await fetch(request.url, request.init);
-      if (!response.ok) {
-        throw new Error(`Embedding request failed (${response.status}): ${await responseText(response)}`);
-      }
-      vectors.push(...adapter.parseEmbeddingResponse(await response.json()));
+    const batchSize = clampInteger(adapter.embeddingBatchSize?.(provider) ?? EMBEDDING_BATCH_SIZE, MIN_EMBEDDING_BATCH_SIZE, EMBEDDING_BATCH_SIZE);
+    for (const batch of chunkArray(filtered, batchSize)) {
+      vectors.push(...await this.embedBatchWithAdaptiveSplit(batch, provider, apiKey, adapter));
     }
     return vectors;
+  }
+
+  private async embedBatchWithAdaptiveSplit(
+    batch: string[],
+    provider: ModelProviderConfig,
+    apiKey: string,
+    adapter = getEmbeddingProviderAdapter(provider),
+  ): Promise<number[][]> {
+    const request = adapter.buildEmbeddingRequest(provider, apiKey, batch);
+    const response = await fetchWithTimeout(request.url, request.init, EMBEDDING_REQUEST_TIMEOUT_MS);
+    if (response.ok) {
+      return adapter.parseEmbeddingResponse(await response.json());
+    }
+
+    const body = await responseText(response);
+    if (batch.length > MIN_EMBEDDING_BATCH_SIZE && isEmbeddingBatchSizeError(response.status, body)) {
+      const midpoint = Math.ceil(batch.length / 2);
+      const left = await this.embedBatchWithAdaptiveSplit(batch.slice(0, midpoint), provider, apiKey, adapter);
+      const right = await this.embedBatchWithAdaptiveSplit(batch.slice(midpoint), provider, apiKey, adapter);
+      return [...left, ...right];
+    }
+    throw new Error(`Embedding request failed (${response.status}): ${body}`);
   }
 
   private async ensureWritableTable(rows: RagChunkRow[]): Promise<Table> {
     const conn = await this.connection();
     if (await this.tableNeedsRebuild(conn)) {
-      throw new Error("Embedding index schema is outdated. Please re-index the current semester from Settings -> Provider.");
+      await this.rebuildTable(conn);
     }
-    const table = await conn.createTable(TABLE_NAME, rows, { mode: "create", existOk: true });
+    try {
+      const table = await conn.createTable(TABLE_NAME, rows, { mode: "create", existOk: true });
+      this.tablePromise = Promise.resolve(table);
+      return table;
+    } catch (error) {
+      if (isLanceSchemaMismatch(error)) {
+        return this.recreateWritableTable(rows, conn);
+      }
+      throw error;
+    }
+  }
+
+  private async recreateWritableTable(rows: RagChunkRow[], conn?: Connection): Promise<Table> {
+    const connection = conn ?? await this.connection();
+    await this.rebuildTable(connection);
+    const table = await connection.createTable(TABLE_NAME, rows, { mode: "create", existOk: true });
     this.tablePromise = Promise.resolve(table);
     return table;
   }
@@ -285,7 +371,7 @@ export class RagIndexService {
     if (!tableNames.includes(TABLE_NAME)) return false;
     const table = await conn.openTable(TABLE_NAME);
     try {
-      return !(await tableHasEmbeddingMeta(table));
+      return !(await tableHasRequiredSchema(table));
     } finally {
       table.close();
     }
@@ -301,6 +387,24 @@ export class RagIndexService {
     } catch {
       // The table is about to be rebuilt; ignore stale handle close failures.
     }
+  }
+
+  private async rebuildTable(conn: Connection): Promise<void> {
+    await this.closeCurrentTable();
+    try {
+      await conn.dropTable(TABLE_NAME);
+    } catch {
+      // If another cleanup already removed it, the next createTable call will recreate it.
+    }
+  }
+
+  private withWriteLock<T>(action: () => Promise<T>): Promise<T> {
+    const previous = this.writeQueue;
+    let release: () => void = () => {};
+    this.writeQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return previous.then(action, action).finally(release);
   }
 
   private async firstEmbeddingMetaMismatch(table: Table, filter: string, current: EmbeddingMeta): Promise<EmbeddingMeta | null> {
@@ -329,14 +433,14 @@ export class RagIndexService {
       id: `${task.payload.fileId}:${chunkIndex}`,
       semester_id: task.semesterId || task.payload.semesterId || "",
       course_id: task.courseId || task.payload.courseId,
-      section_id: task.sectionId || task.payload.sectionId,
+      section_id: task.sectionId || task.payload.sectionId || "",
       file_id: task.payload.fileId,
       file_name: task.payload.name,
       file_path: task.payload.path,
-      source_path: task.payload.sourcePath,
+      source_path: task.payload.sourcePath || "",
       kind: task.payload.kind,
-      week_number: task.payload.weekNumber,
-      task_file_bucket: task.payload.taskFileBucket,
+      week_number: task.payload.weekNumber ?? -1,
+      task_file_bucket: task.payload.taskFileBucket || "",
       chunk_index: chunkIndex,
       chunk_count: result.chunks.length,
       text,
@@ -359,6 +463,16 @@ function chunkArray<T>(values: T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return max;
+  return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+function isEmbeddingBatchSizeError(status: number, body: string): boolean {
+  if (status !== 400 && status !== 413 && status !== 422) return false;
+  return /batch size|too many|larger than|maximum.*input|input\.contents/i.test(body);
 }
 
 function escapeSql(value: string): string {
@@ -388,10 +502,10 @@ function embeddingMeta(provider: ModelProviderConfig, vectors: number[][]): Embe
   };
 }
 
-async function tableHasEmbeddingMeta(table: Table): Promise<boolean> {
+async function tableHasRequiredSchema(table: Table): Promise<boolean> {
   const schema = await table.schema();
   const fieldNames = new Set(schema.fields.map((field) => field.name));
-  return fieldNames.has("embedding_provider_id") && fieldNames.has("embedding_model") && fieldNames.has("embedding_dimension");
+  return REQUIRED_RAG_FIELDS.every((field) => fieldNames.has(field));
 }
 
 function rowToEmbeddingMeta(row: Record<string, unknown>): EmbeddingMeta {
@@ -426,8 +540,41 @@ function excerptText(text: string, query: string): string {
 
 async function responseText(response: Response): Promise<string> {
   try {
-    return (await response.text()).replace(/\s+/g, " ").slice(0, 240);
+    return (await response.text()).replace(/\s+/g, " ").slice(0, 1200);
   } catch {
     return "";
   }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Embedding request timed out after ${Math.round(timeoutMs / 1000)}s.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
+
+function isLanceSchemaMismatch(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /schema/i.test(message) && /match|mismatch|provided/i.test(message);
 }

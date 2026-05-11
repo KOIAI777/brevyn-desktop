@@ -21,6 +21,7 @@ const TEXT_KINDS = new Set<WorkspaceFileKind>(["markdown", "code", "text"]);
 const MAX_TEXT_BYTES = 50 * 1024 * 1024;
 const MAX_INDEXING_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PARSED_CHARS = 900_000;
+const PDF_PARSE_TIMEOUT_MS = 30_000;
 
 export async function parseIndexingFile(input: ParseInput): Promise<ParsedIndexingFile> {
   const stats = statSync(input.sourcePath);
@@ -110,8 +111,21 @@ async function parseDocx(input: ParseInput, byteCount: number): Promise<ParsedIn
 
 async function parsePdf(input: ParseInput, byteCount: number): Promise<ParsedIndexingFile> {
   const warnings: string[] = [];
-  const result = await pdfParse(readFileSync(input.sourcePath));
-  const capped = capParsedText(result.text || "", warnings);
+  let parsed: { result: Awaited<ReturnType<typeof pdfParse>>; warnings: string[] };
+  try {
+    parsed = await collectConsoleWarnings(() =>
+      withTimeout(pdfParse(readFileSync(input.sourcePath)), PDF_PARSE_TIMEOUT_MS, "PDF text extraction timed out."),
+    );
+  } catch (error) {
+    return emptyParsedFile(input, byteCount, `PDF text extraction failed: ${errorMessage(error)}`);
+  }
+  const { result } = parsed;
+  warnings.push(...parsed.warnings);
+  const text = repairPdfTextSpacing(result.text || "");
+  if (!normalizeText(text)) {
+    warnings.push("No extractable PDF text was found. This may be a scanned PDF; OCR indexing is not enabled yet.");
+  }
+  const capped = capParsedText(text, warnings);
   return {
     text: normalizeText(capped.text),
     byteCount,
@@ -124,6 +138,15 @@ async function parsePdf(input: ParseInput, byteCount: number): Promise<ParsedInd
       truncated: capped.truncated,
     },
   };
+}
+
+function repairPdfTextSpacing(value: string): string {
+  return value
+    .replace(/\b([A-Z][a-z]{2,})(for|and|of|to|in|with|from|by|the)(?=[A-Z])/g, "$1 $2 ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/([:;,.])(?=\S)/g, "$1 ");
 }
 
 async function parsePptx(input: ParseInput, byteCount: number): Promise<ParsedIndexingFile> {
@@ -218,4 +241,49 @@ function emptyParsedFile(input: ParseInput, byteCount: number, warning: string):
       truncated: false,
     },
   };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
+
+async function collectConsoleWarnings<T>(action: () => Promise<T>): Promise<{ result: T; warnings: string[] }> {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  const capture = (...args: unknown[]) => {
+    const message = args.map(String).join(" ");
+    if (message.startsWith("Warning:")) {
+      warnings.push(message);
+      return;
+    }
+    originalLog(...args);
+  };
+  console.log = capture;
+  console.warn = (...args: unknown[]) => {
+    const message = args.map(String).join(" ");
+    warnings.push(message);
+  };
+  try {
+    const result = await action();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { result, warnings: dedupeWarnings(warnings) };
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+}
+
+function dedupeWarnings(warnings: string[]): string[] {
+  return Array.from(new Set(warnings)).slice(0, 8);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

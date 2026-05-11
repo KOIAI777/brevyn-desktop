@@ -54,10 +54,29 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
   });
   ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: unknown) => store.courseFileSections(requireString(courseId, "Course id")));
   ipcMain.handle(IPC_CHANNELS.filesStats, (_event, courseId?: unknown) => store.fileStats(optionalString(courseId)));
+  ipcMain.handle(IPC_CHANNELS.filesOpen, async (_event, fileId: unknown) => {
+    const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
+    if (!sourcePath) throw new Error("File source path not available.");
+    const error = await shell.openPath(sourcePath);
+    if (error) throw new Error(error);
+  });
+  ipcMain.handle(IPC_CHANNELS.filesRename, (_event, rawInput: unknown) => {
+    const input = normalizeRenameInput(rawInput);
+    return store.renameFile(input.fileId, input.name);
+  });
   ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: unknown) => store.deleteFile(requireString(fileId, "File id")));
   ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: unknown) => {
     const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
     if (!sourcePath) throw new Error("File source path not available.");
     shell.showItemInFolder(sourcePath);
   });
+}
+
+function normalizeRenameInput(value: unknown): { fileId: string; name: string } {
+  if (!value || typeof value !== "object") throw new Error("Rename input is required.");
+  const input = value as Record<string, unknown>;
+  return {
+    fileId: requireString(input.fileId, "File id"),
+    name: requireString(input.name, "File name"),
+  };
 }
