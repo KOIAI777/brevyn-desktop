@@ -219,13 +219,6 @@ export function AgentThreadPanel({
     <AgentThreadIdContext.Provider value={thread.id}>
     <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
     <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(247,244,236,0.62))]">
-      <div className="flex items-center justify-between border-b bg-card/70 px-5 py-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{thread.title}</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Claude Agent SDK session · JSONL replay</p>
-        </div>
-      </div>
-
       <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 pt-5" style={{ paddingBottom: timelineBottomInset }}>
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">

@@ -97,7 +97,7 @@ export function FileBrowserRail({
   return (
     <aside
       aria-hidden={collapsed}
-      className={`group/rail relative hidden shrink-0 flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-3 border-transparent opacity-0 shadow-none ring-0" : "opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20" : ""}`}
+      className={`group/rail relative hidden shrink-0 flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity] transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-3 border-transparent opacity-0 shadow-none ring-0" : "opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20" : ""}`}
       style={{ width: collapsed ? 0 : width }}
     >
       {confirmDialog}
@@ -140,6 +140,7 @@ export function FileBrowserRail({
           {actionError && <div className="mt-1 truncate text-[10px] text-red-600" title={actionError}>{actionError}</div>}
         </div>
         <div className="flex items-center gap-1.5">
+          {loading && files.length > 0 && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
           {stats && (
             <span className="rounded-md bg-muted px-2 py-1 text-[10px] text-muted-foreground">
               {stats.sectionCount} sections
@@ -159,7 +160,7 @@ export function FileBrowserRail({
       </div>
 
       <div className={`min-h-0 flex-1 overflow-y-auto p-2 transition-opacity duration-150 brevyn-scrollbar ${collapsed ? "opacity-0" : "opacity-100"}`}>
-        {loading ? (
+        {loading && files.length === 0 ? (
           <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Loading course files...

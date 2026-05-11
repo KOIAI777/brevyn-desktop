@@ -1,21 +1,23 @@
-import { Eye, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { Eye, ExternalLink, FileSearch, Maximize2, Minimize2 } from "lucide-react";
 import type { FilePreview } from "@/types/domain";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 export function FilePreviewPane({
   preview,
+  loading = false,
   expanded,
   onToggleExpanded,
 }: {
   preview: FilePreview | null;
+  loading?: boolean;
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {
   if (!preview) {
     return (
-      <div className="flex min-h-0 flex-col overflow-hidden">
-        <div className="flex items-center justify-between border-b px-3 py-2.5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b bg-card/60 px-3 py-2.5">
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Eye className="h-4 w-4 text-muted-foreground" />
             Preview
@@ -31,10 +33,34 @@ export function FilePreviewPane({
             </button>
           )}
         </div>
-        <div className="flex flex-1 items-center justify-center p-4 text-center text-sm text-muted-foreground">
-          <div>
-            <Eye className="mx-auto mb-2 h-5 w-5" />
-            Select a file to preview.
+        <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+          <div className="w-full max-w-[18rem] rounded-2xl border border-dashed border-border/80 bg-background/55 px-4 py-5 text-center shadow-sm ring-1 ring-white/45">
+            <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border bg-card/85 text-muted-foreground shadow-sm">
+              <FileSearch className={`h-5 w-5 ${loading ? "animate-pulse" : ""}`} />
+            </div>
+            {loading ? (
+              <>
+                <p className="mt-3 text-sm font-semibold text-foreground">正在生成预览</p>
+                <div className="mt-3 space-y-2">
+                  <div className="mx-auto h-2.5 w-36 animate-pulse rounded-full bg-muted" />
+                  <div className="mx-auto h-2.5 w-24 animate-pulse rounded-full bg-muted/70" />
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-3 text-sm font-semibold text-foreground">选择文件预览</p>
+                <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                  点击文件树或对话里的文件引用，Markdown、PDF、图片和 Office 文档会在这里打开。
+                </p>
+                <div className="mt-3 flex flex-wrap justify-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                  {["MD", "PDF", "DOCX", "PPTX", "IMG"].map((label) => (
+                    <span key={label} className="rounded-full border bg-card/70 px-2 py-0.5">
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

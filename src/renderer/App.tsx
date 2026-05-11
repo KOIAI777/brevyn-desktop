@@ -63,6 +63,7 @@ function App() {
   const [filesLoading, setFilesLoading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
+  const [filePreviewLoading, setFilePreviewLoading] = useState(false);
   const [activeCourseId, setActiveCourseId] = useState("");
   const [activeTaskId, setActiveTaskId] = useState<string | undefined>();
   const [activeThreadId, setActiveThreadId] = useState("");
@@ -115,6 +116,7 @@ function App() {
       setFileStats(null);
       commitSelectedFileId("");
       setFilePreview(null);
+      setFilePreviewLoading(false);
       return;
     }
     void loadCourseFiles(activeCourseId);
@@ -267,6 +269,7 @@ function App() {
     setFileStats(null);
     commitSelectedFileId("");
     setFilePreview(null);
+    setFilePreviewLoading(false);
   }
 
   function isLatestFileLoad(requestId: number, courseId: string) {
@@ -385,9 +388,15 @@ function App() {
 
       const current = selectedFileIdRef.current ? findFileNode(tree, selectedFileIdRef.current) : null;
       const next = current?.kind !== "folder" ? current : firstPreviewableFile(tree);
+      fileTreeRef.current = tree;
+      setFileTree(tree);
+      setFileStats(stats);
+      commitSelectedFileId(next?.id || "");
+
       const previewRequestId = filePreviewRequestRef.current + 1;
       filePreviewRequestRef.current = previewRequestId;
       let preview: FilePreview | null = null;
+      setFilePreviewLoading(Boolean(next));
       if (next) {
         try {
           preview = await window.brevyn.files.preview(next.id);
@@ -399,11 +408,8 @@ function App() {
       }
 
       if (!isLatestFileLoad(requestId, courseId) || filePreviewRequestRef.current !== previewRequestId) return false;
-      fileTreeRef.current = tree;
-      setFileTree(tree);
-      setFileStats(stats);
-      commitSelectedFileId(next?.id || "");
       setFilePreview(preview);
+      setFilePreviewLoading(false);
       return true;
     } catch (error) {
       if (isLatestFileLoad(requestId, courseId)) {
@@ -413,6 +419,7 @@ function App() {
         setFileStats(null);
         commitSelectedFileId("");
         setFilePreview(null);
+        setFilePreviewLoading(false);
       }
       return false;
     } finally {
@@ -427,17 +434,22 @@ function App() {
     setWorkspaceError("");
     if (file.kind === "folder") {
       setFilePreview(null);
+      setFilePreviewLoading(false);
       setFileRailCollapsed(false);
       return;
     }
+    setPreviewRailCollapsed(false);
+    setFilePreview(null);
+    setFilePreviewLoading(true);
     try {
       const preview = await window.brevyn.files.preview(file.id);
       if (!mountedRef.current || filePreviewRequestRef.current !== requestId || selectedFileIdRef.current !== file.id) return;
       setFilePreview(preview);
-      setPreviewRailCollapsed(false);
+      setFilePreviewLoading(false);
     } catch (error) {
       if (!mountedRef.current || filePreviewRequestRef.current !== requestId) return;
       setFilePreview(null);
+      setFilePreviewLoading(false);
       setWorkspaceError(errorMessage(error, "Failed to preview file."));
     }
   }
@@ -488,6 +500,19 @@ function App() {
       const previewRequestId = filePreviewRequestRef.current + 1;
       filePreviewRequestRef.current = previewRequestId;
       let preview: FilePreview | null = null;
+      fileTreeRef.current = result.tree;
+      setFileTree(result.tree);
+      setFileStats(stats);
+      setFileRailCollapsed(false);
+      commitSelectedFileId(next?.id || "");
+      if (next) {
+        setPreviewRailCollapsed(false);
+        setFilePreview(null);
+        setFilePreviewLoading(true);
+      } else {
+        setFilePreview(null);
+        setFilePreviewLoading(false);
+      }
       if (next) {
         try {
           preview = await window.brevyn.files.preview(next.id);
@@ -499,13 +524,8 @@ function App() {
       }
       if (!isLatestFileLoad(requestId, targetCourseId) || filePreviewRequestRef.current !== previewRequestId) return result;
 
-      fileTreeRef.current = result.tree;
-      setFileTree(result.tree);
-      setFileStats(stats);
-      setFileRailCollapsed(false);
-      commitSelectedFileId(next?.id || "");
       setFilePreview(preview);
-      if (next) setPreviewRailCollapsed(false);
+      setFilePreviewLoading(false);
       return result;
     } catch (error) {
       const message = errorMessage(error, "Failed to import files.");
@@ -901,6 +921,7 @@ function App() {
           <FilePreviewRail
             collapsed={previewRailCollapsed}
             preview={filePreview}
+            loading={filePreviewLoading}
             width={previewRailWidth}
             resizing={resizingRail === "preview"}
             onResizeStart={(event) => startRailResize("preview", event)}

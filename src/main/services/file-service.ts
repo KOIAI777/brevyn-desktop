@@ -2,7 +2,6 @@ import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync } f
 import type { Dirent } from "node:fs";
 import { copyFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
 import mammoth from "mammoth";
 import type {
@@ -58,6 +57,7 @@ import {
 const now = () => new Date().toISOString();
 const INDEXING_INGEST_LOCK_MS = 5 * 60_000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
+export const WORKSPACE_FILE_PREVIEW_PROTOCOL = "brevyn-file";
 
 export interface FileServiceOptions {
   rootDataDir: string;
@@ -156,7 +156,7 @@ export class FileService {
     const { file, semesterId } = this.guardFileAccess(fileId, "accessing");
     if (file.kind === "folder") return null;
     this.assertFileSourceInsideWorkspace(file, semesterId);
-    const fileUrl = file.sourcePath && existsSync(file.sourcePath) ? pathToFileURL(file.sourcePath).toString() : undefined;
+    const fileUrl = file.sourcePath && existsSync(file.sourcePath) ? workspaceFilePreviewUrl(file.sourcePath) : undefined;
     const common = {
       id: file.id,
       title: file.name,
@@ -992,4 +992,8 @@ function latestIndexingJobsByScope(jobs: IndexingJob[]): IndexingJob[] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Unknown cleanup failure");
+}
+
+export function workspaceFilePreviewUrl(sourcePath: string): string {
+  return `${WORKSPACE_FILE_PREVIEW_PROTOCOL}://workspace/${encodeURIComponent(sourcePath)}`;
 }
