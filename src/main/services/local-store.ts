@@ -28,6 +28,7 @@ import type {
   ProviderSaveResult,
   ProviderTestResult,
   RagSearchResult,
+  RenameThreadInput,
   SemesterWorkspace,
   SkillImportInput,
   SkillItem,
@@ -198,6 +199,10 @@ export class LocalStore {
 
   createThread(input: CreateThreadInput): Thread {
     return this.workspace.createThread(input);
+  }
+
+  renameThread(input: RenameThreadInput): Thread {
+    return this.workspace.renameThread(input.threadId, input.title);
   }
 
   archiveThread(threadId: string): boolean {

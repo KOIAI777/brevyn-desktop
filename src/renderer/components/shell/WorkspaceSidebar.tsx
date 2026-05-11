@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Archive, CalendarDays, ChevronRight, FolderOpen, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Plus, Settings } from "lucide-react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
+import { Archive, CalendarDays, ChevronRight, FolderOpen, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { formatRelative } from "@/lib/workspace-files";
@@ -19,6 +20,7 @@ export function WorkspaceSidebar({
   onSelectTask,
   onSelectThread,
   onArchiveThread,
+  onRenameThread,
   onCreateThread,
   onOpenCourses,
   onOpenTimetable,
@@ -36,6 +38,7 @@ export function WorkspaceSidebar({
   onSelectTask: (courseId: string, taskId: string) => void;
   onSelectThread: (thread: Thread) => void;
   onArchiveThread: (thread: Thread) => void;
+  onRenameThread: (thread: Thread, title: string) => Promise<void>;
   onCreateThread: (courseId?: string, taskId?: string) => void;
   onOpenCourses: () => void;
   onOpenTimetable: () => void;
@@ -44,6 +47,8 @@ export function WorkspaceSidebar({
   const [openCourses, setOpenCourses] = useState<Record<string, boolean>>({});
   const [openTasks, setOpenTasks] = useState<Record<string, boolean>>({});
   const [homeOpen, setHomeOpen] = useState(true);
+  const [threadMenu, setThreadMenu] = useState<ThreadContextMenuState | null>(null);
+  const [renamingThreadId, setRenamingThreadId] = useState("");
   const recentThreads = [...threads].sort(compareThreadsByUpdatedAtDesc).slice(0, 8);
   const homeCourse = courses.find((course) => course.workspaceKind === "semester_home");
   const courseList = courses.filter((course) => course.workspaceKind !== "semester_home");
@@ -69,11 +74,23 @@ export function WorkspaceSidebar({
               )}
               title={thread.title}
               onClick={() => onSelectThread(thread)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setThreadMenu({
+                  thread,
+                  anchor: anchorFromElement(event.currentTarget),
+                });
+              }}
             >
               {thread.title.slice(0, 1).toUpperCase() || index + 1}
             </button>
           ))}
         </div>
+        <ThreadContextMenu
+          state={threadMenu}
+          onClose={() => setThreadMenu(null)}
+          onRename={(thread) => setRenamingThreadId(thread.id)}
+        />
         <div className="my-2 h-px w-8 bg-border" />
         <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpenTimetable} title="Timetable">
           <CalendarDays className="h-4 w-4" />
@@ -155,7 +172,20 @@ export function WorkspaceSidebar({
                 {threads
                   .filter((thread) => thread.courseId === homeCourse.id)
                   .map((thread) => (
-                    <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} onArchive={() => onArchiveThread(thread)} />
+                    <ThreadButton
+                      key={thread.id}
+                      thread={thread}
+                      active={thread.id === activeThreadId}
+                      editing={renamingThreadId === thread.id}
+                      onClick={() => onSelectThread(thread)}
+                      onArchive={() => onArchiveThread(thread)}
+                      onRename={onRenameThread}
+                      onEditingDone={() => setRenamingThreadId("")}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setThreadMenu({ thread, anchor: anchorFromElement(event.currentTarget) });
+                      }}
+                    />
                   ))}
               </div>
             )}
@@ -235,7 +265,20 @@ export function WorkspaceSidebar({
                         {taskOpen && taskThreads.length > 0 && (
                           <div className="ml-4 mt-1 space-y-0.5 border-l border-border/40 pl-2">
                             {taskThreads.map((thread) => (
-                              <ThreadButton key={thread.id} thread={thread} active={thread.id === activeThreadId} onClick={() => onSelectThread(thread)} onArchive={() => onArchiveThread(thread)} />
+                              <ThreadButton
+                                key={thread.id}
+                                thread={thread}
+                                active={thread.id === activeThreadId}
+                                editing={renamingThreadId === thread.id}
+                                onClick={() => onSelectThread(thread)}
+                                onArchive={() => onArchiveThread(thread)}
+                                onRename={onRenameThread}
+                                onEditingDone={() => setRenamingThreadId("")}
+                                onContextMenu={(event) => {
+                                  event.preventDefault();
+                                  setThreadMenu({ thread, anchor: anchorFromElement(event.currentTarget) });
+                                }}
+                              />
                             ))}
                           </div>
                         )}
@@ -275,6 +318,11 @@ export function WorkspaceSidebar({
           </div>
         </button>
       </div>
+      <ThreadContextMenu
+        state={threadMenu}
+        onClose={() => setThreadMenu(null)}
+        onRename={(thread) => setRenamingThreadId(thread.id)}
+      />
     </aside>
   );
 }
@@ -291,20 +339,92 @@ function SessionCount({ count }: { count: number }) {
   return <span className="shrink-0 rounded bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
 }
 
-function ThreadButton({ thread, active, onClick, onArchive }: { thread: Thread; active: boolean; onClick: () => void; onArchive: () => void }) {
+type ThreadButtonProps = {
+  thread: Thread;
+  active: boolean;
+  editing: boolean;
+  onClick: () => void;
+  onArchive: () => void;
+  onRename: (thread: Thread, title: string) => Promise<void>;
+  onEditingDone: () => void;
+  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
+};
+
+function ThreadButton({ thread, active, editing, onClick, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const savingRef = useRef(false);
+  const skipNextBlurRef = useRef(false);
+  const [draft, setDraft] = useState(thread.title);
+
+  useEffect(() => {
+    if (!editing) return;
+    setDraft(thread.title);
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing, thread.title]);
+
+  async function saveTitle(): Promise<void> {
+    if (skipNextBlurRef.current) {
+      skipNextBlurRef.current = false;
+      return;
+    }
+    if (savingRef.current) return;
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === thread.title) {
+      onEditingDone();
+      return;
+    }
+    savingRef.current = true;
+    try {
+      await onRename(thread, trimmed);
+      onEditingDone();
+    } finally {
+      savingRef.current = false;
+    }
+  }
+
   return (
     <div
       className={cx("group flex w-full min-w-0 items-center rounded-md text-[11px]", active ? "bg-muted text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
       title={thread.title}
+      onContextMenu={onContextMenu}
     >
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
-        onClick={onClick}
-      >
-        <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-        <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
-      </button>
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          maxLength={100}
+          className="mx-1 my-1 min-w-0 flex-1 rounded-md border border-border/70 bg-background/90 px-1.5 py-1 text-[11px] text-foreground outline-none ring-0 focus:border-primary/50 focus:bg-background"
+          onChange={(event) => setDraft(event.target.value)}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+          onBlur={() => void saveTitle()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void saveTitle();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              skipNextBlurRef.current = true;
+              setDraft(thread.title);
+              onEditingDone();
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+          onClick={onClick}
+        >
+          <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+          <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
+        </button>
+      )}
       <button
         type="button"
         className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
@@ -318,4 +438,103 @@ function ThreadButton({ thread, active, onClick, onArchive }: { thread: Thread; 
       </button>
     </div>
   );
+}
+
+type ThreadContextMenuState = {
+  thread: Thread;
+  anchor: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+};
+
+function ThreadContextMenu({
+  state,
+  onClose,
+  onRename,
+}: {
+  state: ThreadContextMenuState | null;
+  onClose: () => void;
+  onRename: (thread: Thread) => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: state?.anchor.right || 0, top: state?.anchor.top || 0 });
+
+  useEffect(() => {
+    if (!state) return;
+    const frame = window.requestAnimationFrame(() => {
+      const rect = menuRef.current?.getBoundingClientRect();
+      const width = rect?.width || 170;
+      const height = rect?.height || 92;
+      const preferredLeft = state.anchor.right + 6;
+      const fallbackLeft = state.anchor.left - width - 6;
+      const left = preferredLeft + width <= window.innerWidth - 8 ? preferredLeft : fallbackLeft;
+      setPosition({
+        left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
+        top: Math.max(8, Math.min(state.anchor.top - 4, window.innerHeight - height - 8)),
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) return;
+    function close() {
+      onClose();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, state]);
+
+  if (!state) return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[80] w-44 overflow-hidden rounded-xl border border-border/70 bg-card/95 p-1.5 text-xs shadow-xl ring-1 ring-border/60 backdrop-blur-xl"
+      style={{ left: position.left, top: position.top }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div className="border-b border-border/60 px-2 py-1.5">
+        <div className="truncate text-[11px] font-medium text-foreground" title={state.thread.title}>
+          {state.thread.title}
+        </div>
+        <div className="truncate text-[10px] text-muted-foreground">Session</div>
+      </div>
+      <button
+        type="button"
+        className="mt-1 flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        onClick={() => {
+          onRename(state.thread);
+          onClose();
+        }}
+      >
+        <Pencil className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">Rename</span>
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+function anchorFromElement(element: HTMLElement): ThreadContextMenuState["anchor"] {
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+  };
 }

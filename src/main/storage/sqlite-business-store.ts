@@ -480,6 +480,14 @@ export class SQLiteBusinessStore {
     return thread;
   }
 
+  renameThread(threadId: string, title: string): Thread | null {
+    const thread = this.getThread(threadId);
+    if (!thread) return null;
+    const updated = { ...thread, title, updatedAt: now() };
+    this.insertThread(updated);
+    return this.getThread(threadId);
+  }
+
   archiveThread(threadId: string, archivedAt = now()): Thread | null {
     const thread = this.getThread(threadId);
     if (!thread) return null;

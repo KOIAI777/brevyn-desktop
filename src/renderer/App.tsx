@@ -653,6 +653,17 @@ function App() {
     }
   }
 
+  async function renameThread(thread: Thread, title: string): Promise<void> {
+    setWorkspaceError("");
+    try {
+      const updated = await window.brevyn.threads.rename({ threadId: thread.id, title });
+      setThreads((current) => dedupeThreads(current.map((item) => (item.id === updated.id ? updated : item))));
+    } catch (error) {
+      setWorkspaceError(errorMessage(error, "Rename session failed."));
+      throw error;
+    }
+  }
+
   function selectCourseHome(courseId: string) {
     commitActiveCourseId(courseId);
     setActiveTaskId(undefined);
@@ -771,6 +782,7 @@ function App() {
           onArchiveThread={(thread) => {
             void archiveThread(thread);
           }}
+          onRenameThread={renameThread}
           onCreateThread={createThread}
           onOpenCourses={() => setCoursesOpen(true)}
           onOpenTimetable={() => setTimetableOpen(true)}

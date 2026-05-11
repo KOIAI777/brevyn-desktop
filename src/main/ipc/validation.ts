@@ -11,6 +11,7 @@ import type {
   CreateTaskInput,
   CreateThreadInput,
   FileImportInput,
+  RenameThreadInput,
   SkillImportInput,
   SkillUpdateInput,
   SkillWriteInput,
@@ -105,6 +106,14 @@ export function normalizeCreateThreadInput(value: unknown): CreateThreadInput {
     courseId: requireString(input.courseId, "Course id"),
     taskId: optionalString(input.taskId),
     title: optionalString(input.title),
+  };
+}
+
+export function normalizeRenameThreadInput(value: unknown): RenameThreadInput {
+  const input = requireObject(value, "Thread rename input");
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    title: requireString(input.title, "Thread title"),
   };
 }
 

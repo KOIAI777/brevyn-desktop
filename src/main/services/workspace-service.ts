@@ -395,6 +395,16 @@ export class WorkspaceService {
     return thread;
   }
 
+  renameThread(threadId: string, title: string): Thread {
+    const thread = this.assertThreadUsable(threadId);
+    if (thread.archivedAt) throw new Error("Restore the thread before renaming it.");
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("Thread title is required.");
+    const updated = this.options.businessStore.renameThread(threadId, trimmed.slice(0, 100));
+    if (!updated) throw new Error(`Thread not found: ${threadId}`);
+    return updated;
+  }
+
   archiveThread(threadId: string): boolean {
     const thread = this.options.businessStore.getThread(threadId);
     if (!thread || thread.archivedAt) return false;

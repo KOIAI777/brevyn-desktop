@@ -113,6 +113,11 @@ export interface CreateThreadInput {
   title?: string;
 }
 
+export interface RenameThreadInput {
+  threadId: string;
+  title: string;
+}
+
 export interface ArchivedThreadScope {
   semesterId?: string;
   courseId?: string;
@@ -668,6 +673,7 @@ export interface BrevynAPI {
     list: (courseId?: string) => Promise<Thread[]>;
     listArchived: (scope?: ArchivedThreadScope) => Promise<Thread[]>;
     create: (input: CreateThreadInput) => Promise<Thread>;
+    rename: (input: RenameThreadInput) => Promise<Thread>;
     archive: (threadId: string) => Promise<boolean>;
     restore: (threadId: string) => Promise<Thread>;
     delete: (threadId: string) => Promise<boolean>;
