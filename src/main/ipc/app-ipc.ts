@@ -25,4 +25,11 @@ export function registerAppIpc({ store }: IpcContext): void {
     const error = await shell.openPath(targetPath);
     if (error) throw new Error(error);
   });
+
+  ipcMain.handle(IPC_CHANNELS.appPreviewWorkspacePath, (_event, input: unknown) => {
+    const data = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    const threadId = requireString(data.threadId, "Thread id");
+    const requestedPath = requireString(data.path, "Path");
+    return store.previewThreadWorkspacePath(threadId, requestedPath);
+  });
 }

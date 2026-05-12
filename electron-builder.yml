@@ -1,0 +1,51 @@
+# electron-builder configuration for Brevyn desktop builds.
+appId: app.brevyn.desktop
+productName: Brevyn
+copyright: Copyright © 2026 Brevyn
+
+electronVersion: 39.5.1
+electronDist: node_modules/electron/dist
+
+directories:
+  output: out
+  buildResources: resources
+
+compression: normal
+npmRebuild: false
+
+asar: true
+asarUnpack:
+  - "node_modules/@anthropic-ai/**"
+  - "node_modules/@lancedb/**"
+
+files:
+  - dist/**/*
+  - package.json
+  # Keep runtime dependencies available for externalized main-process modules
+  # and Brevyn skill helper scripts copied into user data.
+  - node_modules/**/*
+  - "!node_modules/.cache/**"
+  - "!node_modules/electron/dist/**"
+  - "!node_modules/electron-builder/**"
+
+extraResources:
+  # Bundled default skills. In packaged builds these are read from
+  # process.resourcesPath/default-skills and synced into ~/.brevyn-dev.
+  - from: default-skills
+    to: default-skills
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.education
+  target:
+    - dmg
+    - zip
+
+win:
+  target:
+    - nsis
+
+linux:
+  target:
+    - AppImage

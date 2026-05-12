@@ -185,6 +185,24 @@ export function workspacePathForThread(
   throw new Error(`Cannot resolve workspace path: thread ${thread.id} is not bound to a task`);
 }
 
+export function threadSessionDirForThread(
+  rootDataDir: string,
+  thread: Thread,
+  resolveTask: (taskId: string) => BrevynTask | undefined,
+): string {
+  return join(workspacePathForThread(rootDataDir, thread, resolveTask), ".brevyn", "sessions", idPathSegment(thread.id));
+}
+
+export function ensureThreadSessionDir(
+  rootDataDir: string,
+  thread: Thread,
+  resolveTask: (taskId: string) => BrevynTask | undefined,
+): string {
+  const dir = threadSessionDirForThread(rootDataDir, thread, resolveTask);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 export function ensureImportTargetDir(
   rootDataDir: string,
   semesterId: string,

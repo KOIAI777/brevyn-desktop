@@ -1,5 +1,9 @@
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import type {
+  AgentAttachment,
+  AgentAttachmentDataInput,
   Course,
   CourseFileSection,
   ArchivedCourseScope,
@@ -56,7 +60,8 @@ import { ProviderTransactionStore } from "./provider-transaction-store";
 import { RagIndexService } from "./rag-index-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
-import { isPathInside, workspacePathForThread } from "./workspace-paths";
+import { ensureThreadSessionDir, isPathInside, sanitizeFsSegment, workspacePathForThread } from "./workspace-paths";
+import { formatSize, kindForPath } from "./workspace-file-tree";
 
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
@@ -79,6 +84,9 @@ export class LocalStore {
     this.providers = new ProviderService(providerConfigs, providerSecrets, new ProviderTransactionStore(join(this.rootDataDir, "provider-transactions.json")));
     this.skillFiles = new SkillFileStore(this.rootDataDir);
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
+    for (const dir of bundledDefaultSkillDirs()) {
+      this.skillFiles.syncDefaultSkillFolders(dir);
+    }
     this.ragIndex = new RagIndexService({
       dbPath: join(this.rootDataDir, "indexes", "rag"),
       resolveEmbeddingProvider: () => this.providers.embeddingProvider(),
@@ -241,6 +249,11 @@ export class LocalStore {
     return this.files.previewFile(fileId);
   }
 
+  async previewThreadWorkspacePath(threadId: string, requestedPath: string): Promise<FilePreview | null> {
+    const targetPath = this.resolveThreadWorkspacePath(threadId, requestedPath);
+    return this.files.previewWorkspacePath(targetPath, requestedPath);
+  }
+
   importFiles(input: FileImportInput): Promise<FileImportResult> {
     return this.files.importFiles(input);
   }
@@ -398,6 +411,43 @@ export class LocalStore {
     return this.agent.run(input);
   }
 
+  async saveAgentAttachmentPaths(threadId: string, sourcePaths: string[]): Promise<AgentAttachment[]> {
+    const thread = this.requireThread(threadId);
+    const targetDir = ensureThreadSessionDir(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    const attachments: AgentAttachment[] = [];
+    for (const sourcePath of sourcePaths) {
+      if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) continue;
+      const targetPath = uniqueAttachmentPath(targetDir, basename(sourcePath));
+      await copyFile(sourcePath, targetPath);
+      attachments.push(this.attachmentForPath(threadId, targetPath));
+    }
+    return attachments;
+  }
+
+  saveAgentAttachmentData(input: AgentAttachmentDataInput): AgentAttachment {
+    const thread = this.requireThread(input.threadId);
+    const targetDir = ensureThreadSessionDir(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    const targetPath = uniqueAttachmentPath(targetDir, input.name);
+    writeFileSync(targetPath, Buffer.from(input.data, "base64"));
+    return this.attachmentForPath(input.threadId, targetPath, input.mediaType);
+  }
+
+  deleteAgentAttachment(threadId: string, requestedPath: string): boolean {
+    const targetPath = this.resolveThreadWorkspacePath(threadId, requestedPath);
+    const attachmentDir = this.threadAttachmentDir(threadId);
+    if (!isPathInside(targetPath, attachmentDir)) {
+      throw new Error("Only current session attachments can be removed from the composer.");
+    }
+    if (!existsSync(targetPath)) return false;
+    rmSync(targetPath, { force: true });
+    return true;
+  }
+
+  listAgentSessionFiles(threadId: string): WorkspaceFileNode[] {
+    const sessionDir = this.threadSessionDir(threadId);
+    return listSessionFileNodes(sessionDir, sessionDir, this.requireThread(threadId));
+  }
+
   stopAgent(threadId: string): boolean {
     return this.agent.stop(threadId);
   }
@@ -427,14 +477,43 @@ export class LocalStore {
   }
 
   resolveThreadWorkspacePath(threadId: string, requestedPath: string): string {
-    const thread = this.businessStore.getThread(threadId);
-    if (!thread) throw new Error(`Thread not found: ${threadId}`);
+    const thread = this.requireThread(threadId);
     const cwd = workspacePathForThread(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
     const target = isAbsolute(requestedPath) ? resolve(requestedPath) : resolve(cwd, requestedPath);
     if (!isPathInside(target, cwd)) {
       throw new Error("File references can only open paths inside the current workspace.");
     }
     return target;
+  }
+
+  private requireThread(threadId: string): Thread {
+    const thread = this.businessStore.getThread(threadId);
+    if (!thread) throw new Error(`Thread not found: ${threadId}`);
+    return thread;
+  }
+
+  private threadAttachmentDir(threadId: string): string {
+    return this.threadSessionDir(threadId);
+  }
+
+  private threadSessionDir(threadId: string): string {
+    const thread = this.requireThread(threadId);
+    return ensureThreadSessionDir(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+  }
+
+  private attachmentForPath(threadId: string, filePath: string, mediaType?: string): AgentAttachment {
+    const stats = statSync(filePath);
+    return {
+      id: `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      threadId,
+      name: basename(filePath),
+      kind: kindForPath(filePath),
+      mimeType: mediaType,
+      size: stats.size,
+      sizeLabel: formatSize(stats.size),
+      path: filePath,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   async close(): Promise<void> {
@@ -465,6 +544,17 @@ export class LocalStore {
   }
 }
 
+function bundledDefaultSkillDirs(): string[] {
+  const dirs = [
+    process.env.BREVYN_DEFAULT_SKILLS_DIR,
+    join(process.resourcesPath || "", "default-skills"),
+    join(process.cwd(), "default-skills"),
+    join(__dirname, "default-skills"),
+    join(__dirname, "resources", "default-skills"),
+  ].filter((dir): dir is string => Boolean(dir));
+  return Array.from(new Set(dirs.map((dir) => resolve(dir))));
+}
+
 function mergeSkills(skills: SkillItem[]): SkillItem[] {
   const seen = new Set<string>();
   const merged: SkillItem[] = [];
@@ -484,6 +574,56 @@ function requireNonEmptyString(value: unknown, label: string): string {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+}
+
+function uniqueAttachmentPath(dir: string, fileName: string): string {
+  mkdirSync(dir, { recursive: true });
+  const safeName = sanitizeFsSegment(fileName || "attachment");
+  const extension = extname(safeName);
+  const baseName = extension ? safeName.slice(0, -extension.length) : safeName;
+  let candidate = join(dir, safeName);
+  let index = 2;
+  while (existsSync(candidate)) {
+    candidate = join(dir, `${baseName} (${index})${extension}`);
+    index += 1;
+  }
+  return candidate;
+}
+
+function listSessionFileNodes(dir: string, rootDir: string, thread: Thread): WorkspaceFileNode[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.name !== ".DS_Store")
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+    .flatMap((entry) => {
+      const sourcePath = join(dir, entry.name);
+      const stats = statSync(sourcePath);
+      const relativePath = sourcePath.slice(rootDir.length).replace(/^\/+/, "");
+      const path = relativePath || entry.name;
+      const common = {
+        id: `session-file:${thread.id}:${path}`,
+        semesterId: thread.semesterId || "",
+        courseId: thread.courseId,
+        taskId: thread.taskId,
+        name: entry.name,
+        displayName: entry.name,
+        path,
+        sourcePath,
+        sizeLabel: entry.isDirectory() ? undefined : formatSize(stats.size),
+        updatedAt: stats.mtime.toISOString(),
+      };
+      if (entry.isDirectory()) {
+        return [{
+          ...common,
+          kind: "folder" as const,
+          children: listSessionFileNodes(sourcePath, rootDir, thread),
+        }];
+      }
+      return [{
+        ...common,
+        kind: kindForPath(sourcePath),
+      }];
+    });
 }
 
 export function createLocalStore(rootDataPath: string): LocalStore {

@@ -4,6 +4,7 @@ import { copyFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import JSZip from "jszip";
 import mammoth from "mammoth";
+import XLSX from "xlsx";
 import type {
   CourseFileSection,
   FileImportInput,
@@ -14,6 +15,7 @@ import type {
   IndexingJob,
   ModelProviderConfig,
   RagSearchResult,
+  SpreadsheetPreviewSheet,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -129,6 +131,7 @@ export class FileService {
         pdf: 0,
         docx: 0,
         pptx: 0,
+        spreadsheet: 0,
         image: 0,
         markdown: 0,
         code: 0,
@@ -156,55 +159,88 @@ export class FileService {
     const { file, semesterId } = this.guardFileAccess(fileId, "accessing");
     if (file.kind === "folder") return null;
     this.assertFileSourceInsideWorkspace(file, semesterId);
-    const fileUrl = file.sourcePath && existsSync(file.sourcePath) ? workspaceFilePreviewUrl(file.sourcePath) : undefined;
-    const common = {
+    return this.previewSourcePath({
       id: file.id,
       title: file.name,
-      path: file.path,
+      displayPath: file.path,
+      sourcePath: file.sourcePath,
       kind: file.kind,
-      fileUrl,
       metadata: {
         size: file.sizeLabel || "unknown",
         updated: file.updatedAt,
         courseId: file.courseId,
       },
+    });
+  }
+
+  async previewWorkspacePath(sourcePath: string, displayPath = sourcePath): Promise<FilePreview | null> {
+    if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) return null;
+    return this.previewSourcePath({
+      id: sourcePath,
+      title: basename(sourcePath),
+      displayPath,
+      sourcePath,
+      kind: kindForPath(sourcePath),
+      metadata: {
+        size: formatSize(statSync(sourcePath).size),
+        updated: statSync(sourcePath).mtime.toISOString(),
+      },
+    });
+  }
+
+  private async previewSourcePath(input: {
+    id: string;
+    title: string;
+    displayPath: string;
+    sourcePath?: string;
+    kind: WorkspaceFileKind;
+    metadata: Record<string, string | number | boolean>;
+  }): Promise<FilePreview> {
+    const fileUrl = input.sourcePath && existsSync(input.sourcePath) ? workspaceFilePreviewUrl(input.sourcePath) : undefined;
+    const common = {
+      id: input.id,
+      title: input.title,
+      path: input.displayPath,
+      kind: input.kind,
+      fileUrl,
+      metadata: input.metadata,
     };
-    if (file.kind === "markdown") {
-      const content = readPreviewSource(file.sourcePath);
+    if (input.kind === "markdown") {
+      const content = readPreviewSource(input.sourcePath);
       return {
         ...common,
         mimeType: "text/markdown",
-        summary: "Loaded from the imported Markdown source file.",
-        content: content || `# ${file.name.replace(/\.md$/i, "")}\n\n(No content available.)`,
+        summary: "Loaded from a Markdown source file.",
+        content: content || `# ${input.title.replace(/\.md$/i, "")}\n\n(No content available.)`,
       };
     }
-    if (file.kind === "code") {
-      const content = readPreviewSource(file.sourcePath);
+    if (input.kind === "code") {
+      const content = readPreviewSource(input.sourcePath);
       return {
         ...common,
         mimeType: "text/typescript",
-        summary: "Loaded from the imported code source file.",
+        summary: "Loaded from a code source file.",
         content: content || `// No code content available.`,
       };
     }
-    if (file.kind === "text") {
-      const content = readPreviewSource(file.sourcePath);
+    if (input.kind === "text") {
+      const content = readPreviewSource(input.sourcePath);
       return {
         ...common,
         mimeType: "text/plain",
-        summary: "Loaded from the imported text source file.",
+        summary: "Loaded from a text source file.",
         content: content || "(No text content available.)",
       };
     }
-    if (file.kind === "pdf") {
+    if (input.kind === "pdf") {
       return {
         ...common,
         mimeType: "application/pdf",
         summary: fileUrl ? "Previewing the original PDF file from this workspace." : "PDF source is not available for preview.",
       };
     }
-    if (file.kind === "pptx") {
-      const extracted = await previewPptxText(file.sourcePath);
+    if (input.kind === "pptx") {
+      const extracted = await previewPptxText(input.sourcePath);
       return {
         ...common,
         mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -213,8 +249,8 @@ export class FileService {
         pages: extracted.pages,
       };
     }
-    if (file.kind === "docx") {
-      const extracted = await previewDocxHtml(file.sourcePath);
+    if (input.kind === "docx") {
+      const extracted = await previewDocxHtml(input.sourcePath);
       return {
         ...common,
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -223,7 +259,17 @@ export class FileService {
         html: extracted.html,
       };
     }
-    if (file.kind === "image") {
+    if (input.kind === "spreadsheet") {
+      const extracted = previewSpreadsheet(input.sourcePath);
+      return {
+        ...common,
+        mimeType: spreadsheetMimeType(input.sourcePath),
+        summary: extracted.summary,
+        content: extracted.content,
+        sheets: extracted.sheets,
+      };
+    }
+    if (input.kind === "image") {
       return {
         ...common,
         mimeType: "image/png",
@@ -279,7 +325,6 @@ export class FileService {
         targetFolder.children = [...(targetFolder.children || []), file];
         importedFiles.push(file);
       }
-
       this.persistWorkspaceFilesForCourse(input.courseId, roots, semesterId);
       const sectionId = this.sectionIdForImport(input);
       let indexingJob: IndexingJob | null = null;
@@ -946,6 +991,75 @@ async function previewPptxText(sourcePath?: string): Promise<{ summary: string; 
       content: "",
     };
   }
+}
+
+const SPREADSHEET_MAX_SHEETS = 8;
+const SPREADSHEET_MAX_ROWS = 120;
+const SPREADSHEET_MAX_COLUMNS = 40;
+
+function previewSpreadsheet(sourcePath?: string): { summary: string; content: string; sheets: SpreadsheetPreviewSheet[] } {
+  if (!sourcePath || !existsSync(sourcePath)) {
+    return { summary: "Spreadsheet source is not available for preview.", content: "", sheets: [] };
+  }
+  try {
+    const workbook = XLSX.readFile(sourcePath, { cellDates: true, dense: false });
+    const sheetNames = workbook.SheetNames.slice(0, SPREADSHEET_MAX_SHEETS);
+    const sheets: SpreadsheetPreviewSheet[] = sheetNames.map((name) => {
+      const worksheet = workbook.Sheets[name];
+      const range = worksheet?.["!ref"] ? XLSX.utils.decode_range(worksheet["!ref"]) : null;
+      const totalRows = range ? range.e.r - range.s.r + 1 : 0;
+      const totalColumns = range ? range.e.c - range.s.c + 1 : 0;
+      const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean | Date | null>>(worksheet, {
+        header: 1,
+        defval: "",
+        raw: false,
+        blankrows: false,
+      })
+        .slice(0, SPREADSHEET_MAX_ROWS)
+        .map((row) => row.slice(0, SPREADSHEET_MAX_COLUMNS).map(normalizeSpreadsheetCell));
+      return {
+        name,
+        rows,
+        totalRows,
+        totalColumns,
+        truncated: totalRows > SPREADSHEET_MAX_ROWS || totalColumns > SPREADSHEET_MAX_COLUMNS,
+      };
+    });
+    const truncatedWorkbook = workbook.SheetNames.length > sheetNames.length;
+    const content = sheets.map((sheet) => [
+      `Sheet: ${sheet.name}`,
+      ...sheet.rows.map((row) => row.map((cell) => cell == null ? "" : String(cell)).join("\t")),
+    ].join("\n")).join("\n\n");
+    const summary = [
+      `Previewing ${sheets.length} of ${workbook.SheetNames.length} sheet${workbook.SheetNames.length === 1 ? "" : "s"}.`,
+      truncatedWorkbook ? `Showing the first ${SPREADSHEET_MAX_SHEETS} sheets.` : "",
+      "Rendered as a table preview, not an exact Excel layout.",
+    ].filter(Boolean).join(" ");
+    return {
+      summary,
+      content: truncatePreviewText(content, 24000),
+      sheets,
+    };
+  } catch (error) {
+    return {
+      summary: `Spreadsheet preview failed: ${errorMessage(error)}`,
+      content: "",
+      sheets: [],
+    };
+  }
+}
+
+function normalizeSpreadsheetCell(value: string | number | boolean | Date | null): string | number | boolean | null {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value === undefined || value === "") return null;
+  return value;
+}
+
+function spreadsheetMimeType(sourcePath?: string): string {
+  const extension = extname(sourcePath || "").toLowerCase();
+  if (extension === ".csv") return "text/csv";
+  if (extension === ".tsv") return "text/tab-separated-values";
+  return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 }
 
 function extractPptxPreviewText(xml: string): string {

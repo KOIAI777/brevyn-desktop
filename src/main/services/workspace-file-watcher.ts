@@ -69,7 +69,7 @@ function notifyFilesChanged(window: BrowserWindow): void {
 function shouldIgnoreFileEvent(filename: string | Buffer | null): boolean {
   if (!filename) return true;
   const normalized = String(filename).replace(/\\/g, "/");
-  if (!normalized || normalized.includes("/threads/")) return true;
+  if (!normalized || normalized.includes("/threads/") || normalized.includes("/.brevyn/")) return true;
   const basename = normalized.split("/").pop() || "";
   return basename === ".DS_Store" || basename.endsWith(".tmp");
 }

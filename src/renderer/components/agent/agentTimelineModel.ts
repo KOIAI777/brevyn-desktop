@@ -636,9 +636,15 @@ export function toolTitle(toolName: string, input: unknown): string {
   if (toolName === "WebFetch") return `WebFetch · ${stringValue(data.url, "URL")}`;
   if (toolName === "WebSearch") return `WebSearch · ${singleLine(stringValue(data.query, "query"))}`;
   if (toolName === "TodoWrite") return "Update todo list";
+  if (toolName === "mcp__brevyn__load_skill") return `加载技能 · ${skillNameFromId(stringValue(data.skillId, "skill"))}`;
+  if (toolName === "mcp__brevyn__read_skill_resource") return `读取技能资源 · ${singleLine(stringValue(data.relativePath, "resource"))}`;
   if (toolName === "mcp__brevyn__rag_search") return `检索课程材料 · ${singleLine(stringValue(data.query, "query"))}`;
   if (toolName.startsWith("mcp__brevyn__")) return `Brevyn · ${toolName.replace("mcp__brevyn__", "")}`;
   return `Tool · ${toolName}`;
+}
+
+function skillNameFromId(skillId: string): string {
+  return skillId.replace(/^file:/, "").split(/[-_]/g).filter(Boolean).map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ") || skillId;
 }
 
 export interface ToolDiffStats {

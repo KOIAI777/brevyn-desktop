@@ -1,15 +1,38 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
-import type { SkillItem } from "../../types/domain";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, relative, resolve, sep } from "node:path";
+import type { SkillItem, SkillResource, SkillResourceKind } from "../../types/domain";
 import type { SkillBlueprint } from "./skill-registry";
 
 interface SkillFrontmatter {
   name?: string;
   description?: string;
   version?: string;
+  category?: string;
+  icon?: string;
+  triggers?: string[];
+  tags?: string[];
+  scopes?: string[];
+  allowedTools?: string[];
 }
 
 const MAX_SKILL_CONTENT_BYTES = 10 * 1024 * 1024;
+const MAX_SKILL_RESOURCE_BYTES = 2 * 1024 * 1024;
+const MAX_SKILL_RESOURCES = 200;
+const SKILL_RESOURCE_DIRS: Array<{ dirname: string; kind: SkillResourceKind }> = [
+  { dirname: "references", kind: "reference" },
+  { dirname: "scripts", kind: "script" },
+  { dirname: "assets", kind: "asset" },
+  { dirname: "templates", kind: "template" },
+  { dirname: "examples", kind: "example" },
+  { dirname: "agents", kind: "agent_config" },
+  { dirname: "tasks", kind: "reference" },
+  { dirname: "profiles", kind: "reference" },
+  { dirname: "ooxml", kind: "reference" },
+  { dirname: "troubleshooting", kind: "reference" },
+];
+const ROOT_REFERENCE_FILE_EXTENSIONS = new Set([".md", ".markdown", ".txt"]);
+const ROOT_REFERENCE_FILE_SKIP = new Set(["SKILL.md", "README.md", "LICENSE", "LICENSE.txt", "license.txt"]);
+const DEFAULT_SKILL_SOURCE_FILE = ".brevyn-default-skill.json";
 
 export class SkillFileStore {
   constructor(private readonly rootPath: string) {}
@@ -35,6 +58,37 @@ export class SkillFileStore {
       const targetDir = blueprint.defaultEnabled ? join(activeDir, blueprint.id) : join(inactiveDir, blueprint.id);
       mkdirSync(targetDir, { recursive: true });
       writeFileSync(join(targetDir, "SKILL.md"), renderSkillTemplate(blueprint), "utf8");
+    }
+  }
+
+  syncDefaultSkillFolders(sourceDir: string): void {
+    if (!existsSync(sourceDir)) return;
+    const templateDir = join(this.rootPath, "default-skills");
+    const activeDir = join(this.rootPath, "skills");
+    const inactiveDir = join(this.rootPath, "skills-inactive");
+    mkdirSync(templateDir, { recursive: true });
+    mkdirSync(activeDir, { recursive: true });
+    mkdirSync(inactiveDir, { recursive: true });
+
+    for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !isValidSkillSlug(entry.name)) continue;
+      const sourceSkillDir = join(sourceDir, entry.name);
+      if (!existsSync(join(sourceSkillDir, "SKILL.md"))) continue;
+
+      const templateSkillDir = join(templateDir, entry.name);
+      syncDefaultSkillFolder(sourceSkillDir, templateSkillDir, entry.name, "template");
+
+      const activeSkillDir = join(activeDir, entry.name);
+      const inactiveSkillDir = join(inactiveDir, entry.name);
+      if (existsSync(activeSkillDir)) {
+        syncDefaultSkillFolder(sourceSkillDir, activeSkillDir, entry.name, "workspace");
+        continue;
+      }
+      if (existsSync(inactiveSkillDir)) {
+        syncDefaultSkillFolder(sourceSkillDir, inactiveSkillDir, entry.name, "workspace");
+        continue;
+      }
+      replaceSkillFolder(sourceSkillDir, activeSkillDir, entry.name);
     }
   }
 
@@ -109,6 +163,31 @@ export class SkillFileStore {
     return this.resolveSkillDir(id)?.dir || null;
   }
 
+  readSkillResource(id: string, relativePath: string): { resource: SkillResource; absolutePath: string; content: string } | null {
+    const resolved = this.resolveSkillDir(id);
+    if (!resolved) return null;
+    const normalized = normalizeRelativeResourcePath(relativePath);
+    if (!normalized) return null;
+    const absolutePath = resolveSkillChildFile(resolved.dir, normalized);
+    if (!absolutePath || !existsSync(absolutePath)) return null;
+    const stats = statSync(absolutePath);
+    if (!stats.isFile()) return null;
+    if (stats.size > MAX_SKILL_RESOURCE_BYTES) {
+      throw new Error(`Skill resource is too large to read directly. Maximum size is ${formatMaxSkillResourceSize()} (${normalized}).`);
+    }
+    return {
+      resource: {
+        kind: resourceKindForRelativePath(normalized),
+        name: basename(absolutePath),
+        relativePath: normalized,
+        size: stats.size,
+        sizeLabel: formatBytes(stats.size),
+      },
+      absolutePath,
+      content: readFileSync(absolutePath, "utf8"),
+    };
+  }
+
   private scanDir(dir: string, enabled: boolean): SkillItem[] {
     if (!existsSync(dir)) return [];
     return readdirSync(dir, { withFileTypes: true })
@@ -131,7 +210,14 @@ export class SkillFileStore {
         enabled,
         description: parsed.frontmatter.description || "Workspace skill loaded from SKILL.md.",
         version: parsed.frontmatter.version || "0.1.0",
+        category: parsed.frontmatter.category,
+        icon: parsed.frontmatter.icon,
+        triggers: parsed.frontmatter.triggers,
+        tags: parsed.frontmatter.tags,
+        scopes: parsed.frontmatter.scopes,
+        allowedTools: parsed.frontmatter.allowedTools,
         instructions: parsed.body.trim(),
+        resources: listSkillResources(dir),
         sourcePath: skillPath,
       };
     } catch (error) {
@@ -170,16 +256,64 @@ function parseSkillMarkdown(content: string): { frontmatter: SkillFrontmatter; b
 
 function parseFrontmatter(value: string): SkillFrontmatter {
   const result: SkillFrontmatter = {};
-  for (const line of value.split("\n")) {
+  const lines = value.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const match = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
     if (!match) continue;
-    const key = match[1];
-    const raw = unquote(match[2] || "");
-    if (key === "name") result.name = raw;
-    if (key === "description") result.description = raw;
-    if (key === "version") result.version = raw;
+    const key = normalizeFrontmatterKey(match[1]);
+    let raw = match[2] || "";
+    if (raw.trim() === "|" || raw.trim() === ">") {
+      const block: string[] = [];
+      while (index + 1 < lines.length && (lines[index + 1].startsWith(" ") || lines[index + 1].startsWith("\t") || lines[index + 1].trim() === "")) {
+        index += 1;
+        block.push(lines[index].replace(/^\s{2}/, ""));
+      }
+      raw = block.join(raw.trim() === ">" ? " " : "\n");
+    }
+    const stringValue = unquote(raw);
+    const listValue = parseFrontmatterList(stringValue, lines, index);
+    if (listValue.consumed > 0) index += listValue.consumed;
+    if (key === "name") result.name = stringValue;
+    if (key === "description") result.description = stringValue;
+    if (key === "version") result.version = stringValue;
+    if (key === "category") result.category = stringValue;
+    if (key === "icon") result.icon = stringValue;
+    if (key === "triggers") result.triggers = listValue.values;
+    if (key === "tags") result.tags = listValue.values;
+    if (key === "scopes") result.scopes = listValue.values;
+    if (key === "allowedTools") result.allowedTools = listValue.values;
   }
   return result;
+}
+
+function normalizeFrontmatterKey(key: string): keyof SkillFrontmatter | string {
+  if (key === "allowed-tools" || key === "allowed_tools") return "allowedTools";
+  return key;
+}
+
+function parseFrontmatterList(raw: string, lines: string[], index: number): { values: string[] | undefined; consumed: number } {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return { values: trimmed.slice(1, -1).split(",").map((item) => unquote(item)).filter(Boolean), consumed: 0 };
+  }
+  if (trimmed) return { values: splitCommaList(trimmed), consumed: 0 };
+  const values: string[] = [];
+  let consumed = 0;
+  while (index + consumed + 1 < lines.length) {
+    const next = lines[index + consumed + 1];
+    const item = next.match(/^\s*-\s+(.+)$/);
+    if (!item) break;
+    values.push(unquote(item[1]));
+    consumed += 1;
+  }
+  return { values: values.length ? values : undefined, consumed };
+}
+
+function splitCommaList(value: string): string[] | undefined {
+  if (!value.includes(",")) return value ? [value] : undefined;
+  const values = value.split(",").map((item) => unquote(item)).filter(Boolean);
+  return values.length ? values : undefined;
 }
 
 function unquote(value: string): string {
@@ -188,6 +322,74 @@ function unquote(value: string): string {
     return trimmed.slice(1, -1);
   }
   return trimmed;
+}
+
+function listSkillResources(skillDir: string): SkillResource[] {
+  const resources: SkillResource[] = [];
+  for (const { dirname, kind } of SKILL_RESOURCE_DIRS) {
+    const resourceDir = join(skillDir, dirname);
+    if (!existsSync(resourceDir)) continue;
+    collectSkillResources(skillDir, resourceDir, kind, resources);
+    if (resources.length >= MAX_SKILL_RESOURCES) break;
+  }
+  collectRootReferenceResources(skillDir, resources);
+  return resources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+function collectRootReferenceResources(skillDir: string, resources: SkillResource[]): void {
+  if (resources.length >= MAX_SKILL_RESOURCES) return;
+  for (const entry of readdirSync(skillDir, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.name.startsWith(".") || ROOT_REFERENCE_FILE_SKIP.has(entry.name)) continue;
+    const extension = entry.name.includes(".") ? entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase() : "";
+    if (!ROOT_REFERENCE_FILE_EXTENSIONS.has(extension)) continue;
+    const fullPath = join(skillDir, entry.name);
+    const stats = statSync(fullPath);
+    resources.push({
+      kind: "reference",
+      name: entry.name,
+      relativePath: entry.name,
+      size: stats.size,
+      sizeLabel: formatBytes(stats.size),
+    });
+    if (resources.length >= MAX_SKILL_RESOURCES) return;
+  }
+}
+
+function collectSkillResources(skillDir: string, dir: string, kind: SkillResourceKind, resources: SkillResource[]): void {
+  if (resources.length >= MAX_SKILL_RESOURCES) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectSkillResources(skillDir, fullPath, kind, resources);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    const stats = statSync(fullPath);
+    resources.push({
+      kind,
+      name: entry.name,
+      relativePath: toPosixPath(relative(skillDir, fullPath)),
+      size: stats.size,
+      sizeLabel: formatBytes(stats.size),
+    });
+    if (resources.length >= MAX_SKILL_RESOURCES) return;
+  }
+}
+
+function toPosixPath(path: string): string {
+  return path.split(sep).join("/");
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${formatNumber(kb)} KB`;
+  return `${formatNumber(kb / 1024)} MB`;
+}
+
+function formatNumber(value: number): string {
+  return value >= 10 ? value.toFixed(0) : value.toFixed(1);
 }
 
 function parseFileSkillId(id: unknown): { slug: string } | null {
@@ -203,6 +405,26 @@ function resolveSkillChildDir(baseDir: string, slug: string): string | null {
   const target = resolve(base, slug);
   if (target === base || target.startsWith(`${base}${sep}`)) return target;
   return null;
+}
+
+function resolveSkillChildFile(baseDir: string, relativePath: string): string | null {
+  const base = resolve(baseDir);
+  const target = resolve(base, relativePath);
+  if (target === base || target.startsWith(`${base}${sep}`)) return target;
+  return null;
+}
+
+function normalizeRelativeResourcePath(value: string): string | null {
+  const normalized = value.split("\\").join("/").replace(/^\/+/, "").trim();
+  if (!normalized || normalized === "." || normalized.includes("\0")) return null;
+  if (normalized.split("/").some((part) => !part || part === "." || part === "..")) return null;
+  return normalized;
+}
+
+function resourceKindForRelativePath(relativePath: string): SkillResourceKind {
+  const topLevel = relativePath.split("/")[0];
+  const matched = SKILL_RESOURCE_DIRS.find((entry) => entry.dirname === topLevel);
+  return matched?.kind || "reference";
 }
 
 function titleFromSlug(slug: string): string {
@@ -253,4 +475,81 @@ function assertSkillContentNotBlank(content: string): void {
 
 function formatMaxSkillSize(): string {
   return "10 MB";
+}
+
+function formatMaxSkillResourceSize(): string {
+  return "2 MB";
+}
+
+function syncDefaultSkillFolder(sourceDir: string, targetDir: string, slug: string, targetKind: "template" | "workspace"): void {
+  if (!existsSync(targetDir)) {
+    replaceSkillFolder(sourceDir, targetDir, slug);
+    return;
+  }
+
+  const sourceVersion = parseSkillVersion(sourceDir);
+  const targetVersion = parseSkillVersion(targetDir);
+  const isManaged = targetKind === "template" || isBrevynManagedDefaultSkill(targetDir, slug);
+  if (!isManaged) return;
+  if (compareSemver(sourceVersion, targetVersion) <= 0) return;
+  replaceSkillFolder(sourceDir, targetDir, slug);
+}
+
+function replaceSkillFolder(sourceDir: string, targetDir: string, slug: string): void {
+  const parentDir = resolve(targetDir, "..");
+  mkdirSync(parentDir, { recursive: true });
+  const tmpDir = join(parentDir, `.${slug}.syncing-${process.pid}-${Date.now()}`);
+  rmSync(tmpDir, { recursive: true, force: true });
+  cpSync(sourceDir, tmpDir, { recursive: true });
+  writeDefaultSkillSourceMarker(tmpDir, slug, parseSkillVersion(sourceDir));
+  rmSync(targetDir, { recursive: true, force: true });
+  renameSync(tmpDir, targetDir);
+}
+
+function writeDefaultSkillSourceMarker(targetDir: string, slug: string, version: string): void {
+  writeFileSync(join(targetDir, DEFAULT_SKILL_SOURCE_FILE), JSON.stringify({
+    managedBy: "brevyn",
+    kind: "bundled_default",
+    slug,
+    version,
+    syncedAt: new Date().toISOString(),
+  }, null, 2), "utf8");
+}
+
+function isBrevynManagedDefaultSkill(skillDir: string, slug: string): boolean {
+  try {
+    const raw = readFileSync(join(skillDir, DEFAULT_SKILL_SOURCE_FILE), "utf8");
+    const parsed = JSON.parse(raw) as { managedBy?: unknown; kind?: unknown; slug?: unknown };
+    return parsed.managedBy === "brevyn" && parsed.kind === "bundled_default" && parsed.slug === slug;
+  } catch {
+    return false;
+  }
+}
+
+function parseSkillVersion(skillDir: string): string {
+  try {
+    const parsed = parseSkillMarkdown(readFileSync(join(skillDir, "SKILL.md"), "utf8"));
+    return parsed.frontmatter.version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function compareSemver(a: string, b: string): number {
+  const left = parseSemver(a);
+  const right = parseSemver(b);
+  for (let index = 0; index < 3; index += 1) {
+    const diff = (left[index] || 0) - (right[index] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+function parseSemver(value: string): [number, number, number] {
+  const match = value.trim().match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  return [
+    match ? Number(match[1] || 0) : 0,
+    match ? Number(match[2] || 0) : 0,
+    match ? Number(match[3] || 0) : 0,
+  ];
 }

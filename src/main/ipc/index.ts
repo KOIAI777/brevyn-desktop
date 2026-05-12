@@ -1,5 +1,6 @@
 import { registerAgentIpc } from "./agent-ipc";
 import { registerAppIpc } from "./app-ipc";
+import { registerAttachmentsIpc } from "./attachments-ipc";
 import type { IpcContext } from "./context";
 import { registerFilesIpc } from "./files-ipc";
 import { registerIndexingIpc } from "./indexing-ipc";
@@ -16,5 +17,6 @@ export function registerIpcHandlers(ctx: IpcContext): void {
   registerProvidersIpc(ctx);
   registerTimetableIpc(ctx);
   registerAgentIpc(ctx);
+  registerAttachmentsIpc(ctx);
   registerAppIpc(ctx);
 }

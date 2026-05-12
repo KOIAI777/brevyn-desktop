@@ -1,11 +1,12 @@
-import type { ChangeEvent, FormEvent, KeyboardEvent, Ref } from "react";
+import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, ChevronUp, Circle, FileText, Loader2, Minimize2, Plus, Send, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
-import type { AgentPermissionMode, ModelProviderConfig, WorkspaceFileKind, WorkspaceFileNode } from "@/types/domain";
+import { Check, ChevronDown, ChevronUp, Circle, ClipboardList, FileText, Loader2, Minimize2, Plus, Send, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
+import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, WorkspaceFileKind, WorkspaceFileNode } from "@/types/domain";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 
-const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[54rem]";
+const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
 
 interface AgentTodoItem {
   content: string;
@@ -28,12 +29,13 @@ interface AgentComposerProps {
   permissionMode: AgentPermissionMode;
   contextUsage: ContextUsage | null;
   compacting: boolean;
+  threadId: string;
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
   files: WorkspaceFileNode[];
   onSetPlanMode: (value: boolean | ((current: boolean) => boolean)) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode) => Promise<void>;
+  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[]) => Promise<void>;
   onStop: () => Promise<void>;
   onCompact: () => void;
   onSelectProvider: (providerId: string) => Promise<void>;
@@ -47,6 +49,7 @@ export function AgentComposer({
   permissionMode,
   contextUsage,
   compacting,
+  threadId,
   agentProviders,
   activeProviderId,
   files,
@@ -59,7 +62,9 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const [promptValue, setPromptValue] = useState("");
   const [mentionedFiles, setMentionedFiles] = useState<WorkspaceFileNode[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<AgentAttachment[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const mentionableFiles = useMemo(() => flattenMentionableFiles(files), [files]);
   const mentionSuggestions = useMemo(() => filterMentionSuggestions(mentionableFiles, mentionQuery), [mentionableFiles, mentionQuery]);
   const providerOptions = useMemo(() => agentProviders.map((provider) => ({
@@ -85,11 +90,18 @@ export function AgentComposer({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const prompt = buildPromptWithMentions(promptValue.trim(), mentionedFiles);
-    if (!prompt || running) return;
+    if ((!prompt && pendingAttachments.length === 0) || running) return;
     setPromptValue("");
     setMentionedFiles([]);
     setMentionQuery(null);
-    await onRun(prompt, planMode ? "plan" : "execute", planMode ? "review" : permissionMode);
+    const attachments = pendingAttachments;
+    setPendingAttachments([]);
+    try {
+      await onRun(prompt || "请查看附件。", planMode ? "plan" : "execute", planMode ? "review" : permissionMode, attachments);
+    } catch (error) {
+      setPendingAttachments((current) => mergeAttachments(attachments, current));
+      throw error;
+    }
   }
 
   function handlePromptChange(event: ChangeEvent<HTMLTextAreaElement>) {
@@ -104,11 +116,88 @@ export function AgentComposer({
     event.currentTarget.form?.requestSubmit();
   }
 
+  async function pickAttachments() {
+    if (running) return;
+    const next = await window.brevyn.attachments.pick(threadId);
+    if (next.length) setPendingAttachments((current) => mergeAttachments(current, next));
+  }
+
+  async function addDroppedFiles(files: File[]) {
+    if (running || files.length === 0) return;
+    const pathItems: string[] = [];
+    const dataItems: Promise<AgentAttachment>[] = [];
+    for (const file of files) {
+      const path = window.brevyn.attachments.pathForFile(file);
+      if (path) {
+        pathItems.push(path);
+      } else {
+        dataItems.push(fileToBase64(file).then((data) => window.brevyn.attachments.saveData({
+          threadId,
+          name: file.name || `pasted-file-${Date.now()}`,
+          mediaType: file.type || undefined,
+          data,
+        })));
+      }
+    }
+    const [savedPaths, ...savedData] = await Promise.all([
+      pathItems.length ? window.brevyn.attachments.savePaths({ threadId, paths: pathItems }) : Promise.resolve([]),
+      ...dataItems,
+    ]);
+    setPendingAttachments((current) => mergeAttachments(current, [...savedPaths, ...savedData]));
+  }
+
+  async function removeAttachment(attachment: AgentAttachment) {
+    setPendingAttachments((current) => current.filter((item) => item.id !== attachment.id));
+    try {
+      await window.brevyn.attachments.delete({ threadId, path: attachment.path });
+    } catch (error) {
+      console.error("[AgentComposer] Failed to delete pending attachment:", error);
+    }
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files || []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void addDroppedFiles(files);
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDraggingFiles(false);
+    void addDroppedFiles(Array.from(event.dataTransfer.files || []));
+  }
+
   return (
     <form className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-5 pt-8 [background:linear-gradient(180deg,rgba(247,244,236,0),rgba(247,244,236,0.82))]" onSubmit={handleSubmit}>
       <div ref={dockRef} className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
-        <div className="pointer-events-auto w-full min-w-0 rounded-2xl border border-white/55 bg-card/70 p-3 shadow-[0_18px_52px_rgba(64,55,38,0.18)] ring-1 ring-border/45 backdrop-blur-2xl">
+        <div
+          className={`pointer-events-auto w-full min-w-0 rounded-2xl border p-3 shadow-[0_18px_52px_rgba(64,55,38,0.18)] ring-1 backdrop-blur-2xl transition ${
+            draggingFiles
+              ? "border-sky-200 bg-sky-50/72 ring-sky-100"
+              : "border-white/55 bg-card/70 ring-border/45"
+          }`}
+          onDragOver={(event) => {
+            if (running) return;
+            event.preventDefault();
+            setDraggingFiles(true);
+          }}
+          onDragLeave={() => setDraggingFiles(false)}
+          onDrop={handleDrop}
+        >
+          {pendingAttachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {pendingAttachments.map((attachment) => (
+                <AttachmentChip
+                  key={attachment.id}
+                  attachment={attachment}
+                  removable={!running}
+                  onRemove={() => void removeAttachment(attachment)}
+                />
+              ))}
+            </div>
+          )}
           <textarea
             name="prompt"
             rows={1}
@@ -116,6 +205,7 @@ export function AgentComposer({
             disabled={running}
             onChange={handlePromptChange}
             onKeyDown={handlePromptKeyDown}
+            onPaste={handlePaste}
             placeholder={running ? "Brevyn is working..." : "Ask Brevyn about this thread..."}
             className="max-h-32 min-h-11 w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
@@ -146,12 +236,15 @@ export function AgentComposer({
               ))}
             </div>
           )}
-          <div className="mt-2 flex min-w-0 items-center justify-between gap-3">
-            <div className="flex min-w-0 shrink items-center gap-2">
+          <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 shrink items-center gap-1.5">
               <button
                 type="button"
+                disabled={running}
+                onClick={() => void pickAttachments()}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 aria-label="Add context"
+                title="Add attachment"
               >
                 <Plus className="h-4.5 w-4.5" />
               </button>
@@ -159,19 +252,19 @@ export function AgentComposer({
                 type="button"
                 disabled={running}
                 onClick={() => onSetPlanMode((current) => !current)}
-                className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                className={`inline-flex h-7 min-w-[58px] items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
                   planMode
-                    ? "border-blue-200 bg-blue-50 text-blue-800 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]"
-                    : "border-amber-200 bg-amber-50 text-amber-800"
+                    ? "border-blue-200 bg-blue-50/85 text-blue-800 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]"
+                    : "border-border/70 bg-background/55 text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
-                title={planMode ? "退出计划模式" : "进入计划模式"}
+                title={planMode ? "Exit plan mode" : "Plan mode"}
               >
-                <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{planMode ? "退出计划模式" : "进入计划模式"}</span>
+                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Plan</span>
               </button>
             </div>
 
-            <div className="flex min-w-0 shrink-0 items-center gap-2">
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
               <ContextUsageButton
                 usage={contextUsage}
                 compacting={compacting}
@@ -185,14 +278,14 @@ export function AgentComposer({
                 placeholder="Permission"
                 ariaLabel="Select agent permission mode"
                 disabled={running || planMode}
-                className="w-28 sm:w-32"
-                buttonClassName={`h-8 rounded-xl border-white/50 px-2.5 text-[11px] font-semibold shadow-sm backdrop-blur ${
+                className="w-fit shrink-0"
+                buttonClassName={`h-7 min-w-[96px] rounded-full border px-2 text-[11px] font-semibold shadow-sm backdrop-blur ${
                   !planMode && permissionMode === "full_access"
-                    ? "bg-amber-50/80 text-amber-900"
-                    : "bg-background/55"
+                    ? "border-amber-200 bg-amber-50/80 text-amber-900"
+                    : "border-border/70 bg-background/55"
                 }`}
                 menuClassName="bg-card/95 backdrop-blur-xl"
-                menuMinWidth={144}
+                menuMinWidth={132}
               />
               <DropdownSelect
                 value={activeProviderId}
@@ -201,10 +294,10 @@ export function AgentComposer({
                 placeholder="Select model"
                 ariaLabel="Select agent model"
                 disabled={providerOptions.length === 0}
-                className="w-36 sm:w-44"
-                buttonClassName="h-8 rounded-xl border-white/50 bg-background/55 px-2.5 text-[11px] font-semibold shadow-sm backdrop-blur"
+                className="w-[132px] shrink-0 sm:w-[156px]"
+                buttonClassName="h-7 rounded-full border border-border/70 bg-background/55 px-2 text-[11px] font-semibold shadow-sm backdrop-blur"
                 menuClassName="bg-card/95 backdrop-blur-xl"
-                menuMinWidth={176}
+                menuMinWidth={172}
               />
               {running ? (
                 <button
@@ -305,6 +398,58 @@ function buildPromptWithMentions(prompt: string, files: WorkspaceFileNode[]): st
     .map((file) => `- ${file.name}: ${file.sourcePath || file.path}`)
     .join("\n");
   return `<attached_files>\n${refs}\n</attached_files>\n\n${prompt}`;
+}
+
+function AttachmentChip({
+  attachment,
+  removable,
+  onRemove,
+}: {
+  attachment: AgentAttachment;
+  removable: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-border/70 bg-background/70 py-1 pl-2 pr-1 text-[11px] font-medium text-foreground shadow-sm"
+      title={attachment.path}
+    >
+      <FileTypeIcon name={attachment.name} size={15} />
+      <span className="max-w-44 truncate">{attachment.name}</span>
+      {attachment.sizeLabel && <span className="text-[10px] text-muted-foreground">{attachment.sizeLabel}</span>}
+      {removable && (
+        <button
+          type="button"
+          className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
+          onClick={onRemove}
+          aria-label={`Remove ${attachment.name}`}
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function mergeAttachments(current: AgentAttachment[], next: AgentAttachment[]): AgentAttachment[] {
+  const seen = new Set(current.map((item) => item.path));
+  return [...current, ...next.filter((item) => {
+    if (seen.has(item.path)) return false;
+    seen.add(item.path);
+    return true;
+  })];
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Failed to read attachment."));
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      resolve(value.includes(",") ? value.slice(value.indexOf(",") + 1) : value);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function fileKindLabel(kind: WorkspaceFileKind): string {

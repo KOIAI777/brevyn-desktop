@@ -62,6 +62,12 @@ export const IPC_CHANNELS = {
   agentAnswerQuestion: "brevyn:agent:answer-question",
   agentResolveExitPlan: "brevyn:agent:resolve-exit-plan",
   agentEvent: "brevyn:agent:event",
+  attachmentsPick: "brevyn:attachments:pick",
+  attachmentsList: "brevyn:attachments:list",
+  attachmentsSavePaths: "brevyn:attachments:save-paths",
+  attachmentsSaveData: "brevyn:attachments:save-data",
+  attachmentsDelete: "brevyn:attachments:delete",
   appOpenExternal: "brevyn:app:open-external",
   appOpenWorkspacePath: "brevyn:app:open-workspace-path",
+  appPreviewWorkspacePath: "brevyn:app:preview-workspace-path",
 } as const;

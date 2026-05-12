@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { FolderOpen, Loader2, Upload, X } from "lucide-react";
+import { FolderOpen, Loader2, Paperclip, Upload, X } from "lucide-react";
 import type { Course, FileStats, WorkspaceFileNode } from "@/types/domain";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cx } from "@/lib/cn";
@@ -12,11 +12,12 @@ export function FileBrowserRail({
   course,
   stats,
   files,
+  sessionFiles,
   loading,
   selectedFileId,
   onSelectFile,
+  onSelectSessionFile,
   onOpenUpload,
-  width,
   resizing,
   onResizeStart,
 }: {
@@ -24,11 +25,12 @@ export function FileBrowserRail({
   course?: Course;
   stats?: FileStats | null;
   files: WorkspaceFileNode[];
+  sessionFiles?: WorkspaceFileNode[];
   loading?: boolean;
   selectedFileId: string;
   onSelectFile: (file: WorkspaceFileNode) => void;
+  onSelectSessionFile?: (file: WorkspaceFileNode) => void;
   onOpenUpload: () => void;
-  width: number;
   resizing?: boolean;
   onResizeStart: (event: PointerEvent) => void;
 }) {
@@ -97,8 +99,8 @@ export function FileBrowserRail({
   return (
     <aside
       aria-hidden={collapsed}
-      className={`group/rail relative hidden shrink-0 flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity] transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-3 border-transparent opacity-0 shadow-none ring-0" : "opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20" : ""}`}
-      style={{ width: collapsed ? 0 : width }}
+      className={`group/rail relative hidden shrink-0 origin-right transform-gpu flex-col justify-self-end overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity,width] transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-8 scale-x-[0.98] border-transparent opacity-0 shadow-none ring-0" : "translate-x-0 scale-x-100 opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20 transition-none" : ""}`}
+      style={{ width: collapsed ? 0 : "100%" }}
     >
       {confirmDialog}
       <FileContextMenu state={menu} onAction={handleContextAction} onClose={() => setMenu(null)} />
@@ -128,73 +130,112 @@ export function FileBrowserRail({
       >
         <span className="absolute left-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/rail:opacity-100" />
       </button>
-      <div className={`flex items-center justify-between border-b px-3 py-2.5 transition-opacity duration-150 ${collapsed ? "opacity-0" : "opacity-100"}`}>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-xs font-semibold">
-            <FolderOpen className="h-3.5 w-3.5" />
-            Course Files
+      <div className={`flex min-h-0 flex-1 flex-col transition-opacity duration-150 ${collapsed ? "opacity-0" : "opacity-100"}`}>
+        <section className="flex max-h-[38%] min-h-[7.5rem] flex-col border-b bg-background/30">
+          <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold">
+                <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Session files</span>
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {(sessionFiles || []).reduce((count, node) => count + countLeafFiles(node), 0)} files in this chat
+              </div>
+            </div>
           </div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {course?.name || "Workspace"} · {stats?.totalFiles ?? files.reduce((count, node) => count + countLeafFiles(node), 0)} files
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 brevyn-scrollbar">
+            {sessionFiles && sessionFiles.length > 0 ? (
+              <div className="space-y-0.5">
+                {sessionFiles.map((file) => (
+                  <FileTreeNode
+                    key={file.id}
+                    node={file}
+                    level={0}
+                    selectedFileId={selectedFileId}
+                    collapsedFolderIds={collapsedFolderIds}
+                    onSelect={onSelectSessionFile || onSelectFile}
+                    onToggleFolder={toggleFolder}
+                    onContextMenu={(event) => event.preventDefault()}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed bg-card/45 px-3 py-4 text-center text-[11px] leading-5 text-muted-foreground">
+                Attach files in chat and they will appear here.
+              </div>
+            )}
           </div>
-          {actionError && <div className="mt-1 truncate text-[10px] text-red-600" title={actionError}>{actionError}</div>}
-        </div>
-        <div className="flex items-center gap-1.5">
-          {loading && files.length > 0 && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-          {stats && (
-            <span className="rounded-md bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-              {stats.sectionCount} sections
-            </span>
-          )}
-          <button
-            type="button"
-            className="inline-flex h-7 items-center gap-1 rounded-md border bg-background/70 px-2 text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={uploadDisabled}
-            onClick={onOpenUpload}
-            title={uploadTitle}
-          >
-            <Upload className="h-3 w-3" />
-            Upload
-          </button>
-        </div>
-      </div>
+        </section>
 
-      <div className={`min-h-0 flex-1 overflow-y-auto p-2 transition-opacity duration-150 brevyn-scrollbar ${collapsed ? "opacity-0" : "opacity-100"}`}>
-        {loading && files.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading course files...
+        <section className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-w-0 items-center gap-2 border-b px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold">
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Course Files</span>
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {course?.name || "Workspace"} · {stats?.totalFiles ?? files.reduce((count, node) => count + countLeafFiles(node), 0)} files
+              </div>
+              {actionError && <div className="mt-1 truncate text-[10px] text-red-600" title={actionError}>{actionError}</div>}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {loading && files.length > 0 && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              {stats && (
+                <span className="rounded-md bg-muted px-1.5 py-1 text-[10px] text-muted-foreground" title={`${stats.sectionCount} sections`}>
+                  {stats.sectionCount}
+                </span>
+              )}
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={uploadDisabled}
+                onClick={onOpenUpload}
+                title={uploadTitle}
+                aria-label={uploadTitle}
+              >
+                <Upload className="h-3 w-3" />
+              </button>
+            </div>
           </div>
-        ) : files.length === 0 ? (
-          <div className="rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">No course files yet.</div>
-        ) : (
-          <div className="space-y-0.5">
-            {files.map((file) => (
-              <FileTreeNode
-                key={file.id}
-                node={file}
-                level={0}
-                selectedFileId={selectedFileId}
-                collapsedFolderIds={collapsedFolderIds}
-                onSelect={onSelectFile}
-                onToggleFolder={toggleFolder}
-                onContextMenu={(event, file) => {
-                  event.preventDefault();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setMenu({
-                    file,
-                    anchor: {
-                      left: rect.left,
-                      right: rect.right,
-                      top: rect.top,
-                      bottom: rect.bottom,
-                    },
-                  });
-                }}
-              />
-            ))}
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 brevyn-scrollbar">
+            {loading && files.length === 0 ? (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading course files...
+              </div>
+            ) : files.length === 0 ? (
+              <div className="rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">No course files yet.</div>
+            ) : (
+              <div className="space-y-0.5">
+                {files.map((file) => (
+                  <FileTreeNode
+                    key={file.id}
+                    node={file}
+                    level={0}
+                    selectedFileId={selectedFileId}
+                    collapsedFolderIds={collapsedFolderIds}
+                    onSelect={onSelectFile}
+                    onToggleFolder={toggleFolder}
+                    onContextMenu={(event, file) => {
+                      event.preventDefault();
+                      setMenu({
+                        file,
+                        anchor: {
+                          left: event.clientX,
+                          right: event.clientX,
+                          top: event.clientY,
+                          bottom: event.clientY,
+                        },
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </section>
       </div>
     </aside>
   );

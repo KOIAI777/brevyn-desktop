@@ -689,7 +689,7 @@ export function SettingsDialog({
             </div>
           </aside>
 
-          <main className="min-h-0 overflow-y-auto p-4 brevyn-scrollbar">
+          <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto brevyn-scrollbar")}>
             {activePage === "providers" ? (
               <ProviderSettingsPage
                 providers={providers}
@@ -1300,7 +1300,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                   <div className="min-w-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="truncate text-sm font-semibold">{group.semester.term}</span>
+                      <span className="min-w-0 max-w-full break-words text-sm font-semibold leading-5" title={group.semester.term}>{group.semester.term}</span>
                       <span className={cx("rounded px-1.5 py-0.5 text-[9px] uppercase", semesterArchived ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
                         {semesterArchived ? "Archived semester" : "Active semester"}
                       </span>
@@ -1363,7 +1363,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                               <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <span className="truncate text-xs font-semibold">{entry.course?.name || `Course ${shortId(entry.courseId)}`}</span>
+                                    <span className="min-w-0 max-w-full break-words text-xs font-semibold leading-5" title={entry.course?.name || entry.courseId}>{entry.course?.name || `Course ${shortId(entry.courseId)}`}</span>
                                     {entry.course?.code && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{entry.course.code}</span>}
                                     {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">Archived course</span>}
                                   </div>
@@ -1461,7 +1461,7 @@ function ArchivedThreadRow({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/80 px-3 py-2">
       <div className="min-w-0">
-        <div className="truncate text-xs font-medium">{thread.title}</div>
+        <div className="break-words text-xs font-medium leading-5" title={thread.title}>{thread.title}</div>
         <div className="mt-0.5 text-[10px] text-muted-foreground">
           {thread.threadType === "semester_home" ? "Home session" : `Task session · ${shortId(thread.taskId || thread.id)}`} · archived {formatArchiveDate(thread.archivedAt)}
         </div>
@@ -1577,11 +1577,18 @@ function SkillSettingsPage({
   onOpenSkillFolder: (skillId: string) => void;
   onToggleSkill: (skill: SkillItem) => void;
 }) {
+  const groupedSkills = useMemo(() => {
+    const byName = (a: SkillItem, b: SkillItem) => a.name.localeCompare(b.name);
+    return {
+      enabled: skills.filter((skill) => skill.enabled).sort(byName),
+      disabled: skills.filter((skill) => !skill.enabled).sort(byName),
+    };
+  }, [skills]);
   const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-      <section className="rounded-lg border bg-background/70 p-3">
-        <div className="mb-3 flex items-center justify-between gap-2">
+    <div className="grid min-h-[620px] gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="flex min-h-0 flex-col rounded-lg border bg-background/70 p-3">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Sparkles className="h-3.5 w-3.5" />
             Skill Profiles
@@ -1592,41 +1599,32 @@ function SkillSettingsPage({
           </div>
         </div>
 
-        <div className="space-y-2">
-          {skills.map((skill) => (
-            <div
-              key={skill.id}
-              className={cx(
-                "flex w-full cursor-pointer items-start gap-3 rounded-lg border bg-card px-3 py-3 text-left transition",
-                skill.id === selectedSkillId ? "border-foreground/30 ring-1 ring-foreground/15" : "hover:border-border/80",
-              )}
-              onClick={() => onSelectSkill(skill.id)}
-            >
-              <span className={cx("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", skill.enabled ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-border text-muted-foreground")}>
-                {skill.enabled ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-2 w-2 fill-current" />}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="truncate text-sm font-semibold">{skill.name}</div>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.version}</span>
-                </div>
-                <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{skill.description}</div>
-                {skill.instructions && (
-                  <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground/70">{skill.instructions}</div>
-                )}
-              </div>
-              <TogglePill enabled={skill.enabled} onClick={() => onToggleSkill(skill)} />
-            </div>
-          ))}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 brevyn-scrollbar">
+          <SkillListGroup
+            title="Enabled"
+            count={groupedSkills.enabled.length}
+            skills={groupedSkills.enabled}
+            selectedSkillId={selectedSkillId}
+            onSelectSkill={onSelectSkill}
+            onToggleSkill={onToggleSkill}
+          />
+          <SkillListGroup
+            title="Disabled"
+            count={groupedSkills.disabled.length}
+            skills={groupedSkills.disabled}
+            selectedSkillId={selectedSkillId}
+            onSelectSkill={onSelectSkill}
+            onToggleSkill={onToggleSkill}
+          />
         </div>
       </section>
 
-      <aside className="space-y-4">
+      <aside className="min-w-0 space-y-4">
         <section className="rounded-lg border bg-background/70 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
               <FileText className="h-3.5 w-3.5" />
-              <span className="truncate">{selectedSkill?.name || "Skill content"}</span>
+              <span className="min-w-0 truncate" title={selectedSkill?.name || "Skill content"}>{selectedSkill?.name || "Skill content"}</span>
             </div>
             <div className="flex items-center gap-2">
               <ActionButton
@@ -1642,8 +1640,33 @@ function SkillSettingsPage({
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.version}</span>
-                {selectedSkill.sourcePath && <span className="truncate rounded bg-muted px-1.5 py-0.5">{selectedSkill.sourcePath}</span>}
+                {selectedSkill.category && <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.category}</span>}
+                {!!selectedSkill.resources?.length && <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.resources.length} resources</span>}
+                {selectedSkill.sourcePath && <span className="min-w-0 max-w-full truncate rounded bg-muted px-1.5 py-0.5" title={selectedSkill.sourcePath}>{selectedSkill.sourcePath}</span>}
               </div>
+              <div className="grid gap-2 rounded-lg border bg-muted/25 p-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+                <SkillMetaRow label="Triggers" values={selectedSkill.triggers} />
+                <SkillMetaRow label="Tags" values={selectedSkill.tags} />
+                <SkillMetaRow label="Scopes" values={selectedSkill.scopes} />
+                <SkillMetaRow label="Allowed" values={selectedSkill.allowedTools} />
+              </div>
+              {!!selectedSkill.resources?.length && (
+                <div className="rounded-lg border bg-background/70 p-2">
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold">
+                    <Layers3 className="h-3.5 w-3.5" />
+                    Skill assets
+                  </div>
+                  <div className="max-h-32 space-y-1 overflow-auto pr-1">
+                    {selectedSkill.resources.slice(0, 24).map((resource) => (
+                      <div key={resource.relativePath} className="flex items-center gap-2 rounded bg-muted/45 px-2 py-1 text-[11px] text-muted-foreground">
+                        <span className="shrink-0 rounded bg-background px-1 py-0.5 text-[10px]">{resource.kind}</span>
+                        <span className="min-w-0 flex-1 truncate">{resource.relativePath}</span>
+                        <span className="shrink-0">{resource.sizeLabel}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <textarea
                 className="min-h-[320px] w-full rounded-lg border bg-background px-3 py-3 font-mono text-[12px] leading-5 text-foreground outline-none"
                 value={skillContent}
@@ -1693,6 +1716,87 @@ function SkillSettingsPage({
           </div>
         </section>
       </aside>
+    </div>
+  );
+}
+
+function SkillListGroup({
+  title,
+  count,
+  skills,
+  selectedSkillId,
+  onSelectSkill,
+  onToggleSkill,
+}: {
+  title: string;
+  count: number;
+  skills: SkillItem[];
+  selectedSkillId: string;
+  onSelectSkill: (skillId: string) => void;
+  onToggleSkill: (skill: SkillItem) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="sticky top-0 z-10 flex items-center justify-between rounded-md border bg-background/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground backdrop-blur">
+        <span>{title}</span>
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px]">{count}</span>
+      </div>
+      {skills.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-background/55 px-3 py-4 text-center text-[11px] text-muted-foreground">None</div>
+      ) : (
+        skills.map((skill) => (
+          <SkillListItem
+            key={skill.id}
+            skill={skill}
+            selected={skill.id === selectedSkillId}
+            onSelect={() => onSelectSkill(skill.id)}
+            onToggle={() => onToggleSkill(skill)}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function SkillListItem({ skill, selected, onSelect, onToggle }: { skill: SkillItem; selected: boolean; onSelect: () => void; onToggle: () => void }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={cx(
+        "flex w-full cursor-pointer items-start gap-3 rounded-lg border bg-card px-3 py-3 text-left transition will-change-transform",
+        selected ? "border-foreground/30 ring-1 ring-foreground/15" : "hover:border-border/80 hover:bg-accent/35",
+      )}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      title={`${skill.name}\n${skill.description}`}
+    >
+      <span className={cx("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", skill.enabled ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-border text-muted-foreground")}>
+        {skill.enabled ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-2 w-2 fill-current" />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <div className="min-w-0 max-w-full break-words text-sm font-semibold leading-5">{skill.name}</div>
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.version}</span>
+          {skill.category && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.category}</span>}
+        </div>
+        <div className="mt-1 line-clamp-2 break-words text-[11px] leading-4 text-muted-foreground">{skill.description}</div>
+        {!!skill.triggers?.length && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {skill.triggers.slice(0, 4).map((trigger) => (
+              <span key={trigger} className="max-w-full truncate rounded-full border bg-background/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground" title={trigger}>
+                {trigger}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <TogglePill enabled={skill.enabled} onClick={onToggle} />
     </div>
   );
 }
@@ -1868,7 +1972,10 @@ function TogglePill({ enabled, onClick, labelOn = "Enabled", labelOff = "Disable
       type="button"
       className={cx("inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45", enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground")}
       disabled={disabled}
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
     >
       {enabled ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
       {enabled ? labelOn : labelOff}
@@ -1941,6 +2048,25 @@ function IconActionButton({
     >
       {icon}
     </button>
+  );
+}
+
+function SkillMetaRow({ label, values }: { label: string; values?: string[] }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">{label}</div>
+      {values?.length ? (
+        <div className="flex flex-wrap gap-1">
+          {values.slice(0, 6).map((value) => (
+            <span key={value} className="max-w-full truncate rounded-full border bg-background/70 px-1.5 py-0.5 text-[10px] leading-none">
+              {value}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[11px] text-muted-foreground/60">None</div>
+      )}
+    </div>
   );
 }
 

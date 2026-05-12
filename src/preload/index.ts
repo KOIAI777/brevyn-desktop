@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type {
   CreateSemesterInput,
@@ -11,6 +11,7 @@ import type {
   CreateThreadInput,
   RenameThreadInput,
   AgentApprovalInput,
+  AgentAttachmentDataInput,
   AgentAskUserResponseInput,
   AgentExitPlanResponseInput,
   AgentRunInput,
@@ -119,9 +120,18 @@ const api: BrevynAPI = {
       return () => ipcRenderer.off(IPC_CHANNELS.agentEvent, listener);
     },
   },
+  attachments: {
+    pick: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsPick, threadId),
+    list: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsList, threadId),
+    savePaths: (input: { threadId: string; paths: string[] }) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsSavePaths, input),
+    saveData: (input: AgentAttachmentDataInput) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsSaveData, input),
+    delete: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsDelete, input),
+    pathForFile: (file: File) => webUtils.getPathForFile(file),
+  },
   app: {
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, url),
     openWorkspacePath: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.appOpenWorkspacePath, input),
+    previewWorkspacePath: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.appPreviewWorkspacePath, input),
   },
 };
 

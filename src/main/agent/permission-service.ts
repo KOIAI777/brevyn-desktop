@@ -110,6 +110,8 @@ const SAFE_TOOLS = new Set([
   "TodoRead",
   "TodoWrite",
   "TaskOutput",
+  "mcp__brevyn__load_skill",
+  "mcp__brevyn__read_skill_resource",
   "mcp__brevyn__course_structure",
   "mcp__brevyn__list_course_files",
   "mcp__brevyn__get_file_record",

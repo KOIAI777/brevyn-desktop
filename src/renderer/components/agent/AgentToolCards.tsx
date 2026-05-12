@@ -2,6 +2,7 @@ import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/component
 import { GenericToolResultCard, GenericToolUseCard } from "@/components/agent/tool-cards/GenericToolCard";
 import { RagSearchToolCard } from "@/components/agent/tool-cards/RagSearchToolCard";
 import { ShellToolCard } from "@/components/agent/tool-cards/ShellToolCard";
+import { SkillToolCard } from "@/components/agent/tool-cards/SkillToolCard";
 import { WebToolCard } from "@/components/agent/tool-cards/WebToolCard";
 export { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
 
@@ -22,6 +23,18 @@ export function ToolUseCard({
   if (block.name === "mcp__brevyn__rag_search") {
     return (
       <RagSearchToolCard
+        input={block.input}
+        result={result}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        {...helpers}
+      />
+    );
+  }
+
+  if (block.name === "mcp__brevyn__load_skill") {
+    return (
+      <SkillToolCard
         input={block.input}
         result={result}
         collapsed={collapsed}
@@ -86,6 +99,18 @@ export function ToolResultCard({
   if (toolUse?.name === "mcp__brevyn__rag_search") {
     return (
       <RagSearchToolCard
+        input={toolUse.input}
+        result={tool}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+        {...helpers}
+      />
+    );
+  }
+
+  if (toolUse?.name === "mcp__brevyn__load_skill") {
+    return (
+      <SkillToolCard
         input={toolUse.input}
         result={tool}
         collapsed={collapsed}

@@ -387,6 +387,8 @@ export class WorkspaceService {
       taskId: input.taskId,
       threadType: input.courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
       title: input.title || (task ? `${task.title} thread` : "New Home Thread"),
+      isDraft: Boolean(input.isDraft),
+      messageCount: 0,
       createdAt: now(),
       updatedAt: now(),
     };
@@ -408,6 +410,7 @@ export class WorkspaceService {
   archiveThread(threadId: string): boolean {
     const thread = this.options.businessStore.getThread(threadId);
     if (!thread || thread.archivedAt) return false;
+    if (thread.isDraft) throw new Error("Empty draft sessions do not need to be archived.");
     return Boolean(this.options.businessStore.archiveThread(threadId, now()));
   }
 

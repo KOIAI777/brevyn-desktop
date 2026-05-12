@@ -1,5 +1,6 @@
 import { Eye, ExternalLink, FileSearch, Maximize2, Minimize2 } from "lucide-react";
 import type { FilePreview } from "@/types/domain";
+import { useMemo, useState } from "react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "./FileTypeIcon";
 
@@ -14,6 +15,12 @@ export function FilePreviewPane({
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {
+  const [activeSheetName, setActiveSheetName] = useState("");
+  const activeSheet = useMemo(() => {
+    if (!preview?.sheets?.length) return null;
+    return preview.sheets.find((sheet) => sheet.name === activeSheetName) || preview.sheets[0] || null;
+  }, [activeSheetName, preview?.sheets]);
+
   if (!preview) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -53,7 +60,7 @@ export function FilePreviewPane({
                   点击文件树或对话里的文件引用，Markdown、PDF、图片和 Office 文档会在这里打开。
                 </p>
                 <div className="mt-3 flex flex-wrap justify-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-                  {["MD", "PDF", "DOCX", "PPTX", "IMG"].map((label) => (
+                  {["MD", "PDF", "DOCX", "PPTX", "XLSX", "IMG"].map((label) => (
                     <span key={label} className="rounded-full border bg-card/70 px-2 py-0.5">
                       {label}
                     </span>
@@ -76,7 +83,7 @@ export function FilePreviewPane({
           <div className="truncate text-[10px] text-muted-foreground">{preview.path}</div>
         </div>
         <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">{preview.kind}</span>
-        {preview.fileUrl && (
+        {preview.fileUrl && !preview.id.startsWith("/") && (
           <button
             type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
@@ -152,6 +159,14 @@ export function FilePreviewPane({
           </div>
         )}
 
+        {preview.kind === "spreadsheet" && preview.sheets && (
+          <SpreadsheetPreview
+            preview={preview}
+            activeSheetName={activeSheet?.name || ""}
+            onSelectSheet={setActiveSheetName}
+          />
+        )}
+
         {preview.pages && (
           <div className="space-y-2">
             {preview.pages.map((page, index) => (
@@ -168,6 +183,103 @@ export function FilePreviewPane({
       </div>
     </div>
   );
+}
+
+function SpreadsheetPreview({
+  preview,
+  activeSheetName,
+  onSelectSheet,
+}: {
+  preview: FilePreview;
+  activeSheetName: string;
+  onSelectSheet: (name: string) => void;
+}) {
+  const sheets = preview.sheets || [];
+  const activeSheet = sheets.find((sheet) => sheet.name === activeSheetName) || sheets[0];
+  if (!activeSheet) {
+    return (
+      <div className="rounded-lg border border-dashed bg-background/65 px-4 py-8 text-center text-xs text-muted-foreground">
+        No spreadsheet cells available for preview.
+      </div>
+    );
+  }
+  const columnCount = Math.max(activeSheet.totalColumns, ...activeSheet.rows.map((row) => row.length), 1);
+  const visibleColumnCount = Math.min(columnCount, 40);
+  return (
+    <div className="overflow-hidden rounded-lg border bg-background">
+      <div className="flex items-center gap-1 overflow-x-auto border-b bg-muted/30 px-2 py-2 brevyn-scrollbar">
+        {sheets.map((sheet) => (
+          <button
+            key={sheet.name}
+            type="button"
+            className={`shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${
+              sheet.name === activeSheet.name ? "border-foreground/25 bg-card text-foreground shadow-sm" : "border-transparent text-muted-foreground hover:bg-card/80 hover:text-foreground"
+            }`}
+            onClick={() => onSelectSheet(sheet.name)}
+            title={`${sheet.name} · ${sheet.totalRows} rows × ${sheet.totalColumns} columns`}
+          >
+            {sheet.name}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-3 border-b bg-card/50 px-3 py-2 text-[10px] text-muted-foreground">
+        <span>
+          {activeSheet.totalRows} rows × {activeSheet.totalColumns} columns
+        </span>
+        {activeSheet.truncated && <span>Showing first 120 rows × 40 columns</span>}
+      </div>
+      <div className="max-h-[68vh] overflow-auto brevyn-scrollbar">
+        <table className="min-w-full border-separate border-spacing-0 text-left text-[11px]">
+          <thead className="sticky top-0 z-10 bg-muted/95 text-muted-foreground backdrop-blur">
+            <tr>
+              <th className="sticky left-0 z-20 w-10 border-b border-r bg-muted/95 px-2 py-1.5 text-center font-medium">#</th>
+              {Array.from({ length: visibleColumnCount }, (_, index) => (
+                <th key={index} className="min-w-28 border-b border-r px-2 py-1.5 font-medium">
+                  {spreadsheetColumnName(index)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {activeSheet.rows.length === 0 ? (
+              <tr>
+                <td className="px-3 py-8 text-center text-muted-foreground" colSpan={visibleColumnCount + 1}>
+                  Empty sheet
+                </td>
+              </tr>
+            ) : (
+              activeSheet.rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="odd:bg-background even:bg-muted/20">
+                  <th className="sticky left-0 z-10 border-b border-r bg-inherit px-2 py-1.5 text-center font-medium text-muted-foreground">{rowIndex + 1}</th>
+                  {Array.from({ length: visibleColumnCount }, (_, columnIndex) => {
+                    const value = row[columnIndex];
+                    return (
+                      <td key={columnIndex} className="max-w-64 border-b border-r px-2 py-1.5 align-top text-foreground">
+                        <span className="block max-w-64 truncate" title={value == null ? "" : String(value)}>
+                          {value == null ? "" : String(value)}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function spreadsheetColumnName(index: number): string {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
 }
 
 function docxPreviewDocument(html: string): string {

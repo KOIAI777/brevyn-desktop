@@ -1,6 +1,7 @@
 import type {
   ArchivedCourseScope,
   ArchivedThreadScope,
+  AgentAttachment,
   AgentAskUserResponseInput,
   AgentApprovalInput,
   AgentExitPlanResponseInput,
@@ -106,6 +107,7 @@ export function normalizeCreateThreadInput(value: unknown): CreateThreadInput {
     courseId: requireString(input.courseId, "Course id"),
     taskId: optionalString(input.taskId),
     title: optionalString(input.title),
+    isDraft: input.isDraft === undefined ? undefined : Boolean(input.isDraft),
   };
 }
 
@@ -193,7 +195,31 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
     prompt: requireString(input.prompt, "Prompt"),
     mode: input.mode === "plan" ? "plan" : "execute",
     permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
+    attachments: normalizeAgentAttachments(input.attachments),
   };
+}
+
+function normalizeAgentAttachments(value: unknown): AgentAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value.flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const input = item as Record<string, unknown>;
+    const path = optionalString(input.path);
+    const name = optionalString(input.name);
+    if (!path || !name) return [];
+    return [{
+      id: optionalString(input.id) || `attachment-${index}`,
+      threadId: optionalString(input.threadId) || "",
+      name,
+      kind: typeof input.kind === "string" ? input.kind as AgentAttachment["kind"] : "unknown",
+      mimeType: optionalString(input.mimeType),
+      size: typeof input.size === "number" ? input.size : 0,
+      sizeLabel: optionalString(input.sizeLabel) || "",
+      path,
+      createdAt: optionalString(input.createdAt) || new Date().toISOString(),
+    }];
+  });
+  return attachments.length > 0 ? attachments : undefined;
 }
 
 export function normalizeAgentApprovalInput(value: unknown): AgentApprovalInput {

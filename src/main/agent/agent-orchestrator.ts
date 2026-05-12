@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { CanUseTool, Query, SDKMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentApprovalDecision,
+  AgentAttachment,
   AgentApprovalInput,
   AgentAskUserResponseInput,
   AgentExitPlanResponseInput,
@@ -89,6 +90,8 @@ export class AgentOrchestrator {
     const runId = entityId("run");
     const abortController = new AbortController();
     const resumeSessionId = this.options.sessions.latestSdkSessionId(context.thread);
+    const attachments = input.attachments || [];
+    const promptForAgent = promptWithAttachments(input.prompt, attachments);
     this.activeRuns.set(context.thread.id, {
       runId,
       threadId: context.thread.id,
@@ -117,13 +120,13 @@ export class AgentOrchestrator {
           createdAt: now(),
         });
       }
-      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt));
+      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments));
     } catch (error) {
       this.activeRuns.delete(context.thread.id);
       throw error;
     }
 
-    void this.executeRun(context, runId, input.prompt, resumeSessionId);
+    void this.executeRun(context, runId, promptForAgent, resumeSessionId);
     return { runId };
   }
 
@@ -158,6 +161,7 @@ export class AgentOrchestrator {
           sdk: sdkRuntime,
           rootDataDir: this.options.rootDataDir,
           businessStore: this.options.businessStore,
+          skillFiles: this.options.skillFiles,
           ragSearch: this.options.ragSearch,
           context,
         }),
@@ -369,6 +373,7 @@ export class AgentOrchestrator {
 
   private appendAndEmitSdkMessage(thread: Thread, message: SDKMessage): void {
     this.options.sessions.append(thread, message);
+    this.options.businessStore.recordThreadMessage(thread.id);
     this.options.eventBus.emit({ kind: "sdk_message", threadId: thread.id, message });
   }
 
@@ -500,18 +505,27 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Unknown agent error");
 }
 
-function userSdkMessage(content: string): SDKMessage {
+function userSdkMessage(content: string, attachments: AgentAttachment[] = []): SDKMessage {
   return {
     type: "user",
     message: {
       role: "user",
       content,
     },
+    ...(attachments.length > 0 ? { _attachments: attachments } : {}),
     parent_tool_use_id: null,
     uuid: entityId("msg"),
     session_id: "",
     _createdAt: Date.now(),
   } as unknown as SDKMessage;
+}
+
+function promptWithAttachments(prompt: string, attachments: AgentAttachment[]): string {
+  if (attachments.length === 0) return prompt;
+  const refs = attachments
+    .map((attachment) => `- ${attachment.name}: ${attachment.path}`)
+    .join("\n");
+  return `<attached_files>\n${refs}\n</attached_files>\n\n${prompt}`;
 }
 
 function assistantErrorSdkMessage(message: string, errorCode?: string): SDKMessage {

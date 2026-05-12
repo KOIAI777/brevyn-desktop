@@ -1,5 +1,7 @@
 import type { CanUseTool, McpServerConfig, PermissionMode, PermissionResult, Query, SDKMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
 import type * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { AgentProviderKind, ModelProviderConfig } from "../../types/domain";
 import { AnthropicAgentAdapter } from "../providers/anthropic-agent-adapter";
 
@@ -42,6 +44,7 @@ export class ClaudeSdkAdapter {
           ...stringProcessEnv(),
           ...input.env,
           CLAUDE_AGENT_SDK_CLIENT_APP: "brevyn/0.1.0",
+          BREVYN_RUNTIME_REQUIRE_FROM: resolveRuntimeRequireFrom(),
         },
         resume: input.resumeSessionId,
         systemPrompt: input.systemPrompt,
@@ -58,6 +61,8 @@ export class ClaudeSdkAdapter {
           "WebSearch",
           "TodoRead",
           "TodoWrite",
+          "mcp__brevyn__load_skill",
+          "mcp__brevyn__read_skill_resource",
           "mcp__brevyn__course_structure",
           "mcp__brevyn__list_course_files",
           "mcp__brevyn__get_file_record",
@@ -90,6 +95,8 @@ const SAFE_TOOLS = new Set([
   "TodoRead",
   "TodoWrite",
   "TaskOutput",
+  "mcp__brevyn__load_skill",
+  "mcp__brevyn__read_skill_resource",
   "mcp__brevyn__course_structure",
   "mcp__brevyn__list_course_files",
   "mcp__brevyn__get_file_record",
@@ -100,6 +107,16 @@ function stringProcessEnv(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []),
   );
+}
+
+function resolveRuntimeRequireFrom(): string {
+  const candidates = [
+    join(process.cwd(), "package.json"),
+    join(process.resourcesPath || "", "app", "package.json"),
+    join(process.resourcesPath || "", "package.json"),
+    join(__dirname, "..", "package.json"),
+  ];
+  return resolve(candidates.find((candidate) => existsSync(candidate)) || candidates[0]);
 }
 
 const safeToolPolicy: CanUseTool = async (toolName, input, options): Promise<PermissionResult> => {

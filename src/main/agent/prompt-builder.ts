@@ -1,5 +1,5 @@
 import type { BrevynTask, Course, SemesterWorkspace, SkillItem, Thread } from "../../types/domain";
-import { formatEnabledSkillPrompt } from "../skills/skill-registry";
+import { formatSkillRegistryPrompt } from "../skills/skill-registry";
 
 export interface AgentPromptContext {
   semester: SemesterWorkspace;
@@ -51,6 +51,7 @@ export class PromptBuilder {
       "- Use Glob to discover files, Grep to search contents, and Read to inspect specific files. Prefer these dedicated tools over Bash for file inspection.",
       "- Use AskUserQuestion when a meaningful choice would change the plan, scope, or interpretation. Ask concise questions with 2-3 useful options rather than stopping the run in plain text.",
       "- TodoWrite is allowed for tracking multi-step work. Keep todos short and update them as the run progresses.",
+      "- Skills are listed as a lightweight registry. When a user task matches an enabled skill, call load_skill with that skill id before applying its detailed workflow. If the loaded skill references bundled files, call read_skill_resource for the exact resource you need instead of reading every resource.",
       "- Read-only Bash commands may run automatically, but writes, deletes, shell redirection, command chaining, and dangerous commands require user approval.",
       "- Write/Edit/MultiEdit always represent file changes and require approval. Before editing, inspect the target file and keep changes minimal.",
       "- If a tool is denied, continue safely with what you know or ask the user for a safer path.",
@@ -67,9 +68,14 @@ export class PromptBuilder {
       "- When you used files, summarize what you inspected and what each file contributed.",
     ];
 
-    const enabledSkills = context.skills.filter((skill) => skill.enabled && skill.instructions?.trim());
+    const enabledSkills = context.skills.filter((skill) => skill.enabled);
     if (enabledSkills.length) {
-      lines.push("", "## Enabled Skills", truncateSkillPrompt(formatEnabledSkillPrompt(enabledSkills)));
+      lines.push(
+        "",
+        "## Enabled Skills",
+        "These are available skill profiles. Use load_skill(skillId) to inspect the full SKILL.md before relying on a skill-specific workflow. Use read_skill_resource(skillId, relativePath) for specific bundled references or scripts.",
+        truncateSkillPrompt(formatSkillRegistryPrompt(enabledSkills)),
+      );
     }
 
     return lines.join("\n");

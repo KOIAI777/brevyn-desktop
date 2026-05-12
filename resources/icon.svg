@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="annotationLine" x1="363" y1="132" x2="363" y2="408" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22313C"/>
+      <stop offset="0.42" stop-color="#315965"/>
+      <stop offset="0.74" stop-color="#5FAF9F"/>
+      <stop offset="1" stop-color="#A7E0C8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#F7F3EA"/>
+  <rect x="132" y="142" width="174" height="36" rx="18" fill="#22313C"/>
+  <rect x="132" y="238" width="174" height="36" rx="18" fill="#22313C"/>
+  <rect x="132" y="334" width="118" height="36" rx="18" fill="#22313C"/>
+  <rect x="346" y="132" width="34" height="214" rx="17" fill="url(#annotationLine)"/>
+  <circle cx="363" cy="390" r="20" fill="#6AB7A8"/>
+</svg>

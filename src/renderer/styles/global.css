@@ -122,6 +122,7 @@
   .brevyn-scrollbar {
     scrollbar-color: hsl(var(--border)) transparent;
     scrollbar-width: thin;
+    scrollbar-gutter: stable;
   }
 
   .brevyn-scrollbar::-webkit-scrollbar {

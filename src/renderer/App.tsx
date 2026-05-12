@@ -2,6 +2,7 @@ import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type {
   Course,
+  AgentAttachment,
   FileImportInput,
   FileImportResult,
   FilePreview,
@@ -33,10 +34,12 @@ const SEMESTER_HOME_COURSE_ID = "semester-home";
 type SettingsPage = "providers" | "archive" | "skills";
 type ResizableRail = "files" | "preview";
 
-const CHAT_MIN_WIDTH = 240;
+const CHAT_MIN_WIDTH = 520;
+const SIDEBAR_WIDTH_STORAGE_KEY = "brevyn.sidebar.width";
+const SIDEBAR_WIDTH = { min: 240, default: 340, max: 520 } as const;
 const RAIL_WIDTHS = {
-  files: { min: 260, default: 320 },
-  preview: { min: 320, default: 440 },
+  files: { min: 260, renderMin: 220, default: 320 },
+  preview: { min: 320, renderMin: 240, default: 440 },
 } as const;
 
 function App() {
@@ -59,6 +62,7 @@ function App() {
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileNode[]>([]);
+  const [sessionFiles, setSessionFiles] = useState<WorkspaceFileNode[]>([]);
   const [fileStats, setFileStats] = useState<FileStats | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState("");
@@ -83,9 +87,15 @@ function App() {
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentError, setAgentError] = useState("");
   const [agentProviders, setAgentProviders] = useState<ModelProviderConfig[]>([]);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readStoredSidebarWidth());
+  const emptyThreadIds = useMemo(() => new Set(threads.filter(isDraftThread).map((thread) => thread.id)), [threads]);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
   const [fileRailWidth, setFileRailWidth] = useState<number>(RAIL_WIDTHS.files.default);
   const [previewRailWidth, setPreviewRailWidth] = useState<number>(RAIL_WIDTHS.preview.default);
   const [resizingRail, setResizingRail] = useState<ResizableRail | null>(null);
+  const sidebarResizeStateRef = useRef<{ startX: number; startWidth: number; element: HTMLElement } | null>(null);
+  const sidebarResizeFrameRef = useRef<number | null>(null);
+  const sidebarResizePointerXRef = useRef(0);
   const resizeStateRef = useRef<{ rail: ResizableRail; startX: number; startWidth: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const resizePointerXRef = useRef(0);
@@ -126,6 +136,8 @@ function App() {
     const unsubscribe = window.brevyn.files.onChanged(() => {
       const activeCourseId = activeCourseIdRef.current;
       if (activeCourseId) void loadCourseFiles(activeCourseId);
+      const activeThreadId = activeThreadIdRef.current;
+      if (activeThreadId) void loadSessionFiles(activeThreadId);
     });
     return unsubscribe;
   }, []);
@@ -146,6 +158,7 @@ function App() {
         rememberWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
         const completedWritePaths = completedWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
         for (const path of completedWritePaths) scheduleWorkspacePathPreview(path);
+        markThreadHasMessages(eventThreadId);
         setAgentRecords((current) => [...current, event.message]);
         if (event.message.type === "result") {
           setAgentRunning(false);
@@ -172,12 +185,14 @@ function App() {
     if (!activeThreadId) {
       agentLoadRequestRef.current += 1;
       setAgentRecords([]);
+      setSessionFiles([]);
       setAgentLoading(false);
       setAgentRunning(false);
       setAgentError("");
       return;
     }
     void loadAgentMessages(activeThreadId);
+    void loadSessionFiles(activeThreadId);
   }, [activeThreadId]);
 
   useEffect(() => {
@@ -242,6 +257,56 @@ function App() {
     };
   }, [fileRailCollapsed, previewRailCollapsed, resizingRail]);
 
+  useEffect(() => {
+    if (!sidebarResizing) return;
+    function applyResize(clientX: number) {
+      const state = sidebarResizeStateRef.current;
+      if (!state) return;
+      const availableMax = window.innerWidth - CHAT_MIN_WIDTH - 48;
+      const maxWidth = Math.max(SIDEBAR_WIDTH.min, Math.min(SIDEBAR_WIDTH.max, availableMax));
+      const nextWidth = clamp(state.startWidth + clientX - state.startX, SIDEBAR_WIDTH.min, maxWidth);
+      state.element.style.width = `${nextWidth}px`;
+      return nextWidth;
+    }
+    function handlePointerMove(event: PointerEvent) {
+      sidebarResizePointerXRef.current = event.clientX;
+      if (sidebarResizeFrameRef.current !== null) return;
+      sidebarResizeFrameRef.current = window.requestAnimationFrame(() => {
+        sidebarResizeFrameRef.current = null;
+        applyResize(sidebarResizePointerXRef.current);
+      });
+    }
+    function handlePointerUp() {
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+        sidebarResizeFrameRef.current = null;
+      }
+      const nextWidth = applyResize(sidebarResizePointerXRef.current);
+      if (typeof nextWidth === "number") {
+        setSidebarWidth(nextWidth);
+        storeSidebarWidth(nextWidth);
+      }
+      sidebarResizeStateRef.current = null;
+      setSidebarResizing(false);
+    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+        sidebarResizeFrameRef.current = null;
+      }
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [sidebarResizing]);
+
   const activeCourse = useMemo(() => courses.find((course) => course.id === activeCourseId), [courses, activeCourseId]);
   const courseTasks = activeCourse ? tasksByCourse[activeCourse.id] || [] : [];
   const activeTask = useMemo(() => courseTasks.find((task) => task.id === activeTaskId), [courseTasks, activeTaskId]);
@@ -293,7 +358,8 @@ function App() {
       const threadList = await window.brevyn.threads.list();
 
       if (!mountedRef.current || isCancelled()) return;
-      const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
+      const visibleThreads = await ensureHomeThread(filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id), currentSemester?.id, courseList);
+      if (!mountedRef.current || isCancelled()) return;
       const nextTasksByCourse = Object.fromEntries(taskEntries);
       const selection = pickWorkspaceSelection(courseList, nextTasksByCourse, visibleThreads);
 
@@ -333,7 +399,8 @@ function App() {
 
       if (!mountedRef.current || workspaceReloadRequestRef.current !== requestId) return false;
 
-      const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
+      const visibleThreads = await ensureHomeThread(filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id), currentSemester?.id, courseList);
+      if (!mountedRef.current || workspaceReloadRequestRef.current !== requestId) return false;
       const nextTasksByCourse = Object.fromEntries(taskEntries);
       const selection = pickWorkspaceSelection(
         courseList,
@@ -427,6 +494,18 @@ function App() {
     }
   }
 
+  async function loadSessionFiles(threadId: string): Promise<void> {
+    try {
+      const files = await window.brevyn.attachments.list(threadId);
+      if (!mountedRef.current || activeThreadIdRef.current !== threadId) return;
+      setSessionFiles(files);
+    } catch (error) {
+      if (mountedRef.current && activeThreadIdRef.current === threadId) {
+        setWorkspaceError(errorMessage(error, "Failed to load session files."));
+      }
+    }
+  }
+
   async function selectFile(file: WorkspaceFileNode) {
     const requestId = filePreviewRequestRef.current + 1;
     filePreviewRequestRef.current = requestId;
@@ -451,6 +530,36 @@ function App() {
       setFilePreview(null);
       setFilePreviewLoading(false);
       setWorkspaceError(errorMessage(error, "Failed to preview file."));
+    }
+  }
+
+  async function selectSessionFile(file: WorkspaceFileNode) {
+    const sourcePath = file.sourcePath || file.path;
+    if (file.kind === "folder") {
+      commitSelectedFileId(file.id);
+      setFilePreview(null);
+      setFilePreviewLoading(false);
+      return;
+    }
+    const requestId = filePreviewRequestRef.current + 1;
+    filePreviewRequestRef.current = requestId;
+    commitSelectedFileId(file.id);
+    setWorkspaceError("");
+    setPreviewRailCollapsed(false);
+    setFilePreview(null);
+    setFilePreviewLoading(true);
+    try {
+      const preview = activeThreadIdRef.current
+        ? await window.brevyn.app.previewWorkspacePath({ threadId: activeThreadIdRef.current, path: sourcePath })
+        : null;
+      if (!mountedRef.current || filePreviewRequestRef.current !== requestId || selectedFileIdRef.current !== file.id) return;
+      setFilePreview(preview);
+      setFilePreviewLoading(false);
+    } catch (error) {
+      if (!mountedRef.current || filePreviewRequestRef.current !== requestId) return;
+      setFilePreview(null);
+      setFilePreviewLoading(false);
+      setWorkspaceError(errorMessage(error, "Failed to preview session file."));
     }
   }
 
@@ -480,7 +589,23 @@ function App() {
       }
     }
     if (!nextFile) {
-      if (!options.silent) setWorkspaceError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
+      if (!activeThreadIdRef.current) {
+        if (!options.silent) setWorkspaceError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
+        return;
+      }
+      try {
+        const preview = await window.brevyn.app.previewWorkspacePath({ threadId: activeThreadIdRef.current, path: filePath });
+        if (!preview) {
+          if (!options.silent) setWorkspaceError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
+          return;
+        }
+        setPreviewRailCollapsed(false);
+        commitSelectedFileId(preview.id);
+        setFilePreview(preview);
+        setFilePreviewLoading(false);
+      } catch (error) {
+        if (!options.silent) setWorkspaceError(errorMessage(error, "Failed to preview workspace file."));
+      }
       return;
     }
     await selectFile(nextFile);
@@ -538,7 +663,9 @@ function App() {
     try {
       const next = await window.brevyn.threads.list();
       const deduped = filterThreadsForSemester(dedupeThreads(next), semester?.id);
-      if (mountedRef.current) setThreads(deduped);
+      if (mountedRef.current) {
+        setThreads(deduped);
+      }
       return deduped;
     } catch (error) {
       if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to refresh sessions."));
@@ -569,16 +696,31 @@ function App() {
     }
   }
 
-  async function runAgent(prompt: string, mode: "execute" | "plan" = "execute", permissionMode: "review" | "full_access" = "review"): Promise<void> {
+  async function runAgent(prompt: string, mode: "execute" | "plan" = "execute", permissionMode: "review" | "full_access" = "review", attachments?: AgentAttachment[]): Promise<void> {
     if (!activeThreadId) return;
     setAgentError("");
     setAgentRunning(true);
+    markThreadHasMessages(activeThreadId);
     try {
-      await window.brevyn.agent.run({ threadId: activeThreadId, prompt, mode, permissionMode });
+      await window.brevyn.agent.run({ threadId: activeThreadId, prompt, mode, permissionMode, attachments });
     } catch (error) {
       setAgentRunning(false);
       setAgentError(errorMessage(error, "Failed to start agent run."));
     }
+  }
+
+  function markThreadHasMessages(threadId: string) {
+    const timestamp = new Date().toISOString();
+    setThreads((current) => current.map((thread) => {
+      if (thread.id !== threadId) return thread;
+      return {
+        ...thread,
+        isDraft: false,
+        messageCount: Math.max(1, thread.messageCount || 0),
+        lastMessageAt: thread.lastMessageAt || timestamp,
+        updatedAt: timestamp,
+      };
+    }));
   }
 
   async function stopAgent(): Promise<void> {
@@ -641,10 +783,18 @@ function App() {
     }
     setWorkspaceError("");
     try {
+      const emptyThread = findEmptyThreadForScope(courseId, taskId);
+      if (emptyThread) {
+        commitActiveCourseId(emptyThread.courseId);
+        setActiveTaskId(emptyThread.taskId);
+        setActiveThreadId(emptyThread.id);
+        return;
+      }
       const thread = await window.brevyn.threads.create({
         courseId,
         taskId,
         title: threadTitleForScope(courseId, taskId),
+        isDraft: true,
       });
       if (!threadBelongsToSemester(thread, semester?.id)) throw new Error("Created session does not belong to the selected semester.");
       setThreads((current) => dedupeThreads([thread, ...current]));
@@ -656,9 +806,18 @@ function App() {
     }
   }
 
+  function findEmptyThreadForScope(courseId: string, taskId?: string): Thread | undefined {
+    const candidates = threads.filter((thread) => threadBelongsToSemester(thread, semester?.id) && thread.courseId === courseId && (thread.taskId || undefined) === (taskId || undefined));
+    return [...candidates].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).find(isDraftThread);
+  }
+
   async function archiveThread(thread: Thread) {
     setWorkspaceError("");
     try {
+      if (isDraftThread(thread)) {
+        setWorkspaceError("空会话不需要归档；继续使用它，或者等有内容后再归档。");
+        return;
+      }
       await window.brevyn.threads.archive(thread.id);
       await refreshThreads();
       if (thread.id !== activeThreadId) return;
@@ -761,6 +920,17 @@ function App() {
     event.preventDefault();
   }
 
+  function startSidebarResize(event: ReactPointerEvent) {
+    if (sidebarCollapsed) return;
+    const element = event.currentTarget.closest("[data-workspace-sidebar]");
+    if (!(element instanceof HTMLElement)) return;
+    sidebarResizeStateRef.current = { startX: event.clientX, startWidth: sidebarWidth, element };
+    sidebarResizePointerXRef.current = event.clientX;
+    setSidebarResizing(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
   const contentGridColumns = gridColumnsForWidths(fileRailCollapsed, previewRailCollapsed, fileRailWidth, previewRailWidth);
 
   if (bootState === "loading") {
@@ -789,6 +959,8 @@ function App() {
       <div className="flex min-h-0 flex-1 gap-2 p-2">
         <WorkspaceSidebar
           collapsed={sidebarCollapsed}
+          width={sidebarWidth}
+          resizing={sidebarResizing}
           courses={courses}
           tasksByCourse={tasksByCourse}
           threads={threads}
@@ -802,11 +974,13 @@ function App() {
           onArchiveThread={(thread) => {
             void archiveThread(thread);
           }}
+          emptyThreadIds={emptyThreadIds}
           onRenameThread={renameThread}
           onCreateThread={createThread}
           onOpenCourses={() => setCoursesOpen(true)}
           onOpenTimetable={() => setTimetableOpen(true)}
           onOpenSettings={() => openSettings("providers")}
+          onResizeStart={startSidebarResize}
         />
 
         <div
@@ -901,30 +1075,30 @@ function App() {
             </div>
           </main>
 
+          <FilePreviewRail
+            collapsed={previewRailCollapsed}
+            preview={filePreview}
+            loading={filePreviewLoading}
+            resizing={resizingRail === "preview"}
+            onResizeStart={(event) => startRailResize("preview", event)}
+          />
+
           <FileBrowserRail
             collapsed={fileRailCollapsed}
             course={activeCourse}
             stats={fileStats}
             files={fileTree}
+            sessionFiles={sessionFiles}
             loading={filesLoading}
             selectedFileId={selectedFileId}
             onSelectFile={selectFile}
+            onSelectSessionFile={selectSessionFile}
             onOpenUpload={() => {
               if (activeCourse?.archivedAt) return;
               setCourseFilesUploadOpen(true);
             }}
-            width={fileRailWidth}
             resizing={resizingRail === "files"}
             onResizeStart={(event) => startRailResize("files", event)}
-          />
-
-          <FilePreviewRail
-            collapsed={previewRailCollapsed}
-            preview={filePreview}
-            loading={filePreviewLoading}
-            width={previewRailWidth}
-            resizing={resizingRail === "preview"}
-            onResizeStart={(event) => startRailResize("preview", event)}
           />
         </div>
       </div>
@@ -1029,6 +1203,26 @@ function filterThreadsForSemester(threads: Thread[], semesterId?: string) {
   return threads.filter((thread) => threadBelongsToSemester(thread, semesterId));
 }
 
+function isDraftThread(thread: Thread): boolean {
+  return Boolean(thread.isDraft);
+}
+
+async function ensureHomeThread(threads: Thread[], semesterId: string | undefined, courses: Course[]): Promise<Thread[]> {
+  if (!semesterId || !courses.some((course) => course.id === SEMESTER_HOME_COURSE_ID)) return threads;
+  if (threads.some((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID && !thread.taskId)) return threads;
+  try {
+    const thread = await window.brevyn.threads.create({
+      courseId: SEMESTER_HOME_COURSE_ID,
+      title: "Home TaskAgent",
+      isDraft: true,
+    });
+    if (!threadBelongsToSemester(thread, semesterId)) return threads;
+    return dedupeThreads([thread, ...threads]);
+  } catch {
+    return threads;
+  }
+}
+
 interface WorkspaceSelection {
   courseId: string;
   taskId?: string;
@@ -1053,6 +1247,13 @@ function pickWorkspaceSelection(
       return { courseId: current.courseId, taskId: current.taskId, threadId: "" };
     }
     if (!current.taskId) return { courseId: current.courseId, taskId: undefined, threadId: "" };
+  }
+
+  const homeThread = validThreadSelection(threads.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID && !thread.taskId), courses, tasksByCourse);
+  if (homeThread) return homeThread;
+
+  if (courses.some((course) => course.id === SEMESTER_HOME_COURSE_ID)) {
+    return { courseId: SEMESTER_HOME_COURSE_ID, taskId: undefined, threadId: "" };
   }
 
   return {
@@ -1080,8 +1281,30 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function readStoredSidebarWidth(): number {
+  try {
+    const value = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    return Number.isFinite(value) ? clamp(value, SIDEBAR_WIDTH.min, SIDEBAR_WIDTH.max) : SIDEBAR_WIDTH.default;
+  } catch {
+    return SIDEBAR_WIDTH.default;
+  }
+}
+
+function storeSidebarWidth(width: number): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+  } catch {
+    // Non-critical preference storage can fail in restricted environments.
+  }
+}
+
 function gridColumnsForWidths(fileRailCollapsed: boolean, previewRailCollapsed: boolean, fileRailWidth: number, previewRailWidth: number): string {
-  return `minmax(${CHAT_MIN_WIDTH}px, 1fr) ${fileRailCollapsed ? "0px" : `${fileRailWidth}px`} ${previewRailCollapsed ? "0px" : `${previewRailWidth}px`}`;
+  return `minmax(${CHAT_MIN_WIDTH}px, 1fr) ${railColumn(previewRailCollapsed, previewRailWidth, RAIL_WIDTHS.preview.renderMin)} ${railColumn(fileRailCollapsed, fileRailWidth, RAIL_WIDTHS.files.renderMin)}`;
+}
+
+function railColumn(collapsed: boolean, width: number, renderMin: number): string {
+  if (collapsed) return "0px";
+  return `minmax(${Math.min(renderMin, width)}px, ${width}px)`;
 }
 
 function activeAgentProviderId(providers: ModelProviderConfig[]): string {

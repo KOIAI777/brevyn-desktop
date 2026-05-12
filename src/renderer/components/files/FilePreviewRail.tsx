@@ -6,22 +6,20 @@ export function FilePreviewRail({
   collapsed,
   preview,
   loading,
-  width,
   resizing,
   onResizeStart,
 }: {
   collapsed: boolean;
   preview: FilePreview | null;
   loading?: boolean;
-  width: number;
   resizing?: boolean;
   onResizeStart: (event: PointerEvent) => void;
 }) {
   return (
     <aside
       aria-hidden={collapsed}
-      className={`group/rail relative hidden shrink-0 flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity] transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] xl:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-3 border-transparent opacity-0 shadow-none ring-0" : "opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20" : ""}`}
-      style={{ width: collapsed ? 0 : width }}
+      className={`group/rail relative hidden shrink-0 origin-right transform-gpu flex-col justify-self-end overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity,width] transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] xl:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-8 scale-x-[0.98] border-transparent opacity-0 shadow-none ring-0" : "translate-x-0 scale-x-100 opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20 transition-none" : ""}`}
+      style={{ width: collapsed ? 0 : "100%" }}
     >
       <button
         type="button"

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, CalendarDays, ChevronRight, FolderOpen, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
+import { Archive, CalendarDays, ChevronRight, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask } from "@/types/domain";
+import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { cx } from "@/lib/cn";
 import { formatRelative } from "@/lib/workspace-files";
 import { CourseIcon } from "@/components/courses/CourseIcon";
@@ -15,6 +16,9 @@ export function WorkspaceSidebar({
   activeCourseId,
   activeTaskId,
   activeThreadId,
+  emptyThreadIds,
+  width,
+  resizing,
   onToggle,
   onSelectHome,
   onSelectTask,
@@ -25,6 +29,7 @@ export function WorkspaceSidebar({
   onOpenCourses,
   onOpenTimetable,
   onOpenSettings,
+  onResizeStart,
 }: {
   collapsed: boolean;
   courses: Course[];
@@ -33,6 +38,9 @@ export function WorkspaceSidebar({
   activeCourseId: string;
   activeTaskId?: string;
   activeThreadId: string;
+  emptyThreadIds: Set<string>;
+  width: number;
+  resizing: boolean;
   onToggle: () => void;
   onSelectHome: (courseId: string) => void;
   onSelectTask: (courseId: string, taskId: string) => void;
@@ -43,6 +51,7 @@ export function WorkspaceSidebar({
   onOpenCourses: () => void;
   onOpenTimetable: () => void;
   onOpenSettings: () => void;
+  onResizeStart: (event: ReactPointerEvent) => void;
 }) {
   const [openCourses, setOpenCourses] = useState<Record<string, boolean>>({});
   const [openTasks, setOpenTasks] = useState<Record<string, boolean>>({});
@@ -106,28 +115,32 @@ export function WorkspaceSidebar({
   }
 
   return (
-    <aside className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-lg border bg-card/90 shadow-sm ring-1 ring-border/60 transition-[width,opacity,transform] duration-200">
+    <aside
+      data-workspace-sidebar
+      className={cx(
+        "group/sidebar relative flex shrink-0 flex-col overflow-hidden rounded-lg border bg-card/90 shadow-sm ring-1 ring-border/60 will-change-[width] transition-[width,opacity,transform] duration-200",
+        resizing && "select-none ring-2 ring-ring/20 transition-none",
+      )}
+      style={{ width }}
+    >
+      <button
+        type="button"
+        className="absolute right-0 top-0 z-10 h-full w-3 cursor-col-resize touch-none bg-transparent focus:outline-none"
+        aria-label="Resize workspace sidebar"
+        onPointerDown={onResizeStart}
+      >
+        <span className={cx("absolute right-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100", resizing && "opacity-100")} />
+      </button>
       <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-3 py-3">
-        <div className="min-w-0">
-          <div className="text-[10px] uppercase text-muted-foreground">TaskAgent</div>
-          <div className="truncate text-sm font-semibold">Brevyn Workspace</div>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <img src={brevynLogoUrl} alt="Brevyn" className="h-8 w-8 shrink-0 rounded-xl border border-white/60 shadow-sm" />
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase text-muted-foreground">TaskAgent</div>
+            <div className="truncate text-sm font-semibold">Brevyn Workspace</div>
+          </div>
         </div>
         <button className="no-drag rounded-md border bg-background/70 p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between border-b px-3 py-2.5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] uppercase text-muted-foreground">
-            <FolderOpen className="h-3 w-3" />
-            Courses
-          </div>
-          <div className="truncate text-[11px] text-muted-foreground/75">Tasks, threads, skills, files</div>
-        </div>
-        <button className="inline-flex h-7 items-center gap-1 rounded-md border bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onCreateThread(activeCourseId, activeTaskId)} disabled={!canCreateThread}>
-          <Plus className="h-3 w-3" />
-          New
         </button>
       </div>
 
@@ -178,6 +191,7 @@ export function WorkspaceSidebar({
                       active={thread.id === activeThreadId}
                       editing={renamingThreadId === thread.id}
                       onClick={() => onSelectThread(thread)}
+                      canArchive={!emptyThreadIds.has(thread.id)}
                       onArchive={() => onArchiveThread(thread)}
                       onRename={onRenameThread}
                       onEditingDone={() => setRenamingThreadId("")}
@@ -271,6 +285,7 @@ export function WorkspaceSidebar({
                                 active={thread.id === activeThreadId}
                                 editing={renamingThreadId === thread.id}
                                 onClick={() => onSelectThread(thread)}
+                                canArchive={!emptyThreadIds.has(thread.id)}
                                 onArchive={() => onArchiveThread(thread)}
                                 onRename={onRenameThread}
                                 onEditingDone={() => setRenamingThreadId("")}
@@ -343,6 +358,7 @@ type ThreadButtonProps = {
   thread: Thread;
   active: boolean;
   editing: boolean;
+  canArchive: boolean;
   onClick: () => void;
   onArchive: () => void;
   onRename: (thread: Thread, title: string) => Promise<void>;
@@ -350,7 +366,7 @@ type ThreadButtonProps = {
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
 };
 
-function ThreadButton({ thread, active, editing, onClick, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
+function ThreadButton({ thread, active, editing, canArchive, onClick, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const savingRef = useRef(false);
   const skipNextBlurRef = useRef(false);
@@ -425,17 +441,19 @@ function ThreadButton({ thread, active, editing, onClick, onArchive, onRename, o
           <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
         </button>
       )}
-      <button
-        type="button"
-        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
-        title="Archive session"
-        onClick={(event) => {
-          event.stopPropagation();
-          onArchive();
-        }}
-      >
-        <Archive className="h-3 w-3" />
-      </button>
+      {canArchive && (
+        <button
+          type="button"
+          className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
+          title="Archive session"
+          onClick={(event) => {
+            event.stopPropagation();
+            onArchive();
+          }}
+        >
+          <Archive className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }

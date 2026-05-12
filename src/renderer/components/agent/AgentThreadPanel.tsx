@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { Check, ChevronDown, FileText, FolderOpen, Globe, HelpCircle, ListTodo, Loader2, MessageCircleQuestion, Pencil, Search, Send, ShieldAlert, ShieldCheck, TerminalSquare, X } from "lucide-react";
-import type { AgentApprovalRequest, AgentAskUserRequest, AgentExitPlanRequest, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread, WorkspaceFileNode } from "@/types/domain";
+import { Check, ChevronDown, FileText, FolderOpen, Globe, HelpCircle, ListTodo, Loader2, MessageCircleQuestion, Pencil, Search, Send, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare, X } from "lucide-react";
+import type { AgentApprovalRequest, AgentAskUserRequest, AgentAttachment, AgentExitPlanRequest, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread, WorkspaceFileNode } from "@/types/domain";
+import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { AgentComposer } from "@/components/agent/AgentComposer";
 import { CompactContextNote, MessageBubble, PromptTooLongCard, ResolvedRuntimeNote, RevealedAssistantBubble, StreamingMessageBubble } from "@/components/agent/AgentMessageParts";
 import { InlineProcessTimeline as BaseInlineProcessTimeline, ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
@@ -53,7 +54,7 @@ interface AgentThreadPanelProps {
   loading: boolean;
   running: boolean;
   error?: string;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode) => Promise<void>;
+  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[]) => Promise<void>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -66,7 +67,7 @@ interface AgentThreadPanelProps {
   onPreviewFilePath?: (filePath: string) => void | Promise<void>;
 }
 
-const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[54rem]";
+const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
 const AgentThreadIdContext = createContext<string | undefined>(undefined);
 const AGENT_PERMISSION_STORAGE_PREFIX = "brevyn.agent.permissionMode.";
 const FILE_EDIT_TOOL_NAMES = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
@@ -226,15 +227,7 @@ export function AgentThreadPanel({
             Loading session timeline
           </div>
         ) : timelineRecords.length === 0 ? (
-          <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border bg-background shadow-sm">
-              <TerminalSquare className="h-5 w-5 text-foreground" />
-            </div>
-            <p className="mt-4 text-sm font-semibold text-foreground">Start this study run</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Ask Brevyn to inspect this workspace, explain uploaded material, or draft next steps. Tool calls will appear inline as SDK messages.
-            </p>
-          </div>
+          <EmptyThreadWelcome thread={thread} />
         ) : (
           <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-3`}>
             {timelineRecords.map((record, index) => {
@@ -283,6 +276,7 @@ export function AgentThreadPanel({
         permissionMode={permissionMode}
         contextUsage={contextUsage}
         compacting={effectiveCompacting}
+        threadId={thread.id}
         agentProviders={agentProviders}
         activeProviderId={activeProviderId}
         onSetPlanMode={setPlanMode}
@@ -336,6 +330,60 @@ function ProcessTimelinePanel({
       )}
     />
   );
+}
+
+function EmptyThreadWelcome({ thread }: { thread: Thread }) {
+  const welcome = homeWelcomeCopy(thread);
+  return (
+    <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center text-center">
+      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border bg-background shadow-sm">
+        <img src={brevynLogoUrl} alt="Brevyn" className="h-full w-full object-cover" />
+      </div>
+      <p className="mt-4 text-sm font-semibold text-foreground">{welcome.greeting}</p>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">{welcome.dateLabel}</p>
+      <div className="mt-4 w-full rounded-2xl border border-white/60 bg-card/72 p-4 text-left shadow-[0_16px_44px_rgba(64,55,38,0.10)] ring-1 ring-border/35 backdrop-blur-xl">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+            <ListTodo className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-foreground">{welcome.title}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{welcome.recommendation}</p>
+          </div>
+        </div>
+      </div>
+      <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
+        可以直接在下面输入，例如“检查今天我该先做什么”或“总结当前 workspace”。
+      </p>
+    </div>
+  );
+}
+
+function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string; title: string; recommendation: string } {
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 5
+    ? "夜深了，Brevyn 还在。"
+    : hour < 12
+      ? "早上好，今天从一个清晰的小目标开始。"
+      : hour < 18
+        ? "下午好，我们把学习进度往前推一点。"
+        : "晚上好，适合收束、复盘和整理下一步。";
+  const dateLabel = now.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  });
+  const isHome = thread.threadType === "semester_home" || !thread.taskId;
+  return {
+    greeting,
+    dateLabel,
+    title: isHome ? "Home TaskAgent 建议" : "TaskAgent 建议",
+    recommendation: isHome
+      ? "先让 Brevyn 扫一眼课程、文件和最近线程，再整理出今天最值得推进的一件事。"
+      : "先让 Brevyn 阅读任务材料和评分要求，再拆出一个能在 25 分钟内完成的下一步。",
+  };
 }
 
 function InlineProcessTimeline({ events }: { events: ProcessEvent[] }) {
@@ -499,7 +547,7 @@ function AgentRecordItem({
   if (message.type === "user") {
     if (isCompactCommandMessage(message)) return null;
     if (toolResultBlocks(message).length) return null;
-    return <MessageBubble role="user" content={userText(message)} threadId={threadId} />;
+    return <MessageBubble role="user" content={userText(message)} threadId={threadId} attachments={messageAttachments(message)} />;
   }
 
   if (message.type === "assistant") {
@@ -706,6 +754,27 @@ function ChangedFilesSummary({ changes }: { changes: ChangedFileSummary[] }) {
       </div>
     </div>
   );
+}
+
+function messageAttachments(message: SDKMessage): AgentAttachment[] {
+  const attachments = (message as unknown as { _attachments?: unknown })._attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const value = item as Partial<AgentAttachment>;
+    if (!value.path || !value.name) return [];
+    return [{
+      id: value.id || value.path,
+      threadId: value.threadId || "",
+      name: value.name,
+      kind: value.kind || "unknown",
+      mimeType: value.mimeType,
+      size: typeof value.size === "number" ? value.size : 0,
+      sizeLabel: value.sizeLabel || "",
+      path: value.path,
+      createdAt: value.createdAt || "",
+    }];
+  });
 }
 
 function ChangedFileDiffPreview({ change }: { change: ChangedFileSummary }) {
@@ -1694,6 +1763,8 @@ function ToolGlyph({ toolName, className }: { toolName: string; className?: stri
   if (toolName === "Write") return <FileText className={className} />;
   if (toolName === "Edit" || toolName === "MultiEdit") return <Pencil className={className} />;
   if (toolName === "TodoWrite" || toolName === "TodoRead") return <ListTodo className={className} />;
+  if (toolName === "mcp__brevyn__load_skill") return <Sparkles className={className} />;
+  if (toolName === "mcp__brevyn__read_skill_resource") return <FileText className={className} />;
   if (toolName === "mcp__brevyn__rag_search") return <Search className={className} />;
   if (toolName === "WebFetch" || toolName === "WebSearch") return <Globe className={className} />;
   if (toolName === "AskUserQuestion") return <MessageCircleQuestion className={className} />;

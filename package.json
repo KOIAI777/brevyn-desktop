@@ -8,12 +8,16 @@
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,green \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --host 127.0.0.1",
-    "dev:electron": "npm run build:main && npm run build:indexing-worker && npm run build:preload && wait-on tcp:5174 && electron .",
+    "dev:electron": "npm run build:main && npm run build:indexing-worker && npm run build:preload && npm run build:skills && wait-on tcp:5174 && electron .",
     "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs --external:electron --external:@lancedb/lancedb --external:@anthropic-ai/claude-agent-sdk",
     "build:indexing-worker": "esbuild src/main/indexing/indexing-worker.ts --bundle --platform=node --format=cjs --outfile=dist/indexing-worker.cjs --external:pdf-parse",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs --external:electron",
+    "build:skills": "node -e \"const fs=require('fs'); fs.rmSync('dist/default-skills',{recursive:true,force:true}); fs.cpSync('default-skills','dist/default-skills',{recursive:true});\"",
     "build:renderer": "vite build",
-    "build": "npm run build:main && npm run build:indexing-worker && npm run build:preload && npm run build:renderer",
+    "build": "npm run build:main && npm run build:indexing-worker && npm run build:preload && npm run build:skills && npm run build:renderer",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit",
     "test:agent-timeline": "esbuild src/renderer/components/agent/agentTimelineModel.test.ts --bundle --platform=node --format=cjs --outfile=dist/agentTimelineModel.test.cjs && node dist/agentTimelineModel.test.cjs"
   },
@@ -22,14 +26,20 @@
     "@lancedb/lancedb": "^0.27.2",
     "@react-symbols/icons": "^1.3.1",
     "clsx": "^2.1.1",
+    "docx": "^9.6.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.460.0",
     "mammoth": "^1.12.0",
+    "officeparser": "^4.2.0",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.10.38",
+    "pptxgenjs": "^3.12.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "word-extractor": "^1.0.4",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -40,11 +50,15 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.0",
     "electron": "^39.5.1",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.24.2",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",
     "vite": "^6.0.3",
     "wait-on": "^8.0.1"
+  },
+  "build": {
+    "extends": "electron-builder.yml"
   }
 }

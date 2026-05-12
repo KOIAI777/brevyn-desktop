@@ -35,7 +35,10 @@ let shuttingDown = false;
 function createWindow(): void {
   const preloadPath = join(__dirname, "preload.cjs");
   const isMac = process.platform === "darwin";
-  const iconPath = join(__dirname, "resources", process.platform === "darwin" ? "icon.icns" : "icon.png");
+  const iconPath = resolveAppIconPath();
+  if (isMac && app.dock && iconPath) {
+    app.dock.setIcon(iconPath);
+  }
 
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -44,7 +47,7 @@ function createWindow(): void {
     minHeight: 720,
     show: false,
     title: "Brevyn",
-    icon: existsSync(iconPath) ? iconPath : undefined,
+    icon: iconPath,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0f14" : "#f7f7f4",
     trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
@@ -89,6 +92,26 @@ function createWindow(): void {
     stopWorkspaceFileWatcher();
     mainWindow = null;
   });
+}
+
+function resolveAppIconPath(): string | undefined {
+  const resourceDirs = [
+    join(__dirname, "resources"),
+    join(process.cwd(), "resources"),
+    join(process.cwd(), "src", "renderer", "assets"),
+  ];
+  const platformNames = process.platform === "darwin"
+    ? ["icon.icns", "icon.png"]
+    : process.platform === "win32"
+      ? ["icon.ico", "icon.png"]
+      : ["icon.png"];
+  for (const directory of resourceDirs) {
+    for (const name of platformNames) {
+      const candidate = join(directory, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
 }
 
 app.whenReady().then(() => {

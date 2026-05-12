@@ -76,10 +76,11 @@ export function kindForPath(filePath: string): WorkspaceFileNode["kind"] {
   if (ext === ".pdf") return "pdf";
   if (ext === ".docx" || ext === ".doc") return "docx";
   if (ext === ".pptx" || ext === ".ppt") return "pptx";
+  if ([".xlsx", ".xls", ".csv", ".tsv"].includes(ext)) return "spreadsheet";
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(ext)) return "image";
   if ([".md", ".markdown"].includes(ext)) return "markdown";
   if ([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".cpp", ".c", ".h", ".css", ".html", ".json"].includes(ext)) return "code";
-  if ([".txt", ".csv", ".rtf"].includes(ext)) return "text";
+  if ([".txt", ".rtf"].includes(ext)) return "text";
   return "unknown";
 }
 

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Minimize2, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
+import { FileTypeIcon } from "@/components/files/FileTypeIcon";
+import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
+import type { AgentAttachment } from "@/types/domain";
 
 export function CompactContextNote({ state }: { state: "compacting" | "complete" }) {
   const compacting = state === "compacting";
@@ -61,6 +64,7 @@ export function MessageBubble({
   copyable = true,
   copyContent,
   stoppedByUser = false,
+  attachments = [],
 }: {
   role: "user" | "assistant";
   content: string;
@@ -69,8 +73,9 @@ export function MessageBubble({
   copyable?: boolean;
   copyContent?: string;
   stoppedByUser?: boolean;
+  attachments?: AgentAttachment[];
 }) {
-  if (!content.trim()) return null;
+  if (!content.trim() && attachments.length === 0) return null;
   if (role === "assistant") {
     return (
       <div className="group/message flex justify-start">
@@ -92,10 +97,42 @@ export function MessageBubble({
     <div className="group/message flex justify-end">
       <div className="flex max-w-[76%] flex-col items-end">
         <div className="min-w-0 animate-[message-rise-in_180ms_cubic-bezier(0.22,1,0.36,1)] rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.96),rgba(246,242,232,0.86))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200">
-          <Markdownish content={content} threadId={threadId} />
+          {content.trim() && <Markdownish content={content} threadId={threadId} />}
+          {attachments.length > 0 && <MessageAttachments attachments={attachments} threadId={threadId} />}
         </div>
-        <MessageCopyAction content={content} align="right" />
+        {content.trim() && <MessageCopyAction content={content} align="right" />}
       </div>
+    </div>
+  );
+}
+
+function MessageAttachments({ attachments, threadId }: { attachments: AgentAttachment[]; threadId?: string }) {
+  const onPreviewFilePath = useFilePathPreviewHandler();
+
+  async function openAttachment(attachment: AgentAttachment) {
+    if (onPreviewFilePath) {
+      await onPreviewFilePath(attachment.path);
+      return;
+    }
+    if (!threadId) return;
+    await window.brevyn.app.openWorkspacePath({ threadId, path: attachment.path });
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {attachments.map((attachment) => (
+        <button
+          key={attachment.id || attachment.path}
+          type="button"
+          className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background/72 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent/65"
+          title={attachment.path}
+          onClick={() => void openAttachment(attachment)}
+        >
+          <FileTypeIcon name={attachment.name} size={15} />
+          <span className="max-w-48 truncate">{attachment.name}</span>
+          {attachment.sizeLabel && <span className="text-[10px] text-muted-foreground">{attachment.sizeLabel}</span>}
+        </button>
+      ))}
     </div>
   );
 }

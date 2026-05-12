@@ -488,6 +488,19 @@ export class SQLiteBusinessStore {
     return this.getThread(threadId);
   }
 
+  recordThreadMessage(threadId: string, timestamp = now()): Thread | null {
+    const thread = this.getThread(threadId);
+    if (!thread) return null;
+    this.insertThread({
+      ...thread,
+      isDraft: false,
+      messageCount: Math.max(0, thread.messageCount || 0) + 1,
+      lastMessageAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return this.getThread(threadId);
+  }
+
   archiveThread(threadId: string, archivedAt = now()): Thread | null {
     const thread = this.getThread(threadId);
     if (!thread) return null;
@@ -1541,6 +1554,9 @@ function rowToThread(row: Row): Thread {
     taskId,
     threadType: courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
     title: stringValue(row.title),
+    isDraft: Boolean(raw.isDraft),
+    messageCount: numberValue(raw.messageCount),
+    lastMessageAt: nullableString(raw.lastMessageAt),
     createdAt: stringValue(row.created_at),
     updatedAt: stringValue(row.updated_at),
     archivedAt: nullableString(row.archived_at) || raw.archivedAt,

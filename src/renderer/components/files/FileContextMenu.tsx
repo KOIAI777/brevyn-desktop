@@ -34,9 +34,9 @@ export function FileContextMenu({
       const rect = menuRef.current?.getBoundingClientRect();
       const width = rect?.width || 190;
       const height = rect?.height || 220;
-      const preferredLeft = state.anchor.right + 6;
+      const preferredLeft = state.anchor.left + 2;
       const fallbackLeft = state.anchor.left - width - 6;
-      const preferredTop = state.anchor.top - 4;
+      const preferredTop = state.anchor.top + 2;
       const left = preferredLeft + width <= window.innerWidth - 8 ? preferredLeft : fallbackLeft;
       setPosition({
         left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),

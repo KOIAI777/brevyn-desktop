@@ -102,6 +102,9 @@ export interface Thread {
   taskId?: string;
   threadType: "semester_home" | "task";
   title: string;
+  isDraft?: boolean;
+  messageCount?: number;
+  lastMessageAt?: string;
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -111,6 +114,7 @@ export interface CreateThreadInput {
   courseId: string;
   taskId?: string;
   title?: string;
+  isDraft?: boolean;
 }
 
 export interface RenameThreadInput {
@@ -136,13 +140,30 @@ export interface UpdateTaskInput {
   summary?: string;
 }
 
+export type SkillResourceKind = "reference" | "script" | "asset" | "template" | "example" | "agent_config" | "other";
+
+export interface SkillResource {
+  kind: SkillResourceKind;
+  name: string;
+  relativePath: string;
+  size: number;
+  sizeLabel: string;
+}
+
 export interface SkillItem {
   id: string;
   name: string;
   enabled: boolean;
   description: string;
   version: string;
+  category?: string;
+  icon?: string;
+  triggers?: string[];
+  tags?: string[];
+  scopes?: string[];
+  allowedTools?: string[];
   instructions?: string;
+  resources?: SkillResource[];
   slug?: string;
   sourcePath?: string;
 }
@@ -191,6 +212,7 @@ export type WorkspaceFileKind =
   | "pdf"
   | "docx"
   | "pptx"
+  | "spreadsheet"
   | "image"
   | "markdown"
   | "code"
@@ -233,7 +255,16 @@ export interface FilePreview {
   html?: string;
   summary?: string;
   pages?: string[];
+  sheets?: SpreadsheetPreviewSheet[];
   metadata?: Record<string, string | number | boolean>;
+}
+
+export interface SpreadsheetPreviewSheet {
+  name: string;
+  rows: Array<Array<string | number | boolean | null>>;
+  totalRows: number;
+  totalColumns: number;
+  truncated?: boolean;
 }
 
 export interface FileSectionStat {
@@ -536,11 +567,31 @@ export interface ProviderTestResult {
 
 export type AgentPermissionMode = "review" | "full_access";
 
+export interface AgentAttachment {
+  id: string;
+  threadId: string;
+  name: string;
+  kind: WorkspaceFileKind;
+  mimeType?: string;
+  size: number;
+  sizeLabel: string;
+  path: string;
+  createdAt: string;
+}
+
+export interface AgentAttachmentDataInput {
+  threadId: string;
+  name: string;
+  mediaType?: string;
+  data: string;
+}
+
 export interface AgentRunInput {
   threadId: string;
   prompt: string;
   mode?: "execute" | "plan";
   permissionMode?: AgentPermissionMode;
+  attachments?: AgentAttachment[];
 }
 
 export interface AgentApprovalInput {
@@ -729,8 +780,17 @@ export interface BrevynAPI {
     resolveExitPlan: (input: AgentExitPlanResponseInput) => Promise<boolean>;
     onEvent: (callback: (event: BrevynAgentEvent) => void) => () => void;
   };
+  attachments: {
+    pick: (threadId: string) => Promise<AgentAttachment[]>;
+    list: (threadId: string) => Promise<WorkspaceFileNode[]>;
+    savePaths: (input: { threadId: string; paths: string[] }) => Promise<AgentAttachment[]>;
+    saveData: (input: AgentAttachmentDataInput) => Promise<AgentAttachment>;
+    delete: (input: { threadId: string; path: string }) => Promise<boolean>;
+    pathForFile: (file: File) => string;
+  };
   app: {
     openExternal: (url: string) => Promise<void>;
     openWorkspacePath: (input: { threadId: string; path: string }) => Promise<void>;
+    previewWorkspacePath: (input: { threadId: string; path: string }) => Promise<FilePreview | null>;
   };
 }

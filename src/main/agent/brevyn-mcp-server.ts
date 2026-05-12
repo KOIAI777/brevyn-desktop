@@ -9,10 +9,12 @@ import type {
   CourseFileSectionKind,
   RagSearchResult,
   SemesterWorkspace,
+  SkillItem,
   Thread,
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { SQLiteBusinessStore } from "../storage";
+import type { SkillFileStore } from "../skills/skill-file-store";
 import { flattenFiles } from "../services/workspace-file-tree";
 import {
   SEMESTER_HOME_COURSE_ID,
@@ -35,6 +37,7 @@ export interface BrevynMcpServerOptions {
   sdk: ClaudeSdkRuntime;
   rootDataDir: string;
   businessStore: SQLiteBusinessStore;
+  skillFiles: SkillFileStore;
   ragSearch?: (input: { query: string; courseId?: string; taskId?: string; sectionKind?: CourseFileSectionKind; limit?: number }) => Promise<RagSearchResult[]>;
   context: BrevynMcpContext;
 }
@@ -49,6 +52,25 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
     name: "brevyn",
     version: "0.1.0",
     tools: [
+      sdk.tool(
+        "load_skill",
+        "Load the full SKILL.md content for one enabled Brevyn skill. Use this when the user's task matches a skill in the Enabled Skills registry before applying that skill's detailed workflow.",
+        {
+          skillId: z.string().min(1).describe("Enabled skill id from the system prompt, for example file:assignment-coach."),
+        },
+        async (args) => jsonToolResult(loadSkill(options, args.skillId)),
+        { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+      ),
+      sdk.tool(
+        "read_skill_resource",
+        "Read one text resource bundled with an enabled Brevyn skill, such as references/*.md or scripts/*.py. Call load_skill first, then read only the specific resource you need.",
+        {
+          skillId: z.string().min(1).describe("Enabled skill id from the system prompt, for example file:docx."),
+          relativePath: z.string().min(1).describe("Resource path relative to the skill folder, for example scripts/office/unpack.py or reference.md."),
+        },
+        async (args) => jsonToolResult(readSkillResource(options, args.skillId, args.relativePath)),
+        { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+      ),
       sdk.tool(
         "course_structure",
         "Return the current Brevyn semester/course/task structure and semantic workspace roots. Use this before reading files when folder meaning matters.",
@@ -94,6 +116,34 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
       ),
     ],
   });
+}
+
+function loadSkill(options: BrevynMcpServerOptions, skillId: string) {
+  const skills = options.skillFiles.listSkills();
+  const skill = skills.find((item) => item.id === skillId);
+  if (!skill) throw new Error(`Skill not found: ${skillId}`);
+  if (!skill.enabled) throw new Error(`Skill is disabled: ${skillId}`);
+  const content = options.skillFiles.readSkillContent(skill.id);
+  if (content == null) throw new Error(`Skill content not found: ${skillId}`);
+  return {
+    skill: compactSkill(skill),
+    resources: skill.resources || [],
+    content,
+  };
+}
+
+function readSkillResource(options: BrevynMcpServerOptions, skillId: string, relativePath: string) {
+  const skill = options.skillFiles.listSkills().find((item) => item.id === skillId);
+  if (!skill) throw new Error(`Skill not found: ${skillId}`);
+  if (!skill.enabled) throw new Error(`Skill is disabled: ${skillId}`);
+  const result = options.skillFiles.readSkillResource(skill.id, relativePath);
+  if (!result) throw new Error(`Skill resource not found: ${skillId} ${relativePath}`);
+  return {
+    skill: compactSkill(skill),
+    resource: result.resource,
+    absolutePath: result.absolutePath,
+    content: result.content,
+  };
 }
 
 function courseStructure(options: BrevynMcpServerOptions, requestedCourseId?: string) {
@@ -292,6 +342,24 @@ function compactTask(task: BrevynTask) {
     status: task.status,
     dueAt: task.dueAt,
     summary: task.summary,
+  };
+}
+
+function compactSkill(skill: SkillItem) {
+  return {
+    id: skill.id,
+    slug: skill.slug,
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+    category: skill.category,
+    icon: skill.icon,
+    triggers: skill.triggers,
+    tags: skill.tags,
+    scopes: skill.scopes,
+    allowedTools: skill.allowedTools,
+    resourceCount: skill.resources?.length || 0,
+    sourcePath: skill.sourcePath,
   };
 }
 

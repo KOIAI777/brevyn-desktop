@@ -63,18 +63,18 @@ export function AppTitleBar({
         <button
           type="button"
           className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-          onClick={onToggleFileRail}
-          title={fileRailCollapsed ? "Show file browser" : "Hide file browser"}
-        >
-          {fileRailCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
           onClick={onTogglePreviewRail}
           title={previewRailCollapsed ? "Show preview" : "Hide preview"}
         >
           {previewRailCollapsed ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+          onClick={onToggleFileRail}
+          title={fileRailCollapsed ? "Show file browser" : "Hide file browser"}
+        >
+          {fileRailCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
         </button>
       </div>
     </header>
