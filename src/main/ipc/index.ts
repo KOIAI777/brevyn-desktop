@@ -7,6 +7,7 @@ import { registerIndexingIpc } from "./indexing-ipc";
 import { registerProvidersIpc } from "./provider-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { registerTimetableIpc } from "./timetable-ipc";
+import { registerUpdaterIpc } from "./updater-ipc";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 
 export function registerIpcHandlers(ctx: IpcContext): void {
@@ -18,5 +19,6 @@ export function registerIpcHandlers(ctx: IpcContext): void {
   registerTimetableIpc(ctx);
   registerAgentIpc(ctx);
   registerAttachmentsIpc(ctx);
+  registerUpdaterIpc();
   registerAppIpc(ctx);
 }

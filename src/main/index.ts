@@ -8,6 +8,7 @@ import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
 import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
 import { WORKSPACE_FILE_PREVIEW_PROTOCOL } from "./services/file-service";
+import { cleanupUpdater, initAutoUpdater, isInstallingUpdate } from "./updater/auto-updater";
 
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Brevyn" : "Brevyn Dev"));
 protocol.registerSchemesAsPrivileged([
@@ -133,6 +134,7 @@ app.whenReady().then(() => {
     registerIpcHandlers({ store });
   }
   createWindow();
+  initAutoUpdater();
   if (storeReady) startWatcherForMainWindow(dataRoot);
 
   app.on("activate", () => {
@@ -148,6 +150,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (isInstallingUpdate()) return;
   if (shuttingDown) return;
   event.preventDefault();
   shuttingDown = true;
@@ -163,6 +166,7 @@ app.on("before-quit", (event) => {
   }, 5_000);
   try {
     stopWorkspaceFileWatcher();
+    cleanupUpdater();
     store?.stopAllAgents();
   } catch (error) {
     console.warn("[brevyn] Failed to stop active agents before shutdown", error);

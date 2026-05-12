@@ -128,6 +128,16 @@ const api: BrevynAPI = {
     delete: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsDelete, input),
     pathForFile: (file: File) => webUtils.getPathForFile(file),
   },
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updaterCheck),
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updaterStatus),
+    onStatusChanged: (callback) => {
+      const listener = (_event: IpcRendererEvent, status: Awaited<ReturnType<BrevynAPI["updater"]["getStatus"]>>) => callback(status);
+      ipcRenderer.on(IPC_CHANNELS.updaterStatusChanged, listener);
+      return () => ipcRenderer.off(IPC_CHANNELS.updaterStatusChanged, listener);
+    },
+    quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.updaterQuitAndInstall),
+  },
   app: {
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, url),
     openWorkspacePath: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.appOpenWorkspacePath, input),

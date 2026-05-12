@@ -49,3 +49,12 @@ win:
 linux:
   target:
     - AppImage
+
+# Auto-update publish target. Publish with:
+#   GH_TOKEN=... npm run dist -- --publish always
+# macOS auto-update requires the zip target above so electron-builder can
+# generate latest-mac.yml alongside the release assets.
+publish:
+  provider: github
+  owner: KOIAI777
+  repo: brevyn-desktop

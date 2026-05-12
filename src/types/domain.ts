@@ -694,6 +694,23 @@ export interface AgentRunResult {
   runId: string;
 }
 
+export interface UpdaterDownloadProgress {
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+}
+
+export type UpdaterStatus =
+  | { status: "idle"; currentVersion: string; supported: boolean }
+  | { status: "unsupported"; currentVersion: string; supported: false; reason: string }
+  | { status: "checking"; currentVersion: string; supported: boolean }
+  | { status: "available"; currentVersion: string; supported: boolean; version: string; releaseNotes?: string }
+  | { status: "downloading"; currentVersion: string; supported: boolean; version: string; progress: UpdaterDownloadProgress }
+  | { status: "downloaded"; currentVersion: string; supported: boolean; version: string }
+  | { status: "not-available"; currentVersion: string; supported: boolean }
+  | { status: "error"; currentVersion: string; supported: boolean; error: string };
+
 export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
@@ -787,6 +804,12 @@ export interface BrevynAPI {
     saveData: (input: AgentAttachmentDataInput) => Promise<AgentAttachment>;
     delete: (input: { threadId: string; path: string }) => Promise<boolean>;
     pathForFile: (file: File) => string;
+  };
+  updater: {
+    checkForUpdates: () => Promise<void>;
+    getStatus: () => Promise<UpdaterStatus>;
+    onStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void;
+    quitAndInstall: () => Promise<void>;
   };
   app: {
     openExternal: (url: string) => Promise<void>;

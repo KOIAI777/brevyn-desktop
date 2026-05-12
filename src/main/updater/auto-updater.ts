@@ -1,0 +1,157 @@
+import { app, BrowserWindow } from "electron";
+import { autoUpdater } from "electron-updater";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import type { UpdaterStatus } from "../../types/domain";
+import { IPC_CHANNELS } from "../../types/ipc";
+
+let currentStatus: UpdaterStatus = initialStatus();
+let checkInterval: ReturnType<typeof setInterval> | null = null;
+let initialized = false;
+let installingUpdate = false;
+
+function initialStatus(): UpdaterStatus {
+  const currentVersion = app.getVersion();
+  if (!app.isPackaged) {
+    return {
+      status: "unsupported",
+      currentVersion,
+      supported: false,
+      reason: "Auto updates are available after packaging the app.",
+    };
+  }
+  if (!hasUpdateFeedConfig()) {
+    return {
+      status: "unsupported",
+      currentVersion,
+      supported: false,
+      reason: "Update publishing is not configured yet.",
+    };
+  }
+  return { status: "idle", currentVersion, supported: true };
+}
+
+function hasUpdateFeedConfig(): boolean {
+  return existsSync(join(process.resourcesPath, "app-update.yml"));
+}
+
+function withBase(status: { status: UpdaterStatus["status"]; supported?: boolean; [key: string]: unknown }): UpdaterStatus {
+  return {
+    ...status,
+    currentVersion: app.getVersion(),
+    supported: status.supported ?? (app.isPackaged && hasUpdateFeedConfig()),
+  } as UpdaterStatus;
+}
+
+function setStatus(status: UpdaterStatus): void {
+  currentStatus = status;
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(IPC_CHANNELS.updaterStatusChanged, status);
+    }
+  }
+}
+
+export function getUpdaterStatus(): UpdaterStatus {
+  return currentStatus;
+}
+
+export async function checkForUpdates(): Promise<void> {
+  if (!app.isPackaged || !hasUpdateFeedConfig()) {
+    setStatus(initialStatus());
+    return;
+  }
+  if (currentStatus.status === "checking" || currentStatus.status === "downloading" || currentStatus.status === "downloaded") {
+    return;
+  }
+
+  try {
+    setStatus(withBase({ status: "checking" }));
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    setStatus(withBase({
+      status: "error",
+      error: error instanceof Error ? error.message : String(error || "Failed to check for updates."),
+    }));
+  }
+}
+
+export function quitAndInstallUpdate(): void {
+  if (currentStatus.status !== "downloaded") return;
+  installingUpdate = true;
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.removeAllListeners("close");
+  }
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+}
+
+export function isInstallingUpdate(): boolean {
+  return installingUpdate;
+}
+
+export function cleanupUpdater(): void {
+  if (checkInterval) {
+    clearInterval(checkInterval);
+    checkInterval = null;
+  }
+}
+
+export function initAutoUpdater(): void {
+  if (initialized || !app.isPackaged || !hasUpdateFeedConfig()) return;
+  initialized = true;
+
+  autoUpdater.logger = {
+    info: (...args: unknown[]) => console.log("[brevyn-updater]", ...args),
+    warn: (...args: unknown[]) => console.warn("[brevyn-updater]", ...args),
+    error: (...args: unknown[]) => console.error("[brevyn-updater]", ...args),
+    debug: (...args: unknown[]) => console.debug("[brevyn-updater]", ...args),
+  };
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("checking-for-update", () => {
+    setStatus(withBase({ status: "checking" }));
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    setStatus(withBase({
+      status: "available",
+      version: info.version,
+      releaseNotes: typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+    }));
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    const version = "version" in currentStatus && currentStatus.version ? currentStatus.version : "";
+    setStatus(withBase({
+      status: "downloading",
+      version,
+      progress: {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      },
+    }));
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    setStatus(withBase({ status: "downloaded", version: info.version }));
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    setStatus(withBase({ status: "not-available" }));
+  });
+
+  autoUpdater.on("error", (error) => {
+    setStatus(withBase({ status: "error", error: error.message }));
+  });
+
+  checkInterval = setInterval(() => {
+    void checkForUpdates();
+  }, 4 * 60 * 60 * 1000);
+
+  setTimeout(() => {
+    void checkForUpdates();
+  }, 10_000);
+}

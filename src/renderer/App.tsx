@@ -31,7 +31,7 @@ import { TimetableDialog } from "@/components/timetable/TimetableDialog";
 import { findFileNode, findFileNodeByPath, firstPreviewableFile } from "@/lib/workspace-files";
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
-type SettingsPage = "providers" | "archive" | "skills";
+type SettingsPage = "providers" | "archive" | "skills" | "about";
 type ResizableRail = "files" | "preview";
 
 const CHAT_MIN_WIDTH = 520;

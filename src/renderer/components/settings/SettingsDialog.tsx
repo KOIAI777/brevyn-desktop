@@ -7,11 +7,13 @@ import {
   Check,
   Circle,
   Database,
+  Download,
   Eye,
   EyeOff,
   FileText,
   FolderOpen,
   GitBranch,
+  Info,
   KeyRound,
   Layers3,
   MessageSquare,
@@ -34,6 +36,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import brevynMarkUrl from "@/assets/brevyn-marginal-mark.svg";
 import {
   AGENT_PROVIDER_PRESETS,
   EMBEDDING_PROVIDER_PRESETS,
@@ -51,10 +54,11 @@ import {
   type SemesterWorkspace,
   type SkillItem,
   type Thread,
+  type UpdaterStatus,
 } from "../../../types/domain";
 import { cx } from "@/lib/cn";
 
-type SettingsPage = "providers" | "archive" | "skills";
+type SettingsPage = "providers" | "archive" | "skills" | "about";
 type ProviderBusyAction =
   | "agent-save"
   | "agent-delete"
@@ -686,6 +690,13 @@ export function SettingsDialog({
                 detail={`${enabledSkills}/${localSkills.length} enabled`}
                 onClick={() => setActivePage("skills")}
               />
+              <SettingsNavButton
+                active={activePage === "about"}
+                icon={<Info className="h-4 w-4" />}
+                title="关于 / 更新"
+                detail="version · updates"
+                onClick={() => setActivePage("about")}
+              />
             </div>
           </aside>
 
@@ -729,7 +740,7 @@ export function SettingsDialog({
               />
             ) : activePage === "archive" ? (
               <ArchiveSettingsPage onWorkspaceChanged={onWorkspaceChanged} />
-            ) : (
+            ) : activePage === "skills" ? (
               <SkillSettingsPage
                 skills={localSkills}
                 enabledSkills={enabledSkills}
@@ -745,6 +756,8 @@ export function SettingsDialog({
                 onOpenSkillFolder={openSkillFolder}
                 onToggleSkill={toggleSkill}
               />
+            ) : (
+              <AboutUpdateSettingsPage />
             )}
           </main>
         </div>
@@ -1815,6 +1828,157 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
       </span>
     </button>
   );
+}
+
+function AboutUpdateSettingsPage() {
+  const [status, setStatus] = useState<UpdaterStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.brevyn.updater
+      .getStatus()
+      .then((next) => {
+        if (!cancelled) setStatus(next);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus({
+            status: "error",
+            currentVersion: "0.0.0",
+            supported: false,
+            error: errorMessage(error, "Failed to load update status."),
+          });
+        }
+      });
+    const unsubscribe = window.brevyn.updater.onStatusChanged((next) => {
+      setStatus(next);
+      if (next.status !== "checking") setChecking(false);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  async function checkForUpdates() {
+    setChecking(true);
+    try {
+      await window.brevyn.updater.checkForUpdates();
+    } catch (error) {
+      setStatus({
+        status: "error",
+        currentVersion: status?.currentVersion || "0.0.0",
+        supported: Boolean(status?.supported),
+        error: errorMessage(error, "Failed to check for updates."),
+      });
+      setChecking(false);
+    }
+  }
+
+  async function quitAndInstall() {
+    await window.brevyn.updater.quitAndInstall();
+  }
+
+  const currentVersion = status?.currentVersion || "0.1.0";
+  const isChecking = checking || status?.status === "checking";
+  const canCheck = status?.status !== "unsupported" && status?.status !== "downloading" && status?.status !== "downloaded";
+  const progress = status?.status === "downloading" ? status.progress : null;
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <section className="rounded-xl border bg-background/70 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <img src={brevynMarkUrl} alt="" className="h-7 w-7 rounded-md" />
+              Brevyn
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Local-first course workspace, files, skills, and agent sessions.
+            </p>
+            <div className="mt-3 inline-flex rounded-full border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              Version {currentVersion}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void checkForUpdates()}
+            disabled={!canCheck || isChecking}
+          >
+            <RefreshCw className={cx("h-3.5 w-3.5", isChecking && "animate-spin")} />
+            检查更新
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-xl border bg-background/70 p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">自动更新</h3>
+            <p className="mt-1 text-xs text-muted-foreground">{updateStatusText(status)}</p>
+          </div>
+          {status?.status === "downloaded" ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-semibold text-background transition hover:opacity-90"
+              onClick={() => void quitAndInstall()}
+            >
+              <Download className="h-3.5 w-3.5" />
+              重启安装
+            </button>
+          ) : null}
+        </div>
+
+        {progress ? (
+          <div className="mt-4 space-y-2">
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-foreground transition-all duration-300" style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} />
+            </div>
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>{progress.percent.toFixed(1)}%</span>
+              <span>{formatBytes(progress.transferred)} / {formatBytes(progress.total)} · {formatBytes(progress.bytesPerSecond)}/s</span>
+            </div>
+          </div>
+        ) : null}
+
+        {status?.status === "available" && status.releaseNotes ? (
+          <div className="mt-4 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-card p-3 text-xs leading-5 text-muted-foreground brevyn-scrollbar">
+            {status.releaseNotes}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function updateStatusText(status: UpdaterStatus | null): string {
+  if (!status) return "正在读取更新状态...";
+  switch (status.status) {
+    case "unsupported":
+      return status.reason;
+    case "checking":
+      return "正在检查是否有新版本...";
+    case "available":
+      return `发现新版本 ${status.version}，正在后台下载。`;
+    case "downloading":
+      return `正在下载 ${status.version}。`;
+    case "downloaded":
+      return `${status.version} 已下载完成，重启后生效。`;
+    case "not-available":
+      return "当前已经是最新版本。";
+    case "error":
+      return status.error;
+    default:
+      return "未检查更新。";
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function ProviderProfileRow({
