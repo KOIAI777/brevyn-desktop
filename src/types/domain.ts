@@ -37,7 +37,7 @@ export interface SemesterWorkspace {
   folderName: string;
   startsAt?: string;
   endsAt?: string;
-  source: "manual" | "filesystem";
+  source: "manual" | "filesystem" | "vision";
   recognizedAt?: string;
   archivedAt?: string;
 }
@@ -285,7 +285,7 @@ export interface FileStats {
 }
 
 export type TimetableViewMode = "week" | "month" | "year";
-export type TimetableEventKind = "course_session" | "deadline" | "school_event";
+export type TimetableEventKind = "course_session" | "deadline" | "school_week" | "school_event";
 export type TimetableEventSource = "manual" | "course" | "school_calendar";
 
 export interface TimetableRangeQuery {
@@ -310,6 +310,72 @@ export interface TimetableEvent {
   location?: string;
   notes?: string;
   confidence?: number;
+}
+
+export type VisionRecognitionKind = "academic_calendar" | "course_timetable";
+export type WeekdayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+export interface VisionRecognitionInput {
+  sourcePath: string;
+  apply?: boolean;
+  providerId?: string;
+  modelId?: string;
+}
+
+export interface RecognizedCalendarEvent {
+  title: string;
+  startsAt: string;
+  endsAt?: string;
+  notes?: string;
+  confidence?: number;
+}
+
+export interface RecognizedAcademicCalendar {
+  kind: "academic_calendar";
+  sourcePath: string;
+  providerName: string;
+  modelId: string;
+  semester?: CreateSemesterInput;
+  events: RecognizedCalendarEvent[];
+  warnings: string[];
+  applied?: {
+    semester?: SemesterWorkspace;
+    events: TimetableEvent[];
+  };
+}
+
+export interface RecognizedCourseSession {
+  dayOfWeek: WeekdayKey;
+  startTime: string;
+  endTime: string;
+  room?: string;
+  weeks?: string;
+  confidence?: number;
+}
+
+export interface RecognizedCourseSchedule {
+  code: string;
+  name: string;
+  section?: string;
+  category?: string;
+  instructor?: string;
+  units?: number;
+  sessions: RecognizedCourseSession[];
+  confidence?: number;
+}
+
+export interface RecognizedCourseTimetable {
+  kind: "course_timetable";
+  sourcePath: string;
+  providerName: string;
+  modelId: string;
+  semesterLabel?: string;
+  courses: RecognizedCourseSchedule[];
+  warnings: string[];
+  applied?: {
+    courses: Course[];
+    events: TimetableEvent[];
+  };
 }
 
 export type CourseFileSectionKind = "course_shared" | "lecture" | "task";
@@ -374,20 +440,23 @@ export interface FileImportResult {
   indexingError?: string;
 }
 
-export type ProviderPurpose = "agent" | "embedding";
+export type ProviderPurpose = "agent" | "embedding" | "vision";
 export type AgentProtocol = "anthropic_messages";
 export type EmbeddingProtocol = "openai_compatible";
-export type ProviderProtocol = AgentProtocol | EmbeddingProtocol;
-export type ProviderAdapterKind = "anthropic" | "openai_embedding";
-export type AgentProviderKind = "anthropic" | "deepseek" | "kimi-api" | "kimi-coding" | "custom-anthropic";
+export type VisionProtocol = "anthropic_messages" | "openai_compatible" | "openai_responses";
+export type ProviderProtocol = AgentProtocol | EmbeddingProtocol | VisionProtocol;
+export type ProviderAdapterKind = "anthropic" | "openai_embedding" | "openai_chat_completions" | "openai_responses";
+export type AgentProviderKind = "anthropic" | "deepseek" | "bailian-anthropic" | "kimi-api" | "kimi-coding" | "custom-anthropic";
 export type EmbeddingProviderKind = "openai" | "qwen" | "doubao" | "zhipu" | "minimax" | "custom-openai";
-export type ProviderKind = AgentProviderKind | EmbeddingProviderKind;
+export type VisionProviderKind = "vision-bailian-openai" | "vision-custom-openai" | "vision-custom-anthropic" | "vision-openai-responses" | "vision-custom-openai-responses";
+export type ProviderKind = AgentProviderKind | EmbeddingProviderKind | VisionProviderKind;
 export type ProviderAuthMode = "api_key" | "auth_token" | "bearer";
 
 export interface ProviderModel {
   id: string;
   name: string;
   enabled: boolean;
+  supportsVision?: boolean;
 }
 
 export interface ProviderPreset {
@@ -423,6 +492,15 @@ export const AGENT_PROVIDER_PRESETS = {
       { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", enabled: true },
       { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", enabled: true },
     ],
+  },
+  "bailian-anthropic": {
+    kind: "bailian-anthropic",
+    purpose: "agent",
+    label: "Bailian Anthropic",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "https://dashscope.aliyuncs.com/apps/anthropic/v1",
+    authMode: "api_key",
   },
   "kimi-api": {
     kind: "kimi-api",
@@ -512,9 +590,58 @@ export const EMBEDDING_PROVIDER_PRESETS = {
   },
 } as const satisfies Record<EmbeddingProviderKind, ProviderPreset>;
 
+export const VISION_PROVIDER_PRESETS = {
+  "vision-bailian-openai": {
+    kind: "vision-bailian-openai",
+    purpose: "vision",
+    label: "Bailian OpenAI Vision",
+    adapterKind: "openai_chat_completions",
+    protocol: "openai_compatible",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    authMode: "bearer",
+  },
+  "vision-custom-openai": {
+    kind: "vision-custom-openai",
+    purpose: "vision",
+    label: "Custom OpenAI-compatible Vision",
+    adapterKind: "openai_chat_completions",
+    protocol: "openai_compatible",
+    baseUrl: "",
+    authMode: "bearer",
+  },
+  "vision-custom-anthropic": {
+    kind: "vision-custom-anthropic",
+    purpose: "vision",
+    label: "Custom Anthropic Vision",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "",
+    authMode: "api_key",
+  },
+  "vision-openai-responses": {
+    kind: "vision-openai-responses",
+    purpose: "vision",
+    label: "OpenAI Responses Vision",
+    adapterKind: "openai_responses",
+    protocol: "openai_responses",
+    baseUrl: "https://api.openai.com/v1",
+    authMode: "bearer",
+  },
+  "vision-custom-openai-responses": {
+    kind: "vision-custom-openai-responses",
+    purpose: "vision",
+    label: "Custom OpenAI Responses Vision",
+    adapterKind: "openai_responses",
+    protocol: "openai_responses",
+    baseUrl: "",
+    authMode: "bearer",
+  },
+} as const satisfies Record<VisionProviderKind, ProviderPreset>;
+
 export const PROVIDER_PRESETS = {
   ...AGENT_PROVIDER_PRESETS,
   ...EMBEDDING_PROVIDER_PRESETS,
+  ...VISION_PROVIDER_PRESETS,
 } as const satisfies Record<ProviderKind, ProviderPreset>;
 
 export interface ModelProviderConfig {
@@ -591,6 +718,8 @@ export interface AgentRunInput {
   prompt: string;
   mode?: "execute" | "plan";
   permissionMode?: AgentPermissionMode;
+  providerId?: string;
+  modelId?: string;
   attachments?: AgentAttachment[];
 }
 
@@ -701,13 +830,37 @@ export interface UpdaterDownloadProgress {
   bytesPerSecond: number;
 }
 
+export interface GitHubReleaseAsset {
+  name: string;
+  browserDownloadUrl: string;
+  size: number;
+}
+
+export interface GitHubRelease {
+  id: number;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  publishedAt: string;
+  prerelease: boolean;
+  draft: boolean;
+  assets: GitHubReleaseAsset[];
+}
+
+export interface GitHubReleaseListOptions {
+  perPage?: number;
+  page?: number;
+  includePrerelease?: boolean;
+}
+
 export type UpdaterStatus =
   | { status: "idle"; currentVersion: string; supported: boolean }
   | { status: "unsupported"; currentVersion: string; supported: false; reason: string }
   | { status: "checking"; currentVersion: string; supported: boolean }
   | { status: "available"; currentVersion: string; supported: boolean; version: string; releaseNotes?: string }
   | { status: "downloading"; currentVersion: string; supported: boolean; version: string; progress: UpdaterDownloadProgress }
-  | { status: "downloaded"; currentVersion: string; supported: boolean; version: string }
+  | { status: "downloaded"; currentVersion: string; supported: boolean; version: string; dismissed?: boolean }
   | { status: "not-available"; currentVersion: string; supported: boolean }
   | { status: "error"; currentVersion: string; supported: boolean; error: string };
 
@@ -781,8 +934,16 @@ export interface BrevynAPI {
     save: (input: ProviderDraftInput) => Promise<ProviderSaveResult>;
     delete: (providerId: string) => Promise<boolean>;
     decryptApiKey: (providerId: string) => Promise<string>;
-    models: (providerId: string) => Promise<ProviderModel[]>;
-    test: (providerId: string) => Promise<ProviderTestResult>;
+    models: (input: string | ProviderDraftInput) => Promise<ProviderModel[]>;
+    test: (input: string | ProviderDraftInput) => Promise<ProviderTestResult>;
+  };
+  vision: {
+    pickImage: () => Promise<string | null>;
+    previewImage: (sourcePath: string) => Promise<string>;
+    recognizeAcademicCalendar: (input: VisionRecognitionInput) => Promise<RecognizedAcademicCalendar>;
+    recognizeCourseTimetable: (input: VisionRecognitionInput) => Promise<RecognizedCourseTimetable>;
+    importAcademicCalendar: (input: RecognizedAcademicCalendar) => Promise<RecognizedAcademicCalendar>;
+    importCourseTimetable: (input: RecognizedCourseTimetable) => Promise<RecognizedCourseTimetable>;
   };
   timetable: {
     range: (query: TimetableRangeQuery) => Promise<TimetableEvent[]>;
@@ -808,7 +969,10 @@ export interface BrevynAPI {
   updater: {
     checkForUpdates: () => Promise<void>;
     getStatus: () => Promise<UpdaterStatus>;
+    listReleases: (options?: GitHubReleaseListOptions) => Promise<GitHubRelease[]>;
+    getReleaseByTag: (tag: string) => Promise<GitHubRelease | null>;
     onStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void;
+    dismissDownloaded: () => Promise<UpdaterStatus>;
     quitAndInstall: () => Promise<void>;
   };
   app: {

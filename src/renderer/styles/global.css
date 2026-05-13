@@ -137,6 +137,29 @@
     background-clip: padding-box;
   }
 
+  .brevyn-scrollbar-thin {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+    scrollbar-width: thin;
+  }
+
+  .brevyn-scrollbar-thin::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+
+  .brevyn-scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .brevyn-scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.25);
+    border-radius: 999px;
+  }
+
+  .brevyn-scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.45);
+  }
+
   .drag-region {
     -webkit-app-region: drag;
   }

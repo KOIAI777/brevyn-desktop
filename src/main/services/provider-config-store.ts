@@ -84,10 +84,19 @@ function cloneProvider(provider: ModelProviderConfig): ModelProviderConfig {
     apiKeyMasked: provider.apiKeyMasked,
     apiKeySecretRef: provider.apiKeySecretRef,
     authMode: provider.authMode,
-    models: Array.isArray(provider.models) ? provider.models.map((model) => ({ ...model })) : [],
+    models: Array.isArray(provider.models) ? provider.models.map(cloneProviderModel) : [],
     selectedModel: provider.selectedModel,
     enabled: provider.enabled,
     createdAt: provider.createdAt,
     updatedAt: provider.updatedAt,
+  };
+}
+
+function cloneProviderModel(model: ModelProviderConfig["models"][number]): ModelProviderConfig["models"][number] {
+  return {
+    id: model.id,
+    name: model.name,
+    enabled: model.enabled,
+    supportsVision: model.supportsVision,
   };
 }

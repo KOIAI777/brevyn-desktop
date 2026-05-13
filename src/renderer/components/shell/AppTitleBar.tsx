@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronRight, Eye, EyeOff, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { CalendarDays, ChevronRight, Eye, EyeOff, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { Course, SemesterWorkspace, Thread, BrevynTask } from "@/types/domain";
 
 export function AppTitleBar({
@@ -6,10 +6,8 @@ export function AppTitleBar({
   task,
   thread,
   semester,
-  sidebarCollapsed,
   fileRailCollapsed,
   previewRailCollapsed,
-  onToggleSidebar,
   onToggleFileRail,
   onTogglePreviewRail,
 }: {
@@ -17,10 +15,8 @@ export function AppTitleBar({
   task?: BrevynTask;
   thread?: Thread;
   semester?: SemesterWorkspace | null;
-  sidebarCollapsed: boolean;
   fileRailCollapsed: boolean;
   previewRailCollapsed: boolean;
-  onToggleSidebar: () => void;
   onToggleFileRail: () => void;
   onTogglePreviewRail: () => void;
 }) {
@@ -35,17 +31,6 @@ export function AppTitleBar({
           <span className="max-w-[128px] truncate text-foreground">{semester.term}</span>
         </div>
       )}
-
-      <div className="no-drag flex items-center gap-1">
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
-          onClick={onToggleSidebar}
-          title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-        >
-          {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
-      </div>
 
       <div className="min-w-0 flex flex-1 items-center gap-2">
         <div className="min-w-0 truncate text-sm font-semibold">{course?.name || "Brevyn"}</div>

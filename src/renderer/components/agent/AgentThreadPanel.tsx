@@ -54,7 +54,7 @@ interface AgentThreadPanelProps {
   loading: boolean;
   running: boolean;
   error?: string;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[]) => Promise<void>;
+  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -115,7 +115,7 @@ export function AgentThreadPanel({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const [timelineBottomInset, setTimelineBottomInset] = useState(224);
-  const [processCollapsed, setProcessCollapsed] = useState(false);
+  const [processCollapsedByKey, setProcessCollapsedByKey] = useState<Record<string, boolean>>({});
   const [planMode, setPlanMode] = useState(false);
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("review");
   const [compactInFlightAfterCount, setCompactInFlightAfterCount] = useState<number | null>(null);
@@ -133,8 +133,10 @@ export function AgentThreadPanel({
   const runSummary = useMemo(() => latestRunSummary(records, nowMs, effectiveRunning), [effectiveRunning, nowMs, records]);
   const stoppedAssistantIndex = useMemo(() => runSummary?.status === "stopped" ? latestCopyableAssistantIndex(renderMeta) : undefined, [renderMeta, runSummary?.status]);
   const todos = useMemo(() => latestTodoList(records), [records]);
-  const activeProvider = useMemo(() => agentProviders.find((provider) => provider.id === activeProviderId), [activeProviderId, agentProviders]);
-  const contextUsage = useMemo(() => latestContextUsage(records) ?? defaultContextUsage(activeProvider?.selectedModel), [activeProvider?.selectedModel, records]);
+  const activeProviderSelection = useMemo(() => parseProviderModelSelection(activeProviderId), [activeProviderId]);
+  const activeProvider = useMemo(() => agentProviders.find((provider) => provider.id === activeProviderSelection.providerId), [activeProviderSelection.providerId, agentProviders]);
+  const activeModelId = activeProviderSelection.modelId || activeProvider?.selectedModel;
+  const contextUsage = useMemo(() => latestContextUsage(records) ?? defaultContextUsage(activeModelId), [activeModelId, records]);
   const compacting = useMemo(() => isCompactingContext(records), [records]);
   const effectiveCompacting = compacting || compactInFlight;
 
@@ -154,14 +156,6 @@ export function AgentThreadPanel({
   }, [records.length, timelineRecords.length, effectiveRunning, loading]);
 
   useEffect(() => {
-    if (forceProcessOpen) {
-      setProcessCollapsed(false);
-      return;
-    }
-    if (liveAssistantText) setProcessCollapsed(true);
-  }, [forceProcessOpen, liveAssistantText]);
-
-  useEffect(() => {
     if (!effectiveRunning) {
       setNowMs(Date.now());
       return;
@@ -172,6 +166,7 @@ export function AgentThreadPanel({
 
   useEffect(() => {
     setCompactInFlightAfterCount(null);
+    setProcessCollapsedByKey({});
   }, [thread.id]);
 
   useEffect(() => {
@@ -209,7 +204,7 @@ export function AgentThreadPanel({
     if (effectiveRunning || effectiveCompacting) return;
     setCompactInFlightAfterCount(records.length);
     try {
-      await onRun("/compact", "execute", "review");
+      await onRun("/compact", "execute", "review", undefined, activeProviderSelection);
     } catch (error) {
       setCompactInFlightAfterCount(null);
       throw error;
@@ -234,7 +229,11 @@ export function AgentThreadPanel({
               const meta = renderMeta.byIndex.get(index);
               const itemSummary = meta?.processUserIndex === undefined
                 ? runSummary
-                : runSummaryForUserIndex(records, meta.processUserIndex, nowMs, effectiveRunning);
+                : runSummaryForUserIndex(timelineRecords, meta.processUserIndex, nowMs, effectiveRunning);
+              const processKey = processStateKey(itemSummary, meta?.processUserIndex, index);
+              const defaultCollapsed = liveAssistantText && !itemSummary?.running;
+              const isProcessLockedOpen = Boolean(forceProcessOpen && itemSummary?.running);
+              const isProcessCollapsed = processCollapsedByKey[processKey] ?? defaultCollapsed;
               return (
                 <AgentRecordItem
                   key={recordKey(record, index)}
@@ -249,10 +248,14 @@ export function AgentThreadPanel({
                   exitPlanDecision={exitPlanDecision(record, resolvedExitPlans)}
                   processSummary={itemSummary}
                   processEvents={meta?.processEvents || []}
-                  processExpanded={forceProcessOpen || !processCollapsed}
-                  processLockedOpen={forceProcessOpen}
+                  processExpanded={isProcessLockedOpen || !isProcessCollapsed}
+                  processLockedOpen={isProcessLockedOpen}
                   onToggleProcess={() => {
-                    if (!forceProcessOpen) setProcessCollapsed((current) => !current);
+                    if (isProcessLockedOpen) return;
+                    setProcessCollapsedByKey((current) => ({
+                      ...current,
+                      [processKey]: !(current[processKey] ?? defaultCollapsed),
+                    }));
                   }}
                   onApprove={onApprove}
                   onReject={onReject}
@@ -330,6 +333,15 @@ function ProcessTimelinePanel({
       )}
     />
   );
+}
+
+function parseProviderModelSelection(value: string): { providerId?: string; modelId?: string } {
+  const [providerId, modelId] = value.split("::");
+  if (!providerId || !modelId) return {};
+  return {
+    providerId: decodeURIComponent(providerId),
+    modelId: decodeURIComponent(modelId),
+  };
 }
 
 function EmptyThreadWelcome({ thread }: { thread: Thread }) {
@@ -1307,14 +1319,20 @@ function ResultCard({ record }: { record: SDKMessage }) {
   );
 }
 
-function latestRunSummary(records: BrevynAgentTimelineRecord[], nowMs: number, active: boolean): RunSummary | null {
+function latestRunSummary(records: AgentTimelineRecord[], nowMs: number, active: boolean): RunSummary | null {
   const bounds = latestTurnBounds(records);
   if (!bounds) return active ? { runId: "active", label: "Thinking", running: true, status: "running" } : null;
 
   return runSummaryForUserIndex(records, bounds.userIndex, nowMs, active);
 }
 
-function runSummaryForUserIndex(records: BrevynAgentTimelineRecord[], userIndex: number, nowMs: number, active: boolean): RunSummary | null {
+function processStateKey(summary: RunSummary | null, userIndex: number | undefined, recordIndex: number): string {
+  if (summary?.runId) return summary.runId;
+  if (userIndex !== undefined) return `turn-${userIndex}`;
+  return `record-${recordIndex}`;
+}
+
+function runSummaryForUserIndex(records: AgentTimelineRecord[], userIndex: number, nowMs: number, active: boolean): RunSummary | null {
   const user = records[userIndex];
   if (!user || isRuntimeRecord(user) || (user as SDKMessage).type !== "user") return null;
   const result = resultForUserIndex(records, userIndex);
@@ -1338,27 +1356,27 @@ function runSummaryForUserIndex(records: BrevynAgentTimelineRecord[], userIndex:
   return { runId, label: `已处理 ${duration}`, running: false, status: "completed", permissionMode, detail };
 }
 
-function resultForUserIndex(records: BrevynAgentTimelineRecord[], userIndex: number): { record?: SDKMessage; index?: number } {
+function resultForUserIndex(records: AgentTimelineRecord[], userIndex: number): { record?: SDKMessage; index?: number } {
   const nextUserIndex = nextUserInputIndex(records, userIndex);
   const endIndex = nextUserIndex ?? records.length;
   for (let index = userIndex + 1; index < endIndex; index += 1) {
     const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
     if ((record as SDKMessage).type === "result") return { record: record as SDKMessage, index };
   }
   return {};
 }
 
-function nextUserInputIndex(records: BrevynAgentTimelineRecord[], afterIndex: number): number | undefined {
+function nextUserInputIndex(records: AgentTimelineRecord[], afterIndex: number): number | undefined {
   for (let index = afterIndex + 1; index < records.length; index += 1) {
     const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
     if ((record as SDKMessage).type === "user" && !toolResultBlocks(record as SDKMessage).length && userText(record as SDKMessage).trim()) return index;
   }
   return undefined;
 }
 
-function latestRunStart(records: BrevynAgentTimelineRecord[], userIndex: number): { runId: string; permissionMode?: AgentPermissionMode } | null {
+function latestRunStart(records: AgentTimelineRecord[], userIndex: number): { runId: string; permissionMode?: AgentPermissionMode } | null {
   for (let index = userIndex; index >= 0; index -= 1) {
     const record = records[index];
     if (!record || !isRuntimeRecord(record) || record.event.type !== "run_started") continue;
@@ -1367,7 +1385,7 @@ function latestRunStart(records: BrevynAgentTimelineRecord[], userIndex: number)
   return null;
 }
 
-function recordCreatedAtMs(record: BrevynAgentTimelineRecord): number | undefined {
+function recordCreatedAtMs(record: AgentTimelineRecord): number | undefined {
   if (isRuntimeRecord(record)) {
     const parsed = Date.parse(record.event.createdAt);
     if (Number.isFinite(parsed)) return parsed;
@@ -1382,7 +1400,7 @@ function recordCreatedAtMs(record: BrevynAgentTimelineRecord): number | undefine
   return undefined;
 }
 
-function latestRunLifecycle(records: BrevynAgentTimelineRecord[], userIndex: number): { status: RunSummary["status"]; detail?: string; createdAtMs?: number } | null {
+function latestRunLifecycle(records: AgentTimelineRecord[], userIndex: number): { status: RunSummary["status"]; detail?: string; createdAtMs?: number } | null {
   let runId = "";
   let runStartIndex = -1;
   for (let index = userIndex; index >= 0; index -= 1) {
@@ -1431,7 +1449,7 @@ function normalizedRunDetail(detail?: string): string | undefined {
   return text;
 }
 
-function eventsSinceStart(records: BrevynAgentTimelineRecord[], userIndex: number): boolean {
+function eventsSinceStart(records: AgentTimelineRecord[], userIndex: number): boolean {
   return records.slice(userIndex + 1).some((record) => {
     if (isRuntimeRecord(record)) return false;
     return (record as SDKMessage).type === "assistant" || (record as SDKMessage).type === "stream_event";

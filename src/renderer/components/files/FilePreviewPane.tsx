@@ -75,7 +75,7 @@ export function FilePreviewPane({
   }
 
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-2 border-b px-3 py-2.5">
         <FileTypeIcon name={preview.title || preview.path} isDirectory={preview.kind === "folder"} size={16} />
         <div className="min-w-0 flex-1">
@@ -137,10 +137,9 @@ export function FilePreviewPane({
         )}
 
         {preview.kind === "docx" && preview.html && (
-          <div className="h-[70vh] overflow-hidden rounded-lg border bg-background">
+          <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
               className="h-full w-full bg-background"
-              sandbox=""
               srcDoc={docxPreviewDocument(preview.html)}
               title={preview.title}
             />
@@ -297,17 +296,18 @@ function docxPreviewDocument(html: string): string {
       }
       body {
         margin: 0;
-        padding: 24px 16px;
+        padding: clamp(10px, 3vw, 24px);
         background:
           radial-gradient(circle at 20% 0%, rgba(255,255,255,.9), transparent 28rem),
           #f5f2ec;
+        overflow-wrap: anywhere;
       }
       .page {
         box-sizing: border-box;
-        max-width: 780px;
+        width: min(100%, 780px);
         min-height: calc(100vh - 48px);
         margin: 0 auto;
-        padding: 42px 48px;
+        padding: clamp(22px, 5vw, 42px) clamp(18px, 6vw, 48px);
         border: 1px solid rgba(31, 41, 51, 0.12);
         border-radius: 12px;
         background: #fffdf8;
@@ -332,7 +332,7 @@ function docxPreviewDocument(html: string): string {
         margin: 0.7em 0;
       }
       table {
-        width: 100%;
+        max-width: 100%;
         margin: 1em 0;
         border-collapse: collapse;
         font-size: 12.5px;

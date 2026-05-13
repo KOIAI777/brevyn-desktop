@@ -9,6 +9,12 @@ export function registerProvidersIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.providersSave, (_event, input: ProviderDraftInput) => store.saveProvider(input));
   ipcMain.handle(IPC_CHANNELS.providersDelete, (_event, providerId: unknown) => store.deleteProvider(requireString(providerId, "Provider id")));
   ipcMain.handle(IPC_CHANNELS.providersDecryptApiKey, (_event, providerId: unknown) => store.providerApiKey(requireString(providerId, "Provider id")) || "");
-  ipcMain.handle(IPC_CHANNELS.providersModels, (_event, providerId: unknown) => store.providerModels(requireString(providerId, "Provider id")));
-  ipcMain.handle(IPC_CHANNELS.providersTest, (_event, providerId: unknown) => store.testProvider(requireString(providerId, "Provider id")));
+  ipcMain.handle(IPC_CHANNELS.providersModels, (_event, input: unknown) => {
+    if (typeof input === "string") return store.providerModels(requireString(input, "Provider id"));
+    return store.providerModelsFromDraft(input as ProviderDraftInput);
+  });
+  ipcMain.handle(IPC_CHANNELS.providersTest, (_event, input: unknown) => {
+    if (typeof input === "string") return store.testProvider(requireString(input, "Provider id"));
+    return store.testProviderDraft(input as ProviderDraftInput);
+  });
 }

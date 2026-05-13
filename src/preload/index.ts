@@ -18,6 +18,9 @@ import type {
   BrevynAgentEvent,
   FileImportInput,
   ProviderDraftInput,
+  RecognizedAcademicCalendar,
+  RecognizedCourseTimetable,
+  VisionRecognitionInput,
   SkillImportInput,
   SkillWriteInput,
   SkillUpdateInput,
@@ -100,8 +103,16 @@ const api: BrevynAPI = {
     save: (input: ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersSave, input),
     delete: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersDelete, providerId),
     decryptApiKey: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersDecryptApiKey, providerId),
-    models: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersModels, providerId),
-    test: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersTest, providerId),
+    models: (input: string | ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersModels, input),
+    test: (input: string | ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersTest, input),
+  },
+  vision: {
+    pickImage: () => ipcRenderer.invoke(IPC_CHANNELS.visionPickImage),
+    previewImage: (sourcePath: string) => ipcRenderer.invoke(IPC_CHANNELS.visionPreviewImage, sourcePath),
+    recognizeAcademicCalendar: (input: VisionRecognitionInput) => ipcRenderer.invoke(IPC_CHANNELS.visionRecognizeAcademicCalendar, input),
+    recognizeCourseTimetable: (input: VisionRecognitionInput) => ipcRenderer.invoke(IPC_CHANNELS.visionRecognizeCourseTimetable, input),
+    importAcademicCalendar: (input: RecognizedAcademicCalendar) => ipcRenderer.invoke(IPC_CHANNELS.visionImportAcademicCalendar, input),
+    importCourseTimetable: (input: RecognizedCourseTimetable) => ipcRenderer.invoke(IPC_CHANNELS.visionImportCourseTimetable, input),
   },
   timetable: {
     range: (query: TimetableRangeQuery) => ipcRenderer.invoke(IPC_CHANNELS.timetableRange, query),
@@ -131,11 +142,14 @@ const api: BrevynAPI = {
   updater: {
     checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updaterCheck),
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updaterStatus),
+    listReleases: (options) => ipcRenderer.invoke(IPC_CHANNELS.updaterReleasesList, options),
+    getReleaseByTag: (tag: string) => ipcRenderer.invoke(IPC_CHANNELS.updaterReleaseByTag, tag),
     onStatusChanged: (callback) => {
       const listener = (_event: IpcRendererEvent, status: Awaited<ReturnType<BrevynAPI["updater"]["getStatus"]>>) => callback(status);
       ipcRenderer.on(IPC_CHANNELS.updaterStatusChanged, listener);
       return () => ipcRenderer.off(IPC_CHANNELS.updaterStatusChanged, listener);
     },
+    dismissDownloaded: () => ipcRenderer.invoke(IPC_CHANNELS.updaterDismissDownloaded),
     quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.updaterQuitAndInstall),
   },
   app: {

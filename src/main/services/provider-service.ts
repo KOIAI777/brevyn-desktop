@@ -2,6 +2,7 @@ import {
   AGENT_PROVIDER_PRESETS,
   EMBEDDING_PROVIDER_PRESETS,
   PROVIDER_PRESETS,
+  VISION_PROVIDER_PRESETS,
   type AgentProviderKind,
   type EmbeddingProviderKind,
   type ModelProviderConfig,
@@ -14,6 +15,7 @@ import {
   type ProviderPreset,
   type ProviderSaveResult,
   type ProviderTestResult,
+  type VisionProviderKind,
 } from "../../types/domain";
 import { getAgentProviderAdapter, getEmbeddingProviderAdapter, normalizeBaseUrl } from "../providers";
 import { ProviderConfigStore } from "./provider-config-store";
@@ -56,8 +58,8 @@ export class ProviderService {
     const preset = providerPreset(providerKind);
     const protocol = preset.protocol;
     const draftModels = draft.models || [];
-    const modelSeed = draftModels.length > 0 ? draftModels : existing?.models || presetModels(preset);
-    const selectedModel = draft.selectedModel || modelSeed.find((model) => model.enabled)?.id || "";
+    const modelSeed = draftModels.length > 0 ? draftModels : [];
+    const selectedModel = selectedEnabledModelId(draft.selectedModel, modelSeed);
     const apiKey = draft.apiKey;
     let apiKeySecretRef = existing?.apiKeySecretRef;
     let apiKeyMasked = existing?.apiKeyMasked || "";
@@ -95,7 +97,7 @@ export class ProviderService {
         updatedAt: timestamp,
       };
       const nextProviders = upsertProvider(providers, next).map((provider) =>
-        next.enabled && provider.purpose === next.purpose && provider.id !== next.id
+        next.enabled && next.purpose === "embedding" && provider.purpose === "embedding" && provider.id !== next.id
           ? { ...provider, enabled: false, updatedAt: timestamp }
           : provider,
       );
@@ -171,12 +173,31 @@ export class ProviderService {
     try {
       const fetched = await fetchProviderModels(provider, apiKey);
       const compatibleModels = filterModelsForPurpose(provider.purpose, fetched);
-      const models = normalizeProviderModels(compatibleModels, provider.selectedModel);
+      const models = provider.purpose === "agent" || provider.purpose === "vision"
+        ? fetchedAgentModelsAsAvailable(compatibleModels)
+        : normalizeProviderModels(compatibleModels, provider.selectedModel);
       this.configs.saveProvider({ ...provider, models, updatedAt: new Date().toISOString() });
       return models;
     } catch (error) {
       console.warn(`[providers] Failed to fetch models for ${provider.id}`, error);
-      throw new Error(`Failed to fetch ${provider.purpose} models: ${error instanceof Error ? error.message : String(error || "Unknown error")}`);
+      throw new Error(error instanceof Error ? error.message : String(error || `Failed to fetch ${provider.purpose} models.`));
+    }
+  }
+
+  async modelsFromDraft(input: ProviderDraftInput): Promise<ProviderModel[]> {
+    const provider = this.providerFromDraft(input);
+    const apiKey = input.apiKey?.trim() || (provider.id ? this.apiKey(provider.id) : undefined) || envApiKeyForProvider(provider);
+    if (!provider.baseUrl) throw new Error("Base URL is required before fetching models.");
+    if (!apiKey) throw new Error("API key is required before fetching models.");
+    try {
+      const fetched = await fetchProviderModels(provider, apiKey);
+      const compatibleModels = filterModelsForPurpose(provider.purpose, fetched);
+      return provider.purpose === "agent" || provider.purpose === "vision"
+        ? mergeFetchedModelsAsAvailable(input.models || [], compatibleModels, input.selectedModel)
+        : normalizeProviderModels(compatibleModels, input.selectedModel);
+    } catch (error) {
+      console.warn(`[providers] Failed to fetch models for draft ${provider.providerKind}`, error);
+      throw new Error(error instanceof Error ? error.message : String(error || `Failed to fetch ${provider.purpose} models.`));
     }
   }
 
@@ -206,6 +227,7 @@ export class ProviderService {
         ? await testEmbeddingProvider(provider, apiKey)
         : undefined;
       if (provider.purpose === "agent") await testAgentProvider(provider, apiKey);
+      if (provider.purpose === "vision") await testVisionProvider(provider, apiKey);
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
@@ -220,6 +242,67 @@ export class ProviderService {
         message: error instanceof Error ? error.message : "Connection test failed.",
       };
     }
+  }
+
+  async testDraft(input: ProviderDraftInput): Promise<ProviderTestResult> {
+    const startedAt = Date.now();
+    const provider = this.providerFromDraft(input);
+    if (!provider.baseUrl) {
+      return { ok: false, latencyMs: Date.now() - startedAt, message: "Base URL is required." };
+    }
+    const apiKey = input.apiKey?.trim() || (provider.id ? this.apiKey(provider.id) : undefined) || envApiKeyForProvider(provider);
+    if (!apiKey) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        message: "API key is required before testing this provider.",
+      };
+    }
+    try {
+      const embeddingDimension = provider.purpose === "embedding"
+        ? await testEmbeddingProvider(provider, apiKey)
+        : undefined;
+      if (provider.purpose === "agent") await testAgentProvider(provider, apiKey);
+      if (provider.purpose === "vision") await testVisionProvider(provider, apiKey);
+      return {
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        message: embeddingDimension
+          ? `${provider.name} embedding endpoint connected via ${provider.baseUrl} (dim=${embeddingDimension}).`
+          : `${provider.name} connected via ${provider.baseUrl}.`,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        message: error instanceof Error ? error.message : "Connection test failed.",
+      };
+    }
+  }
+
+  private providerFromDraft(input: ProviderDraftInput): ModelProviderConfig {
+    const draft = normalizeProviderDraftInput(input);
+    const existing = draft.id ? this.list().find((provider) => provider.id === draft.id) : undefined;
+    const providerKind = normalizeProviderKind(draft.providerKind, draft.purpose, draft.protocol, draft.baseUrl);
+    const preset = providerPreset(providerKind);
+    const models = normalizeProviderModels(draft.models || [], draft.selectedModel);
+    return {
+      id: draft.id || "",
+      purpose: draft.purpose,
+      providerKind,
+      adapterKind: preset.adapterKind,
+      name: draft.name || existing?.name || nextProviderName(this.list(), draft.purpose, draft.id),
+      protocol: preset.protocol,
+      baseUrl: normalizeBaseUrl(draft.baseUrl || preset.baseUrl),
+      apiKeyMasked: existing?.apiKeyMasked || "",
+      apiKeySecretRef: existing?.apiKeySecretRef,
+      authMode: normalizeProviderAuthMode(draft.authMode, draft.purpose, providerKind),
+      models,
+      selectedModel: selectedEnabledModelId(draft.selectedModel, models),
+      enabled: draft.enabled ?? existing?.enabled ?? false,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: existing?.updatedAt || new Date().toISOString(),
+    };
   }
 
   apiKey(providerId: string): string | undefined {
@@ -238,15 +321,29 @@ export class ProviderService {
 
   /** Unique enabled provider that is allowed to serve agent requests. */
   agentProvider(): ModelProviderConfig | undefined {
-    return singleActiveProvider(this.list().filter((provider) =>
+    return this.agentProviderFor();
+  }
+
+  agentProviderFor(providerId?: string, modelId?: string): ModelProviderConfig | undefined {
+    const providers = this.list().filter((provider) =>
       provider.purpose === "agent" &&
       provider.protocol === "anthropic_messages" &&
       provider.adapterKind === "anthropic" &&
       provider.enabled &&
-      Boolean(provider.selectedModel) &&
+      provider.models.some((model) => model.enabled !== false) &&
       Boolean(provider.baseUrl) &&
       Boolean(this.apiKey(provider.id) || envApiKeyForProvider(provider)),
-    ));
+    );
+    const provider = providerId
+      ? providers.find((item) => item.id === providerId)
+      : providers[0];
+    if (!provider) return undefined;
+    const enabledModels = provider.models.filter((model) => model.enabled !== false);
+    const selectedModel = modelId && enabledModels.some((model) => model.id === modelId)
+      ? modelId
+      : selectedEnabledModelId(provider.selectedModel, enabledModels);
+    if (!selectedModel) return undefined;
+    return { ...provider, selectedModel };
   }
 
   /** Unique enabled provider that is allowed to serve embedding requests. */
@@ -259,6 +356,30 @@ export class ProviderService {
       Boolean(provider.selectedModel) &&
       Boolean(provider.baseUrl),
     ));
+  }
+
+  /** Enabled provider used for OCR-like recognition tasks. */
+  visionProvider(): ModelProviderConfig | undefined {
+    return this.visionProviderFor();
+  }
+
+  /** Provider/model pair for OCR-like recognition tasks. */
+  visionProviderFor(providerId?: string, modelId?: string): ModelProviderConfig | undefined {
+    const providers = this.list().filter((item) =>
+      item.purpose === "vision" &&
+      item.enabled &&
+      item.models.some((model) => model.enabled !== false) &&
+      Boolean(item.baseUrl) &&
+      Boolean(this.apiKey(item.id) || envApiKeyForProvider(item)),
+    );
+    const provider = providerId ? providers.find((item) => item.id === providerId) : singleActiveProvider(providers);
+    if (!provider) return undefined;
+    const enabledModels = provider.models.filter((model) => model.enabled !== false);
+    const selectedModel = modelId && enabledModels.some((model) => model.id === modelId)
+      ? modelId
+      : selectedEnabledModelId(provider.selectedModel, enabledModels);
+    if (!selectedModel) return undefined;
+    return { ...provider, selectedModel };
   }
 
   envApiKeyFor(provider: ModelProviderConfig): string | undefined {
@@ -334,6 +455,7 @@ export class ProviderService {
     if (secretsChanged) this.secrets.restore(nextSecrets);
     if (profilesChanged) this.configs.replaceProviders(nextProviders);
   }
+
 }
 
 export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProviderConfig[] {
@@ -342,14 +464,16 @@ export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProv
     const providerKind = normalizeProviderKind(provider.providerKind, purpose, provider.protocol, provider.baseUrl);
     const preset = providerPreset(providerKind);
     const protocol = preset.protocol;
-    const selectedModel = normalizeSelectedModel(provider);
-    const modelSeed = Array.isArray(provider.models) && provider.models.length > 0 ? provider.models : presetModels(preset);
+    const modelSeed = Array.isArray(provider.models) && provider.models.length > 0
+      ? provider.models
+      : purpose === "agent" || purpose === "vision" ? [] : presetModels(preset);
+    const selectedModel = selectedEnabledModelId(normalizeSelectedModel(provider), modelSeed);
     return {
       id: stringValue(provider.id) || `provider-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       purpose,
       providerKind,
       adapterKind: normalizeProviderAdapterKind(provider.adapterKind, providerKind),
-      name: stringValue(provider.name) || (purpose === "agent" ? "Agent Provider" : "Embedding Provider"),
+      name: stringValue(provider.name) || (purpose === "agent" ? "Agent Provider" : purpose === "vision" ? "Vision Provider" : "Embedding Provider"),
       protocol,
       baseUrl: normalizeBaseUrl(provider.baseUrl || preset.baseUrl),
       apiKeyMasked: stringValue(provider.apiKeyMasked) === "sk-...local" ? "" : stringValue(provider.apiKeyMasked),
@@ -368,12 +492,18 @@ export function envApiKeyForProvider(provider: ModelProviderConfig): string | un
   if (provider.purpose === "agent") {
     return envAgentApiKey(provider);
   }
+  if (provider.purpose === "vision") {
+    return envVisionApiKey(provider);
+  }
   return envEmbeddingApiKey(provider);
 }
 
 function envAgentApiKey(provider: ModelProviderConfig): string | undefined {
   if (provider.providerKind === "deepseek") {
     return process.env.BREVYN_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
+  }
+  if (provider.providerKind === "bailian-anthropic") {
+    return process.env.BREVYN_BAILIAN_API_KEY || process.env.BAILIAN_API_KEY || process.env.DASHSCOPE_API_KEY;
   }
   if (provider.providerKind === "kimi-api") {
     return process.env.BREVYN_KIMI_API_KEY || process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
@@ -403,6 +533,19 @@ function envEmbeddingApiKey(provider: ModelProviderConfig): string | undefined {
   return process.env.BREVYN_OPENAI_COMPATIBLE_API_KEY || process.env.BREVYN_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 }
 
+function envVisionApiKey(provider: ModelProviderConfig): string | undefined {
+  if (provider.providerKind === "vision-bailian-openai") {
+    return process.env.BREVYN_BAILIAN_API_KEY || process.env.BAILIAN_API_KEY || process.env.DASHSCOPE_API_KEY;
+  }
+  if (provider.protocol === "openai_responses" || provider.protocol === "openai_compatible") {
+    return process.env.BREVYN_OPENAI_API_KEY || process.env.OPENAI_API_KEY || process.env.BREVYN_OPENAI_COMPATIBLE_API_KEY;
+  }
+  if (provider.authMode === "bearer") {
+    return process.env.BREVYN_ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+  }
+  return process.env.BREVYN_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+}
+
 function maskApiKey(apiKey: string): string {
   const trimmed = apiKey.trim();
   if (!trimmed) return "";
@@ -411,7 +554,7 @@ function maskApiKey(apiKey: string): string {
 }
 
 function nextProviderName(providers: ModelProviderConfig[], purpose: ProviderPurpose, excludeId?: string): string {
-  const prefix = purpose === "agent" ? "Agent" : "Embedding";
+  const prefix = purpose === "agent" ? "Agent" : purpose === "vision" ? "Vision" : "Embedding";
   const used = new Set(
     providers
       .filter((provider) => provider.purpose === purpose && provider.id !== excludeId)
@@ -440,9 +583,11 @@ function normalizeNameKey(name: string): string {
 }
 
 function normalizeProviderPurpose(provider: Pick<LegacyProviderConfig, "purpose" | "protocol" | "providerKind">): ProviderPurpose {
-  if (provider.purpose === "agent" || provider.purpose === "embedding") return provider.purpose;
+  if (provider.purpose === "agent" || provider.purpose === "embedding" || provider.purpose === "vision") return provider.purpose;
   const kindPurpose = providerPurposeForKind(provider.providerKind);
   if (kindPurpose) return kindPurpose;
+  if (provider.protocol === "openai_responses") return "vision";
+  if (provider.protocol === "openai_compatible") return "embedding";
   if (provider.protocol === "anthropic_messages") return "agent";
   return "embedding";
 }
@@ -465,6 +610,10 @@ function normalizeProviderKind(kind: string | undefined, purpose: ProviderPurpos
     if (isAgentProviderKind(normalized)) return normalized;
     return inferAgentProviderKind(protocol, baseUrl);
   }
+  if (purpose === "vision") {
+    if (isVisionProviderKind(normalized)) return normalized;
+    return inferVisionProviderKind(protocol, baseUrl);
+  }
   if (isEmbeddingProviderKind(normalized)) return normalized;
   return inferEmbeddingProviderKind(baseUrl);
 }
@@ -473,6 +622,12 @@ function normalizeKindAlias(kind: string | undefined): string {
   const value = stringValue(kind).trim().toLowerCase();
   if (value === "kimi_api") return "kimi-api";
   if (value === "kimi_coding") return "kimi-coding";
+  if (value === "bailian" || value === "bailian_anthropic" || value === "dashscope-anthropic" || value === "dashscope_anthropic") return "bailian-anthropic";
+  if (value === "vision_bailian_anthropic" || value === "vision-bailian-anthropic" || value === "vision_bailian_openai" || value === "bailian_vision" || value === "dashscope_vision") return "vision-bailian-openai";
+  if (value === "vision_custom_openai") return "vision-custom-openai";
+  if (value === "vision_custom_anthropic") return "vision-custom-anthropic";
+  if (value === "vision_openai_responses") return "vision-openai-responses";
+  if (value === "vision_custom_openai_responses") return "vision-custom-openai-responses";
   if (value === "custom_anthropic") return "custom-anthropic";
   if (value === "custom_openai" || value === "custom") return "custom-openai";
   return value;
@@ -482,6 +637,7 @@ function providerPurposeForKind(kind: string | undefined): ProviderPurpose | und
   const normalized = normalizeKindAlias(kind);
   if (isAgentProviderKind(normalized)) return "agent";
   if (isEmbeddingProviderKind(normalized)) return "embedding";
+  if (isVisionProviderKind(normalized)) return "vision";
   return undefined;
 }
 
@@ -493,9 +649,14 @@ function isEmbeddingProviderKind(kind: string): kind is EmbeddingProviderKind {
   return Object.prototype.hasOwnProperty.call(EMBEDDING_PROVIDER_PRESETS, kind);
 }
 
+function isVisionProviderKind(kind: string): kind is VisionProviderKind {
+  return Object.prototype.hasOwnProperty.call(VISION_PROVIDER_PRESETS, kind);
+}
+
 function inferAgentProviderKind(protocol?: string, baseUrl?: string): AgentProviderKind {
   const url = normalizeBaseUrl(baseUrl).toLowerCase();
   if (url.includes("deepseek.com")) return "deepseek";
+  if (url.includes("dashscope.aliyuncs.com/apps/anthropic")) return "bailian-anthropic";
   if (url.includes("api.kimi.com/coding")) return "kimi-coding";
   if (url.includes("moonshot.cn/anthropic")) return "kimi-api";
   if (url && !url.includes("api.anthropic.com")) return "custom-anthropic";
@@ -511,6 +672,16 @@ function inferEmbeddingProviderKind(baseUrl?: string): EmbeddingProviderKind {
   if (url.includes("minimax.chat")) return "minimax";
   if (url.includes("api.openai.com") || !url) return "openai";
   return "custom-openai";
+}
+
+function inferVisionProviderKind(protocol?: string, baseUrl?: string): VisionProviderKind {
+  const url = normalizeBaseUrl(baseUrl).toLowerCase();
+  if (url.includes("dashscope.aliyuncs.com")) return "vision-bailian-openai";
+  if (protocol === "openai_compatible") return "vision-custom-openai";
+  if (protocol === "openai_responses") {
+    return url.includes("api.openai.com") || !url ? "vision-openai-responses" : "vision-custom-openai-responses";
+  }
+  return "vision-custom-anthropic";
 }
 
 function providerPreset(providerKind: ProviderKind): ProviderPreset {
@@ -565,6 +736,7 @@ function normalizeProviderModels(models: unknown, selectedModel: string): Provid
           id,
           name: stringValue(item.name).trim() || id,
           enabled: item.enabled !== false,
+          supportsVision: item.supportsVision === true,
         }];
       })
     : [];
@@ -576,24 +748,139 @@ function normalizeProviderModels(models: unknown, selectedModel: string): Provid
   return [...unique.values()];
 }
 
+function selectedEnabledModelId(selectedModel: string, models: unknown): string {
+  const normalized = Array.isArray(models) ? models : [];
+  const selected = stringValue(selectedModel).trim();
+  const enabledModels = normalized.flatMap((model) => {
+    if (!model || typeof model !== "object") return [];
+    const item = model as Partial<ProviderModel>;
+    const id = stringValue(item.id).trim();
+    return id && item.enabled !== false ? [id] : [];
+  });
+  if (selected && enabledModels.includes(selected)) return selected;
+  return enabledModels[0] || "";
+}
+
+function fetchedAgentModelsAsAvailable(models: ProviderModel[]): ProviderModel[] {
+  const unique = new Map<string, ProviderModel>();
+  for (const model of models) {
+    const id = stringValue(model.id).trim();
+    if (!id) continue;
+    unique.set(id, {
+      id,
+      name: stringValue(model.name).trim() || id,
+      enabled: false,
+      supportsVision: model.supportsVision === true,
+    });
+  }
+  return [...unique.values()];
+}
+
+function mergeFetchedModelsAsAvailable(existingModels: ProviderModel[], fetchedModels: ProviderModel[], selectedModel: string): ProviderModel[] {
+  const merged = new Map<string, ProviderModel>();
+  for (const model of normalizeProviderModels(existingModels, selectedModel)) {
+    merged.set(model.id, model);
+  }
+  for (const model of fetchedModels) {
+    const id = stringValue(model.id).trim();
+    if (!id || merged.has(id)) continue;
+    merged.set(id, {
+      id,
+      name: stringValue(model.name).trim() || id,
+      enabled: false,
+      supportsVision: model.supportsVision === true,
+    });
+  }
+  return [...merged.values()];
+}
+
+export function isVisionCapableAgentModel(provider: ModelProviderConfig, model: ProviderModel): boolean {
+  if (model.supportsVision) return true;
+  if (provider.purpose !== "agent") return false;
+  const id = `${model.id} ${model.name}`.toLowerCase();
+  const looksLikeClaudeVision = id.includes("claude-3") || id.includes("claude-4") || id.includes("claude-sonnet") || id.includes("claude-opus") || id.includes("claude-haiku");
+  if ((provider.providerKind === "anthropic" || provider.providerKind === "custom-anthropic") && looksLikeClaudeVision) return true;
+  return [
+    "vision",
+    "vl",
+    "visual",
+    "image",
+    "multimodal",
+    "omni",
+    "gpt-4o",
+    "gpt-4.1",
+    "gemini",
+    "qwen-vl",
+    "kimi-vision",
+  ].some((token) => id.includes(token));
+}
+
 async function fetchProviderModels(
   provider: ModelProviderConfig,
   apiKey: string,
   options: { limit?: number } = {},
 ): Promise<ProviderModel[]> {
   if (!provider.baseUrl) throw new Error("Base URL is required.");
+  if (provider.purpose === "vision") {
+    const response = await fetchWithTimeout(visionModelListUrl(provider), {
+      method: "GET",
+      headers: provider.protocol === "anthropic_messages" ? visionAnthropicHeaders(provider, apiKey) : visionOpenAiHeaders(provider, apiKey),
+    });
+    if (!response.ok) throw new Error(`Connection failed (${response.status}) ${await responseShortText(response)}`);
+    const payload = await responseJson(response);
+    if (!payload) throw new Error(`Expected JSON from ${visionModelListUrl(provider)} but received non-JSON response.`);
+    const models = parseProviderModelList(payload);
+    return typeof options.limit === "number" ? models.slice(0, options.limit) : models;
+  }
   const adapter = provider.purpose === "agent"
     ? getAgentProviderAdapter(provider)
     : getEmbeddingProviderAdapter(provider);
   const request = adapter.buildModelListRequest(provider, apiKey);
   const response = await fetchWithTimeout(request.url, request.init);
   if (!response.ok) {
+    if (provider.purpose === "agent" && response.status === 404) {
+      throw new Error("This provider does not expose a model list endpoint. Add model names manually.");
+    }
     throw new Error(`Connection failed (${response.status}) ${await responseShortText(response)}`);
   }
   const payload = await responseJson(response);
   if (!payload) throw new Error(`Expected JSON from ${request.url} but received non-JSON response.`);
   const models = adapter.parseModelList(payload);
   return typeof options.limit === "number" ? models.slice(0, options.limit) : models;
+}
+
+function visionModelListUrl(provider: ModelProviderConfig): string {
+  return `${normalizeBaseUrl(provider.baseUrl).replace(/\/messages$/, "").replace(/\/responses$/, "").replace(/\/chat\/completions$/, "")}/models`;
+}
+
+function visionAnthropicHeaders(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  };
+  if (provider.authMode === "bearer") headers.Authorization = `Bearer ${apiKey}`;
+  else {
+    headers["x-api-key"] = apiKey;
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
+function visionOpenAiHeaders(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
+  return provider.authMode === "api_key"
+    ? { "x-api-key": apiKey, "content-type": "application/json" }
+    : { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" };
+}
+
+function parseProviderModelList(payload: unknown): ProviderModel[] {
+  const data = payload && typeof payload === "object" ? (payload as { data?: Array<{ id?: string; display_name?: string; name?: string }> }).data : undefined;
+  return (data || [])
+    .flatMap((item) => {
+      const id = stringValue(item.id).trim();
+      if (!id) return [];
+      return [{ id, name: stringValue(item.display_name || item.name) || id, enabled: false }];
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 async function testAgentProvider(provider: ModelProviderConfig, apiKey: string): Promise<void> {
@@ -623,6 +910,56 @@ async function testEmbeddingProvider(provider: ModelProviderConfig, apiKey: stri
   return embedding.length;
 }
 
+async function testVisionProvider(provider: ModelProviderConfig, apiKey: string): Promise<void> {
+  const model = provider.selectedModel.trim();
+  if (!model) throw new Error("Vision model is required before testing the provider.");
+  const response = await fetchWithTimeout(visionTestUrl(provider), visionTestInit(provider, apiKey, model));
+  if (response.ok) return;
+  const text = await responseShortText(response);
+  if (response.status === 401) throw new Error(`API key is invalid${text ? `: ${text}` : ""}`);
+  throw new Error(`Vision request failed (${response.status}): ${text}`);
+}
+
+function visionTestUrl(provider: ModelProviderConfig): string {
+  if (provider.protocol === "openai_responses") return `${normalizeBaseUrl(provider.baseUrl)}/responses`;
+  if (provider.protocol === "openai_compatible") return `${normalizeBaseUrl(provider.baseUrl).replace(/\/chat\/completions$/, "")}/chat/completions`;
+  return `${normalizeBaseUrl(provider.baseUrl).replace(/\/messages$/, "")}/messages`;
+}
+
+function visionTestInit(provider: ModelProviderConfig, apiKey: string, model: string): RequestInit {
+  if (provider.protocol === "openai_responses") {
+    return {
+      method: "POST",
+      headers: visionOpenAiHeaders(provider, apiKey),
+      body: JSON.stringify({
+        model,
+        max_output_tokens: 16,
+        input: [{ role: "user", content: [{ type: "input_text", text: "hi" }] }],
+      }),
+    };
+  }
+  if (provider.protocol === "openai_compatible") {
+    return {
+      method: "POST",
+      headers: visionOpenAiHeaders(provider, apiKey),
+      body: JSON.stringify({
+        model,
+        max_tokens: 16,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    };
+  }
+  return {
+    method: "POST",
+    headers: visionAnthropicHeaders(provider, apiKey),
+    body: JSON.stringify({
+      model,
+      max_tokens: 1,
+      messages: [{ role: "user", content: "hi" }],
+    }),
+  };
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
@@ -640,6 +977,7 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
 
 function filterModelsForPurpose(purpose: ProviderPurpose, models: ProviderModel[]): ProviderModel[] {
   if (purpose === "agent") return models;
+  if (purpose === "vision") return models.filter((model) => !isEmbeddingModelId(model.id));
   const embeddingModels = models.filter((model) => isEmbeddingModelId(model.id));
   return embeddingModels.length > 0 ? embeddingModels : models;
 }
@@ -684,9 +1022,9 @@ function stringValue(value: unknown): string {
 
 function normalizeProviderDraftInput(input: unknown): ProviderDraftInput {
   const draft = input && typeof input === "object" ? input as Partial<ProviderDraftInput> : {};
-  const purpose = draft.purpose === "agent" || draft.purpose === "embedding"
+  const purpose = draft.purpose === "agent" || draft.purpose === "embedding" || draft.purpose === "vision"
     ? draft.purpose
-    : providerPurposeForKind(stringValue(draft.providerKind)) || (draft.protocol === "anthropic_messages" ? "agent" : "embedding");
+    : providerPurposeForKind(stringValue(draft.providerKind)) || (draft.protocol === "openai_responses" ? "vision" : draft.protocol === "anthropic_messages" ? "agent" : "embedding");
   const providerKind = normalizeProviderKind(stringValue(draft.providerKind), purpose, stringValue(draft.protocol), stringValue(draft.baseUrl));
   return {
     id: stringValue(draft.id).trim() || undefined,

@@ -6,6 +6,7 @@ import type { AgentProviderAdapter, EmbeddingProviderAdapter } from "./types";
 const agentAdapters = new Map<AgentProviderKind, AgentProviderAdapter>([
   ["anthropic", new AnthropicAgentAdapter("anthropic")],
   ["deepseek", new AnthropicAgentAdapter("deepseek")],
+  ["bailian-anthropic", new AnthropicAgentAdapter("bailian-anthropic")],
   ["kimi-api", new AnthropicAgentAdapter("kimi-api")],
   ["kimi-coding", new AnthropicAgentAdapter("kimi-coding")],
   ["custom-anthropic", new AnthropicAgentAdapter("custom-anthropic")],

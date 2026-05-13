@@ -56,6 +56,8 @@ interface ActiveRun {
   stoppedByUser: boolean;
   planMode: boolean;
   permissionMode: AgentPermissionMode;
+  providerId?: string;
+  modelId?: string;
   terminalResultWritten: boolean;
   terminalLifecycleWritten: boolean;
 }
@@ -100,6 +102,8 @@ export class AgentOrchestrator {
       stoppedByUser: false,
       planMode: input.mode === "plan",
       permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
+      providerId: input.providerId,
+      modelId: input.modelId,
       terminalResultWritten: false,
       terminalLifecycleWritten: false,
     });
@@ -132,17 +136,17 @@ export class AgentOrchestrator {
 
   private async executeRun(context: ResolvedThreadContext, runId: string, prompt: string, resumeSessionId?: string): Promise<void> {
     try {
-      const provider = this.options.providers.agentProvider();
+      const active = this.activeRuns.get(context.thread.id);
+      if (!active) return;
+      const provider = this.options.providers.agentProviderFor(active.providerId, active.modelId);
       if (!provider) {
-        throw new Error("Configure one enabled Anthropic-compatible agent provider before running the agent.");
+        throw new Error("Configure at least one enabled Anthropic-compatible agent provider before running the agent.");
       }
       const apiKey = this.options.providers.apiKey(provider.id) || envApiKeyForProvider(provider);
       if (!apiKey) {
         throw new Error(`Agent provider "${provider.name}" is missing an API key.`);
       }
 
-      const active = this.activeRuns.get(context.thread.id);
-      if (!active) return;
       const systemPrompt = [
         this.options.promptBuilder.buildSystemPrompt({
           semester: context.semester,

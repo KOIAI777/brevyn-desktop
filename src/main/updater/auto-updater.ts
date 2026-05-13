@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import { autoUpdater } from "electron-updater";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { UpdaterStatus } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
@@ -9,6 +9,7 @@ let currentStatus: UpdaterStatus = initialStatus();
 let checkInterval: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
 let installingUpdate = false;
+let dismissedDownloadedVersion: string | null | undefined;
 
 function initialStatus(): UpdaterStatus {
   const currentVersion = app.getVersion();
@@ -43,11 +44,41 @@ function withBase(status: { status: UpdaterStatus["status"]; supported?: boolean
   } as UpdaterStatus;
 }
 
+function updaterStatePath(): string {
+  return join(app.getPath("userData"), "updater-state.json");
+}
+
+function getDismissedDownloadedVersion(): string | null {
+  if (dismissedDownloadedVersion !== undefined) return dismissedDownloadedVersion;
+  try {
+    const parsed = JSON.parse(readFileSync(updaterStatePath(), "utf8")) as { dismissedDownloadedVersion?: unknown };
+    dismissedDownloadedVersion = typeof parsed.dismissedDownloadedVersion === "string" ? parsed.dismissedDownloadedVersion : null;
+  } catch {
+    dismissedDownloadedVersion = null;
+  }
+  return dismissedDownloadedVersion;
+}
+
+function saveDismissedDownloadedVersion(version: string): void {
+  dismissedDownloadedVersion = version;
+  try {
+    mkdirSync(app.getPath("userData"), { recursive: true });
+    writeFileSync(updaterStatePath(), JSON.stringify({ dismissedDownloadedVersion: version }, null, 2));
+  } catch (error) {
+    console.warn("[brevyn-updater] Failed to persist dismissed update version", error);
+  }
+}
+
+function withDismissal(status: UpdaterStatus): UpdaterStatus {
+  if (status.status !== "downloaded") return status;
+  return { ...status, dismissed: getDismissedDownloadedVersion() === status.version };
+}
+
 function setStatus(status: UpdaterStatus): void {
-  currentStatus = status;
+  currentStatus = withDismissal(status);
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
-      window.webContents.send(IPC_CHANNELS.updaterStatusChanged, status);
+      window.webContents.send(IPC_CHANNELS.updaterStatusChanged, currentStatus);
     }
   }
 }
@@ -83,6 +114,13 @@ export function quitAndInstallUpdate(): void {
     window.removeAllListeners("close");
   }
   setImmediate(() => autoUpdater.quitAndInstall(true, true));
+}
+
+export function dismissDownloadedUpdate(): UpdaterStatus {
+  if (currentStatus.status !== "downloaded") return currentStatus;
+  saveDismissedDownloadedVersion(currentStatus.version);
+  setStatus(currentStatus);
+  return currentStatus;
 }
 
 export function isInstallingUpdate(): boolean {

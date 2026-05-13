@@ -26,6 +26,7 @@ import { cx } from "@/lib/cn";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon";
 import { FileIndexingBadge } from "@/components/files/FileIndexingBadge";
+import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
 
 const DEFAULT_TASK_TYPE = "Assignment";
 const RAG_RESULTS_PAGE_SIZE = 5;
@@ -614,6 +615,15 @@ export function CourseManagementDialog({
                 {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                 {creatingCourse ? "Creating..." : "Create course"}
               </button>
+              <VisionRecognitionImportButton
+                kind="course_timetable"
+                className="mt-2 w-full"
+                onImported={async () => {
+                  onWorkspaceChanged?.();
+                  await loadArchivedCourses();
+                  if (activeCourse?.id) await loadCourseView(activeCourse.id);
+                }}
+              />
             </section>
           </aside>
 

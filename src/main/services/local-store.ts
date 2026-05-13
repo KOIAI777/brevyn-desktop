@@ -32,6 +32,8 @@ import type {
   ProviderSaveResult,
   ProviderTestResult,
   RagSearchResult,
+  RecognizedAcademicCalendar,
+  RecognizedCourseTimetable,
   RenameThreadInput,
   SemesterWorkspace,
   SkillImportInput,
@@ -42,6 +44,7 @@ import type {
   Thread,
   TimetableEvent,
   TimetableRangeQuery,
+  VisionRecognitionInput,
   BrevynTask,
   UpdateCourseInput,
   UpdateTaskInput,
@@ -58,6 +61,7 @@ import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { ProviderTransactionStore } from "./provider-transaction-store";
 import { RagIndexService } from "./rag-index-service";
+import { VisionRecognitionService } from "./vision-recognition-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
 import { ensureThreadSessionDir, isPathInside, sanitizeFsSegment, workspacePathForThread } from "./workspace-paths";
@@ -70,6 +74,7 @@ export class LocalStore {
   private readonly ragIndex: RagIndexService;
   private readonly skillFiles: SkillFileStore;
   private readonly providers: ProviderService;
+  private readonly vision: VisionRecognitionService;
   private readonly workspace: WorkspaceService;
   private readonly files: FileService;
   private readonly agent: AgentOrchestrator;
@@ -96,6 +101,11 @@ export class LocalStore {
       rootDataDir: this.rootDataDir,
       businessStore,
       ragIndex: this.ragIndex,
+    });
+    this.vision = new VisionRecognitionService({
+      rootDataDir: this.rootDataDir,
+      businessStore,
+      providers: this.providers,
     });
     this.files = new FileService({
       rootDataDir: this.rootDataDir,
@@ -365,8 +375,32 @@ export class LocalStore {
     return this.providers.models(providerId);
   }
 
+  providerModelsFromDraft(input: ProviderDraftInput): Promise<ProviderModel[]> {
+    return this.providers.modelsFromDraft(input);
+  }
+
   testProvider(providerId: string): Promise<ProviderTestResult> {
     return this.providers.test(providerId);
+  }
+
+  testProviderDraft(input: ProviderDraftInput): Promise<ProviderTestResult> {
+    return this.providers.testDraft(input);
+  }
+
+  recognizeAcademicCalendar(input: VisionRecognitionInput): Promise<RecognizedAcademicCalendar> {
+    return this.vision.recognizeAcademicCalendar(input);
+  }
+
+  recognizeCourseTimetable(input: VisionRecognitionInput): Promise<RecognizedCourseTimetable> {
+    return this.vision.recognizeCourseTimetable(input);
+  }
+
+  importAcademicCalendar(input: RecognizedAcademicCalendar): RecognizedAcademicCalendar {
+    return this.vision.importAcademicCalendar(input);
+  }
+
+  importCourseTimetable(input: RecognizedCourseTimetable): RecognizedCourseTimetable {
+    return this.vision.importCourseTimetable(input);
   }
 
   providerApiKey(providerId: string): string | undefined {
@@ -396,7 +430,7 @@ export class LocalStore {
         const inRange = startsAt <= end && endsAt >= start;
         if (!inRange) return false;
         if (query.courseId && event.courseId && event.courseId !== query.courseId) return false;
-        if (event.kind === "school_event" && query.includeSchoolEvents === false) return false;
+        if ((event.kind === "school_event" || event.kind === "school_week") && query.includeSchoolEvents === false) return false;
         if (event.kind === "deadline" && query.includeDeadlines === false) return false;
         return true;
       })

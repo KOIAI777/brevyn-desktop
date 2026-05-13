@@ -551,6 +551,32 @@ export class SQLiteBusinessStore {
     return events;
   }
 
+  replaceCourseSessionEvents(courseId: string, events: TimetableEvent[]): TimetableEvent[] {
+    this.db.exec("begin immediate;");
+    try {
+      this.run("delete from timetable_events where course_id = ? and kind = 'course_session' and source = 'course'", courseId);
+      for (const event of events) this.insertTimetableEvent(event);
+      this.db.exec("commit;");
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+    return events;
+  }
+
+  replaceSchoolCalendarEvents(semesterId: string, events: TimetableEvent[]): TimetableEvent[] {
+    this.db.exec("begin immediate;");
+    try {
+      this.run("delete from timetable_events where semester_id = ? and source = 'school_calendar'", semesterId);
+      for (const event of events) this.insertTimetableEvent(event);
+      this.db.exec("commit;");
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+    return events;
+  }
+
   close(): void {
     this.db.close();
   }
@@ -1810,6 +1836,7 @@ function nullableString(value: unknown): string | undefined {
 
 function semesterSource(value: unknown): SemesterWorkspace["source"] {
   const source = stringValue(value);
+  if (source === "vision") return "vision";
   return source === "filesystem" ? "filesystem" : "manual";
 }
 

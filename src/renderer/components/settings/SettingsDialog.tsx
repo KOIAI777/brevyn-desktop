@@ -5,11 +5,15 @@ import {
   Bot,
   CalendarDays,
   Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Circle,
   Database,
   Download,
   Eye,
   EyeOff,
+  ExternalLink,
   FileText,
   FolderOpen,
   GitBranch,
@@ -17,12 +21,14 @@ import {
   KeyRound,
   Layers3,
   MessageSquare,
+  Minus,
   PlugZap,
   Plus,
   Pencil,
   RefreshCw,
   RotateCcw,
   Save,
+  Search,
   Settings,
   Sparkles,
   TerminalSquare,
@@ -36,14 +42,18 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Markdownish } from "@/components/chat/Markdownish";
 import brevynMarkUrl from "@/assets/brevyn-marginal-mark.svg";
 import {
   AGENT_PROVIDER_PRESETS,
   EMBEDDING_PROVIDER_PRESETS,
   PROVIDER_PRESETS,
+  VISION_PROVIDER_PRESETS,
   type AgentProviderKind,
   type EmbeddingProviderKind,
+  type VisionProviderKind,
   type Course,
+  type GitHubRelease,
   type GitStatus,
   type ModelProviderConfig,
   type ProviderDraftInput,
@@ -51,6 +61,8 @@ import {
   type ProviderModel,
   type ProviderPurpose,
   type ProviderSaveResult,
+  type RecognizedAcademicCalendar,
+  type RecognizedCourseTimetable,
   type SemesterWorkspace,
   type SkillItem,
   type Thread,
@@ -59,6 +71,8 @@ import {
 import { cx } from "@/lib/cn";
 
 type SettingsPage = "providers" | "archive" | "skills" | "about";
+type VisionTestKind = "calendar" | "timetable";
+type VisionTestResult = RecognizedAcademicCalendar | RecognizedCourseTimetable;
 type ProviderBusyAction =
   | "agent-save"
   | "agent-delete"
@@ -69,10 +83,16 @@ type ProviderBusyAction =
   | "embedding-delete"
   | "embedding-toggle"
   | "embedding-fetch"
-  | "embedding-test";
+  | "embedding-test"
+  | "vision-save"
+  | "vision-delete"
+  | "vision-toggle"
+  | "vision-fetch"
+  | "vision-test";
 
 const agentProviderKinds = Object.keys(AGENT_PROVIDER_PRESETS) as AgentProviderKind[];
 const embeddingProviderKinds = Object.keys(EMBEDDING_PROVIDER_PRESETS) as EmbeddingProviderKind[];
+const visionProviderKinds = Object.keys(VISION_PROVIDER_PRESETS) as VisionProviderKind[];
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 
@@ -104,6 +124,20 @@ const emptyEmbeddingDraft: ProviderDraftInput = {
   enabled: false,
 };
 
+const emptyVisionDraft: ProviderDraftInput = {
+  purpose: "vision",
+  providerKind: "vision-bailian-openai",
+  name: "",
+  protocol: "openai_compatible",
+  authMode: VISION_PROVIDER_PRESETS["vision-bailian-openai"].authMode,
+  baseUrl: VISION_PROVIDER_PRESETS["vision-bailian-openai"].baseUrl,
+  apiKey: "",
+  clearApiKey: false,
+  models: [],
+  selectedModel: "",
+  enabled: false,
+};
+
 export function SettingsDialog({
   initialPage = "providers",
   course,
@@ -127,14 +161,19 @@ export function SettingsDialog({
   const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedEmbeddingProviderId, setSelectedEmbeddingProviderId] = useState("");
+  const [selectedVisionProviderId, setSelectedVisionProviderId] = useState("");
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [creatingEmbeddingProvider, setCreatingEmbeddingProvider] = useState(false);
+  const [creatingVisionProvider, setCreatingVisionProvider] = useState(false);
   const [draft, setDraft] = useState<ProviderDraftInput>(emptyDraft);
   const [embeddingDraft, setEmbeddingDraft] = useState<ProviderDraftInput>(emptyEmbeddingDraft);
+  const [visionDraft, setVisionDraft] = useState<ProviderDraftInput>(emptyVisionDraft);
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [embeddingModels, setEmbeddingModels] = useState<ProviderModel[]>([]);
+  const [visionModels, setVisionModels] = useState<ProviderModel[]>([]);
   const [statusLine, setStatusLine] = useState("");
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
+  const [visionStatusLine, setVisionStatusLine] = useState("");
   const [embeddingReindexNotice, setEmbeddingReindexNotice] = useState("");
   const [reindexingActiveSemester, setReindexingActiveSemester] = useState(false);
   const [providerToast, setProviderToast] = useState<{ id: number; message: string } | null>(null);
@@ -147,17 +186,23 @@ export function SettingsDialog({
   const { confirm: confirmProviderAction, confirmDialog: providerConfirmDialog } = useConfirmDialog();
   const providerApiKeyLoadRequestRef = useRef(0);
   const embeddingApiKeyLoadRequestRef = useRef(0);
+  const visionApiKeyLoadRequestRef = useRef(0);
 
   const enabledSkills = localSkills.filter((skill) => skill.enabled).length;
   const chatProviders = providers.filter((provider) => provider.purpose === "agent");
   const embeddingProviders = providers.filter((provider) => provider.purpose === "embedding");
+  const visionProviders = providers.filter((provider) => provider.purpose === "vision");
   const activeAgentProviders = chatProviders.filter((provider) => provider.enabled);
   const activeEmbeddingProviders = embeddingProviders.filter((provider) => provider.enabled);
+  const activeVisionProviders = visionProviders.filter((provider) => provider.enabled);
   const enabledProviders = activeAgentProviders.length;
   const activeEmbeddingProvider = activeEmbeddingProviders.length === 1 ? activeEmbeddingProviders[0] : undefined;
   const embeddingProviderDetail = activeEmbeddingProviders.length > 1
-    ? "multiple embedding providers"
-    : activeEmbeddingProvider?.selectedModel || "embedding TBD";
+    ? "多个 Embedding"
+    : activeEmbeddingProvider?.selectedModel || "未配置向量模型";
+  const visionProviderDetail = activeVisionProviders.length > 1
+    ? "多个 Vision"
+    : activeVisionProviders[0]?.selectedModel || "未配置视觉模型";
 
   useEffect(() => {
     void loadProviders();
@@ -222,10 +267,34 @@ export function SettingsDialog({
   }, [creatingEmbeddingProvider, providers, selectedEmbeddingProviderId]);
 
   useEffect(() => {
+    if (!selectedVisionProviderId || creatingVisionProvider) return;
+    const provider = providers.find((item) => item.id === selectedVisionProviderId);
+    if (!provider) return;
+    const requestId = ++visionApiKeyLoadRequestRef.current;
+    void window.brevyn.providers
+      .decryptApiKey(provider.id)
+      .then((apiKey) => {
+        if (visionApiKeyLoadRequestRef.current !== requestId) return;
+        setVisionDraft((current) => {
+          if (current.id !== provider.id) return current;
+          if (current.apiKey.trim()) return current;
+          return { ...current, apiKey };
+        });
+      })
+      .catch((error) => {
+        if (visionApiKeyLoadRequestRef.current !== requestId) return;
+        console.warn("[providers] Failed to load vision provider API key", error);
+      });
+    return () => {
+      visionApiKeyLoadRequestRef.current += 1;
+    };
+  }, [creatingVisionProvider, providers, selectedVisionProviderId]);
+
+  useEffect(() => {
     void window.brevyn.skills
       .list()
       .then(setLocalSkills)
-      .catch((error) => setSkillStatusLine(`Failed to load skills: ${errorMessage(error)}`));
+      .catch((error) => setSkillStatusLine(`加载 Skill 失败：${errorMessage(error)}`));
   }, []);
 
   useEffect(() => {
@@ -264,18 +333,22 @@ export function SettingsDialog({
       setProviders(result);
       closeProviderEditor();
       closeEmbeddingEditor();
+      closeVisionEditor();
       setStatusLine("");
       setEmbeddingStatusLine("");
+      setVisionStatusLine("");
     } catch (error) {
       setProviders([]);
-      const message = errorMessage(error, "Failed to load providers.");
+      const message = errorMessage(error, "加载服务商失败。");
       setStatusLine(message);
       setEmbeddingStatusLine(message);
+      setVisionStatusLine(message);
     }
   }
 
   function selectProvider(provider: ModelProviderConfig) {
     closeEmbeddingEditor();
+    closeVisionEditor();
     setCreatingProvider(false);
     setSelectedProviderId(provider.id);
     setDraft(toProviderDraft(provider));
@@ -285,6 +358,7 @@ export function SettingsDialog({
 
   function selectEmbeddingProvider(provider: ModelProviderConfig) {
     closeProviderEditor();
+    closeVisionEditor();
     setCreatingEmbeddingProvider(false);
     setSelectedEmbeddingProviderId(provider.id);
     setEmbeddingDraft(toProviderDraft(provider));
@@ -292,22 +366,44 @@ export function SettingsDialog({
     setEmbeddingStatusLine("");
   }
 
+  function selectVisionProvider(provider: ModelProviderConfig) {
+    closeProviderEditor();
+    closeEmbeddingEditor();
+    setCreatingVisionProvider(false);
+    setSelectedVisionProviderId(provider.id);
+    setVisionDraft(toProviderDraft(provider));
+    setVisionModels([]);
+    setVisionStatusLine("");
+  }
+
   function newProvider() {
     closeEmbeddingEditor();
+    closeVisionEditor();
     setCreatingProvider(true);
     setSelectedProviderId("");
-    setDraft({ ...emptyDraft, name: nextProviderDraftName(providers, "agent") });
+    setDraft({ ...emptyDraft, name: nextProviderDraftName(providers, "agent"), enabled: true });
     setModels([]);
     setStatusLine("");
   }
 
   function newEmbeddingProvider() {
     closeProviderEditor();
+    closeVisionEditor();
     setCreatingEmbeddingProvider(true);
     setSelectedEmbeddingProviderId("");
-    setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers, "embedding") });
+    setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers, "embedding"), enabled: true });
     setEmbeddingModels([]);
     setEmbeddingStatusLine("");
+  }
+
+  function newVisionProvider() {
+    closeProviderEditor();
+    closeEmbeddingEditor();
+    setCreatingVisionProvider(true);
+    setSelectedVisionProviderId("");
+    setVisionDraft({ ...emptyVisionDraft, name: nextProviderDraftName(providers, "vision"), enabled: true });
+    setVisionModels([]);
+    setVisionStatusLine("");
   }
 
   function closeProviderEditor() {
@@ -322,6 +418,13 @@ export function SettingsDialog({
     setSelectedEmbeddingProviderId("");
     setEmbeddingDraft({ ...emptyEmbeddingDraft });
     setEmbeddingModels([]);
+  }
+
+  function closeVisionEditor() {
+    setCreatingVisionProvider(false);
+    setSelectedVisionProviderId("");
+    setVisionDraft({ ...emptyVisionDraft });
+    setVisionModels([]);
   }
 
   function setProviderBusy(action: ProviderBusyAction, busy: boolean) {
@@ -344,7 +447,7 @@ export function SettingsDialog({
       return;
     }
     setEmbeddingStatusLine("");
-    setEmbeddingReindexNotice("Embedding provider, URL, or model changed. Existing RAG indexes may have been built with the previous embedding configuration.");
+    setEmbeddingReindexNotice("向量服务商、URL 或模型已变更。现有 RAG 索引可能仍使用旧配置生成。");
   }
 
   async function reindexActiveSemester() {
@@ -355,16 +458,16 @@ export function SettingsDialog({
       const failed = result.failures.length;
       if (failed > 0) {
         const summary = result.failures.slice(0, 2).map((failure) => `${failure.courseName}: ${failure.message}`).join("; ");
-        const suffix = result.failures.length > 2 ? `; +${result.failures.length - 2} more` : "";
-        setEmbeddingReindexNotice(`Some workspaces failed to queue. ${summary}${suffix}. Fix the issue if needed, then retry.`);
-        setEmbeddingStatusLine(`Re-index queued for ${queued} active workspace${queued === 1 ? "" : "s"}; ${failed} failed.`);
+        const suffix = result.failures.length > 2 ? `；另有 ${result.failures.length - 2} 个失败` : "";
+        setEmbeddingReindexNotice(`部分工作区无法加入队列：${summary}${suffix}。请修复后重试。`);
+        setEmbeddingStatusLine(`已为 ${queued} 个活跃工作区加入重建索引队列；${failed} 个失败。`);
       } else {
         setEmbeddingReindexNotice("");
-        setEmbeddingStatusLine(`Re-index queued for ${queued} active workspace${queued === 1 ? "" : "s"}.`);
+        setEmbeddingStatusLine(`已为 ${queued} 个活跃工作区加入重建索引队列。`);
       }
     } catch (error) {
-      setEmbeddingReindexNotice("Re-index could not start. Fix the issue, then retry.");
-      setEmbeddingStatusLine(`Re-index failed: ${errorMessage(error)}`);
+      setEmbeddingReindexNotice("无法开始重建索引。请修复问题后重试。");
+      setEmbeddingStatusLine(`重建索引失败：${errorMessage(error)}`);
     } finally {
       setReindexingActiveSemester(false);
     }
@@ -393,9 +496,9 @@ export function SettingsDialog({
         enabled: saved.enabled,
       }));
       setStatusLine("");
-      showProviderToast("Provider saved.");
+      showProviderToast("聊天服务商已保存。");
     } catch (error) {
-      setStatusLine(`Failed to save provider profile: ${errorMessage(error)}`);
+      setStatusLine(`保存模型服务商配置失败：${errorMessage(error)}`);
     } finally {
       setProviderBusy("agent-save", false);
     }
@@ -403,13 +506,13 @@ export function SettingsDialog({
 
   async function deleteProvider(provider: ModelProviderConfig) {
     const ok = await confirmProviderAction({
-      title: `Delete provider profile "${provider.name}"?`,
-      message: "This removes the saved profile and its local metadata.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `删除模型服务商配置“${provider.name}”？`,
+      message: "这会删除已保存的配置和本地元数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
       verificationText: provider.name,
-      verificationLabel: "Type the provider name to confirm",
+      verificationLabel: "输入服务商名称以确认",
     });
     if (!ok) return;
     setProviderBusy("agent-delete", true);
@@ -418,9 +521,9 @@ export function SettingsDialog({
       const next = await window.brevyn.providers.list();
       setProviders(next);
       closeProviderEditor();
-      setStatusLine(`Deleted provider profile "${provider.name}".`);
+      setStatusLine(`已删除模型服务商配置“${provider.name}”。`);
     } catch (error) {
-      setStatusLine(`Failed to delete provider profile: ${errorMessage(error)}`);
+      setStatusLine(`删除模型服务商配置失败：${errorMessage(error)}`);
     } finally {
       setProviderBusy("agent-delete", false);
     }
@@ -448,9 +551,9 @@ export function SettingsDialog({
         selectedModel: saved.selectedModel,
         enabled: saved.enabled,
       }));
-      await handleEmbeddingIndexNotice(result, "Embedding provider saved.");
+      await handleEmbeddingIndexNotice(result, "向量服务商已保存。");
     } catch (error) {
-      setEmbeddingStatusLine(`Failed to save embedding provider: ${errorMessage(error)}`);
+      setEmbeddingStatusLine(`保存向量服务商失败：${errorMessage(error)}`);
     } finally {
       setProviderBusy("embedding-save", false);
     }
@@ -458,13 +561,13 @@ export function SettingsDialog({
 
   async function deleteEmbeddingProvider(provider: ModelProviderConfig) {
     const ok = await confirmProviderAction({
-      title: `Delete embedding provider profile "${provider.name}"?`,
-      message: "This removes the saved profile and its local metadata.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `删除向量服务商配置“${provider.name}”？`,
+      message: "这会删除已保存的配置和本地元数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
       verificationText: provider.name,
-      verificationLabel: "Type the provider name to confirm",
+      verificationLabel: "输入服务商名称以确认",
     });
     if (!ok) return;
     setProviderBusy("embedding-delete", true);
@@ -473,9 +576,9 @@ export function SettingsDialog({
       const next = await window.brevyn.providers.list();
       setProviders(next);
       closeEmbeddingEditor();
-      setEmbeddingStatusLine(`Deleted embedding provider profile "${provider.name}".`);
+      setEmbeddingStatusLine(`已删除向量服务商配置“${provider.name}”。`);
     } catch (error) {
-      setEmbeddingStatusLine(`Failed to delete embedding provider: ${errorMessage(error)}`);
+      setEmbeddingStatusLine(`删除向量服务商失败：${errorMessage(error)}`);
     } finally {
       setProviderBusy("embedding-delete", false);
     }
@@ -504,7 +607,7 @@ export function SettingsDialog({
       const next = await window.brevyn.providers.list();
       setProviders(next);
       if (provider.id === selectedEmbeddingProviderId) selectEmbeddingProvider(saved);
-      await handleEmbeddingIndexNotice(result, `Updated embedding provider "${saved.name}".`);
+      await handleEmbeddingIndexNotice(result, `已更新向量服务商“${saved.name}”。`);
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
     } finally {
@@ -512,49 +615,95 @@ export function SettingsDialog({
     }
   }
 
+  async function toggleVisionProvider(provider: ModelProviderConfig) {
+    setProviderBusy("vision-toggle", true);
+    try {
+      const result = await window.brevyn.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const saved = result.provider;
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      if (provider.id === selectedVisionProviderId) selectVisionProvider(saved);
+      setVisionStatusLine(`已更新视觉服务商“${saved.name}”。`);
+    } catch (error) {
+      setVisionStatusLine(errorMessage(error));
+    } finally {
+      setProviderBusy("vision-toggle", false);
+    }
+  }
+
   async function fetchModels() {
-    if (!selectedProviderId) {
-      setStatusLine("Save provider before fetching models.");
+    if (!draft.baseUrl.trim() || !draft.apiKey.trim()) {
+      setStatusLine("获取模型前需要填写 Base URL 和 API Key。");
       return;
     }
     setProviderBusy("agent-fetch", true);
     try {
-      setModels(await window.brevyn.providers.models(selectedProviderId));
-      setStatusLine("Fetched available models.");
+      const fetchedModels = await window.brevyn.providers.models(draft);
+      setModels(fetchedModels);
+      setDraft((current) => ({
+        ...current,
+        models: fetchedModels,
+        selectedModel: selectedEnabledModel(current.selectedModel, fetchedModels),
+      }));
+      setStatusLine("已获取可用模型。");
     } catch (error) {
-      setModels([]);
-      setStatusLine(`Failed to fetch agent models: ${errorMessage(error)}`);
+      setStatusLine(`获取聊天模型失败：${providerFetchErrorMessage(error)}`);
     } finally {
       setProviderBusy("agent-fetch", false);
     }
   }
 
   async function fetchEmbeddingModels() {
-    if (!selectedEmbeddingProviderId) {
-      setEmbeddingStatusLine("Save embedding provider before fetching models.");
+    if (!embeddingDraft.baseUrl.trim() || !embeddingDraft.apiKey.trim()) {
+      setEmbeddingStatusLine("获取模型前需要填写 Base URL 和 API Key。");
       return;
     }
     setProviderBusy("embedding-fetch", true);
     try {
-      setEmbeddingModels(await window.brevyn.providers.models(selectedEmbeddingProviderId));
-      setEmbeddingStatusLine("Fetched embedding models.");
+      const fetchedModels = await window.brevyn.providers.models(embeddingDraft);
+      setEmbeddingModels(fetchedModels);
+      setEmbeddingDraft((current) => ({
+        ...current,
+        models: fetchedModels,
+        selectedModel: selectedEnabledModel(current.selectedModel, fetchedModels),
+      }));
+      setEmbeddingStatusLine("已获取向量模型。");
     } catch (error) {
       setEmbeddingModels([]);
-      setEmbeddingStatusLine(`Failed to fetch embedding models: ${errorMessage(error)}`);
+      setEmbeddingStatusLine(`获取向量模型失败：${errorMessage(error)}`);
     } finally {
       setProviderBusy("embedding-fetch", false);
     }
   }
 
-  async function testProvider() {
-    if (!selectedProviderId) {
-      setStatusLine("Save provider before testing connection.");
+  async function fetchVisionModels() {
+    if (!visionDraft.baseUrl.trim() || !visionDraft.apiKey.trim()) {
+      setVisionStatusLine("获取模型前需要填写 Base URL 和 API Key。");
       return;
     }
+    setProviderBusy("vision-fetch", true);
+    try {
+      const fetchedModels = await window.brevyn.providers.models(visionDraft);
+      setVisionModels(fetchedModels);
+      setVisionDraft((current) => ({
+        ...current,
+        models: fetchedModels,
+        selectedModel: selectedEnabledModel(current.selectedModel, fetchedModels),
+      }));
+      setVisionStatusLine("已获取视觉模型。");
+    } catch (error) {
+      setVisionModels([]);
+      setVisionStatusLine(`获取视觉模型失败：${providerFetchErrorMessage(error)}`);
+    } finally {
+      setProviderBusy("vision-fetch", false);
+    }
+  }
+
+  async function testProvider() {
     setProviderBusy("agent-test", true);
     try {
-      const result = await window.brevyn.providers.test(selectedProviderId);
-      setStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
+      const result = await window.brevyn.providers.test(draft);
+      setStatusLine(result.ok ? `已连接 · ${result.latencyMs}ms · ${result.message}` : `失败 · ${result.message}`);
     } catch (error) {
       setStatusLine(errorMessage(error));
     } finally {
@@ -563,18 +712,82 @@ export function SettingsDialog({
   }
 
   async function testEmbeddingProvider() {
-    if (!selectedEmbeddingProviderId) {
-      setEmbeddingStatusLine("Save embedding provider before testing connection.");
-      return;
-    }
     setProviderBusy("embedding-test", true);
     try {
-      const result = await window.brevyn.providers.test(selectedEmbeddingProviderId);
-      setEmbeddingStatusLine(`${result.ok ? "Connected" : "Failed"} · ${result.latencyMs}ms · ${result.message}`);
+      const result = await window.brevyn.providers.test(embeddingDraft);
+      setEmbeddingStatusLine(result.ok ? `已连接 · ${result.latencyMs}ms · ${result.message}` : `失败 · ${result.message}`);
     } catch (error) {
       setEmbeddingStatusLine(errorMessage(error));
     } finally {
       setProviderBusy("embedding-test", false);
+    }
+  }
+
+  async function testVisionProvider() {
+    setProviderBusy("vision-test", true);
+    try {
+      const result = await window.brevyn.providers.test(visionDraft);
+      setVisionStatusLine(result.ok ? `已连接 · ${result.latencyMs}ms · ${result.message}` : `失败 · ${result.message}`);
+    } catch (error) {
+      setVisionStatusLine(errorMessage(error));
+    } finally {
+      setProviderBusy("vision-test", false);
+    }
+  }
+
+  async function saveVisionProvider() {
+    setProviderBusy("vision-save", true);
+    try {
+      const result = await window.brevyn.providers.save({ ...visionDraft, purpose: "vision" });
+      const saved = result.provider;
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      setCreatingVisionProvider(false);
+      setSelectedVisionProviderId(saved.id);
+      setVisionDraft((current) => ({
+        ...current,
+        id: saved.id,
+        purpose: saved.purpose,
+        providerKind: saved.providerKind,
+        name: saved.name,
+        protocol: saved.protocol,
+        authMode: saved.authMode,
+        baseUrl: saved.baseUrl,
+        models: saved.models.map((model) => ({ ...model })),
+        selectedModel: saved.selectedModel,
+        enabled: saved.enabled,
+      }));
+      setVisionStatusLine("");
+      showProviderToast("视觉服务商已保存。");
+    } catch (error) {
+      setVisionStatusLine(`保存视觉服务商失败：${errorMessage(error)}`);
+    } finally {
+      setProviderBusy("vision-save", false);
+    }
+  }
+
+  async function deleteVisionProvider(provider: ModelProviderConfig) {
+    const ok = await confirmProviderAction({
+      title: `删除视觉服务商配置“${provider.name}”？`,
+      message: "这会删除已保存的配置和本地元数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
+      tone: "danger",
+      verificationText: provider.name,
+      verificationLabel: "输入服务商名称以确认",
+    });
+    if (!ok) return;
+    setProviderBusy("vision-delete", true);
+    try {
+      await window.brevyn.providers.delete(provider.id);
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      closeVisionEditor();
+      setVisionStatusLine(`已删除视觉服务商配置“${provider.name}”。`);
+    } catch (error) {
+      setVisionStatusLine(`删除视觉服务商失败：${errorMessage(error)}`);
+    } finally {
+      setProviderBusy("vision-delete", false);
     }
   }
 
@@ -585,9 +798,9 @@ export function SettingsDialog({
       const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
       setLocalSkills(next);
       onSkillsChange(next);
-      setSkillStatusLine(`${updated.enabled ? "Enabled" : "Disabled"} ${updated.name}.`);
+      setSkillStatusLine(`${updated.enabled ? "已启用" : "已停用"} ${updated.name}。`);
     } catch (error) {
-      setSkillStatusLine(errorMessage(error, "Failed to update skill."));
+      setSkillStatusLine(errorMessage(error, "更新 Skill 失败。"));
     } finally {
       setSkillBusy(false);
     }
@@ -598,14 +811,14 @@ export function SettingsDialog({
     setSkillBusy(true);
     try {
       if (!skillContent.trim()) {
-        setSkillStatusLine("SKILL.md cannot be saved empty.");
+        setSkillStatusLine("SKILL.md 不能为空。");
         return;
       }
       const updated = await window.brevyn.skills.writeContent({ id: selectedSkillId, content: skillContent });
       const next = localSkills.map((item) => (item.id === updated.id ? updated : item));
       setLocalSkills(next);
       onSkillsChange(next);
-      setSkillStatusLine("Saved SKILL.md.");
+      setSkillStatusLine("已保存 SKILL.md。");
     } catch (error) {
       setSkillStatusLine(errorMessage(error));
     } finally {
@@ -621,7 +834,7 @@ export function SettingsDialog({
       setLocalSkills(next);
       onSkillsChange(next);
       setSelectedSkillId(imported.id);
-      setSkillStatusLine(`Imported ${imported.name}.`);
+      setSkillStatusLine(`已导入 ${imported.name}。`);
     } catch (error) {
       setSkillStatusLine(errorMessage(error));
     } finally {
@@ -633,7 +846,7 @@ export function SettingsDialog({
     if (!skillId) return;
     try {
       await window.brevyn.skills.openFolder(skillId);
-      setSkillStatusLine("Opened skill folder.");
+      setSkillStatusLine("已打开 Skill 文件夹。");
     } catch (error) {
       setSkillStatusLine(errorMessage(error));
     }
@@ -653,14 +866,14 @@ export function SettingsDialog({
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Settings className="h-4 w-4" />
-              Settings
+              设置
             </div>
           </div>
           <button
             type="button"
             className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onClose}
-            title="Close settings"
+            title="关闭设置"
           >
             <X className="h-4 w-4" />
           </button>
@@ -673,28 +886,28 @@ export function SettingsDialog({
                 active={activePage === "providers"}
                 icon={<PlugZap className="h-4 w-4" />}
                 title="模型配置"
-                detail={`${enabledProviders} active · ${embeddingProviderDetail}`}
+                detail={`${enabledProviders} 个启用 · ${embeddingProviderDetail} · ${visionProviderDetail}`}
                 onClick={() => setActivePage("providers")}
               />
               <SettingsNavButton
                 active={activePage === "archive"}
                 icon={<Archive className="h-4 w-4" />}
-                title="Archive"
-                detail="restore / permanent delete"
+                title="归档"
+                detail="恢复 / 永久删除"
                 onClick={() => setActivePage("archive")}
               />
               <SettingsNavButton
                 active={activePage === "skills"}
                 icon={<Sparkles className="h-4 w-4" />}
-                title="Skill"
-                detail={`${enabledSkills}/${localSkills.length} enabled`}
+                title="技能"
+                detail={`${enabledSkills}/${localSkills.length} 已启用`}
                 onClick={() => setActivePage("skills")}
               />
               <SettingsNavButton
                 active={activePage === "about"}
                 icon={<Info className="h-4 w-4" />}
                 title="关于 / 更新"
-                detail="version · updates"
+                detail="版本 · 更新"
                 onClick={() => setActivePage("about")}
               />
             </div>
@@ -706,35 +919,49 @@ export function SettingsDialog({
                 providers={providers}
                 selectedProviderId={selectedProviderId}
                 selectedEmbeddingProviderId={selectedEmbeddingProviderId}
+                selectedVisionProviderId={selectedVisionProviderId}
                 creatingProvider={creatingProvider}
                 creatingEmbeddingProvider={creatingEmbeddingProvider}
+                creatingVisionProvider={creatingVisionProvider}
                 draft={draft}
                 embeddingDraft={embeddingDraft}
+                visionDraft={visionDraft}
                 models={models}
                 embeddingModels={embeddingModels}
+                visionModels={visionModels}
                 statusLine={statusLine}
                 embeddingStatusLine={embeddingStatusLine}
+                visionStatusLine={visionStatusLine}
                 embeddingReindexNotice={embeddingReindexNotice}
                 reindexingActiveSemester={reindexingActiveSemester}
                 busyActions={providerBusyActions}
                 onSelectProvider={selectProvider}
                 onSelectEmbeddingProvider={selectEmbeddingProvider}
+                onSelectVisionProvider={selectVisionProvider}
                 onNewProvider={newProvider}
                 onNewEmbeddingProvider={newEmbeddingProvider}
+                onNewVisionProvider={newVisionProvider}
                 onCloseProviderEditor={closeProviderEditor}
                 onCloseEmbeddingEditor={closeEmbeddingEditor}
+                onCloseVisionEditor={closeVisionEditor}
                 onToggleProvider={toggleProvider}
                 onToggleEmbeddingProvider={toggleEmbeddingProvider}
+                onToggleVisionProvider={toggleVisionProvider}
                 onDeleteProvider={(provider) => void deleteProvider(provider)}
                 onDeleteEmbeddingProvider={(provider) => void deleteEmbeddingProvider(provider)}
+                onDeleteVisionProvider={(provider) => void deleteVisionProvider(provider)}
                 onDraftChange={setDraft}
                 onEmbeddingDraftChange={setEmbeddingDraft}
+                onVisionDraftChange={setVisionDraft}
                 onFetchModels={fetchModels}
                 onFetchEmbeddingModels={fetchEmbeddingModels}
+                onFetchVisionModels={fetchVisionModels}
                 onTestProvider={testProvider}
                 onTestEmbeddingProvider={testEmbeddingProvider}
+                onTestVisionProvider={testVisionProvider}
                 onSaveProvider={saveProvider}
                 onSaveEmbeddingProvider={saveEmbeddingProvider}
+                onSaveVisionProvider={saveVisionProvider}
                 onReindexActiveSemester={() => void reindexActiveSemester()}
                 onDismissEmbeddingReindexNotice={() => setEmbeddingReindexNotice("")}
               />
@@ -770,89 +997,159 @@ function ProviderSettingsPage({
   providers,
   selectedProviderId,
   selectedEmbeddingProviderId,
+  selectedVisionProviderId,
   creatingProvider,
   creatingEmbeddingProvider,
+  creatingVisionProvider,
   draft,
   embeddingDraft,
+  visionDraft,
   models,
   embeddingModels,
+  visionModels,
   statusLine,
   embeddingStatusLine,
+  visionStatusLine,
   embeddingReindexNotice,
   reindexingActiveSemester,
   busyActions,
   onSelectProvider,
   onSelectEmbeddingProvider,
+  onSelectVisionProvider,
   onNewProvider,
   onNewEmbeddingProvider,
+  onNewVisionProvider,
   onCloseProviderEditor,
   onCloseEmbeddingEditor,
+  onCloseVisionEditor,
   onToggleProvider,
   onToggleEmbeddingProvider,
+  onToggleVisionProvider,
   onDeleteProvider,
   onDeleteEmbeddingProvider,
+  onDeleteVisionProvider,
   onDraftChange,
   onEmbeddingDraftChange,
+  onVisionDraftChange,
   onFetchModels,
   onFetchEmbeddingModels,
+  onFetchVisionModels,
   onTestProvider,
   onTestEmbeddingProvider,
+  onTestVisionProvider,
   onSaveProvider,
   onSaveEmbeddingProvider,
+  onSaveVisionProvider,
   onReindexActiveSemester,
   onDismissEmbeddingReindexNotice,
 }: {
   providers: ModelProviderConfig[];
   selectedProviderId: string;
   selectedEmbeddingProviderId: string;
+  selectedVisionProviderId: string;
   creatingProvider: boolean;
   creatingEmbeddingProvider: boolean;
+  creatingVisionProvider: boolean;
   draft: ProviderDraftInput;
   embeddingDraft: ProviderDraftInput;
+  visionDraft: ProviderDraftInput;
   models: ProviderModel[];
   embeddingModels: ProviderModel[];
+  visionModels: ProviderModel[];
   statusLine: string;
   embeddingStatusLine: string;
+  visionStatusLine: string;
   embeddingReindexNotice: string;
   reindexingActiveSemester: boolean;
   busyActions: Partial<Record<ProviderBusyAction, boolean>>;
   onSelectProvider: (provider: ModelProviderConfig) => void;
   onSelectEmbeddingProvider: (provider: ModelProviderConfig) => void;
+  onSelectVisionProvider: (provider: ModelProviderConfig) => void;
   onNewProvider: () => void;
   onNewEmbeddingProvider: () => void;
+  onNewVisionProvider: () => void;
   onCloseProviderEditor: () => void;
   onCloseEmbeddingEditor: () => void;
+  onCloseVisionEditor: () => void;
   onToggleProvider: (provider: ModelProviderConfig) => void;
   onToggleEmbeddingProvider: (provider: ModelProviderConfig) => void;
+  onToggleVisionProvider: (provider: ModelProviderConfig) => void;
   onDeleteProvider: (provider: ModelProviderConfig) => void;
   onDeleteEmbeddingProvider: (provider: ModelProviderConfig) => void;
+  onDeleteVisionProvider: (provider: ModelProviderConfig) => void;
   onDraftChange: (draft: ProviderDraftInput) => void;
   onEmbeddingDraftChange: (draft: ProviderDraftInput) => void;
+  onVisionDraftChange: (draft: ProviderDraftInput) => void;
   onFetchModels: () => void;
   onFetchEmbeddingModels: () => void;
+  onFetchVisionModels: () => void;
   onTestProvider: () => void;
   onTestEmbeddingProvider: () => void;
+  onTestVisionProvider: () => void;
   onSaveProvider: () => void;
   onSaveEmbeddingProvider: () => void;
+  onSaveVisionProvider: () => void;
   onReindexActiveSemester: () => void;
   onDismissEmbeddingReindexNotice: () => void;
 }) {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
   const selectedEmbeddingProvider = providers.find((provider) => provider.id === selectedEmbeddingProviderId);
+  const selectedVisionProvider = providers.find((provider) => provider.id === selectedVisionProviderId);
   const chatProviders = providers.filter((provider) => provider.purpose === "agent");
   const embeddingProviders = providers.filter((provider) => provider.purpose === "embedding");
+  const visionProviders = providers.filter((provider) => provider.purpose === "vision");
   const providerEditorOpen = creatingProvider || Boolean(selectedProvider);
   const embeddingEditorOpen = creatingEmbeddingProvider || Boolean(selectedEmbeddingProvider);
+  const visionEditorOpen = creatingVisionProvider || Boolean(selectedVisionProvider);
   const runtimeBanner = null;
   const isBusy = (action: ProviderBusyAction) => Boolean(busyActions[action]);
   const isPurposeBlockingBusy = (purpose: ProviderPurpose) => {
-    const prefix = purpose === "agent" ? "agent" : "embedding";
+    const prefix = purpose === "agent" ? "agent" : purpose === "vision" ? "vision" : "embedding";
     return Object.entries(busyActions).some(([action, busy]) => Boolean(busy) && action.startsWith(`${prefix}-`) && action !== `${prefix}-toggle`);
   };
   const agentBusy = isPurposeBlockingBusy("agent");
   const embeddingBusy = isPurposeBlockingBusy("embedding");
+  const visionBusy = isPurposeBlockingBusy("vision");
   const agentToggleBusy = isBusy("agent-toggle");
   const embeddingToggleBusy = isBusy("embedding-toggle");
+  const visionToggleBusy = isBusy("vision-toggle");
+  const [visionTestBusy, setVisionTestBusy] = useState<VisionTestKind | null>(null);
+  const [visionTestResult, setVisionTestResult] = useState<VisionTestResult | null>(null);
+  const [visionTestError, setVisionTestError] = useState("");
+  const [manualAgentModel, setManualAgentModel] = useState("");
+  const [manualVisionModel, setManualVisionModel] = useState("");
+
+  function addManualAgentModel() {
+    const modelId = manualAgentModel.trim();
+    if (!modelId) return;
+    onDraftChange(addDraftModel(draft, modelId));
+    setManualAgentModel("");
+  }
+
+  function addManualVisionModel() {
+    const modelId = manualVisionModel.trim();
+    if (!modelId) return;
+    onVisionDraftChange(addDraftModel(visionDraft, modelId));
+    setManualVisionModel("");
+  }
+
+  async function runVisionTest(kind: VisionTestKind) {
+    setVisionTestBusy(kind);
+    setVisionTestError("");
+    setVisionTestResult(null);
+    try {
+      const sourcePath = await window.brevyn.vision.pickImage();
+      if (!sourcePath) return;
+      const result = kind === "calendar"
+        ? await window.brevyn.vision.recognizeAcademicCalendar({ sourcePath, apply: false })
+        : await window.brevyn.vision.recognizeCourseTimetable({ sourcePath, apply: false });
+      setVisionTestResult(result);
+    } catch (error) {
+      setVisionTestError(errorMessage(error, "视觉识别失败。"));
+    } finally {
+      setVisionTestBusy(null);
+    }
+  }
 
   if (providerEditorOpen) {
     return (
@@ -868,30 +1165,30 @@ function ProviderSettingsPage({
                 disabled={agentBusy}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Back to providers
+                返回配置列表
               </button>
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <PlugZap className="h-4 w-4" />
-                {creatingProvider ? "New Agent Provider" : `Edit Agent Provider · ${selectedProvider?.name || "Provider"}`}
+                {creatingProvider ? "新建 Agent 配置" : `编辑 Agent 配置 · ${selectedProvider?.name || "未命名"}`}
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">Chat, multimodal recognition, and tool-call responses.</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">用于聊天、多模态识别和工具调用回复。</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {selectedProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteProvider(selectedProvider)} disabled={agentBusy} />}
+              {selectedProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="删除" onClick={() => onDeleteProvider(selectedProvider)} disabled={agentBusy} />}
             </div>
           </div>
 
           {creatingProvider && (
             <div className="mb-4 rounded-md border border-dashed bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
-              This provider is not saved yet. Fill it out, then save to add it to the Agent list.
+              这个 Agent 配置还没有保存。填写完成后保存，它会加入 Agent 列表。
             </div>
           )}
 
           <div className="grid gap-2 md:grid-cols-2">
-            <Field label="Profile name" value={draft.name} onChange={(value) => onDraftChange({ ...draft, name: value })} />
-            <ReadOnlyField label="Purpose" value="Agent" />
+            <Field label="配置名称" value={draft.name} onChange={(value) => onDraftChange({ ...draft, name: value })} />
+            <ReadOnlyField label="用途" value="聊天" />
             <ProviderKindField purpose="agent" value={draft.providerKind as AgentProviderKind} onChange={(value) => onDraftChange(applyProviderPreset(draft, value))} />
-            <ReadOnlyField label="Adapter" value={adapterLabel(draft.providerKind)} />
+            <ReadOnlyField label="适配器" value={adapterLabel(draft.providerKind)} />
             <Field label="Base URL" value={draft.baseUrl} onChange={(value) => onDraftChange({ ...draft, baseUrl: value })} />
             <Field
               label="API Key"
@@ -901,21 +1198,44 @@ function ProviderSettingsPage({
               placeholder={selectedProviderId ? "留空则不更新" : "输入 API Key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
-            <Field label="Model" value={draft.selectedModel} onChange={(value) => onDraftChange({ ...draft, selectedModel: value })} />
+            <ReadOnlyField label="默认模型" value={draft.selectedModel || "请在下方选择已启用模型"} />
           </div>
 
-          {models.length > 0 && (
-            <ModelPicker
-              purpose="agent"
-              models={models}
-              onPick={(model) => onDraftChange({ ...draft, selectedModel: model.id, models })}
+          <div className="mt-3 rounded-md border bg-card p-2">
+            <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">手动添加模型</div>
+            <div className="flex gap-2">
+              <input
+                className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/55"
+                value={manualAgentModel}
+                placeholder="e.g. qwen-plus, claude-sonnet-4-6"
+                onChange={(event) => setManualAgentModel(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addManualAgentModel();
+                  }
+                }}
+              />
+              <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="添加" onClick={addManualAgentModel} disabled={!manualAgentModel.trim()} />
+            </div>
+            <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+              部分 Anthropic 兼容服务商，包括 DashScope app endpoint，不提供模型列表接口。
+            </div>
+          </div>
+
+          {(draft.models?.length ?? 0) > 0 && (
+            <AgentModelManager
+              models={draft.models ?? []}
+              selectedModel={draft.selectedModel}
+              onToggle={(model) => onDraftChange(toggleDraftModel(draft, model.id))}
+              onMakeDefault={(model) => onDraftChange({ ...draft, selectedModel: model.id })}
             />
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("agent-fetch") && "animate-spin")} />} label="Get models" onClick={onFetchModels} disabled={agentBusy} />
-            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("agent-test") && "animate-pulse")} />} label="Test" onClick={onTestProvider} disabled={agentBusy} />
-            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("agent-save") && "animate-pulse")} />} label="Save" onClick={onSaveProvider} primary disabled={agentBusy} />
+            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("agent-fetch") && "animate-spin")} />} label="获取模型" onClick={onFetchModels} disabled={agentBusy} />
+            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("agent-test") && "animate-pulse")} />} label="测试" onClick={onTestProvider} disabled={agentBusy} />
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("agent-save") && "animate-pulse")} />} label="保存" onClick={onSaveProvider} primary disabled={agentBusy} />
           </div>
           {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
         </section>
@@ -937,30 +1257,30 @@ function ProviderSettingsPage({
                 disabled={embeddingBusy}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Back to providers
+                返回配置列表
               </button>
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Database className="h-4 w-4" />
-                {creatingEmbeddingProvider ? "New Embedding Provider" : `Edit Embedding Provider · ${selectedEmbeddingProvider?.name || "Provider"}`}
+                {creatingEmbeddingProvider ? "新建 Embedding 配置" : `编辑 Embedding 配置 · ${selectedEmbeddingProvider?.name || "未命名"}`}
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">RAG search, course file indexing, and context retrieval.</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">用于 RAG 搜索、课程文件索引和上下文召回。</div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {selectedEmbeddingProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" onClick={() => onDeleteEmbeddingProvider(selectedEmbeddingProvider)} disabled={embeddingBusy} />}
+              {selectedEmbeddingProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="删除" onClick={() => onDeleteEmbeddingProvider(selectedEmbeddingProvider)} disabled={embeddingBusy} />}
             </div>
           </div>
 
           {creatingEmbeddingProvider && (
             <div className="mb-4 rounded-md border border-dashed bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
-              This embedding provider is not saved yet. Save it to add it to the Embedding list.
+              这个 Embedding 配置还没有保存。保存后会加入 Embedding 列表。
             </div>
           )}
 
           <div className="grid gap-2 md:grid-cols-2">
-            <Field label="Profile name" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
-            <ReadOnlyField label="Purpose" value="Embedding" />
+            <Field label="配置名称" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
+            <ReadOnlyField label="用途" value="向量" />
             <ProviderKindField purpose="embedding" value={embeddingDraft.providerKind as EmbeddingProviderKind} onChange={(value) => onEmbeddingDraftChange(applyProviderPreset(embeddingDraft, value))} />
-            <ReadOnlyField label="Adapter" value={adapterLabel(embeddingDraft.providerKind)} />
+            <ReadOnlyField label="适配器" value={adapterLabel(embeddingDraft.providerKind)} />
             <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
             <Field
               label="API Key"
@@ -970,23 +1290,119 @@ function ProviderSettingsPage({
               placeholder={selectedEmbeddingProviderId ? "留空则不更新" : "输入 API Key"}
               icon={<KeyRound className="h-3 w-3" />}
             />
-            <Field label="Model" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
+            <Field label="模型" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
           </div>
 
           {embeddingModels.length > 0 && (
             <ModelPicker
               purpose="embedding"
+              selectedModel={embeddingDraft.selectedModel}
               models={embeddingModels}
               onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id, models: embeddingModels })}
             />
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("embedding-fetch") && "animate-spin")} />} label="Get models" onClick={onFetchEmbeddingModels} disabled={embeddingBusy} />
-            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("embedding-test") && "animate-pulse")} />} label="Test" onClick={onTestEmbeddingProvider} disabled={embeddingBusy} />
-            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("embedding-save") && "animate-pulse")} />} label="Save embedding" onClick={onSaveEmbeddingProvider} primary disabled={embeddingBusy} />
+            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("embedding-fetch") && "animate-spin")} />} label="获取模型" onClick={onFetchEmbeddingModels} disabled={embeddingBusy} />
+            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("embedding-test") && "animate-pulse")} />} label="测试" onClick={onTestEmbeddingProvider} disabled={embeddingBusy} />
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("embedding-save") && "animate-pulse")} />} label="保存向量配置" onClick={onSaveEmbeddingProvider} primary disabled={embeddingBusy} />
           </div>
           {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
+        </section>
+      </div>
+    );
+  }
+
+  if (visionEditorOpen) {
+    return (
+      <div className="space-y-4">
+        {runtimeBanner}
+        <section className="rounded-lg border bg-background/70 p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={onCloseVisionEditor}
+                disabled={visionBusy}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                返回配置列表
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Eye className="h-4 w-4" />
+                {creatingVisionProvider ? "新建 Vision 配置" : `编辑 Vision 配置 · ${selectedVisionProvider?.name || "未命名"}`}
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">用于校历和课程表图片识别。</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {selectedVisionProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="删除" onClick={() => onDeleteVisionProvider(selectedVisionProvider)} disabled={visionBusy} />}
+            </div>
+          </div>
+
+          {creatingVisionProvider && (
+            <div className="mb-4 rounded-md border border-dashed bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
+              这个 Vision 配置还没有保存。保存后会加入 Vision 列表。
+            </div>
+          )}
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <Field label="配置名称" value={visionDraft.name} onChange={(value) => onVisionDraftChange({ ...visionDraft, name: value })} />
+            <ReadOnlyField label="用途" value="视觉" />
+            <ProviderKindField purpose="vision" value={visionDraft.providerKind as VisionProviderKind} onChange={(value) => onVisionDraftChange(applyProviderPreset(visionDraft, value))} />
+            <ReadOnlyField label="适配器" value={adapterLabel(visionDraft.providerKind)} />
+            <Field label="Base URL" value={visionDraft.baseUrl} onChange={(value) => onVisionDraftChange({ ...visionDraft, baseUrl: value })} />
+            <Field
+              label="API Key"
+              value={visionDraft.apiKey}
+              onChange={(value) => onVisionDraftChange({ ...visionDraft, apiKey: value, clearApiKey: false })}
+              type="password"
+              placeholder={selectedVisionProviderId ? "留空则不更新" : "输入 API Key"}
+              icon={<KeyRound className="h-3 w-3" />}
+            />
+            <ReadOnlyField label="默认模型" value={visionDraft.selectedModel || "请在下方选择已启用模型"} />
+          </div>
+
+          <div className="mt-3 rounded-md border bg-card p-2">
+            <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">手动添加模型</div>
+            <div className="flex gap-2">
+              <input
+                className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/55"
+                value={manualVisionModel}
+                placeholder="e.g. qwen-vl-plus, gpt-4.1-mini"
+                onChange={(event) => setManualVisionModel(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addManualVisionModel();
+                  }
+                }}
+              />
+              <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="添加" onClick={addManualVisionModel} disabled={!manualVisionModel.trim()} />
+            </div>
+            <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+              如果服务商不提供模型列表接口，可以手动添加视觉模型 ID。
+            </div>
+          </div>
+
+          {(visionDraft.models?.length ?? 0) > 0 && (
+            <AgentModelManager
+              title="视觉模型"
+              availableEmptyLabel="已获取的视觉模型都已启用。"
+              enabledEmptyLabel="至少启用一个模型用于识别。"
+              models={visionDraft.models ?? []}
+              selectedModel={visionDraft.selectedModel}
+              onToggle={(model) => onVisionDraftChange(toggleDraftModel(visionDraft, model.id))}
+              onMakeDefault={(model) => onVisionDraftChange({ ...visionDraft, selectedModel: model.id })}
+            />
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("vision-fetch") && "animate-spin")} />} label="获取模型" onClick={onFetchVisionModels} disabled={visionBusy} />
+            <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("vision-test") && "animate-pulse")} />} label="测试" onClick={onTestVisionProvider} disabled={visionBusy} />
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("vision-save") && "animate-pulse")} />} label="保存视觉配置" onClick={onSaveVisionProvider} primary disabled={visionBusy} />
+          </div>
+          {visionStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{visionStatusLine}</div>}
         </section>
       </div>
     );
@@ -1001,11 +1417,11 @@ function ProviderSettingsPage({
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold">
                 <PlugZap className="h-3.5 w-3.5" />
-                Agent Provider
+                Agent
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">Only saved providers are listed here.</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">这里只显示已保存的配置。</div>
             </div>
-            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New provider" onClick={onNewProvider} disabled={agentBusy} />
+            <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Agent" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
           <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
@@ -1014,7 +1430,7 @@ function ProviderSettingsPage({
                 key={provider.id}
                 provider={provider}
                 active={provider.enabled}
-                statusLabel={provider.enabled ? "Active" : "Off"}
+                statusLabel={provider.enabled ? "已启用" : "已关闭"}
                 statusOn={provider.enabled}
                 onSelect={() => onSelectProvider(provider)}
                 onEdit={() => onSelectProvider(provider)}
@@ -1023,7 +1439,7 @@ function ProviderSettingsPage({
                 toggleDisabled={agentBusy || agentToggleBusy}
               />
             ))}
-            {chatProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No agent providers yet. Create one to add it to this list.</div>}
+            {chatProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无 Agent 配置。新建后会显示在这里。</div>}
           </div>
           {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
         </section>
@@ -1033,11 +1449,11 @@ function ProviderSettingsPage({
             <div>
               <div className="flex items-center gap-2 text-xs font-semibold">
                 <Database className="h-3.5 w-3.5" />
-                Embedding Provider
+                Embedding
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">Only saved providers are listed here.</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">这里只显示已保存的配置。</div>
             </div>
-            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="New embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
+            <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
 
           <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
@@ -1046,7 +1462,7 @@ function ProviderSettingsPage({
                 key={provider.id}
                 provider={provider}
                 active={provider.enabled}
-                statusLabel={provider.enabled ? "Active" : "Off"}
+                statusLabel={provider.enabled ? "已启用" : "已关闭"}
                 statusOn={Boolean(provider.enabled)}
                 onSelect={() => onSelectEmbeddingProvider(provider)}
                 onEdit={() => onSelectEmbeddingProvider(provider)}
@@ -1055,14 +1471,14 @@ function ProviderSettingsPage({
                 toggleDisabled={embeddingBusy || embeddingToggleBusy}
               />
             ))}
-            {embeddingProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">No embedding providers yet. Create one to add it to this list.</div>}
+            {embeddingProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无 Embedding 配置。新建后会显示在这里。</div>}
           </div>
           {embeddingReindexNotice && (
             <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
               <div className="flex gap-2">
                 <Database className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium">Embedding index may be stale</div>
+                  <div className="font-medium">向量索引可能已过期</div>
                   <div>{embeddingReindexNotice}</div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
@@ -1072,14 +1488,14 @@ function ProviderSettingsPage({
                       onClick={onReindexActiveSemester}
                     >
                       {reindexingActiveSemester ? <RefreshCw className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                      {reindexingActiveSemester ? "Re-indexing..." : "Re-index current semester"}
+                      {reindexingActiveSemester ? "正在重建..." : "重建当前学期索引"}
                     </button>
                     <button
                       type="button"
                       className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-medium text-amber-900 transition hover:bg-amber-100"
                       onClick={onDismissEmbeddingReindexNotice}
                     >
-                      Later
+                      稍后
                     </button>
                   </div>
                 </div>
@@ -1088,13 +1504,61 @@ function ProviderSettingsPage({
           )}
           {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
         </section>
+
+        <section className="rounded-lg border bg-background/70 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <Eye className="h-3.5 w-3.5" />
+                Vision
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">这里只显示已保存的配置。</div>
+            </div>
+            <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Vision" onClick={onNewVisionProvider} disabled={visionBusy} />
+          </div>
+
+          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
+            {visionProviders.map((provider) => (
+              <ProviderProfileRow
+                key={provider.id}
+                provider={provider}
+                active={provider.enabled}
+                statusLabel={provider.enabled ? "已启用" : "已关闭"}
+                statusOn={Boolean(provider.enabled)}
+                onSelect={() => onSelectVisionProvider(provider)}
+                onEdit={() => onSelectVisionProvider(provider)}
+                onDelete={() => onDeleteVisionProvider(provider)}
+                onToggle={() => onToggleVisionProvider(provider)}
+                toggleDisabled={visionBusy || visionToggleBusy}
+              />
+            ))}
+            {visionProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无 Vision 配置。新建后可用于校历和课程表识别。</div>}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ActionButton
+              icon={visionTestBusy === "calendar" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CalendarDays className="h-3.5 w-3.5" />}
+              label="测试校历"
+              onClick={() => void runVisionTest("calendar")}
+              disabled={Boolean(visionTestBusy) || !hasRunnableVisionProvider(visionProviders)}
+            />
+            <ActionButton
+              icon={visionTestBusy === "timetable" ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <BookOpen className="h-3.5 w-3.5" />}
+              label="测试课表"
+              onClick={() => void runVisionTest("timetable")}
+              disabled={Boolean(visionTestBusy) || !hasRunnableVisionProvider(visionProviders)}
+            />
+          </div>
+          {visionTestError && <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-2 py-2 text-[11px] leading-5 text-rose-900">{visionTestError}</div>}
+          {visionTestResult && <VisionTestResultPanel result={visionTestResult} />}
+          {visionStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{visionStatusLine}</div>}
+        </section>
       </div>
     </div>
   );
 }
 
 function nextProviderDraftName(providers: ModelProviderConfig[], purpose: ProviderPurpose): string {
-  const prefix = purpose === "agent" ? "Agent" : "Embedding";
+  const prefix = purpose === "agent" ? "Agent" : purpose === "vision" ? "Vision" : "Embedding";
   const used = new Set(
     providers
       .filter((provider) => provider.purpose === purpose)
@@ -1105,22 +1569,103 @@ function nextProviderDraftName(providers: ModelProviderConfig[], purpose: Provid
   return `${prefix} ${index}`;
 }
 
+function VisionTestResultPanel({ result }: { result: VisionTestResult }) {
+  const summary = result.kind === "academic_calendar"
+    ? `${result.events.length} 个校历事件${result.semester?.term ? ` · ${result.semester.term}` : ""}`
+    : `${result.courses.length} 门课程${result.semesterLabel ? ` · ${result.semesterLabel}` : ""}`;
+  const warnings = result.warnings.length;
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border bg-card/80">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <Eye className="h-3.5 w-3.5" />
+            视觉测试结果
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={result.sourcePath}>
+            {summary}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1 text-[10px] text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-1">{result.modelId}</span>
+          {warnings > 0 && <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-900">{warnings} 条提醒</span>}
+        </div>
+      </div>
+      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-[11px] leading-5 text-muted-foreground brevyn-scrollbar">
+        {JSON.stringify(result, null, 2)}
+      </pre>
+    </div>
+  );
+}
+
+function visionModelOptions(providers: ModelProviderConfig[]) {
+  return providers.filter((provider) => provider.enabled).flatMap((provider) =>
+    provider.models
+      .filter((model) => model.enabled !== false)
+      .map((model) => ({
+        value: visionOptionValue(provider.id, model.id),
+        label: model.name || model.id,
+        detail: `${provider.name} · ${providerKindLabel(provider.providerKind)}`,
+        icon: <Eye className="h-3.5 w-3.5" />,
+      })),
+  );
+}
+
+function visionOptionValue(providerId: string, modelId: string): string {
+  return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
+}
+
+function parseVisionOptionValue(value: string): [string, string] {
+  const [providerId, modelId] = value.split("::");
+  if (!providerId || !modelId) return ["", ""];
+  return [decodeURIComponent(providerId), decodeURIComponent(modelId)];
+}
+
 interface ArchiveSemesterGroup {
   semester: SemesterWorkspace;
   archivedCourses: Course[];
   archivedThreads: Thread[];
 }
 
+interface ArchiveCourseEntry {
+  courseId: string;
+  course?: Course;
+  threads: Thread[];
+}
+
+interface ArchiveDisplayGroup extends ArchiveSemesterGroup {
+  semesterVisible: boolean;
+  homeThreads: Thread[];
+  courseEntries: ArchiveCourseEntry[];
+}
+
+type ArchiveFilter = "all" | "semesters" | "courses" | "sessions";
+
+const ARCHIVE_PAGE_SIZE = 5;
+const archiveFilters: Array<{ value: ArchiveFilter; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "semesters", label: "学期" },
+  { value: "courses", label: "课程" },
+  { value: "sessions", label: "会话" },
+];
+
 function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () => Promise<void> | void }) {
   const [groups, setGroups] = useState<ArchiveSemesterGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ArchiveFilter>("all");
+  const [page, setPage] = useState(1);
   const { confirm, confirmDialog } = useConfirmDialog();
 
   useEffect(() => {
     void loadArchive();
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, groups.length, query]);
 
   async function loadArchive() {
     setLoading(true);
@@ -1160,7 +1705,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       await window.brevyn.semester.restore(semester.id);
       await afterMutation();
     } catch (reason) {
-      setError(errorMessage(reason, "Failed to restore semester."));
+      setError(errorMessage(reason, "恢复学期失败。"));
     } finally {
       setBusyKey("");
     }
@@ -1168,13 +1713,11 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   async function deleteSemester(semester: SemesterWorkspace) {
     const ok = await confirm({
-      title: `Delete "${semester.term}" permanently?`,
-      message: "This removes all courses, files, sessions, and indexed data.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `永久删除“${semester.term}”？`,
+      message: "这会删除所有课程、文件、会话和索引数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
-      verificationText: semester.term,
-      verificationLabel: "Type the semester term to confirm",
     });
     if (!ok) return;
     setBusyKey(`semester:delete:${semester.id}`);
@@ -1183,7 +1726,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       await window.brevyn.semester.delete(semester.id);
       await afterMutation();
     } catch (reason) {
-      setError(errorMessage(reason, "Failed to delete semester."));
+      setError(errorMessage(reason, "删除学期失败。"));
     } finally {
       setBusyKey("");
     }
@@ -1191,7 +1734,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   async function restoreCourse(course: Course, semesterArchived: boolean) {
     if (semesterArchived) {
-      setError("Restore the parent semester before restoring this course.");
+      setError("请先恢复父级学期，再恢复这门课程。");
       return;
     }
     setBusyKey(`course:restore:${course.id}`);
@@ -1200,7 +1743,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       await window.brevyn.courses.restore(course.id);
       await afterMutation();
     } catch (reason) {
-      setError(errorMessage(reason, "Failed to restore course."));
+      setError(errorMessage(reason, "恢复课程失败。"));
     } finally {
       setBusyKey("");
     }
@@ -1208,13 +1751,11 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   async function deleteCourse(course: Course) {
     const ok = await confirm({
-      title: `Delete "${course.name}" permanently?`,
-      message: "This removes all files, sessions, and indexed data.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `永久删除“${course.name}”？`,
+      message: "这会删除所有文件、会话和索引数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
-      verificationText: course.name,
-      verificationLabel: "Type the course name to confirm",
     });
     if (!ok) return;
     setBusyKey(`course:delete:${course.id}`);
@@ -1223,7 +1764,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       await window.brevyn.courses.delete(course.id);
       await afterMutation();
     } catch (reason) {
-      setError(errorMessage(reason, "Failed to delete course."));
+      setError(errorMessage(reason, "删除课程失败。"));
     } finally {
       setBusyKey("");
     }
@@ -1231,7 +1772,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   async function restoreThread(thread: Thread, blocked: boolean) {
     if (blocked) {
-      setError("Restore the parent semester/course before restoring this session.");
+      setError("请先恢复父级学期或课程，再恢复这个会话。");
       return;
     }
     setBusyKey(`thread:restore:${thread.id}`);
@@ -1240,7 +1781,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       await window.brevyn.threads.restore(thread.id);
       await afterMutation();
     } catch (reason) {
-      setError(errorMessage(reason, "Failed to restore session."));
+      setError(errorMessage(reason, "恢复会话失败。"));
     } finally {
       setBusyKey("");
     }
@@ -1248,13 +1789,11 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   async function deleteThread(thread: Thread) {
     const ok = await confirm({
-      title: `Delete archived session "${thread.title}"?`,
-      message: "This removes the archived session permanently.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `删除已归档会话“${thread.title}”？`,
+      message: "这会永久删除该归档会话。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
-      verificationText: thread.title,
-      verificationLabel: "Type the session title to confirm",
     });
     if (!ok) return;
     setBusyKey(`thread:delete:${thread.id}`);
@@ -1263,7 +1802,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       await window.brevyn.threads.delete(thread.id);
       await afterMutation();
     } catch (reason) {
-      setError(errorMessage(reason, "Failed to delete session."));
+      setError(errorMessage(reason, "删除会话失败。"));
     } finally {
       setBusyKey("");
     }
@@ -1272,6 +1811,13 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   const archivedSemesterCount = groups.filter((group) => group.semester.archivedAt).length;
   const archivedCourseCount = groups.reduce((count, group) => count + group.archivedCourses.length, 0);
   const archivedThreadCount = groups.reduce((count, group) => count + group.archivedThreads.length, 0);
+  const filteredGroups = useMemo(() => filterArchiveGroups(groups, query, filter), [filter, groups, query]);
+  const totalPages = Math.max(1, Math.ceil(filteredGroups.length / ARCHIVE_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * ARCHIVE_PAGE_SIZE;
+  const visibleGroups = filteredGroups.slice(pageStart, pageStart + ARCHIVE_PAGE_SIZE);
+  const visibleStart = filteredGroups.length === 0 ? 0 : pageStart + 1;
+  const visibleEnd = Math.min(filteredGroups.length, pageStart + ARCHIVE_PAGE_SIZE);
 
   return (
     <div className="space-y-4">
@@ -1281,32 +1827,84 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Archive className="h-4 w-4" />
-              Archive Center
+              归档中心
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">
-              Restore archived semesters, courses, and sessions. Permanent delete stays available only after archive.
+              恢复已归档的学期、课程和会话。永久删除只对已归档内容开放。
             </div>
           </div>
-          <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", loading && "animate-spin")} />} label="Refresh" onClick={() => void loadArchive()} disabled={loading} />
+          <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", loading && "animate-spin")} />} label="刷新" onClick={() => void loadArchive()} disabled={loading} />
         </div>
         <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground md:grid-cols-3">
-          <ArchiveMetric label="Semesters" value={archivedSemesterCount} />
-          <ArchiveMetric label="Courses" value={archivedCourseCount} />
-          <ArchiveMetric label="Sessions" value={archivedThreadCount} />
+          <ArchiveMetric label="学期" value={archivedSemesterCount} />
+          <ArchiveMetric label="课程" value={archivedCourseCount} />
+          <ArchiveMetric label="会话" value={archivedThreadCount} />
+        </div>
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <label className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className="h-9 w-full rounded-md border bg-card pl-8 pr-3 text-xs text-foreground outline-none transition focus:ring-2 focus:ring-ring/20"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="筛选已归档的学期、课程或会话"
+            />
+          </label>
+          <div className="flex shrink-0 flex-wrap gap-1">
+            {archiveFilters.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={cx(
+                  "h-8 rounded-md border px-2.5 text-[11px] font-medium transition",
+                  filter === item.value ? "border-foreground/25 bg-foreground text-background" : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                onClick={() => setFilter(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
         {error && <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">{error}</div>}
       </section>
 
       {loading ? (
-        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">Loading archived items...</div>
+        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">正在加载归档内容...</div>
       ) : groups.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">No archived semesters, courses, or sessions yet.</div>
+        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">暂无已归档的学期、课程或会话。</div>
+      ) : filteredGroups.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">没有符合筛选条件的归档内容。</div>
       ) : (
         <div className="space-y-4">
-          {groups.map((group) => {
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span>显示 {visibleStart}-{visibleEnd} / 共 {filteredGroups.length}</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[10px] font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={safePage <= 1}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                上一页
+              </button>
+              <span className="rounded-md bg-muted px-2 py-1 text-[10px]">{safePage}/{totalPages}</span>
+              <button
+                type="button"
+                className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[10px] font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              >
+                下一页
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          {visibleGroups.map((group) => {
             const semesterArchived = Boolean(group.semester.archivedAt);
-            const homeThreads = group.archivedThreads.filter((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID);
-            const courseEntries = archiveCourseEntries(group);
+            const homeThreads = group.homeThreads;
+            const courseEntries = group.courseEntries;
             return (
               <section key={group.semester.id} className="overflow-hidden rounded-lg border bg-background/70">
                 <div className={cx("flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3", semesterArchived ? "bg-muted/45" : "bg-card/70")}>
@@ -1315,24 +1913,24 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                       <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="min-w-0 max-w-full break-words text-sm font-semibold leading-5" title={group.semester.term}>{group.semester.term}</span>
                       <span className={cx("rounded px-1.5 py-0.5 text-[9px] uppercase", semesterArchived ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
-                        {semesterArchived ? "Archived semester" : "Active semester"}
+                        {semesterArchived ? "已归档学期" : "活跃学期"}
                       </span>
                     </div>
                     <div className="mt-1 text-[11px] text-muted-foreground">
-                      {group.semester.semesterNo} · {group.archivedCourses.length} archived courses · {group.archivedThreads.length} archived sessions
+                      {group.semester.semesterNo} · {group.archivedCourses.length} 门已归档课程 · {group.archivedThreads.length} 个已归档会话
                     </div>
                   </div>
-                  {semesterArchived && (
+                  {semesterArchived && group.semesterVisible && (
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <ArchiveActionButton
                         icon={<RotateCcw className="h-3.5 w-3.5" />}
-                        label="Restore semester"
+                        label="恢复学期"
                         busy={busyKey === `semester:restore:${group.semester.id}`}
                         onClick={() => void restoreSemester(group.semester)}
                       />
                       <ArchiveActionButton
                         icon={<Trash2 className="h-3.5 w-3.5" />}
-                        label="Delete"
+                        label="删除"
                         danger
                         busy={busyKey === `semester:delete:${group.semester.id}`}
                         onClick={() => void deleteSemester(group.semester)}
@@ -1344,12 +1942,12 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                 <div className="space-y-3 p-4">
                   {semesterArchived && (
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
-                      This semester is archived. Restore it first before restoring child courses or sessions.
+                      该学期已归档。请先恢复学期，再恢复其下课程或会话。
                     </div>
                   )}
 
                   {homeThreads.length > 0 && (
-                    <ArchivePanel icon={<MessageSquare className="h-3.5 w-3.5" />} title="Home sessions" count={homeThreads.length}>
+                    <ArchivePanel icon={<MessageSquare className="h-3.5 w-3.5" />} title="主页会话" count={homeThreads.length}>
                       <div className="space-y-2">
                         {homeThreads.map((thread) => (
                           <ArchivedThreadRow
@@ -1366,7 +1964,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                   )}
 
                   {courseEntries.length > 0 && (
-                    <ArchivePanel icon={<BookOpen className="h-3.5 w-3.5" />} title="Courses" count={courseEntries.length}>
+                    <ArchivePanel icon={<BookOpen className="h-3.5 w-3.5" />} title="课程" count={courseEntries.length}>
                       <div className="space-y-2">
                         {courseEntries.map((entry) => {
                           const courseArchived = Boolean(entry.course?.archivedAt);
@@ -1376,26 +1974,26 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                               <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <span className="min-w-0 max-w-full break-words text-xs font-semibold leading-5" title={entry.course?.name || entry.courseId}>{entry.course?.name || `Course ${shortId(entry.courseId)}`}</span>
+                                    <span className="min-w-0 max-w-full break-words text-xs font-semibold leading-5" title={entry.course?.name || entry.courseId}>{entry.course?.name || `课程 ${shortId(entry.courseId)}`}</span>
                                     {entry.course?.code && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{entry.course.code}</span>}
-                                    {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">Archived course</span>}
+                                    {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">已归档课程</span>}
                                   </div>
                                   <div className="mt-1 text-[11px] text-muted-foreground">
-                                    {entry.threads.length} archived sessions · {entry.course ? entry.course.instructor || "No instructor" : "Course metadata not loaded"}
+                                    {entry.threads.length} 个已归档会话 · {entry.course ? entry.course.instructor || "无教师信息" : "课程元数据未加载"}
                                   </div>
                                 </div>
                                 {entry.course && (
                                   <div className="flex shrink-0 flex-wrap gap-2">
                                     <ArchiveActionButton
                                       icon={<RotateCcw className="h-3.5 w-3.5" />}
-                                      label="Restore course"
+                                      label="恢复课程"
                                       disabled={semesterArchived}
                                       busy={busyKey === `course:restore:${entry.course.id}`}
                                       onClick={() => void restoreCourse(entry.course as Course, semesterArchived)}
                                     />
                                     <ArchiveActionButton
                                       icon={<Trash2 className="h-3.5 w-3.5" />}
-                                      label="Delete"
+                                      label="删除"
                                       danger
                                       busy={busyKey === `course:delete:${entry.course.id}`}
                                       onClick={() => void deleteCourse(entry.course as Course)}
@@ -1432,6 +2030,76 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       )}
     </div>
   );
+}
+
+function filterArchiveGroups(groups: ArchiveSemesterGroup[], query: string, filter: ArchiveFilter): ArchiveDisplayGroup[] {
+  const normalizedQuery = normalizeArchiveQuery(query);
+  const hasQuery = normalizedQuery.length > 0;
+
+  return groups
+    .map((group) => {
+      const semesterArchived = Boolean(group.semester.archivedAt);
+      const semesterMatches = semesterArchived && archiveTextMatches(
+        [group.semester.term, group.semester.semesterNo, group.semester.id],
+        normalizedQuery,
+      );
+      const semesterVisible = (filter === "all" || filter === "semesters") && semesterArchived && (!hasQuery || semesterMatches);
+      const includeSessions = filter === "all" || filter === "sessions";
+      const includeCourses = filter === "all" || filter === "courses" || filter === "sessions";
+      const homeThreads = includeSessions
+        ? group.archivedThreads
+          .filter((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID)
+          .filter((thread) => !hasQuery || archiveThreadMatches(thread, normalizedQuery))
+        : [];
+      const courseEntries = includeCourses
+        ? archiveCourseEntries(group)
+          .map((entry) => filterArchiveCourseEntry(entry, normalizedQuery, filter, hasQuery))
+          .filter((entry): entry is ArchiveCourseEntry => Boolean(entry))
+        : [];
+
+      return {
+        ...group,
+        semesterVisible,
+        homeThreads,
+        courseEntries,
+      };
+    })
+    .filter((group) => group.semesterVisible || group.homeThreads.length > 0 || group.courseEntries.length > 0);
+}
+
+function filterArchiveCourseEntry(entry: ArchiveCourseEntry, query: string, filter: ArchiveFilter, hasQuery: boolean): ArchiveCourseEntry | null {
+  const courseMatches = archiveTextMatches(
+    [entry.course?.name, entry.course?.code, entry.course?.instructor, entry.courseId],
+    query,
+  );
+  const matchingThreads = entry.threads.filter((thread) => archiveThreadMatches(thread, query));
+
+  if (filter === "sessions") {
+    if (!hasQuery) return entry.threads.length ? entry : null;
+    return matchingThreads.length ? { ...entry, threads: matchingThreads } : null;
+  }
+
+  if (filter === "courses") {
+    return !hasQuery || courseMatches ? entry : null;
+  }
+
+  if (!hasQuery) return entry;
+  if (courseMatches) return entry;
+  if (matchingThreads.length) return { ...entry, threads: matchingThreads };
+  return null;
+}
+
+function archiveThreadMatches(thread: Thread, query: string): boolean {
+  return archiveTextMatches([thread.title, thread.taskId, thread.id, thread.threadType], query);
+}
+
+function archiveTextMatches(values: Array<string | number | undefined>, query: string): boolean {
+  if (!query) return true;
+  return values.some((value) => String(value ?? "").toLowerCase().includes(query));
+}
+
+function normalizeArchiveQuery(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function ArchiveMetric({ label, value }: { label: string; value: number }) {
@@ -1476,20 +2144,20 @@ function ArchivedThreadRow({
       <div className="min-w-0">
         <div className="break-words text-xs font-medium leading-5" title={thread.title}>{thread.title}</div>
         <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {thread.threadType === "semester_home" ? "Home session" : `Task session · ${shortId(thread.taskId || thread.id)}`} · archived {formatArchiveDate(thread.archivedAt)}
+          {thread.threadType === "semester_home" ? "主页会话" : `任务会话 · ${shortId(thread.taskId || thread.id)}`} · 归档于 {formatArchiveDate(thread.archivedAt)}
         </div>
       </div>
       <div className="flex shrink-0 gap-2">
         <ArchiveActionButton
           icon={<RotateCcw className="h-3.5 w-3.5" />}
-          label="Restore"
+          label="恢复"
           disabled={restoreBlocked}
           busy={busyKey === `thread:restore:${thread.id}`}
           onClick={onRestore}
         />
         <ArchiveActionButton
           icon={<Trash2 className="h-3.5 w-3.5" />}
-          label="Delete"
+          label="删除"
           danger
           busy={busyKey === `thread:delete:${thread.id}`}
           onClick={onDelete}
@@ -1525,13 +2193,13 @@ function ArchiveActionButton({
       onClick={onClick}
     >
       {icon}
-      {busy ? "Working..." : label}
+      {busy ? "处理中..." : label}
     </button>
   );
 }
 
-function archiveCourseEntries(group: ArchiveSemesterGroup): Array<{ courseId: string; course?: Course; threads: Thread[] }> {
-  const entries = new Map<string, { courseId: string; course?: Course; threads: Thread[] }>();
+function archiveCourseEntries(group: ArchiveSemesterGroup): ArchiveCourseEntry[] {
+  const entries = new Map<string, ArchiveCourseEntry>();
   for (const course of group.archivedCourses) {
     entries.set(course.id, { courseId: course.id, course, threads: [] });
   }
@@ -1551,10 +2219,10 @@ function compareSemestersForArchive(a: SemesterWorkspace, b: SemesterWorkspace):
 }
 
 function formatArchiveDate(value?: string): string {
-  if (!value) return "unknown";
+  if (!value) return "未知";
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return value;
-  return new Date(parsed).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return new Date(parsed).toLocaleDateString("zh-CN", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function shortId(value: string): string {
@@ -1599,22 +2267,22 @@ function SkillSettingsPage({
   }, [skills]);
   const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
   return (
-    <div className="grid min-h-[620px] gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <section className="flex min-h-0 flex-col rounded-lg border bg-background/70 p-3">
-        <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+    <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-muted/20">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card px-3 py-3">
           <div className="flex items-center gap-2 text-xs font-semibold">
-            <Sparkles className="h-3.5 w-3.5" />
-            Skill Profiles
+            <BookOpen className="h-3.5 w-3.5" />
+            Skill 配置
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{enabledSkills} enabled</span>
-            <ActionButton icon={<Upload className="h-3.5 w-3.5" />} label="Import" onClick={onImportSkill} />
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{enabledSkills} 个启用</span>
+            <ActionButton icon={<Upload className="h-3.5 w-3.5" />} label="导入" onClick={onImportSkill} />
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 brevyn-scrollbar">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar-thin">
           <SkillListGroup
-            title="Enabled"
+            title="已启用"
             count={groupedSkills.enabled.length}
             skills={groupedSkills.enabled}
             selectedSkillId={selectedSkillId}
@@ -1622,7 +2290,7 @@ function SkillSettingsPage({
             onToggleSkill={onToggleSkill}
           />
           <SkillListGroup
-            title="Disabled"
+            title="已停用"
             count={groupedSkills.disabled.length}
             skills={groupedSkills.disabled}
             selectedSkillId={selectedSkillId}
@@ -1632,44 +2300,47 @@ function SkillSettingsPage({
         </div>
       </section>
 
-      <aside className="min-w-0 space-y-4">
-        <section className="rounded-lg border bg-background/70 p-3">
-          <div className="mb-3 flex items-center justify-between gap-2">
+      <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="shrink-0 border-b bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
               <FileText className="h-3.5 w-3.5" />
-              <span className="min-w-0 truncate" title={selectedSkill?.name || "Skill content"}>{selectedSkill?.name || "Skill content"}</span>
+              <span className="min-w-0 truncate" title={selectedSkill?.name || "技能内容"}>{selectedSkill?.name || "技能内容"}</span>
             </div>
             <div className="flex items-center gap-2">
               <ActionButton
                 icon={<FolderOpen className="h-3.5 w-3.5" />}
-                label="Open"
+                label="打开"
                 onClick={() => selectedSkill && onOpenSkillFolder(selectedSkill.id)}
               />
-              <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="Save" onClick={onSaveSkill} primary disabled={!selectedSkill || skillBusy || !skillContent.trim()} />
+              <ActionButton icon={<Save className="h-3.5 w-3.5" />} label="保存" onClick={onSaveSkill} primary disabled={!selectedSkill || skillBusy || !skillContent.trim()} />
             </div>
+          </div>
           </div>
 
           {selectedSkill ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.version}</span>
                 {selectedSkill.category && <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.category}</span>}
-                {!!selectedSkill.resources?.length && <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.resources.length} resources</span>}
-                {selectedSkill.sourcePath && <span className="min-w-0 max-w-full truncate rounded bg-muted px-1.5 py-0.5" title={selectedSkill.sourcePath}>{selectedSkill.sourcePath}</span>}
+                {!!selectedSkill.resources?.length && <span className="rounded bg-muted px-1.5 py-0.5">{selectedSkill.resources.length} 个资源</span>}
+                {selectedSkill.sourcePath && <span className="min-w-0 max-w-full break-all rounded bg-muted px-1.5 py-0.5" title={selectedSkill.sourcePath}>{selectedSkill.sourcePath}</span>}
               </div>
-              <div className="grid gap-2 rounded-lg border bg-muted/25 p-2 text-[11px] text-muted-foreground sm:grid-cols-2">
-                <SkillMetaRow label="Triggers" values={selectedSkill.triggers} />
-                <SkillMetaRow label="Tags" values={selectedSkill.tags} />
-                <SkillMetaRow label="Scopes" values={selectedSkill.scopes} />
-                <SkillMetaRow label="Allowed" values={selectedSkill.allowedTools} />
+              <div className="grid gap-2 rounded-lg border bg-background p-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+                <SkillMetaRow label="触发词" values={selectedSkill.triggers} />
+                <SkillMetaRow label="标签" values={selectedSkill.tags} />
+                <SkillMetaRow label="范围" values={selectedSkill.scopes} />
+                <SkillMetaRow label="允许工具" values={selectedSkill.allowedTools} />
               </div>
               {!!selectedSkill.resources?.length && (
-                <div className="rounded-lg border bg-background/70 p-2">
+                <div className="rounded-lg border bg-background p-2">
                   <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold">
                     <Layers3 className="h-3.5 w-3.5" />
-                    Skill assets
+                    Skill 资源
                   </div>
-                  <div className="max-h-32 space-y-1 overflow-auto pr-1">
+                  <div className="max-h-40 space-y-1 overflow-auto pr-1 brevyn-scrollbar">
                     {selectedSkill.resources.slice(0, 24).map((resource) => (
                       <div key={resource.relativePath} className="flex items-center gap-2 rounded bg-muted/45 px-2 py-1 text-[11px] text-muted-foreground">
                         <span className="shrink-0 rounded bg-background px-1 py-0.5 text-[10px]">{resource.kind}</span>
@@ -1681,52 +2352,54 @@ function SkillSettingsPage({
                 </div>
               )}
               <textarea
-                className="min-h-[320px] w-full rounded-lg border bg-background px-3 py-3 font-mono text-[12px] leading-5 text-foreground outline-none"
+                className="h-[360px] min-h-[280px] w-full resize-none rounded-lg border bg-background px-3 py-3 font-mono text-[12px] leading-5 text-foreground outline-none [scrollbar-gutter:stable] brevyn-scrollbar"
                 value={skillContent}
                 onChange={(event) => onSkillContentChange(event.target.value)}
                 spellCheck={false}
               />
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
+                    <Layers3 className="h-3.5 w-3.5" />
+                    Skill 运行时
+                  </div>
+                  <div className="space-y-2 text-[12px] leading-5 text-muted-foreground">
+                    <MetricRow label="路由" value="已启用 Skill" />
+                    <MetricRow label="范围" value="全局" />
+                    <MetricRow label="上下文" value="感知上下文窗口" />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
+                    <GitBranch className="h-3.5 w-3.5" />
+                    Git / 编辑工具
+                  </div>
+                  <div className="space-y-2 text-[12px] leading-5 text-muted-foreground">
+                    <div className="rounded-md bg-muted/50 px-2 py-2">
+                      <span className="font-medium text-foreground">{gitStatus?.branch || "本地/mock"}</span>
+                      <span> · </span>
+                      <span>{gitStatus?.summary || "Git 服务占位实现已就绪。"}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <ToolChip icon={<Wrench className="h-3 w-3" />} label="编辑文件" />
+                      <ToolChip icon={<TerminalSquare className="h-3 w-3" />} label="运行命令" />
+                      <ToolChip icon={<GitBranch className="h-3 w-3" />} label="git diff" />
+                      <ToolChip icon={<Sparkles className="h-3 w-3" />} label="技能路由" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              </div>
             </div>
           ) : (
-            <div className="rounded-md border border-dashed px-3 py-8 text-center text-[12px] text-muted-foreground">
-              Select a skill to inspect or edit its `SKILL.md`.
+            <div className="m-3 rounded-md border border-dashed px-3 py-8 text-center text-[12px] text-muted-foreground">
+              选择一个 Skill 查看或编辑它的 `SKILL.md`。
             </div>
           )}
 
-          {skillStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{skillStatusLine}</div>}
-          {skillBusy && !skillStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">Working with skill files...</div>}
-        </section>
-
-        <section className="rounded-lg border bg-background/70 p-3">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
-            <Layers3 className="h-3.5 w-3.5" />
-            Skill Runtime
-          </div>
-          <div className="space-y-2 text-[12px] leading-5 text-muted-foreground">
-            <MetricRow label="Router" value="enabled skills" />
-            <MetricRow label="Scope" value="global" />
-            <MetricRow label="Context" value="window aware" />
-          </div>
-        </section>
-
-        <section className="rounded-lg border bg-background/70 p-3">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
-            <GitBranch className="h-3.5 w-3.5" />
-            Git / Edit Tools
-          </div>
-          <div className="space-y-2 text-[12px] leading-5 text-muted-foreground">
-            <div className="rounded-md bg-muted/50 px-2 py-2">
-              <span className="font-medium text-foreground">{gitStatus?.branch || "local/mock"}</span>
-              <span> · </span>
-              <span>{gitStatus?.summary || "GitService placeholder is ready."}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <ToolChip icon={<Wrench className="h-3 w-3" />} label="edit files" />
-              <ToolChip icon={<TerminalSquare className="h-3 w-3" />} label="run commands" />
-              <ToolChip icon={<GitBranch className="h-3 w-3" />} label="git diff" />
-              <ToolChip icon={<Sparkles className="h-3 w-3" />} label="skill router" />
-            </div>
-          </div>
+          {skillStatusLine && <div className="mx-3 mb-3 mt-3 shrink-0 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{skillStatusLine}</div>}
+          {skillBusy && !skillStatusLine && <div className="mx-3 mb-3 mt-3 shrink-0 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">正在处理 Skill 文件...</div>}
         </section>
       </aside>
     </div>
@@ -1749,13 +2422,13 @@ function SkillListGroup({
   onToggleSkill: (skill: SkillItem) => void;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="sticky top-0 z-10 flex items-center justify-between rounded-md border bg-background/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground backdrop-blur">
+    <div>
+      <div className="flex h-8 items-center justify-between border-b border-border/55 bg-muted/35 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         <span>{title}</span>
-        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px]">{count}</span>
+        <span className="tabular-nums">{count}</span>
       </div>
       {skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-background/55 px-3 py-4 text-center text-[11px] text-muted-foreground">None</div>
+        <div className="px-3 py-5 text-center text-[11px] text-muted-foreground">暂无</div>
       ) : (
         skills.map((skill) => (
           <SkillListItem
@@ -1777,8 +2450,9 @@ function SkillListItem({ skill, selected, onSelect, onToggle }: { skill: SkillIt
       role="button"
       tabIndex={0}
       className={cx(
-        "flex w-full cursor-pointer items-start gap-3 rounded-lg border bg-card px-3 py-3 text-left transition will-change-transform",
-        selected ? "border-foreground/30 ring-1 ring-foreground/15" : "hover:border-border/80 hover:bg-accent/35",
+        "group flex h-11 w-full cursor-pointer items-center gap-2 border-b border-border/45 px-3 text-left transition-colors",
+        selected ? "bg-accent text-accent-foreground" : "bg-transparent hover:bg-muted/45",
+        !skill.enabled && "opacity-55",
       )}
       onClick={onSelect}
       onKeyDown={(event) => {
@@ -1789,28 +2463,45 @@ function SkillListItem({ skill, selected, onSelect, onToggle }: { skill: SkillIt
       }}
       title={`${skill.name}\n${skill.description}`}
     >
-      <span className={cx("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", skill.enabled ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-border text-muted-foreground")}>
-        {skill.enabled ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-2 w-2 fill-current" />}
+      <span className={cx("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", selected ? "bg-background/70 text-foreground" : "bg-background text-muted-foreground")}>
+        <BookOpen className="h-3.5 w-3.5" />
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <div className="min-w-0 max-w-full break-words text-sm font-semibold leading-5">{skill.name}</div>
-          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.version}</span>
-          {skill.category && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{skill.category}</span>}
+      <div className="min-w-0 flex-1 leading-none">
+        <div className="truncate text-sm font-medium" title={skill.name}>{skill.name}</div>
+        <div className={cx("mt-1 truncate text-[10px]", selected ? "text-accent-foreground/65" : "text-muted-foreground")}>
+          {skill.category || skill.version || skill.id}
         </div>
-        <div className="mt-1 line-clamp-2 break-words text-[11px] leading-4 text-muted-foreground">{skill.description}</div>
-        {!!skill.triggers?.length && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {skill.triggers.slice(0, 4).map((trigger) => (
-              <span key={trigger} className="max-w-full truncate rounded-full border bg-background/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground" title={trigger}>
-                {trigger}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
-      <TogglePill enabled={skill.enabled} onClick={onToggle} />
+      <SkillSwitch enabled={skill.enabled} onClick={onToggle} />
     </div>
+  );
+}
+
+function SkillSwitch({ enabled, onClick }: { enabled: boolean; onClick: () => void }) {
+  const label = enabled ? "停用 Skill" : "启用 Skill";
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={label}
+      title={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className={cx(
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-200",
+        enabled ? "border-emerald-500 bg-emerald-500" : "border-border bg-muted hover:bg-muted/80",
+      )}
+    >
+      <span
+        className={cx(
+          "pointer-events-none h-6 w-6 rounded-full bg-white shadow-sm ring-1 ring-black/5 transition-transform duration-200",
+          enabled ? "translate-x-[21px]" : "translate-x-0.5",
+        )}
+      />
+    </button>
   );
 }
 
@@ -1833,6 +2524,11 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
 function AboutUpdateSettingsPage() {
   const [status, setStatus] = useState<UpdaterStatus | null>(null);
   const [checking, setChecking] = useState(false);
+  const [releaseNotes, setReleaseNotes] = useState<GitHubRelease | null>(null);
+  const [releases, setReleases] = useState<GitHubRelease[]>([]);
+  const [releasesLoading, setReleasesLoading] = useState(false);
+  const [releasesError, setReleasesError] = useState("");
+  const [expandedReleaseIds, setExpandedReleaseIds] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -1847,7 +2543,7 @@ function AboutUpdateSettingsPage() {
             status: "error",
             currentVersion: "0.0.0",
             supported: false,
-            error: errorMessage(error, "Failed to load update status."),
+            error: errorMessage(error, "加载更新状态失败。"),
           });
         }
       });
@@ -1861,6 +2557,45 @@ function AboutUpdateSettingsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setReleasesLoading(true);
+    setReleasesError("");
+    void window.brevyn.updater
+      .listReleases({ perPage: 5, includePrerelease: false })
+      .then((next) => {
+        if (!cancelled) setReleases(next);
+      })
+      .catch((error) => {
+        if (!cancelled) setReleasesError(errorMessage(error, "加载版本历史失败。"));
+      })
+      .finally(() => {
+        if (!cancelled) setReleasesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (status?.status !== "available" || !status.version) {
+      setReleaseNotes(null);
+      return;
+    }
+    let cancelled = false;
+    void window.brevyn.updater
+      .getReleaseByTag(status.version)
+      .then((release) => {
+        if (!cancelled) setReleaseNotes(release);
+      })
+      .catch(() => {
+        if (!cancelled) setReleaseNotes(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
   async function checkForUpdates() {
     setChecking(true);
     try {
@@ -1870,7 +2605,7 @@ function AboutUpdateSettingsPage() {
         status: "error",
         currentVersion: status?.currentVersion || "0.0.0",
         supported: Boolean(status?.supported),
-        error: errorMessage(error, "Failed to check for updates."),
+        error: errorMessage(error, "检查更新失败。"),
       });
       setChecking(false);
     }
@@ -1880,10 +2615,34 @@ function AboutUpdateSettingsPage() {
     await window.brevyn.updater.quitAndInstall();
   }
 
+  async function dismissDownloadedUpdate() {
+    const next = await window.brevyn.updater.dismissDownloaded();
+    setStatus(next);
+  }
+
+  async function refreshReleases() {
+    setReleasesLoading(true);
+    setReleasesError("");
+    try {
+      const next = await window.brevyn.updater.listReleases({ perPage: 5, includePrerelease: false });
+      setReleases(next);
+    } catch (error) {
+      setReleasesError(errorMessage(error, "刷新版本历史失败。"));
+    } finally {
+      setReleasesLoading(false);
+    }
+  }
+
+  function toggleRelease(releaseId: number) {
+    setExpandedReleaseIds((current) => ({ ...current, [releaseId]: !current[releaseId] }));
+  }
+
   const currentVersion = status?.currentVersion || "0.1.0";
   const isChecking = checking || status?.status === "checking";
   const canCheck = status?.status !== "unsupported" && status?.status !== "downloading" && status?.status !== "downloaded";
   const progress = status?.status === "downloading" ? status.progress : null;
+  const activeReleaseNotes = releaseNotes?.body || (status?.status === "available" ? status.releaseNotes : "");
+  const activeReleaseUrl = releaseNotes?.htmlUrl || `https://github.com/KOIAI777/brevyn-desktop/releases/tag/v${status?.status === "available" ? status.version : currentVersion}`;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -1895,10 +2654,10 @@ function AboutUpdateSettingsPage() {
               Brevyn
             </div>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Local-first course workspace, files, skills, and agent sessions.
+              本地优先的课程工作区，支持文件、Skill 和 Agent 会话。
             </p>
             <div className="mt-3 inline-flex rounded-full border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              Version {currentVersion}
+              版本 {currentVersion}
             </div>
           </div>
           <button
@@ -1920,14 +2679,25 @@ function AboutUpdateSettingsPage() {
             <p className="mt-1 text-xs text-muted-foreground">{updateStatusText(status)}</p>
           </div>
           {status?.status === "downloaded" ? (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-semibold text-background transition hover:opacity-90"
-              onClick={() => void quitAndInstall()}
-            >
-              <Download className="h-3.5 w-3.5" />
-              重启安装
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {!status.dismissed ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                  onClick={() => void dismissDownloadedUpdate()}
+                >
+                  稍后
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-semibold text-background transition hover:opacity-90"
+                onClick={() => void quitAndInstall()}
+              >
+                <Download className="h-3.5 w-3.5" />
+                重启安装
+              </button>
+            </div>
           ) : null}
         </div>
 
@@ -1943,12 +2713,104 @@ function AboutUpdateSettingsPage() {
           </div>
         ) : null}
 
-        {status?.status === "available" && status.releaseNotes ? (
-          <div className="mt-4 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-card p-3 text-xs leading-5 text-muted-foreground brevyn-scrollbar">
-            {status.releaseNotes}
-          </div>
+        {status?.status === "available" && activeReleaseNotes ? (
+          <ReleaseNotesCard body={activeReleaseNotes} url={activeReleaseUrl} />
         ) : null}
       </section>
+
+      <section className="rounded-xl border bg-background/70 shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">版本历史</h3>
+            <p className="mt-1 text-xs text-muted-foreground">从 GitHub Releases 读取最近发布记录。</p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void refreshReleases()}
+            disabled={releasesLoading}
+          >
+            <RefreshCw className={cx("h-3.5 w-3.5", releasesLoading && "animate-spin")} />
+            刷新
+          </button>
+        </div>
+        {releasesError ? <p className="px-5 py-3 text-xs text-destructive">{releasesError}</p> : null}
+        <div className="divide-y">
+          {releasesLoading && releases.length === 0 ? (
+            <div className="px-5 py-8 text-center text-xs text-muted-foreground">正在加载版本历史...</div>
+          ) : releases.length === 0 ? (
+            <div className="px-5 py-8 text-center text-xs text-muted-foreground">暂无版本历史。发布 GitHub Release 后会显示在这里。</div>
+          ) : (
+            releases.map((release, index) => {
+              const expanded = Boolean(expandedReleaseIds[release.id]);
+              return (
+                <div key={release.id} className="px-5 py-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-lg py-2 text-left transition hover:bg-muted/45"
+                    onClick={() => toggleRelease(release.id)}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-mono text-sm font-semibold text-foreground">{release.tagName}</span>
+                        {index === 0 ? <span className="rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-semibold text-background">最新</span> : null}
+                      </span>
+                      {release.name && release.name !== release.tagName ? <span className="mt-0.5 block truncate text-xs text-muted-foreground">{release.name}</span> : null}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatReleaseDate(release.publishedAt)}</span>
+                    <ChevronDown className={cx("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+                  </button>
+                  {expanded ? (
+                    <div className="mt-3 rounded-xl border bg-card p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <span className="text-xs font-medium text-muted-foreground">{release.assets.length} 个附件</span>
+                        {release.htmlUrl ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+                            onClick={() => void window.brevyn.app.openExternal(release.htmlUrl)}
+                          >
+                            打开 Release
+                            <ExternalLink className="h-3 w-3" />
+                          </button>
+                        ) : null}
+                      </div>
+                      <ReleaseMarkdown body={release.body || "这个版本还没有填写更新说明。"} />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ReleaseNotesCard({ body, url }: { body: string; url: string }) {
+  return (
+    <div className="mt-4 rounded-xl border bg-card p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold text-foreground">更新日志</span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+          onClick={() => void window.brevyn.app.openExternal(url)}
+        >
+          Release
+          <ExternalLink className="h-3 w-3" />
+        </button>
+      </div>
+      <ReleaseMarkdown body={body} />
+    </div>
+  );
+}
+
+function ReleaseMarkdown({ body }: { body: string }) {
+  return (
+    <div className="max-h-52 overflow-y-auto text-muted-foreground brevyn-scrollbar">
+      <Markdownish content={body} />
     </div>
   );
 }
@@ -1965,7 +2827,7 @@ function updateStatusText(status: UpdaterStatus | null): string {
     case "downloading":
       return `正在下载 ${status.version}。`;
     case "downloaded":
-      return `${status.version} 已下载完成，重启后生效。`;
+      return status.dismissed ? `${status.version} 已下载完成，已暂不提醒；可随时重启安装。` : `${status.version} 已下载完成，重启后生效。`;
     case "not-available":
       return "当前已经是最新版本。";
     case "error":
@@ -1973,6 +2835,13 @@ function updateStatusText(status: UpdaterStatus | null): string {
     default:
       return "未检查更新。";
   }
+}
+
+function formatReleaseDate(value: string): string {
+  if (!value) return "未知日期";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("zh-CN");
 }
 
 function formatBytes(bytes: number): string {
@@ -2003,21 +2872,24 @@ function ProviderProfileRow({
   toggleDisabled?: boolean;
 }) {
   const actionsDisabled = Boolean(toggleDisabled);
+  const enabledModels = provider.models.filter((model) => model.enabled !== false);
+  const displayName = providerDisplayName(provider);
   return (
     <div className={cx("group flex items-center gap-2 rounded-lg border p-2 transition", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
-        <span className="block truncate text-xs font-semibold">{provider.name}</span>
+        <span className="block truncate text-xs font-semibold" title={provider.name}>{displayName}</span>
         <span className="mt-0.5 block truncate text-[10px]">
-          {providerKindLabel(provider.providerKind)} · {provider.baseUrl || "URL not set"}
+          {providerKindLabel(provider.providerKind)} · {provider.baseUrl || "未设置 URL"}
         </span>
         <span className="mt-1 flex min-w-0 flex-wrap gap-1">
-          {provider.selectedModel && <span className="max-w-[180px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.selectedModel}</span>}
+          {provider.selectedModel && <span className="max-w-[150px] truncate rounded bg-background/80 px-1.5 py-0.5 text-[9px]">{provider.selectedModel}</span>}
+          {enabledModels.length > 1 && <span className="rounded bg-background/80 px-1.5 py-0.5 text-[9px]">+{enabledModels.length - 1}</span>}
         </span>
       </button>
       <div className="ml-auto flex items-center gap-1.5">
         <div className="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-[72px] group-hover:opacity-100 group-focus-within:max-w-[72px] group-focus-within:opacity-100">
-          <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label={`Edit ${provider.name}`} onClick={onEdit} disabled={actionsDisabled} />
-          <IconActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label={`Delete ${provider.name}`} onClick={onDelete} disabled={actionsDisabled} danger />
+          <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label={`编辑 ${displayName}`} onClick={onEdit} disabled={actionsDisabled} />
+          <IconActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label={`删除 ${displayName}`} onClick={onDelete} disabled={actionsDisabled} danger />
         </div>
         <ProviderSwitch enabled={statusOn} label={statusLabel} onClick={onToggle} disabled={toggleDisabled} />
       </div>
@@ -2086,8 +2958,8 @@ function Field({
             type="button"
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={() => setPasswordVisible((visible) => !visible)}
-            aria-label={passwordVisible ? "Hide API key" : "Show API key"}
-            title={passwordVisible ? "Hide API key" : "Show API key"}
+            aria-label={passwordVisible ? "隐藏 API Key" : "显示 API Key"}
+            title={passwordVisible ? "隐藏 API Key" : "显示 API Key"}
           >
             {passwordVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </button>
@@ -2112,25 +2984,25 @@ function ProviderKindField({
   onChange,
 }: {
   purpose: ProviderPurpose;
-  value: AgentProviderKind | EmbeddingProviderKind;
+  value: ProviderKind;
   onChange: (value: ProviderKind) => void;
 }) {
-  const options = purpose === "agent" ? agentProviderKinds : embeddingProviderKinds;
+  const options = purpose === "agent" ? agentProviderKinds : purpose === "vision" ? visionProviderKinds : embeddingProviderKinds;
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
-      <span>Provider</span>
+      <span>服务商</span>
       <DropdownSelect
         value={value}
         options={options.map((kind) => ({ value: kind, label: providerKindLabel(kind) }))}
-        placeholder="Select provider"
-        ariaLabel="Select provider kind"
+        placeholder="选择服务商"
+        ariaLabel="选择服务商类型"
         onChange={(next) => onChange(next as ProviderKind)}
       />
     </label>
   );
 }
 
-function TogglePill({ enabled, onClick, labelOn = "Enabled", labelOff = "Disabled", disabled }: { enabled: boolean; onClick: () => void; labelOn?: string; labelOff?: string; disabled?: boolean }) {
+function TogglePill({ enabled, onClick, labelOn = "已启用", labelOff = "已停用", disabled }: { enabled: boolean; onClick: () => void; labelOn?: string; labelOff?: string; disabled?: boolean }) {
   return (
     <button
       type="button"
@@ -2147,26 +3019,146 @@ function TogglePill({ enabled, onClick, labelOn = "Enabled", labelOff = "Disable
   );
 }
 
-function ModelPicker({ purpose, models, onPick }: { purpose: ProviderPurpose; models: ProviderModel[]; onPick: (model: ProviderModel) => void }) {
+function ModelPicker({ purpose, models, selectedModel, onPick }: { purpose: ProviderPurpose; models: ProviderModel[]; selectedModel: string; onPick: (model: ProviderModel) => void }) {
   if (models.length === 0) return null;
   return (
-    <div className="mt-3 grid gap-2 rounded-md border bg-card p-2 md:grid-cols-2">
-      {models.map((model) => (
-        <button
-          key={model.id}
-          type="button"
-          className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-2 py-2 text-left text-[11px] text-muted-foreground transition hover:border-border/80 hover:text-foreground"
-          onClick={() => onPick(model)}
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
-            {purpose === "embedding" ? <Database className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-medium text-foreground">{model.name}</span>
-            <span className="block truncate text-[10px] uppercase tracking-wide text-muted-foreground">{purpose}</span>
-          </span>
-        </button>
-      ))}
+    <div className="mt-3 rounded-md border bg-card p-2">
+      <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <span>模型</span>
+        <span>{models.length}</span>
+      </div>
+      <div className="max-h-64 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
+        {models.map((model) => {
+          const selected = model.id === selectedModel;
+          return (
+            <button
+              key={model.id}
+              type="button"
+              className={cx(
+                "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left text-[11px] transition",
+                selected
+                  ? "border-foreground/25 bg-foreground text-background shadow-sm"
+                  : "border-border/55 bg-background text-muted-foreground hover:border-border/80 hover:text-foreground",
+              )}
+              onClick={() => onPick(model)}
+            >
+              <span className={cx("flex h-7 w-7 shrink-0 items-center justify-center rounded-md", selected ? "bg-background/16 text-background" : "bg-muted text-foreground")}>
+                {selected ? <Check className="h-3.5 w-3.5" /> : purpose === "embedding" ? <Database className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className={cx("block truncate font-medium", selected ? "text-background" : "text-foreground")}>{model.name}</span>
+                <span className={cx("block truncate text-[10px]", selected ? "text-background/72" : "text-muted-foreground")}>{model.id}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentModelManager({
+  title = "聊天模型",
+  availableEmptyLabel = "已获取的模型都已启用。",
+  enabledEmptyLabel = "至少启用一个模型用于聊天。",
+  models,
+  selectedModel,
+  onToggle,
+  onMakeDefault,
+}: {
+  title?: string;
+  availableEmptyLabel?: string;
+  enabledEmptyLabel?: string;
+  models: ProviderModel[];
+  selectedModel: string;
+  onToggle: (model: ProviderModel) => void;
+  onMakeDefault: (model: ProviderModel) => void;
+}) {
+  const availableModels = models.filter((model) => model.enabled === false);
+  const enabledModels = models.filter((model) => model.enabled !== false);
+  return (
+    <div className="mt-3 rounded-md border bg-card p-2">
+      <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <span>{title}</span>
+        <span>{enabledModels.length}/{models.length} 已启用</span>
+      </div>
+      <div className="grid min-h-0 gap-2 md:grid-cols-2">
+        <ModelColumn title="可用" emptyLabel={availableEmptyLabel} empty={availableModels.length === 0}>
+          {availableModels.map((model) => (
+            <ModelTransferRow
+              key={model.id}
+              model={model}
+              icon={<Plus className="h-3.5 w-3.5" />}
+              label="启用模型"
+              onClick={() => onToggle(model)}
+            />
+          ))}
+        </ModelColumn>
+        <ModelColumn title="已启用" emptyLabel={enabledEmptyLabel} empty={enabledModels.length === 0}>
+          {enabledModels.map((model) => {
+            const selected = model.id === selectedModel;
+            return (
+              <ModelTransferRow
+                key={model.id}
+                model={model}
+                selected={selected}
+                icon={<Minus className="h-3.5 w-3.5" />}
+                label="停用模型"
+                onClick={() => onToggle(model)}
+                onMakeDefault={() => onMakeDefault(model)}
+              />
+            );
+          })}
+        </ModelColumn>
+      </div>
+    </div>
+  );
+}
+
+function ModelColumn({ title, emptyLabel, empty, children }: { title: string; emptyLabel: string; empty: boolean; children: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-md border bg-background/70">
+      <div className="border-b px-2 py-1.5 text-[10px] font-medium text-muted-foreground">{title}</div>
+      <div className="max-h-64 space-y-1 overflow-y-auto p-1.5 brevyn-scrollbar">
+        {empty ? <div className="rounded-md border border-dashed px-2 py-6 text-center text-[11px] text-muted-foreground">{emptyLabel}</div> : children}
+      </div>
+    </div>
+  );
+}
+
+function ModelTransferRow({
+  model,
+  selected,
+  icon,
+  label,
+  onClick,
+  onMakeDefault,
+}: {
+  model: ProviderModel;
+  selected?: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  onMakeDefault?: () => void;
+}) {
+  return (
+    <div className={cx("flex min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
+      <button type="button" className="min-w-0 flex-1 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium text-foreground">{model.name}</span>
+          {selected && <span className="shrink-0 rounded-full bg-foreground px-1.5 py-0.5 text-[9px] text-background">默认</span>}
+        </span>
+        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{model.id}</span>
+      </button>
+      <button
+        type="button"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        onClick={onClick}
+        aria-label={label}
+        title={label}
+      >
+        {icon}
+      </button>
     </div>
   );
 }
@@ -2228,7 +3220,7 @@ function SkillMetaRow({ label, values }: { label: string; values?: string[] }) {
           ))}
         </div>
       ) : (
-        <div className="text-[11px] text-muted-foreground/60">None</div>
+        <div className="text-[11px] text-muted-foreground/60">暂无</div>
       )}
     </div>
   );
@@ -2270,9 +3262,36 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
   };
 }
 
+function selectedEnabledModel(selectedModel: string, models: ProviderModel[]): string {
+  if (selectedModel && models.some((model) => model.id === selectedModel && model.enabled !== false)) return selectedModel;
+  return models.find((model) => model.enabled !== false)?.id || "";
+}
+
+function toggleDraftModel(draft: ProviderDraftInput, modelId: string): ProviderDraftInput {
+  const models = (draft.models || []).map((model) => (
+    model.id === modelId ? { ...model, enabled: model.enabled === false } : model
+  ));
+  const selectedModel = selectedEnabledModel(draft.selectedModel === modelId ? "" : draft.selectedModel, models);
+  return { ...draft, models, selectedModel };
+}
+
+function addDraftModel(draft: ProviderDraftInput, modelId: string): ProviderDraftInput {
+  const normalizedId = modelId.trim();
+  if (!normalizedId) return draft;
+  const existing = draft.models || [];
+  const models = existing.some((model) => model.id === normalizedId)
+    ? existing.map((model) => (model.id === normalizedId ? { ...model, enabled: true } : model))
+    : [...existing, { id: normalizedId, name: normalizedId, enabled: true }];
+  return {
+    ...draft,
+    models,
+    selectedModel: selectedEnabledModel(draft.selectedModel, models) || normalizedId,
+  };
+}
+
 function applyProviderPreset(draft: ProviderDraftInput, providerKind: ProviderKind): ProviderDraftInput {
   const preset = PROVIDER_PRESETS[providerKind];
-  const models = presetModels(providerKind);
+  const models = preset.purpose === "agent" || preset.purpose === "vision" ? [] : presetModels(providerKind);
   return {
     ...draft,
     purpose: preset.purpose,
@@ -2281,7 +3300,7 @@ function applyProviderPreset(draft: ProviderDraftInput, providerKind: ProviderKi
     authMode: preset.authMode,
     baseUrl: preset.baseUrl,
     models,
-    selectedModel: models[0]?.id || "",
+    selectedModel: "",
   };
 }
 
@@ -2295,12 +3314,40 @@ function providerKindLabel(providerKind: ProviderKind): string {
   return PROVIDER_PRESETS[providerKind]?.label || providerKind;
 }
 
-function adapterLabel(providerKind: ProviderKind): string {
-  const preset = PROVIDER_PRESETS[providerKind];
-  return preset.adapterKind === "anthropic" ? "Anthropic Messages" : "OpenAI-compatible Embeddings";
+function providerDisplayName(provider: ModelProviderConfig): string {
+  const trimmed = provider.name.trim();
+  const defaultMatch = /^(Agent|Embedding|Vision)\s+(\d+)$/i.exec(trimmed);
+  if (!defaultMatch) return trimmed || "未命名服务商";
+  const index = defaultMatch[2];
+  if (provider.purpose === "embedding") return `Embedding ${index}`;
+  if (provider.purpose === "vision") return `Vision ${index}`;
+  return `Agent ${index}`;
 }
 
-function errorMessage(error: unknown, fallback = "Operation failed."): string {
+function adapterLabel(providerKind: ProviderKind): string {
+  const preset = PROVIDER_PRESETS[providerKind];
+  if (preset.adapterKind === "anthropic") return "Anthropic Messages";
+  if (preset.adapterKind === "openai_chat_completions") return "OpenAI Chat Completions";
+  if (preset.adapterKind === "openai_responses") return "OpenAI Responses";
+  return "OpenAI-compatible Embeddings";
+}
+
+function hasRunnableVisionProvider(providers: ModelProviderConfig[]): boolean {
+  return providers.some((provider) =>
+    provider.enabled &&
+    Boolean(provider.selectedModel) &&
+    provider.models.some((model) => model.id === provider.selectedModel && model.enabled !== false),
+  );
+}
+
+function errorMessage(error: unknown, fallback = "操作失败。"): string {
   const message = error instanceof Error ? error.message : String(error || "");
   return message.trim() || fallback;
+}
+
+function providerFetchErrorMessage(error: unknown): string {
+  return errorMessage(error)
+    .replace(/^Error invoking remote method '[^']+': Error:\s*/i, "")
+    .replace(/^Failed to fetch agent models:\s*/i, "")
+    .replace(/^Failed to fetch embedding models:\s*/i, "");
 }

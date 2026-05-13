@@ -35,7 +35,7 @@ interface AgentComposerProps {
   files: WorkspaceFileNode[];
   onSetPlanMode: (value: boolean | ((current: boolean) => boolean)) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[]) => Promise<void>;
+  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
   onStop: () => Promise<void>;
   onCompact: () => void;
   onSelectProvider: (providerId: string) => Promise<void>;
@@ -67,11 +67,20 @@ export function AgentComposer({
   const [draggingFiles, setDraggingFiles] = useState(false);
   const mentionableFiles = useMemo(() => flattenMentionableFiles(files), [files]);
   const mentionSuggestions = useMemo(() => filterMentionSuggestions(mentionableFiles, mentionQuery), [mentionableFiles, mentionQuery]);
-  const providerOptions = useMemo(() => agentProviders.map((provider) => ({
-    value: provider.id,
-    label: provider.selectedModel || provider.name,
-    detail: provider.name,
-  })), [agentProviders]);
+  const providerOptions = useMemo(() => agentProviders
+    .filter((provider) => provider.enabled)
+    .flatMap((provider) => {
+      const models = provider.models.filter((model) => model.enabled !== false);
+      const orderedModels = [
+        ...models.filter((model) => model.id === provider.selectedModel),
+        ...models.filter((model) => model.id !== provider.selectedModel),
+      ];
+      return orderedModels.map((model) => ({
+        value: providerModelValue(provider.id, model.id),
+        label: model.name || model.id,
+        detail: provider.name,
+      }));
+    }), [agentProviders]);
 
   const permissionOptions = useMemo(() => [
     {
@@ -97,7 +106,7 @@ export function AgentComposer({
     const attachments = pendingAttachments;
     setPendingAttachments([]);
     try {
-      await onRun(prompt || "请查看附件。", planMode ? "plan" : "execute", planMode ? "review" : permissionMode, attachments);
+      await onRun(prompt || "请查看附件。", planMode ? "plan" : "execute", planMode ? "review" : permissionMode, attachments, parseProviderModelValue(activeProviderId));
     } catch (error) {
       setPendingAttachments((current) => mergeAttachments(attachments, current));
       throw error;
@@ -359,6 +368,19 @@ function FileKindBadge({ kind }: { kind: WorkspaceFileKind }) {
       {fileKindLabel(kind)}
     </span>
   );
+}
+
+function providerModelValue(providerId: string, modelId: string): string {
+  return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
+}
+
+function parseProviderModelValue(value: string): { providerId?: string; modelId?: string } {
+  const [providerId, modelId] = value.split("::");
+  if (!providerId || !modelId) return {};
+  return {
+    providerId: decodeURIComponent(providerId),
+    modelId: decodeURIComponent(modelId),
+  };
 }
 
 function flattenMentionableFiles(files: WorkspaceFileNode[]): WorkspaceFileNode[] {

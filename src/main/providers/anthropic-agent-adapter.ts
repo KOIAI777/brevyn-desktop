@@ -9,7 +9,7 @@ export class AnthropicAgentAdapter implements AgentProviderAdapter {
 
   buildModelListRequest(provider: ModelProviderConfig, apiKey: string): ProviderHttpRequest {
     return {
-      url: `${this.apiBaseUrl(provider)}/models`,
+      url: `${this.modelListBaseUrl(provider)}/models`,
       init: {
         method: "GET",
         headers: this.headers(apiKey, false),
@@ -56,6 +56,12 @@ export class AnthropicAgentAdapter implements AgentProviderAdapter {
     return normalizeAnthropicProviderBaseUrl(this.providerKind, provider.baseUrl);
   }
 
+  private modelListBaseUrl(provider: ModelProviderConfig): string {
+    const url = this.apiBaseUrl(provider);
+    if (this.providerKind === "deepseek") return url.replace(/\/anthropic$/, "");
+    return url;
+  }
+
   private headers(apiKey: string, withContentType: boolean): Record<string, string> {
     const headers: Record<string, string> = {
       "anthropic-version": "2023-06-01",
@@ -74,6 +80,7 @@ export class AnthropicAgentAdapter implements AgentProviderAdapter {
 
 function defaultTestModel(providerKind: AgentProviderKind): string {
   if (providerKind === "deepseek") return "deepseek-v4-pro";
+  if (providerKind === "bailian-anthropic") return "qwen-plus";
   if (providerKind === "kimi-api") return "kimi-k2.6";
   if (providerKind === "kimi-coding") return "kimi-for-coding";
   return "claude-sonnet-4-6";
@@ -82,5 +89,5 @@ function defaultTestModel(providerKind: AgentProviderKind): string {
 function providerModelFromId(id: string, displayName?: string): ProviderModel[] {
   const modelId = id.trim();
   if (!modelId) return [];
-  return [{ id: modelId, name: displayName || modelId, enabled: true }];
+  return [{ id: modelId, name: displayName || modelId, enabled: false }];
 }

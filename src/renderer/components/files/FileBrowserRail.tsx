@@ -34,6 +34,7 @@ export function FileBrowserRail({
   resizing?: boolean;
   onResizeStart: (event: PointerEvent) => void;
 }) {
+  const [renderContent, setRenderContent] = useState(!collapsed);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const [menu, setMenu] = useState<FileContextMenuState | null>(null);
   const [renameFile, setRenameFile] = useState<WorkspaceFileNode | null>(null);
@@ -41,6 +42,16 @@ export function FileBrowserRail({
   const { confirm, confirmDialog } = useConfirmDialog();
   const uploadDisabled = !course || Boolean(course.archivedAt);
   const uploadTitle = !course ? "Select a course before uploading files" : course.archivedAt ? "Restore this course before uploading files" : "Import course files";
+
+  useEffect(() => {
+    if (!collapsed) {
+      setRenderContent(true);
+      return;
+    }
+    const timeout = window.setTimeout(() => setRenderContent(false), 260);
+    return () => window.clearTimeout(timeout);
+  }, [collapsed]);
+
   const toggleFolder = (folderId: string) => {
     setCollapsedFolderIds((current) => {
       const next = new Set(current);
@@ -99,11 +110,10 @@ export function FileBrowserRail({
   return (
     <aside
       aria-hidden={collapsed}
-      className={`group/rail relative hidden shrink-0 origin-right transform-gpu flex-col justify-self-end overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity,width] transition-[width,opacity,margin,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${collapsed ? "pointer-events-none -mr-2 translate-x-8 scale-x-[0.98] border-transparent opacity-0 shadow-none ring-0" : "translate-x-0 scale-x-100 opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20 transition-none" : ""}`}
-      style={{ width: collapsed ? 0 : "100%" }}
+      className={`group/rail relative hidden min-w-0 shrink-0 origin-right transform-gpu flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity] transition-[opacity,transform,box-shadow,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex lg:w-full ${collapsed ? "pointer-events-none translate-x-6 border-transparent opacity-0 shadow-none ring-0" : "translate-x-0 opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20 transition-none" : ""}`}
     >
       {confirmDialog}
-      <FileContextMenu state={menu} onAction={handleContextAction} onClose={() => setMenu(null)} />
+      {renderContent && <FileContextMenu state={menu} onAction={handleContextAction} onClose={() => setMenu(null)} />}
       {renameFile && (
         <RenameFileDialog
           file={renameFile}
@@ -131,6 +141,8 @@ export function FileBrowserRail({
         <span className="absolute left-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/rail:opacity-100" />
       </button>
       <div className={`flex min-h-0 flex-1 flex-col transition-opacity duration-150 ${collapsed ? "opacity-0" : "opacity-100"}`}>
+        {renderContent ? (
+          <>
         <section className="flex max-h-[38%] min-h-[7.5rem] flex-col border-b bg-background/30">
           <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
             <div className="min-w-0 flex-1">
@@ -236,6 +248,8 @@ export function FileBrowserRail({
             )}
           </div>
         </section>
+          </>
+        ) : null}
       </div>
     </aside>
   );

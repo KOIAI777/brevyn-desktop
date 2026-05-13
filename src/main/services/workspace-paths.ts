@@ -154,7 +154,7 @@ export function ensureTaskWorkspaceDir(rootDataDir: string, semesterId: string, 
 /**
  * Resolve the agent workspace cwd for a given thread.
  *
- * - semester-home thread → the entire semester directory (home agent sees all courses)
+ * - semester-home thread → Semester shared (course discovery must go through Brevyn metadata)
  * - task thread          → the specific task directory
  */
 export function workspacePathForThread(
@@ -167,7 +167,7 @@ export function workspacePathForThread(
     throw new Error(`Cannot resolve workspace path: thread ${thread.id} has no semesterId`);
   }
   if (thread.threadType === "semester_home" || thread.courseId === SEMESTER_HOME_COURSE_ID) {
-    return ensureSemesterSharedDirs(rootDataDir, semesterId);
+    return join(ensureSemesterSharedDirs(rootDataDir, semesterId), "Semester shared");
   }
   if (thread.taskId) {
     const task = resolveTask(thread.taskId);

@@ -12,6 +12,11 @@ import type {
   CreateTaskInput,
   CreateThreadInput,
   FileImportInput,
+  RecognizedAcademicCalendar,
+  RecognizedCalendarEvent,
+  RecognizedCourseSchedule,
+  RecognizedCourseSession,
+  RecognizedCourseTimetable,
   RenameThreadInput,
   SkillImportInput,
   SkillUpdateInput,
@@ -19,6 +24,8 @@ import type {
   TimetableRangeQuery,
   UpdateCourseInput,
   UpdateTaskInput,
+  VisionRecognitionInput,
+  WeekdayKey,
 } from "../../types/domain";
 
 export function requireString(value: unknown, label: string): string {
@@ -195,8 +202,115 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
     prompt: requireString(input.prompt, "Prompt"),
     mode: input.mode === "plan" ? "plan" : "execute",
     permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
+    providerId: optionalString(input.providerId),
+    modelId: optionalString(input.modelId),
     attachments: normalizeAgentAttachments(input.attachments),
   };
+}
+
+export function normalizeVisionRecognitionInput(value: unknown): VisionRecognitionInput {
+  const input = requireObject(value, "Vision recognition input");
+  return {
+    sourcePath: requireString(input.sourcePath, "Image path"),
+    apply: input.apply === undefined ? undefined : Boolean(input.apply),
+    providerId: optionalString(input.providerId),
+    modelId: optionalString(input.modelId),
+  };
+}
+
+export function normalizeRecognizedAcademicCalendar(value: unknown): RecognizedAcademicCalendar {
+  const input = requireObject(value, "Academic calendar recognition result");
+  return {
+    kind: "academic_calendar",
+    sourcePath: requireString(input.sourcePath, "Image path"),
+    providerName: optionalString(input.providerName) || "Vision",
+    modelId: optionalString(input.modelId) || "vision-model",
+    semester: input.semester ? normalizeCreateSemesterInput(input.semester) : undefined,
+    events: normalizeRecognizedCalendarEvents(input.events),
+    warnings: normalizeStringArray(input.warnings),
+  };
+}
+
+export function normalizeRecognizedCourseTimetable(value: unknown): RecognizedCourseTimetable {
+  const input = requireObject(value, "Course timetable recognition result");
+  return {
+    kind: "course_timetable",
+    sourcePath: requireString(input.sourcePath, "Image path"),
+    providerName: optionalString(input.providerName) || "Vision",
+    modelId: optionalString(input.modelId) || "vision-model",
+    semesterLabel: optionalString(input.semesterLabel),
+    courses: normalizeRecognizedCourses(input.courses),
+    warnings: normalizeStringArray(input.warnings),
+  };
+}
+
+function normalizeRecognizedCalendarEvents(value: unknown): RecognizedCalendarEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const input = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    const title = optionalString(input.title);
+    const startsAt = optionalString(input.startsAt);
+    if (!title || !startsAt) return [];
+    return [{
+      title,
+      startsAt,
+      endsAt: optionalString(input.endsAt),
+      notes: optionalString(input.notes),
+      confidence: normalizeNumber(input.confidence),
+    }];
+  });
+}
+
+function normalizeRecognizedCourses(value: unknown): RecognizedCourseSchedule[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const input = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    const code = optionalString(input.code);
+    const name = optionalString(input.name);
+    if (!code || !name) return [];
+    return [{
+      code,
+      name,
+      section: optionalString(input.section),
+      category: optionalString(input.category),
+      instructor: optionalString(input.instructor),
+      units: normalizeNumber(input.units),
+      sessions: normalizeRecognizedSessions(input.sessions),
+      confidence: normalizeNumber(input.confidence),
+    }];
+  });
+}
+
+function normalizeRecognizedSessions(value: unknown): RecognizedCourseSession[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const input = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    const dayOfWeek = normalizeWeekday(input.dayOfWeek);
+    const startTime = optionalString(input.startTime);
+    const endTime = optionalString(input.endTime);
+    if (!dayOfWeek || !startTime || !endTime) return [];
+    return [{
+      dayOfWeek,
+      startTime,
+      endTime,
+      room: optionalString(input.room),
+      weeks: optionalString(input.weeks),
+      confidence: normalizeNumber(input.confidence),
+    }];
+  });
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const text = optionalString(item);
+    return text ? [text] : [];
+  });
+}
+
+function normalizeWeekday(value: unknown): WeekdayKey | undefined {
+  const text = optionalString(value)?.toLowerCase().slice(0, 3);
+  return text && ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].includes(text) ? text as WeekdayKey : undefined;
 }
 
 function normalizeAgentAttachments(value: unknown): AgentAttachment[] | undefined {

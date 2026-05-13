@@ -5,16 +5,7 @@ export function normalizeBaseUrl(baseUrl?: string): string {
 }
 
 export function normalizeAnthropicBaseUrl(baseUrl?: string): string {
-  let url = normalizeBaseUrl(baseUrl).replace(/\/messages$/, "");
-  if (!url.match(/\/v\d+$/)) {
-    try {
-      const pathname = new URL(url).pathname;
-      if (pathname === "/" || pathname === "") url = `${url}/v1`;
-    } catch {
-      url = `${url}/v1`;
-    }
-  }
-  return url;
+  return normalizeBaseUrl(baseUrl).replace(/\/messages$/, "");
 }
 
 export function normalizeAnthropicBaseUrlForSdk(baseUrl?: string): string {
@@ -24,8 +15,6 @@ export function normalizeAnthropicBaseUrlForSdk(baseUrl?: string): string {
 }
 
 export function normalizeAnthropicProviderBaseUrl(providerKind: AgentProviderKind, baseUrl: string): string {
-  if (providerKind === "deepseek" || providerKind === "kimi-api" || providerKind === "kimi-coding") {
-    return normalizeBaseUrl(baseUrl);
-  }
+  void providerKind;
   return normalizeAnthropicBaseUrl(baseUrl);
 }

@@ -9,7 +9,6 @@ import type {
   FileStats,
   GitStatus,
   ModelProviderConfig,
-  ProviderDraftInput,
   SemesterWorkspace,
   SkillItem,
   Thread,
@@ -87,6 +86,7 @@ function App() {
   const [agentRunning, setAgentRunning] = useState(false);
   const [agentError, setAgentError] = useState("");
   const [agentProviders, setAgentProviders] = useState<ModelProviderConfig[]>([]);
+  const [selectedAgentModel, setSelectedAgentModel] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readStoredSidebarWidth());
   const emptyThreadIds = useMemo(() => new Set(threads.filter(isDraftThread).map((thread) => thread.id)), [threads]);
   const [sidebarResizing, setSidebarResizing] = useState(false);
@@ -696,13 +696,13 @@ function App() {
     }
   }
 
-  async function runAgent(prompt: string, mode: "execute" | "plan" = "execute", permissionMode: "review" | "full_access" = "review", attachments?: AgentAttachment[]): Promise<void> {
+  async function runAgent(prompt: string, mode: "execute" | "plan" = "execute", permissionMode: "review" | "full_access" = "review", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }): Promise<void> {
     if (!activeThreadId) return;
     setAgentError("");
     setAgentRunning(true);
     markThreadHasMessages(activeThreadId);
     try {
-      await window.brevyn.agent.run({ threadId: activeThreadId, prompt, mode, permissionMode, attachments });
+      await window.brevyn.agent.run({ threadId: activeThreadId, prompt, mode, permissionMode, attachments, providerId: providerSelection?.providerId, modelId: providerSelection?.modelId });
     } catch (error) {
       setAgentRunning(false);
       setAgentError(errorMessage(error, "Failed to start agent run."));
@@ -877,22 +877,17 @@ function App() {
     try {
       const providers = await window.brevyn.providers.list();
       if (!mountedRef.current) return;
-      setAgentProviders(providers.filter((provider) => provider.purpose === "agent"));
+      const agents = providers.filter((provider) => provider.purpose === "agent");
+      setAgentProviders(agents);
+      setSelectedAgentModel((current) => validAgentModelSelection(agents, current));
     } catch {
       if (mountedRef.current) setAgentProviders([]);
     }
   }
 
-  async function selectAgentProvider(providerId: string) {
-    const provider = agentProviders.find((item) => item.id === providerId);
-    if (!provider || provider.enabled) return;
+  async function selectAgentProvider(providerSelection: string) {
     setWorkspaceError("");
-    try {
-      await window.brevyn.providers.save(providerDraftForActivation(provider));
-      await refreshAgentProviders();
-    } catch (error) {
-      if (mountedRef.current) setWorkspaceError(errorMessage(error, "Failed to switch agent model."));
-    }
+    setSelectedAgentModel(validAgentModelSelection(agentProviders, providerSelection));
   }
 
   function handleCourseCreated(course: Course) {
@@ -948,10 +943,8 @@ function App() {
         task={activeTask}
         thread={activeThread}
         semester={semester}
-        sidebarCollapsed={sidebarCollapsed}
         fileRailCollapsed={fileRailCollapsed}
         previewRailCollapsed={previewRailCollapsed}
-        onToggleSidebar={() => setSidebarCollapsed((value) => !value)}
         onToggleFileRail={() => setFileRailCollapsed((value) => !value)}
         onTogglePreviewRail={() => setPreviewRailCollapsed((value) => !value)}
       />
@@ -1011,7 +1004,7 @@ function App() {
                   onAnswerQuestion={answerAgentQuestion}
                   onResolveExitPlan={resolveAgentExitPlan}
                   agentProviders={agentProviders}
-                  activeProviderId={activeAgentProviderId(agentProviders)}
+                  activeProviderId={validAgentModelSelection(agentProviders, selectedAgentModel)}
                   onSelectProvider={selectAgentProvider}
                   files={fileTree}
                   onPreviewFilePath={previewWorkspacePath}
@@ -1307,25 +1300,27 @@ function railColumn(collapsed: boolean, width: number, renderMin: number): strin
   return `minmax(${Math.min(renderMin, width)}px, ${width}px)`;
 }
 
-function activeAgentProviderId(providers: ModelProviderConfig[]): string {
-  return providers.find((provider) => provider.enabled)?.id || "";
+function validAgentModelSelection(providers: ModelProviderConfig[], current: string): string {
+  const options = agentModelSelectionOptions(providers);
+  if (options.some((option) => option === current)) return current;
+  return options[0] || "";
 }
 
-function providerDraftForActivation(provider: ModelProviderConfig): ProviderDraftInput {
-  return {
-    id: provider.id,
-    purpose: provider.purpose,
-    providerKind: provider.providerKind,
-    name: provider.name,
-    protocol: provider.protocol,
-    authMode: provider.authMode,
-    baseUrl: provider.baseUrl,
-    apiKey: "",
-    clearApiKey: false,
-    models: provider.models.map((model) => ({ ...model })),
-    selectedModel: provider.selectedModel,
-    enabled: true,
-  };
+function agentModelSelectionOptions(providers: ModelProviderConfig[]): string[] {
+  return providers
+    .filter((provider) => provider.enabled)
+    .flatMap((provider) => {
+      const models = provider.models.filter((model) => model.enabled !== false);
+      const selectedFirst = [
+        ...models.filter((model) => model.id === provider.selectedModel),
+        ...models.filter((model) => model.id !== provider.selectedModel),
+      ];
+      return selectedFirst.map((model) => agentModelSelectionValue(provider.id, model.id));
+    });
+}
+
+function agentModelSelectionValue(providerId: string, modelId: string): string {
+  return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
 }
 
 function isTerminalRunEvent(type: string): boolean {

@@ -1,8 +1,9 @@
-import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, Clock3, FileText, GraduationCap, Image, Loader2, RefreshCw, Settings2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Course, SemesterWorkspace, TimetableEvent, TimetableViewMode } from "@/types/domain";
+import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Image, Loader2, RefreshCw, Settings2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Course, RecognizedAcademicCalendar, RecognizedCourseTimetable, SemesterWorkspace, TimetableEvent, TimetableViewMode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
 import { SemesterManagementDialog } from "./SemesterManagementDialog";
 
 export function TimetableDialog({
@@ -30,6 +31,10 @@ export function TimetableDialog({
   const eventsRequestRef = useRef(0);
 
   const range = useMemo(() => getRange(anchorDate, viewMode), [anchorDate, viewMode]);
+  const weekNumber = useMemo(() => getWeekNumber(semester, range.start), [semester, range.start]);
+  const rangeSchoolEvents = useMemo(() => events
+    .filter((event) => event.kind === "school_event" && eventOverlapsRange(event, range.start, range.end))
+    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)), [events, range.start, range.end]);
   const loadError = semesterError || eventsError;
 
   useEffect(() => {
@@ -47,7 +52,7 @@ export function TimetableDialog({
       setSemesterError("");
     } catch (error) {
       setSemester(null);
-      setSemesterError(errorMessage(error, "Failed to load current semester."));
+      setSemesterError(errorMessage(error, "加载当前学期失败。"));
     } finally {
       setSemesterLoading(false);
     }
@@ -72,7 +77,7 @@ export function TimetableDialog({
     } catch (error) {
       if (eventsRequestRef.current !== requestId) return;
       setEvents([]);
-      setEventsError(errorMessage(error, "Failed to load timetable events."));
+      setEventsError(errorMessage(error, "加载时间表事件失败。"));
     } finally {
       if (eventsRequestRef.current === requestId) setEventsLoading(false);
     }
@@ -84,7 +89,7 @@ export function TimetableDialog({
       await onSelectSemester?.(semesterId);
       await Promise.all([loadSemester(), loadEvents()]);
     } catch (error) {
-      setSemesterError(errorMessage(error, "Failed to switch semester."));
+      setSemesterError(errorMessage(error, "切换学期失败。"));
     }
   }
 
@@ -95,49 +100,89 @@ export function TimetableDialog({
       await onWorkspaceChanged?.();
       await Promise.all([loadSemester(), loadEvents()]);
     } catch (error) {
-      setSemesterError(errorMessage(error, "Failed to refresh timetable."));
+      setSemesterError(errorMessage(error, "刷新时间表失败。"));
     }
+  }
+
+  async function handleVisionImported(draft: RecognizedAcademicCalendar | RecognizedCourseTimetable) {
+    try {
+      setSemesterError("");
+      setEventsError("");
+      await onWorkspaceChanged?.();
+      if (draft.kind === "academic_calendar") {
+        const importedSemester = draft.applied?.semester;
+        const anchor = parseDateOnly(importedSemester?.startsAt || draft.semester?.startsAt);
+        if (importedSemester?.id) await onSelectSemester?.(importedSemester.id);
+        if (anchor) {
+          setViewMode("week");
+          setAnchorDate(anchor);
+        }
+      }
+      await loadSemester();
+      if (draft.kind !== "academic_calendar") await loadEvents();
+    } catch (error) {
+      setSemesterError(errorMessage(error, "刷新时间表失败。"));
+    }
+  }
+
+  async function goToToday() {
+    const today = new Date();
+    setAnchorDate(today);
+    setViewMode("week");
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
-      <div className="flex max-h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
+      <div className="flex h-[90vh] w-[min(1440px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <CalendarDays className="h-4 w-4" />
-              Timetable
+              时间表
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{semester?.term || "Default workspace"} · semester, deadlines, school events, and task sessions</div>
+            <div className="truncate text-[11px] text-muted-foreground">{semester?.term || "默认工作区"} · 学期、截止日期、校历事件和课程安排</div>
           </div>
           <button
             type="button"
             className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onClose}
-            title="Close timetable"
+            title="关闭时间表"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
-          <div className="flex rounded-md border bg-background p-0.5">
-            {(["week", "month", "year"] as TimetableViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={cx("h-7 rounded px-3 text-[11px] font-medium capitalize transition", viewMode === mode ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
-                onClick={() => setViewMode(mode)}
-              >
-                {mode}
-              </button>
-            ))}
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex rounded-md border bg-background p-0.5">
+              {(["week", "month", "year"] as TimetableViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={cx("h-7 rounded px-3 text-[11px] font-medium capitalize transition", viewMode === mode ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => setViewMode(mode)}
+                >
+                  {viewModeTabLabel(mode)}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              onClick={() => void goToToday()}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              今天
+            </button>
             <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setAnchorDate(shiftDate(anchorDate, viewMode, -1))}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <div className="min-w-[190px] truncate text-center text-xs font-semibold">{range.label}</div>
+            <div className="min-w-[250px] truncate text-center text-xs font-semibold">
+              {viewMode === "week" && weekNumber ? `第 ${weekNumber} 周 · ` : ""}
+              {range.label}
+            </div>
             <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setAnchorDate(shiftDate(anchorDate, viewMode, 1))}>
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -148,7 +193,7 @@ export function TimetableDialog({
           <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-4 py-2 text-[11px] text-muted-foreground">
             <div className="flex min-w-0 items-center gap-2">
               {loadError ? <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-600" /> : <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-              <span className="truncate">{loadError || "Loading timetable..."}</span>
+              <span className="truncate">{loadError || "正在加载时间表..."}</span>
             </div>
             {loadError && (
               <button
@@ -157,83 +202,74 @@ export function TimetableDialog({
                 onClick={() => void refreshWorkspace()}
               >
                 <RefreshCw className="h-3 w-3" />
-                Retry
+                重试
               </button>
             )}
           </div>
         )}
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[1.35fr_0.75fr] brevyn-scrollbar">
-          <section className="rounded-lg border bg-background/70 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-xs font-semibold">{viewModeLabel(viewMode)}</div>
-              <EventLegend />
-            </div>
-            {viewMode === "week" && <WeekGrid start={range.start} events={events} />}
-            {viewMode === "month" && <MonthGrid anchor={anchorDate} events={events} />}
-            {viewMode === "year" && <YearGrid anchor={anchorDate} events={events} />}
-          </section>
-
-          <aside className="space-y-3">
-            <section className="rounded-lg border bg-background/70 p-3">
-              <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
-                <GraduationCap className="h-3.5 w-3.5" />
-                Semester
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+          <div className="flex items-center justify-between gap-3 rounded-lg border bg-background/70 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <GraduationCap className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <div className="truncate text-xs font-semibold">{semester?.term || "未选择学期"}</div>
+                <div className="truncate text-[11px] text-muted-foreground">{semester?.folderName || "学期文件夹"}</div>
               </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
               {semesters.length > 0 && (
-                <div className="mb-3 space-y-2">
+                <div className="w-64">
                   <DropdownSelect
                     value={semester?.id || ""}
                     options={semesters.map((item) => ({
                       value: item.id,
                       label: item.term,
-                      detail: item.folderName || "semester folder",
+                      detail: item.folderName || "学期文件夹",
                     }))}
-                    placeholder="Select a semester"
+                    placeholder="选择学期"
                     disabled={semesterLoading}
-                    ariaLabel="Select semester"
+                    ariaLabel="选择学期"
                     onChange={(value) => void selectSemester(value)}
                   />
-                  <div className="truncate text-[11px] text-muted-foreground">{semester?.folderName || "semester folder"}</div>
                 </div>
               )}
+              <VisionRecognitionImportButton
+                kind="academic_calendar"
+                onImported={handleVisionImported}
+              />
               <button
                 type="button"
-                className="mb-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-card px-2 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={() => setManagingSemesters(true)}
               >
                 <Settings2 className="h-3.5 w-3.5" />
-                Manage semesters
+                管理
               </button>
-              <div className="rounded-md bg-muted/55 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                <span className="font-medium text-foreground">{semester?.semesterNo || "—"}</span>
-                <span> · </span>
-                <span>{semester?.folderName || "no semester selected"}</span>
-              </div>
-            </section>
+            </div>
+          </div>
 
-            <section className="rounded-lg border bg-background/70 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
-                <Clock3 className="h-3.5 w-3.5" />
-                Event Interfaces
+          <section className="grid min-h-0 flex-1 gap-3 md:grid-cols-[230px_minmax(0,1fr)]">
+            <RangeEventRail events={rangeSchoolEvents} range={range} />
+            <div className="min-h-0 overflow-hidden rounded-lg border bg-background/70 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold">{viewModeLabel(viewMode)}</div>
+                  {viewMode === "week" && (
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {weekNumber ? `第 ${weekNumber} 周` : "不在学期周范围内"} · 截止日期显示在时间表内，校历事件固定在左侧
+                    </div>
+                  )}
+                </div>
+                <EventLegend />
               </div>
-              <div className="space-y-2 text-[11px] text-muted-foreground">
-                <Hook icon={<CalendarDays className="h-3 w-3" />} label="course_session" />
-                <Hook icon={<FileText className="h-3 w-3" />} label="deadline" />
-                <Hook icon={<Image className="h-3 w-3" />} label="school_event" />
+              <div className="h-[calc(100%-34px)] min-h-0 overflow-auto pr-1 brevyn-scrollbar">
+                {viewMode === "week" && <WeekGrid start={range.start} events={events} weekNumber={weekNumber} />}
+                {viewMode === "month" && <MonthGrid anchor={anchorDate} events={events} />}
+                {viewMode === "year" && <YearGrid anchor={anchorDate} events={events} />}
               </div>
-            </section>
-
-            <section className="rounded-lg border bg-background/70 p-3">
-              <div className="mb-2 text-xs font-semibold">Upcoming</div>
-              <div className="space-y-2">
-                {events.slice(0, 5).map((event) => (
-                  <EventCard key={event.id} event={event} compact />
-                ))}
-                {events.length === 0 && <div className="rounded-md border border-dashed bg-card px-3 py-4 text-center text-xs text-muted-foreground">No events in this range.</div>}
-              </div>
-            </section>
-          </aside>
+            </div>
+          </section>
         </div>
       </div>
       {managingSemesters && (
@@ -250,40 +286,81 @@ export function TimetableDialog({
   );
 }
 
-function WeekGrid({ start, events }: { start: Date; events: TimetableEvent[] }) {
+function WeekGrid({ start, events, weekNumber }: { start: Date; events: TimetableEvent[]; weekNumber?: number }) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  const weekEnd = endOfDay(addDays(start, 6));
+  const weekMarker = events.find((event) => event.kind === "school_week" && eventOverlapsRange(event, start, weekEnd));
+  const now = new Date();
+  const showNowLine = now >= start && now <= weekEnd;
   return (
-    <div className="grid grid-cols-7 gap-2">
-      {days.map((day) => (
-        <div key={day.toISOString()} className="min-h-[300px] rounded-md border bg-card px-2 py-2">
-          <div className="mb-2 text-[11px] font-medium text-muted-foreground">{formatDay(day)}</div>
-          <div className="space-y-2">
-            {eventsForDay(events, day).map((event) => (
-              <EventCard key={event.id} event={event} />
-            ))}
-          </div>
-        </div>
-      ))}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between rounded-md border bg-muted/25 px-3 py-2">
+        <div className="text-xs font-semibold">{weekMarker?.title || (weekNumber ? `第 ${weekNumber} 周` : "本周")}</div>
+        <div className="text-[11px] text-muted-foreground">{formatShort(start)} - {formatShort(weekEnd)}</div>
+      </div>
+      <div className="grid min-w-[760px] grid-cols-7 gap-2">
+        {days.map((day, index) => {
+          const isToday = isSameDay(day, now);
+          const startsNewMonth = index > 0 && day.getMonth() !== days[index - 1].getMonth();
+          return (
+            <div key={day.toISOString()} className={cx("relative min-h-[560px] rounded-md border bg-card px-2 py-2", isToday && "border-rose-200 bg-rose-50/20")}>
+              {startsNewMonth && (
+                <div className="mb-2 rounded-full border bg-background px-2 py-1 text-center text-[10px] font-medium text-muted-foreground shadow-sm">
+                  进入 {formatMonthLabel(day)}
+                </div>
+              )}
+              <div className={cx("mb-2 text-[11px] font-medium text-muted-foreground", isToday && "text-rose-700")}>{formatDay(day)}</div>
+              {showNowLine && isToday && <CurrentTimeLine />}
+              <div className="space-y-2">
+                {eventsForDay(events, day)
+                  .filter((event) => event.kind !== "school_event" && event.kind !== "school_week")
+                  .map((event) => (
+                    <EventCard key={event.id} event={event} />
+                  ))}
+                {eventsForDay(events, day).filter((event) => event.kind !== "school_event" && event.kind !== "school_week").length === 0 && (
+                  <div className="rounded-md border border-dashed bg-muted/25 px-2 py-2 text-[10px] leading-4 text-muted-foreground">暂无课程或截止日期。</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function MonthGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }) {
   const days = monthDays(anchor);
+  const today = new Date();
   return (
-    <div className="grid grid-cols-7 gap-1.5">
-      {days.map((day) => (
-        <div key={day.toISOString()} className="min-h-[94px] rounded-md border bg-card px-2 py-1.5">
-          <div className="text-[10px] font-medium text-muted-foreground">{day.getDate()}</div>
-          <div className="mt-1 space-y-1">
-            {eventsForDay(events, day)
-              .slice(0, 3)
-              .map((event) => (
-                <div key={event.id} className={cx("truncate rounded px-1.5 py-0.5 text-[10px]", eventTone(event.kind))}>{event.title}</div>
-              ))}
+    <div className="grid min-w-[760px] grid-cols-7 gap-1.5">
+      {days.map((day) => {
+        const dayEvents = eventsForDay(events, day);
+        const hasSchoolEvent = dayEvents.some((event) => event.kind === "school_event");
+        return (
+          <div
+            key={day.toISOString()}
+            className={cx(
+              "min-h-[116px] rounded-md border bg-card px-2 py-1.5",
+              hasSchoolEvent && "border-emerald-200 bg-emerald-50/45",
+              isSameDay(day, today) && "border-rose-200 bg-rose-50/20",
+            )}
+          >
+            <div className={cx("flex items-center justify-between gap-1 text-[10px] font-medium text-muted-foreground", isSameDay(day, today) && "text-rose-700")}>
+              <span>{day.getDate()}</span>
+              {hasSchoolEvent && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+            </div>
+            <div className="mt-1 space-y-1">
+              {dayEvents
+                .filter((event) => event.kind !== "school_event" && event.kind !== "school_week")
+                .slice(0, 3)
+                .map((event) => (
+                  <div key={event.id} className={cx("truncate rounded px-1.5 py-0.5 text-[10px]", eventTone(event.kind))}>{event.title}</div>
+                ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -291,22 +368,37 @@ function MonthGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] 
 function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }) {
   const year = anchor.getFullYear();
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid min-w-[760px] grid-cols-4 gap-2">
       {Array.from({ length: 12 }, (_, month) => {
         const monthEvents = events.filter((event) => {
-          const date = new Date(event.startsAt);
+          if (event.kind === "school_week") return false;
+          const date = parseDateOnly(event.startsAt) || new Date(event.startsAt);
           return date.getFullYear() === year && date.getMonth() === month;
         });
+        const monthStart = new Date(year, month, 1);
+        const monthDaysCount = new Date(year, month + 1, 0).getDate();
         return (
-          <div key={month} className="min-h-[110px] rounded-md border bg-card px-3 py-2">
-            <div className="text-xs font-semibold">{new Date(year, month, 1).toLocaleString("en", { month: "short" })}</div>
-            <div className="mt-2 space-y-1">
-              {(["course_session", "deadline", "school_event"] as const).map((kind) => (
-                <div key={kind} className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>{kindLabel(kind)}</span>
-                  <span>{monthEvents.filter((event) => event.kind === kind).length}</span>
-                </div>
-              ))}
+          <div key={month} className="min-h-[156px] rounded-md border bg-card px-3 py-2">
+            <div className="mb-2 text-xs font-semibold">{monthStart.toLocaleString("zh-CN", { month: "short" })}</div>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({ length: monthDaysCount }, (_, index) => {
+                const day = new Date(year, month, index + 1);
+                const dayEvents = eventsForDay(monthEvents, day);
+                const hasSchoolEvent = dayEvents.some((event) => event.kind === "school_event");
+                const hasDeadline = dayEvents.some((event) => event.kind === "deadline");
+                const hasCourseSession = dayEvents.some((event) => event.kind === "course_session");
+                return (
+                  <div
+                    key={index}
+                    className={cx(
+                      "flex h-5 items-center justify-center rounded text-[9px] text-muted-foreground",
+                      hasSchoolEvent ? "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200" : hasDeadline ? "bg-amber-100 text-amber-900" : hasCourseSession ? "bg-blue-100 text-blue-900" : "",
+                    )}
+                  >
+                    {index + 1}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
@@ -316,10 +408,11 @@ function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }
 }
 
 function EventCard({ event, compact = false }: { event: TimetableEvent; compact?: boolean }) {
+  const meta = eventMeta(event);
   return (
     <div className={cx("rounded-md border px-2 py-2 text-[11px] leading-4", eventTone(event.kind), compact && "py-1.5")}>
-      <div className="font-semibold">{formatTime(event.startsAt)}</div>
-      <div className="mt-1 font-medium">{event.title}</div>
+      {meta && <div className="font-semibold">{meta}</div>}
+      <div className={cx("font-medium", meta && "mt-1")}>{event.title}</div>
       {!compact && event.location && <div className="mt-1 opacity-75">{event.location}</div>}
     </div>
   );
@@ -328,19 +421,39 @@ function EventCard({ event, compact = false }: { event: TimetableEvent; compact?
 function EventLegend() {
   return (
     <div className="flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-900">session</span>
-      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-900">deadline</span>
-      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-900">school</span>
+      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-900">课程</span>
+      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-900">截止</span>
+      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-900">校历</span>
     </div>
   );
 }
 
-function Hook({ icon, label }: { icon: ReactNode; label: string }) {
+function RangeEventRail({ events, range }: { events: TimetableEvent[]; range: { start: Date; end: Date; label: string } }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border bg-card px-2 py-2">
-      {icon}
-      <span className="truncate">{label}</span>
-    </div>
+    <aside className="min-h-0 overflow-hidden rounded-lg border bg-background/70">
+      <div className="flex items-center justify-between border-b bg-muted/25 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+          <Image className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">事件</span>
+        </div>
+        <span className="shrink-0 text-[10px] text-muted-foreground">{events.length}</span>
+      </div>
+      <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">{range.label}</div>
+      <div className="h-full min-h-0 space-y-2 overflow-y-auto p-3 brevyn-scrollbar">
+        {events.map((event) => (
+          <div key={event.id} className="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-2 text-[11px] leading-4 text-emerald-950">
+            <div className="font-semibold">{eventDateRange(event)}</div>
+            <div className="mt-1 font-medium">{event.title}</div>
+            {event.notes && <div className="mt-1 line-clamp-2 opacity-75">{event.notes}</div>}
+          </div>
+        ))}
+        {events.length === 0 && (
+          <div className="rounded-md border border-dashed bg-card px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
+            当前范围内没有校历事件。
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -353,7 +466,7 @@ function getRange(anchor: Date, mode: TimetableViewMode) {
   if (mode === "month") {
     const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     const end = endOfDay(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0));
-    return { start, end, label: start.toLocaleString("en", { month: "long", year: "numeric" }) };
+    return { start, end, label: start.toLocaleString("zh-CN", { month: "long", year: "numeric" }) };
   }
   const start = new Date(anchor.getFullYear(), 0, 1);
   const end = endOfDay(new Date(anchor.getFullYear(), 11, 31));
@@ -374,7 +487,28 @@ function monthDays(anchor: Date) {
 }
 
 function eventsForDay(events: TimetableEvent[], day: Date) {
-  return events.filter((event) => isSameDay(new Date(event.startsAt), day));
+  const dayStart = startOfDay(day);
+  const dayEnd = endOfDay(day);
+  return events.filter((event) => eventOverlapsRange(event, dayStart, dayEnd));
+}
+
+function eventOverlapsRange(event: TimetableEvent, start: Date, end: Date) {
+  const eventStart = parseDateOnly(event.startsAt) || new Date(event.startsAt);
+  const eventEnd = parseDateOnly(event.endsAt || event.startsAt) || new Date(event.endsAt || event.startsAt);
+  return eventStart <= end && endOfDay(eventEnd) >= start;
+}
+
+function CurrentTimeLine() {
+  const now = new Date();
+  const top = Math.max(44, Math.min(548, 44 + (now.getHours() * 60 + now.getMinutes()) / 1440 * 492));
+  return (
+    <div className="pointer-events-none absolute left-0 right-0 z-10" style={{ top }}>
+      <div className="flex items-center">
+        <div className="ml-1 h-2 w-2 rounded-full bg-rose-500" />
+        <div className="h-px flex-1 bg-rose-500" />
+      </div>
+    </div>
+  );
 }
 
 function startOfWeek(date: Date) {
@@ -382,6 +516,12 @@ function startOfWeek(date: Date) {
   const day = next.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   next.setDate(next.getDate() + diff);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function startOfDay(date: Date) {
+  const next = new Date(date);
   next.setHours(0, 0, 0, 0);
   return next;
 }
@@ -398,26 +538,66 @@ function endOfDay(date: Date) {
   return next;
 }
 
+function formatDay(date: Date) {
+  return date.toLocaleDateString("zh-CN", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatShort(date: Date) {
+  return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+}
+
+function formatMonthLabel(date: Date) {
+  return date.toLocaleDateString("zh-CN", { month: "long" });
+}
+
+function formatTime(value: string) {
+  return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function eventDateRange(event: TimetableEvent) {
+  const start = parseDateOnly(event.startsAt) || new Date(event.startsAt);
+  const end = parseDateOnly(event.endsAt || event.startsAt) || new Date(event.endsAt || event.startsAt);
+  if (isSameDay(start, end)) return formatShort(start);
+  return `${formatShort(start)} - ${formatShort(end)}`;
+}
+
+function eventMeta(event: TimetableEvent) {
+  if (event.kind === "course_session") return formatTime(event.startsAt);
+  if (event.kind === "deadline") return "截止日期";
+  if (event.kind === "school_week") return event.endsAt ? `${formatShort(parseDateOnly(event.startsAt) || new Date(event.startsAt))} - ${formatShort(parseDateOnly(event.endsAt) || new Date(event.endsAt))}` : "周";
+  return event.endsAt && event.endsAt !== event.startsAt ? `${formatShort(parseDateOnly(event.startsAt) || new Date(event.startsAt))} - ${formatShort(parseDateOnly(event.endsAt) || new Date(event.endsAt))}` : "全天";
+}
+
+function parseDateOnly(value?: string) {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function getWeekNumber(semester: SemesterWorkspace | null, weekStart: Date) {
+  const start = parseDateOnly(semester?.startsAt);
+  const end = parseDateOnly(semester?.endsAt);
+  const normalizedWeekStart = startOfDay(weekStart);
+  if (!start || !end || normalizedWeekStart < startOfWeek(start) || normalizedWeekStart > endOfDay(end)) return undefined;
+  const diff = normalizedWeekStart.getTime() - startOfWeek(start).getTime();
+  if (diff < 0) return undefined;
+  return Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
+}
+
 function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-function formatDay(date: Date) {
-  return date.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
-}
-
-function formatShort(date: Date) {
-  return date.toLocaleDateString("en", { month: "short", day: "numeric" });
-}
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
-}
-
 function viewModeLabel(mode: TimetableViewMode) {
-  if (mode === "week") return "Week Range";
-  if (mode === "month") return "Month Range";
-  return "Year Range";
+  if (mode === "week") return "周视图";
+  if (mode === "month") return "月视图";
+  return "年视图";
+}
+
+function viewModeTabLabel(mode: TimetableViewMode) {
+  if (mode === "week") return "Week";
+  if (mode === "month") return "Month";
+  return "Year";
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -427,13 +607,15 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function kindLabel(kind: TimetableEvent["kind"]) {
-  if (kind === "course_session") return "sessions";
-  if (kind === "deadline") return "deadlines";
-  return "school";
+  if (kind === "course_session") return "课程";
+  if (kind === "deadline") return "截止日期";
+  if (kind === "school_week") return "周";
+  return "校历";
 }
 
 function eventTone(kind: TimetableEvent["kind"]) {
   if (kind === "deadline") return "border-amber-100 bg-amber-50 text-amber-950";
+  if (kind === "school_week") return "border-slate-200 bg-slate-50 text-slate-800";
   if (kind === "school_event") return "border-emerald-100 bg-emerald-50 text-emerald-950";
   return "border-blue-100 bg-blue-50 text-blue-950";
 }
