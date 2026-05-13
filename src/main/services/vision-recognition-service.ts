@@ -13,11 +13,13 @@ import type {
   TimetableEvent,
   VisionRecognitionInput,
   WeekdayKey,
+  WorkspaceFileNode,
 } from "../../types/domain";
 import { normalizeBaseUrl } from "../providers/url-utils";
 import { SQLiteBusinessStore } from "../storage";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
-import { ensureCourseWorkspaceDir, ensureSemesterSharedDirs, sanitizeFsSegment } from "./workspace-paths";
+import { ensureCourseFolderInTree } from "./workspace-file-tree";
+import { ensureCourseWorkspaceDir, ensureSemesterSharedDirs, sanitizeFsSegment, SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
 interface VisionRecognitionServiceOptions {
   rootDataDir: string;
@@ -140,7 +142,7 @@ export class VisionRecognitionService {
     if (!semesterId) throw new Error("No semester recognized and no active semester is selected.");
     if (semester) {
       ensureSemesterSharedDirs(this.options.rootDataDir, semester.id);
-      this.options.businessStore.saveSemester(semester, true);
+      this.options.businessStore.saveSemesterWithWorkspaceFiles(semester, buildSemesterHomeRoots(semester, timestamp), true);
     }
 
     const weekSemester = semesterForWeeks(semester, this.options.businessStore.getSemester(semesterId));
@@ -203,6 +205,18 @@ export class VisionRecognitionService {
     }
     return { courses: applied, events: appliedEvents };
   }
+}
+
+function buildSemesterHomeRoots(semester: SemesterWorkspace, timestamp: string): WorkspaceFileNode[] {
+  const roots: WorkspaceFileNode[] = [];
+  ensureCourseFolderInTree({
+    roots,
+    courseId: SEMESTER_HOME_COURSE_ID,
+    semester,
+    tasks: [],
+    timestamp,
+  });
+  return roots;
 }
 
 function academicCalendarPrompt(): string {

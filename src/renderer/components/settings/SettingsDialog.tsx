@@ -511,8 +511,6 @@ export function SettingsDialog({
       confirmLabel: "删除",
       cancelLabel: "取消",
       tone: "danger",
-      verificationText: provider.name,
-      verificationLabel: "输入服务商名称以确认",
     });
     if (!ok) return;
     setProviderBusy("agent-delete", true);
@@ -566,8 +564,6 @@ export function SettingsDialog({
       confirmLabel: "删除",
       cancelLabel: "取消",
       tone: "danger",
-      verificationText: provider.name,
-      verificationLabel: "输入服务商名称以确认",
     });
     if (!ok) return;
     setProviderBusy("embedding-delete", true);
@@ -773,8 +769,6 @@ export function SettingsDialog({
       confirmLabel: "删除",
       cancelLabel: "取消",
       tone: "danger",
-      verificationText: provider.name,
-      verificationLabel: "输入服务商名称以确认",
     });
     if (!ok) return;
     setProviderBusy("vision-delete", true);
@@ -1640,6 +1634,17 @@ interface ArchiveDisplayGroup extends ArchiveSemesterGroup {
 }
 
 type ArchiveFilter = "all" | "semesters" | "courses" | "sessions";
+type ArchiveSelectionKind = "semester" | "course" | "thread";
+type ArchiveSelectionKey = `${ArchiveSelectionKind}:${string}`;
+
+interface ArchiveSelectionTarget {
+  key: ArchiveSelectionKey;
+  kind: ArchiveSelectionKind;
+  id: string;
+  label: string;
+  semesterId: string;
+  courseId?: string;
+}
 
 const ARCHIVE_PAGE_SIZE = 5;
 const archiveFilters: Array<{ value: ArchiveFilter; label: string }> = [
@@ -1657,6 +1662,9 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ArchiveFilter>("all");
   const [page, setPage] = useState(1);
+  const [openSemesters, setOpenSemesters] = useState<Record<string, boolean>>({});
+  const [openCourses, setOpenCourses] = useState<Record<string, boolean>>({});
+  const [selectedKeys, setSelectedKeys] = useState<Set<ArchiveSelectionKey>>(() => new Set());
   const { confirm, confirmDialog } = useConfirmDialog();
 
   useEffect(() => {
@@ -1665,6 +1673,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   useEffect(() => {
     setPage(1);
+    setSelectedKeys(new Set());
   }, [filter, groups.length, query]);
 
   async function loadArchive() {
@@ -1808,6 +1817,38 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
     }
   }
 
+  async function bulkDeleteSelected(targets: ArchiveSelectionTarget[]) {
+    const selectedTargets = compactArchiveSelection(targets.filter((target) => selectedKeys.has(target.key)));
+    if (selectedTargets.length === 0) return;
+    const ok = await confirm({
+      title: `批量删除 ${selectedTargets.length} 项归档内容？`,
+      message: "这会永久删除所选学期、课程或会话，删除后无法恢复。",
+      confirmLabel: "批量删除",
+      cancelLabel: "取消",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusyKey("archive:bulk-delete");
+    setError("");
+    try {
+      for (const target of selectedTargets) {
+        if (target.kind === "semester") {
+          await window.brevyn.semester.delete(target.id);
+        } else if (target.kind === "course") {
+          await window.brevyn.courses.delete(target.id);
+        } else {
+          await window.brevyn.threads.delete(target.id);
+        }
+      }
+      setSelectedKeys(new Set());
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "批量删除失败。"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   const archivedSemesterCount = groups.filter((group) => group.semester.archivedAt).length;
   const archivedCourseCount = groups.reduce((count, group) => count + group.archivedCourses.length, 0);
   const archivedThreadCount = groups.reduce((count, group) => count + group.archivedThreads.length, 0);
@@ -1818,6 +1859,43 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
   const visibleGroups = filteredGroups.slice(pageStart, pageStart + ARCHIVE_PAGE_SIZE);
   const visibleStart = filteredGroups.length === 0 ? 0 : pageStart + 1;
   const visibleEnd = Math.min(filteredGroups.length, pageStart + ARCHIVE_PAGE_SIZE);
+  const allSelectableTargets = useMemo(() => archiveSelectionTargets(filteredGroups), [filteredGroups]);
+  const visibleSelectableTargets = useMemo(() => archiveSelectionTargets(visibleGroups), [visibleGroups]);
+  const selectedTargets = useMemo(() => allSelectableTargets.filter((target) => selectedKeys.has(target.key)), [allSelectableTargets, selectedKeys]);
+  const deleteTargetCount = useMemo(() => compactArchiveSelection(selectedTargets).length, [selectedTargets]);
+  const selectedCount = selectedTargets.length;
+  const visibleSelectedCount = visibleSelectableTargets.filter((target) => selectedKeys.has(target.key)).length;
+  const allVisibleSelected = visibleSelectableTargets.length > 0 && visibleSelectedCount === visibleSelectableTargets.length;
+
+  function toggleSemesterOpen(semesterId: string) {
+    setOpenSemesters((current) => ({ ...current, [semesterId]: current[semesterId] === false }));
+  }
+
+  function toggleCourseOpen(courseKey: string) {
+    setOpenCourses((current) => ({ ...current, [courseKey]: current[courseKey] === false }));
+  }
+
+  function toggleSelection(key: ArchiveSelectionKey, selected?: boolean) {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      const shouldSelect = selected ?? !next.has(key);
+      if (shouldSelect) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function toggleVisibleSelection() {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        for (const target of visibleSelectableTargets) next.delete(target.key);
+      } else {
+        for (const target of visibleSelectableTargets) next.add(target.key);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -1879,7 +1957,32 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>显示 {visibleStart}-{visibleEnd} / 共 {filteredGroups.length}</span>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[10px] font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={visibleSelectableTargets.length === 0 || busyKey === "archive:bulk-delete"}
+                onClick={toggleVisibleSelection}
+              >
+                {allVisibleSelected ? "取消当前页" : "选择当前页"}
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[10px] font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={selectedCount === 0 || busyKey === "archive:bulk-delete"}
+                onClick={() => setSelectedKeys(new Set())}
+              >
+                清空选择
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[10px] font-medium text-muted-foreground transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={selectedCount === 0 || busyKey === "archive:bulk-delete"}
+                onClick={() => void bulkDeleteSelected(allSelectableTargets)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {busyKey === "archive:bulk-delete" ? "删除中..." : `批量删除${deleteTargetCount ? ` ${deleteTargetCount}` : ""}`}
+              </button>
               <button
                 type="button"
                 className="inline-flex h-7 items-center gap-1 rounded-md border bg-card px-2 text-[10px] font-medium transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
@@ -1905,19 +2008,38 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
             const semesterArchived = Boolean(group.semester.archivedAt);
             const homeThreads = group.homeThreads;
             const courseEntries = group.courseEntries;
+            const semesterOpen = openSemesters[group.semester.id] !== false;
+            const semesterKey = archiveSelectionKey("semester", group.semester.id);
             return (
               <section key={group.semester.id} className="overflow-hidden rounded-lg border bg-background/70">
                 <div className={cx("flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3", semesterArchived ? "bg-muted/45" : "bg-card/70")}>
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="min-w-0 max-w-full break-words text-sm font-semibold leading-5" title={group.semester.term}>{group.semester.term}</span>
-                      <span className={cx("rounded px-1.5 py-0.5 text-[9px] uppercase", semesterArchived ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
-                        {semesterArchived ? "已归档学期" : "活跃学期"}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {group.semester.semesterNo} · {group.archivedCourses.length} 门已归档课程 · {group.archivedThreads.length} 个已归档会话
+                  <div className="flex min-w-0 flex-1 items-start gap-2">
+                    {semesterArchived && group.semesterVisible && (
+                      <ArchiveCheckbox
+                        checked={selectedKeys.has(semesterKey)}
+                        label={`选择学期 ${group.semester.term}`}
+                        onChange={(checked) => toggleSelection(semesterKey, checked)}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                      title={semesterOpen ? "折叠学期" : "展开学期"}
+                      onClick={() => toggleSemesterOpen(group.semester.id)}
+                    >
+                      <ChevronDown className={cx("h-3.5 w-3.5 transition-transform duration-150", !semesterOpen && "-rotate-90")} />
+                    </button>
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="min-w-0 max-w-full break-words text-sm font-semibold leading-5" title={group.semester.term}>{group.semester.term}</span>
+                        <span className={cx("rounded px-1.5 py-0.5 text-[9px] uppercase", semesterArchived ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
+                          {semesterArchived ? "已归档学期" : "活跃学期"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {group.semester.semesterNo} · {group.archivedCourses.length} 门已归档课程 · {group.archivedThreads.length} 个已归档会话
+                      </div>
                     </div>
                   </div>
                   {semesterArchived && group.semesterVisible && (
@@ -1939,6 +2061,8 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                   )}
                 </div>
 
+                <div className={cx("grid transition-[grid-template-rows] duration-200 ease-out", semesterOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                  <div className="min-h-0 overflow-hidden">
                 <div className="space-y-3 p-4">
                   {semesterArchived && (
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
@@ -1955,6 +2079,8 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                             thread={thread}
                             restoreBlocked={semesterArchived}
                             busyKey={busyKey}
+                            selected={selectedKeys.has(archiveSelectionKey("thread", thread.id))}
+                            onSelect={(checked) => toggleSelection(archiveSelectionKey("thread", thread.id), checked)}
                             onRestore={() => void restoreThread(thread, semesterArchived)}
                             onDelete={() => void deleteThread(thread)}
                           />
@@ -1969,17 +2095,37 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                         {courseEntries.map((entry) => {
                           const courseArchived = Boolean(entry.course?.archivedAt);
                           const restoreBlocked = semesterArchived || courseArchived;
+                          const courseOpenKey = `${group.semester.id}:${entry.courseId}`;
+                          const courseOpen = openCourses[courseOpenKey] !== false;
+                          const courseKey = archiveSelectionKey("course", entry.courseId);
                           return (
                             <div key={entry.courseId} className="rounded-lg border bg-card p-3">
                               <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <span className="min-w-0 max-w-full break-words text-xs font-semibold leading-5" title={entry.course?.name || entry.courseId}>{entry.course?.name || `课程 ${shortId(entry.courseId)}`}</span>
-                                    {entry.course?.code && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{entry.course.code}</span>}
-                                    {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">已归档课程</span>}
-                                  </div>
-                                  <div className="mt-1 text-[11px] text-muted-foreground">
-                                    {entry.threads.length} 个已归档会话 · {entry.course ? entry.course.instructor || "无教师信息" : "课程元数据未加载"}
+                                <div className="flex min-w-0 flex-1 items-start gap-2">
+                                  {entry.course && courseArchived && (
+                                    <ArchiveCheckbox
+                                      checked={selectedKeys.has(courseKey)}
+                                      label={`选择课程 ${entry.course.name}`}
+                                      onChange={(checked) => toggleSelection(courseKey, checked)}
+                                    />
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                    title={courseOpen ? "折叠课程" : "展开课程"}
+                                    onClick={() => toggleCourseOpen(courseOpenKey)}
+                                  >
+                                    <ChevronDown className={cx("h-3.5 w-3.5 transition-transform duration-150", !courseOpen && "-rotate-90")} />
+                                  </button>
+                                  <div className="min-w-0">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                      <span className="min-w-0 max-w-full break-words text-xs font-semibold leading-5" title={entry.course?.name || entry.courseId}>{entry.course?.name || `课程 ${shortId(entry.courseId)}`}</span>
+                                      {entry.course?.code && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{entry.course.code}</span>}
+                                      {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">已归档课程</span>}
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-muted-foreground">
+                                      {entry.threads.length} 个已归档会话 · {entry.course ? entry.course.instructor || "无教师信息" : "课程元数据未加载"}
+                                    </div>
                                   </div>
                                 </div>
                                 {entry.course && (
@@ -2003,17 +2149,23 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                               </div>
 
                               {entry.threads.length > 0 && (
-                                <div className="mt-3 space-y-2">
-                                  {entry.threads.map((thread) => (
-                                    <ArchivedThreadRow
-                                      key={thread.id}
-                                      thread={thread}
-                                      restoreBlocked={restoreBlocked}
-                                      busyKey={busyKey}
-                                      onRestore={() => void restoreThread(thread, restoreBlocked)}
-                                      onDelete={() => void deleteThread(thread)}
-                                    />
-                                  ))}
+                                <div className={cx("grid transition-[grid-template-rows] duration-200 ease-out", courseOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                                  <div className="min-h-0 overflow-hidden">
+                                    <div className="mt-3 space-y-2">
+                                      {entry.threads.map((thread) => (
+                                        <ArchivedThreadRow
+                                          key={thread.id}
+                                          thread={thread}
+                                          restoreBlocked={restoreBlocked}
+                                          busyKey={busyKey}
+                                          selected={selectedKeys.has(archiveSelectionKey("thread", thread.id))}
+                                          onSelect={(checked) => toggleSelection(archiveSelectionKey("thread", thread.id), checked)}
+                                          onRestore={() => void restoreThread(thread, restoreBlocked)}
+                                          onDelete={() => void deleteThread(thread)}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -2022,6 +2174,8 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                       </div>
                     </ArchivePanel>
                   )}
+                </div>
+                  </div>
                 </div>
               </section>
             );
@@ -2130,21 +2284,28 @@ function ArchivedThreadRow({
   thread,
   restoreBlocked,
   busyKey,
+  selected,
+  onSelect,
   onRestore,
   onDelete,
 }: {
   thread: Thread;
   restoreBlocked: boolean;
   busyKey: string;
+  selected: boolean;
+  onSelect: (checked: boolean) => void;
   onRestore: () => void;
   onDelete: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/80 px-3 py-2">
-      <div className="min-w-0">
-        <div className="break-words text-xs font-medium leading-5" title={thread.title}>{thread.title}</div>
-        <div className="mt-0.5 text-[10px] text-muted-foreground">
-          {thread.threadType === "semester_home" ? "主页会话" : `任务会话 · ${shortId(thread.taskId || thread.id)}`} · 归档于 {formatArchiveDate(thread.archivedAt)}
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <ArchiveCheckbox checked={selected} label={`选择会话 ${thread.title}`} onChange={onSelect} />
+        <div className="min-w-0">
+          <div className="break-words text-xs font-medium leading-5" title={thread.title}>{thread.title}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            {thread.threadType === "semester_home" ? "主页会话" : `任务会话 · ${shortId(thread.taskId || thread.id)}`} · 归档于 {formatArchiveDate(thread.archivedAt)}
+          </div>
         </div>
       </div>
       <div className="flex shrink-0 gap-2">
@@ -2164,6 +2325,26 @@ function ArchivedThreadRow({
         />
       </div>
     </div>
+  );
+}
+
+function ArchiveCheckbox({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={checked}
+      className={cx(
+        "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition",
+        checked ? "border-foreground/30 bg-foreground text-background shadow-sm" : "border-border bg-background text-transparent hover:border-foreground/30 hover:bg-accent",
+      )}
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange(!checked);
+      }}
+    >
+      <Check className="h-3.5 w-3.5" />
+    </button>
   );
 }
 
@@ -2210,6 +2391,69 @@ function archiveCourseEntries(group: ArchiveSemesterGroup): ArchiveCourseEntry[]
     entries.set(thread.courseId, existing);
   }
   return Array.from(entries.values()).sort((a, b) => (a.course?.name || a.courseId).localeCompare(b.course?.name || b.courseId));
+}
+
+function archiveSelectionKey(kind: ArchiveSelectionKind, id: string): ArchiveSelectionKey {
+  return `${kind}:${id}`;
+}
+
+function archiveSelectionTargets(groups: ArchiveDisplayGroup[]): ArchiveSelectionTarget[] {
+  return groups.flatMap((group) => {
+    const targets: ArchiveSelectionTarget[] = [];
+    if (group.semesterVisible && group.semester.archivedAt) {
+      targets.push({
+        key: archiveSelectionKey("semester", group.semester.id),
+        kind: "semester",
+        id: group.semester.id,
+        label: group.semester.term,
+        semesterId: group.semester.id,
+      });
+    }
+    for (const thread of group.homeThreads) {
+      targets.push({
+        key: archiveSelectionKey("thread", thread.id),
+        kind: "thread",
+        id: thread.id,
+        label: thread.title,
+        semesterId: group.semester.id,
+        courseId: SEMESTER_HOME_COURSE_ID,
+      });
+    }
+    for (const entry of group.courseEntries) {
+      if (entry.course?.archivedAt) {
+        targets.push({
+          key: archiveSelectionKey("course", entry.course.id),
+          kind: "course",
+          id: entry.course.id,
+          label: entry.course.name,
+          semesterId: group.semester.id,
+          courseId: entry.course.id,
+        });
+      }
+      for (const thread of entry.threads) {
+        targets.push({
+          key: archiveSelectionKey("thread", thread.id),
+          kind: "thread",
+          id: thread.id,
+          label: thread.title,
+          semesterId: group.semester.id,
+          courseId: entry.courseId,
+        });
+      }
+    }
+    return targets;
+  });
+}
+
+function compactArchiveSelection(targets: ArchiveSelectionTarget[]): ArchiveSelectionTarget[] {
+  const selectedSemesterIds = new Set(targets.filter((target) => target.kind === "semester").map((target) => target.semesterId));
+  const selectedCourseIds = new Set(targets.filter((target) => target.kind === "course").map((target) => target.courseId).filter(Boolean));
+  return targets.filter((target) => {
+    if (target.kind === "semester") return true;
+    if (selectedSemesterIds.has(target.semesterId)) return false;
+    if (target.kind === "thread" && target.courseId && selectedCourseIds.has(target.courseId)) return false;
+    return true;
+  });
 }
 
 function compareSemestersForArchive(a: SemesterWorkspace, b: SemesterWorkspace): number {

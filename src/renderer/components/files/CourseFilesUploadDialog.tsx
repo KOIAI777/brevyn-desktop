@@ -6,9 +6,9 @@ import { cx } from "@/lib/cn";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 
 const TASK_BUCKET_LABELS: Record<TaskFileBucket, string> = {
-  materials: "Materials",
-  drafts: "Drafts",
-  submitted: "Submitted",
+  materials: "材料",
+  drafts: "草稿",
+  submitted: "已提交",
 };
 
 export function CourseFilesUploadDialog({
@@ -55,14 +55,14 @@ export function CourseFilesUploadDialog({
   const normalizedTargetSection = isSemesterTarget ? "course_shared" : targetSection;
   const canImport = Boolean(selectedCourseId) && (normalizedTargetSection !== "task" || Boolean(selectedTaskId));
   const targetPathPreview = isSemesterTarget
-    ? "Semester shared"
+    ? "学期共享"
     : normalizedTargetSection === "course_shared"
-      ? "Course shared"
+      ? "课程共享"
       : normalizedTargetSection === "lecture"
-        ? "Lecture"
+        ? "课件"
         : selectedTask
-          ? `Task / ${selectedTask.id}__${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
-          : "Task / select a task first";
+          ? `任务 / ${selectedTask.id}__${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
+          : "任务 / 请先选择任务";
 
   async function handleImport() {
     if (!canImport) return;
@@ -78,12 +78,12 @@ export function CourseFilesUploadDialog({
       });
       setLastResult(result);
       if (result?.indexingError) {
-        setImportError(`Imported ${result.files.length} file${result.files.length === 1 ? "" : "s"}, but indexing did not queue: ${result.indexingError}`);
+        setImportError(`已导入 ${result.files.length} 个文件，但索引未排队：${result.indexingError}`);
         return;
       }
       if (result?.files.length) onClose();
     } catch (error) {
-      setImportError(errorMessage(error, "Failed to import files."));
+      setImportError(errorMessage(error, "导入文件失败。"));
     } finally {
       setImporting(false);
     }
@@ -96,15 +96,15 @@ export function CourseFilesUploadDialog({
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Upload className="h-4 w-4" />
-              Course File Upload
+              导入课程文件
             </div>
-              <div className="truncate text-[11px] text-muted-foreground">Route course files into shared or lecture folders for indexing</div>
+              <div className="truncate text-[11px] text-muted-foreground">把文件放入课程共享、课件或任务目录，并加入索引队列</div>
           </div>
           <button
             type="button"
             className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onClose}
-            title="Close upload"
+            title="关闭导入"
           >
             <X className="h-4 w-4" />
           </button>
@@ -116,9 +116,9 @@ export function CourseFilesUploadDialog({
               <div className="flex h-11 w-11 items-center justify-center rounded-md bg-foreground text-background">
                 {importing ? <Loader2 className="h-5 w-5 animate-spin" /> : <FolderOpen className="h-5 w-5" />}
               </div>
-              <div className="mt-4 text-sm font-semibold">Choose files from this Mac</div>
+              <div className="mt-4 text-sm font-semibold">从本机选择文件</div>
               <div className="mt-2 max-w-sm text-xs leading-5 text-muted-foreground">
-                Files stay local. The selected workspace decides the default target, and you can still route files into an existing task.
+                文件会保留在本地。你可以选择导入到课程共享、课件，或某个任务的工作区。
               </div>
               <button
                 type="button"
@@ -127,11 +127,11 @@ export function CourseFilesUploadDialog({
                 onClick={handleImport}
               >
                 <Upload className="h-3.5 w-3.5" />
-                {importing ? "Importing..." : "Import files"}
+                {importing ? "正在导入..." : "导入文件"}
               </button>
               {lastResult?.indexingJob && (
                 <div className="mt-4 rounded-md bg-muted/55 px-3 py-2 text-[11px] text-muted-foreground">
-                  Queued {lastResult.indexingJob.totalFiles ?? lastResult.indexingJob.indexedFiles} files with {lastResult.indexingJob.embeddingModel}
+                  已将 {lastResult.indexingJob.totalFiles ?? lastResult.indexingJob.indexedFiles} 个文件加入索引队列 · {lastResult.indexingJob.embeddingModel}
                 </div>
               )}
               {importError && <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700">{importError}</div>}
@@ -140,17 +140,17 @@ export function CourseFilesUploadDialog({
 
           <aside className="space-y-3">
             <section className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs font-semibold">Target Course</div>
+              <div className="text-xs font-semibold">目标课程</div>
               <DropdownSelect
                 className="mt-2"
                 value={selectedCourseId}
                 options={courses.map((item) => ({
                   value: item.id,
                   label: item.name,
-                  detail: `${item.code || "Brevyn"} · ${item.term || "local"}`,
+                  detail: `${item.code || "Brevyn"} · ${item.term || "本地"}`,
                 }))}
-                placeholder="Select a course"
-                ariaLabel="Select course"
+                placeholder="选择课程"
+                ariaLabel="选择课程"
                 onChange={(value) => {
                   setSelectedCourseId(value);
                   setTaskId("");
@@ -159,25 +159,25 @@ export function CourseFilesUploadDialog({
                 }}
               />
               <div className="mt-2 rounded-md bg-muted/55 px-3 py-2">
-                <div className="truncate text-sm font-medium">{selectedCourse?.name || "No course selected"}</div>
+                <div className="truncate text-sm font-medium">{selectedCourse?.name || "未选择课程"}</div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {selectedCourse?.code || "Brevyn"} · {selectedCourse?.term || "local"}
+                  {selectedCourse?.code || "Brevyn"} · {selectedCourse?.term || "本地"}
                 </div>
               </div>
             </section>
 
             <section className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs font-semibold">Target Workspace</div>
+              <div className="text-xs font-semibold">目标位置</div>
               <div className="mt-2 grid gap-1.5 text-[11px] text-muted-foreground">
-                <TargetButton active={normalizedTargetSection === "course_shared"} icon={<FolderOpen className="h-3 w-3" />} label={isSemesterTarget ? "Semester shared" : "Course shared"} onClick={() => setTargetSection("course_shared")} />
-                {!isSemesterTarget && <TargetButton active={targetSection === "lecture"} icon={<CalendarDays className="h-3 w-3" />} label="Lecture" onClick={() => setTargetSection("lecture")} />}
-                {!isSemesterTarget && <TargetButton active={targetSection === "task"} icon={<FileText className="h-3 w-3" />} label="Task workspace" onClick={() => setTargetSection("task")} />}
+                <TargetButton active={normalizedTargetSection === "course_shared"} icon={<FolderOpen className="h-3 w-3" />} label={isSemesterTarget ? "学期共享" : "课程共享"} onClick={() => setTargetSection("course_shared")} />
+                {!isSemesterTarget && <TargetButton active={targetSection === "lecture"} icon={<CalendarDays className="h-3 w-3" />} label="课件" onClick={() => setTargetSection("lecture")} />}
+                {!isSemesterTarget && <TargetButton active={targetSection === "task"} icon={<FileText className="h-3 w-3" />} label="任务工作区" onClick={() => setTargetSection("task")} />}
               </div>
 
               {!isSemesterTarget && targetSection === "task" && (
                 <div className="mt-3 space-y-3">
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
-                    <span>Task</span>
+                    <span>任务</span>
                     <DropdownSelect
                       value={selectedTaskId || ""}
                       options={courseTasks.map((task) => ({
@@ -185,16 +185,16 @@ export function CourseFilesUploadDialog({
                         label: task.title,
                         detail: task.taskType,
                       }))}
-                      placeholder="Select a task"
-                      ariaLabel="Select task"
+                      placeholder="选择任务"
+                      ariaLabel="选择任务"
                       disabled={courseTasks.length === 0}
                       onChange={(value) => setTaskId(value)}
                     />
-                    {courseTasks.length === 0 && <span className="block rounded-md bg-muted/55 px-2 py-2">Create a task first, then import into the task workspace.</span>}
+                    {courseTasks.length === 0 && <span className="block rounded-md bg-muted/55 px-2 py-2">请先创建任务，再导入到任务工作区。</span>}
                   </label>
 
                   <div className="space-y-1">
-                    <div className="text-[11px] text-muted-foreground">Destination</div>
+                    <div className="text-[11px] text-muted-foreground">分类</div>
                     <div className="grid grid-cols-3 gap-1.5 text-[11px] text-muted-foreground">
                       {(["materials", "drafts", "submitted"] as TaskFileBucket[]).map((bucket) => (
                         <TargetButton
@@ -217,13 +217,13 @@ export function CourseFilesUploadDialog({
             </section>
 
             <section className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs font-semibold">Supported Types</div>
+              <div className="text-xs font-semibold">支持类型</div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
                 <TypeChip icon={<FileText className="h-3 w-3" />} label="PDF / DOCX" />
                 <TypeChip icon={<Library className="h-3 w-3" />} label="PPT / PPTX" />
                 <TypeChip icon={<FileImage className="h-3 w-3" />} label="PNG / JPG" />
-                <TypeChip icon={<FileCode className="h-3 w-3" />} label="Code" />
-                <TypeChip icon={<FileArchive className="h-3 w-3" />} label="ZIP later" />
+                <TypeChip icon={<FileCode className="h-3 w-3" />} label="代码" />
+                <TypeChip icon={<FileArchive className="h-3 w-3" />} label="ZIP 稍后支持" />
                 <TypeChip icon={<FileText className="h-3 w-3" />} label="MD / TXT" />
               </div>
             </section>

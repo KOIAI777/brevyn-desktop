@@ -56,7 +56,7 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.filesStats, (_event, courseId?: unknown) => store.fileStats(optionalString(courseId)));
   ipcMain.handle(IPC_CHANNELS.filesOpen, async (_event, fileId: unknown) => {
     const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
-    if (!sourcePath) throw new Error("File source path not available.");
+    if (!sourcePath) throw new Error("文件源路径不可用。");
     const error = await shell.openPath(sourcePath);
     if (error) throw new Error(error);
   });
@@ -64,16 +64,16 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     const input = normalizeRenameInput(rawInput);
     return store.renameFile(input.fileId, input.name);
   });
-  ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: unknown) => store.deleteFile(requireString(fileId, "File id")));
+  ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: unknown) => store.deleteFile(requireString(fileId, "文件 ID")));
   ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: unknown) => {
     const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
-    if (!sourcePath) throw new Error("File source path not available.");
+    if (!sourcePath) throw new Error("文件源路径不可用。");
     shell.showItemInFolder(sourcePath);
   });
 }
 
 function normalizeRenameInput(value: unknown): { fileId: string; name: string } {
-  if (!value || typeof value !== "object") throw new Error("Rename input is required.");
+  if (!value || typeof value !== "object") throw new Error("重命名参数不能为空。");
   const input = value as Record<string, unknown>;
   return {
     fileId: requireString(input.fileId, "File id"),

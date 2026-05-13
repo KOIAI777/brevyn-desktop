@@ -9,9 +9,6 @@ export type ConfirmRequest = {
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: "default" | "danger";
-  verificationText?: string;
-  verificationLabel?: string;
-  initialValue?: string;
 };
 
 export function useConfirmDialog() {
@@ -50,22 +47,16 @@ export function useConfirmDialog() {
 }
 
 function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onResolve: (value: boolean) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
-  const [value, setValue] = useState(request.initialValue || "");
-  const [error, setError] = useState("");
-  const hasVerification = Boolean(request.verificationText?.trim());
-  const verified = !hasVerification || value.trim() === request.verificationText?.trim();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setValue(request.initialValue || "");
-    setError("");
+    setMounted(true);
     const frame = window.requestAnimationFrame(() => {
-      if (hasVerification) inputRef.current?.focus();
-      else confirmButtonRef.current?.focus();
+      confirmButtonRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [hasVerification, request]);
+  }, [request]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -78,20 +69,16 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onResolve]);
 
-  function confirm() {
-    if (hasVerification && !verified) {
-      setError(`Type "${request.verificationText}" exactly to confirm.`);
-      return;
-    }
-    onResolve(true);
-  }
-
   const toneClass = request.tone === "danger" ? "border-red-200 bg-red-50 text-red-700" : "border-border bg-card text-foreground";
 
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm" onMouseDown={() => onResolve(false)}>
       <div
-        className={cx("w-full max-w-md rounded-lg border shadow-2xl ring-1 ring-border/80", toneClass)}
+        className={cx(
+          "w-full max-w-md rounded-lg border shadow-2xl ring-1 ring-border/80 transition duration-150 ease-out",
+          mounted ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-[0.98] opacity-0",
+          toneClass,
+        )}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
@@ -115,24 +102,6 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
         </div>
 
         <div className="space-y-3 px-4 py-4">
-          {hasVerification && (
-            <label className="block space-y-1 text-[11px] text-muted-foreground">
-              <span>{request.verificationLabel || `Type ${request.verificationText} to confirm`}</span>
-              <input
-                ref={inputRef}
-                className="h-9 w-full rounded-md border bg-background px-3 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    confirm();
-                  }
-                }}
-              />
-            </label>
-          )}
-          {error && <div className="rounded-md bg-red-100 px-3 py-2 text-[11px] leading-4 text-red-800">{error}</div>}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -147,9 +116,8 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
               className={cx(
                 "inline-flex h-8 items-center rounded-md px-3 text-xs font-medium text-background transition",
                 request.tone === "danger" ? "bg-red-600 hover:bg-red-700" : "bg-foreground hover:opacity-90",
-                !verified && "opacity-55",
               )}
-              onClick={confirm}
+              onClick={() => onResolve(true)}
             >
               {request.confirmLabel || "Confirm"}
             </button>

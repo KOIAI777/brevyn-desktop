@@ -135,8 +135,6 @@ export function SemesterManagementDialog({
       confirmLabel: "删除",
       cancelLabel: "取消",
       tone: "danger",
-      verificationText: semester.term,
-      verificationLabel: "输入学期名称以确认",
     });
     if (!ok) return;
     setBusyId(semester.id);

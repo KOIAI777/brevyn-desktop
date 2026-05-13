@@ -449,8 +449,6 @@ export function CourseManagementDialog({
       confirmLabel: "Delete",
       cancelLabel: "Cancel",
       tone: "danger",
-      verificationText: course.name,
-      verificationLabel: "Type the course name to confirm",
     });
     if (!ok) return;
     setCourseBusyId(course.id);
@@ -1147,8 +1145,6 @@ function SectionCard({
       confirmLabel: "Delete",
       cancelLabel: "Cancel",
       tone: "danger",
-      verificationText: fileName,
-      verificationLabel: "Type the file name to confirm",
     });
     if (!ok) return;
     setDeletingFileId(fileId);

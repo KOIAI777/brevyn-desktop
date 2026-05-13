@@ -68,12 +68,12 @@ export function FileContextMenu({
     if (!state) return [];
     const mutable = Boolean(state.file.sourcePath);
     return [
-      { action: "open" as const, label: "Open", icon: ExternalLink, disabled: !state.file.sourcePath },
-      { action: "reveal" as const, label: "Reveal in Finder", icon: FolderOpen, disabled: !state.file.sourcePath },
-      { action: "copyPath" as const, label: "Copy Path", icon: Copy, disabled: false },
-      { action: "copyName" as const, label: "Copy Name", icon: Copy, disabled: false },
-      { action: "rename" as const, label: "Rename", icon: Pencil, disabled: !mutable },
-      { action: "delete" as const, label: "Delete", icon: Trash2, disabled: !mutable, danger: true },
+      { action: "open" as const, label: "打开", icon: ExternalLink, disabled: !state.file.sourcePath },
+      { action: "reveal" as const, label: "在访达中显示", icon: FolderOpen, disabled: !state.file.sourcePath },
+      { action: "copyPath" as const, label: "复制路径", icon: Copy, disabled: false },
+      { action: "copyName" as const, label: "复制名称", icon: Copy, disabled: false },
+      { action: "rename" as const, label: "重命名", icon: Pencil, disabled: !mutable },
+      { action: "delete" as const, label: "删除", icon: Trash2, disabled: !mutable, danger: true },
     ];
   }, [state]);
 
@@ -92,7 +92,7 @@ export function FileContextMenu({
           {fileDisplayName(state.file)}
         </div>
         <div className="truncate text-[10px] text-muted-foreground" title={state.file.sourcePath || state.file.path}>
-          {state.file.kind === "folder" ? "Folder" : "File"}
+          {state.file.kind === "folder" ? "文件夹" : "文件"}
         </div>
       </div>
       <div className="py-1">
@@ -129,9 +129,22 @@ export function FileContextMenu({
 
 export function fileDisplayName(node: WorkspaceFileNode): string {
   if (node.displayName) return node.displayName;
+  const managedName = managedFolderDisplayName(node.name);
+  if (managedName) return managedName;
   if (node.kind === "folder" && node.sectionKind === "task" && node.taskId) {
     const prefix = `${node.taskId}__`;
     if (node.name.startsWith(prefix)) return node.name.slice(prefix.length) || node.name;
   }
   return node.name;
+}
+
+function managedFolderDisplayName(name: string): string {
+  if (name === "Semester shared") return "学期共享";
+  if (name === "Course shared") return "课程共享";
+  if (name === "Lecture") return "课件";
+  if (name === "Task") return "任务";
+  if (name === "Materials") return "材料";
+  if (name === "Drafts") return "草稿";
+  if (name === "Submitted") return "已提交";
+  return "";
 }

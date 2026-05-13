@@ -35,7 +35,7 @@ export function FilePreviewRail({
         type="button"
         tabIndex={collapsed ? -1 : 0}
         className="absolute left-0 top-0 z-10 h-full w-3 cursor-col-resize touch-none bg-transparent focus:outline-none"
-        aria-label="Resize file preview rail"
+        aria-label="调整文件预览宽度"
         onPointerDown={onResizeStart}
       >
         <span className="absolute left-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/rail:opacity-100" />

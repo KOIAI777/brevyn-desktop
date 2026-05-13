@@ -38,6 +38,7 @@ import {
 import {
   SEMESTER_HOME_COURSE_ID,
   courseWorkspaceDir,
+  ensureSemesterSharedDirs,
   ensureImportTargetDir,
   isPathInside,
   sanitizeFsSegment,
@@ -211,7 +212,7 @@ export class FileService {
         ...common,
         mimeType: "text/markdown",
         summary: "Loaded from a Markdown source file.",
-        content: content || `# ${input.title.replace(/\.md$/i, "")}\n\n(No content available.)`,
+        content: content || `# ${input.title.replace(/\.md$/i, "")}\n\n（没有可用内容。）`,
       };
     }
     if (input.kind === "code") {
@@ -219,8 +220,8 @@ export class FileService {
       return {
         ...common,
         mimeType: "text/typescript",
-        summary: "Loaded from a code source file.",
-        content: content || `// No code content available.`,
+        summary: "已从代码源文件加载。",
+        content: content || `// 没有可用的代码内容。`,
       };
     }
     if (input.kind === "text") {
@@ -228,15 +229,15 @@ export class FileService {
       return {
         ...common,
         mimeType: "text/plain",
-        summary: "Loaded from a text source file.",
-        content: content || "(No text content available.)",
+        summary: "已从文本源文件加载。",
+        content: content || "（没有可用的文本内容。）",
       };
     }
     if (input.kind === "pdf") {
       return {
         ...common,
         mimeType: "application/pdf",
-        summary: fileUrl ? "Previewing the original PDF file from this workspace." : "PDF source is not available for preview.",
+        summary: fileUrl ? "正在预览工作区中的原始 PDF 文件。" : "PDF 源文件不可用于预览。",
       };
     }
     if (input.kind === "pptx") {
@@ -273,12 +274,12 @@ export class FileService {
       return {
         ...common,
         mimeType: "image/png",
-        summary: fileUrl ? "Previewing the original image file from this workspace." : "Image source is not available for preview.",
+        summary: fileUrl ? "正在预览工作区中的原始图片文件。" : "图片源文件不可用于预览。",
       };
     }
     return {
       ...common,
-      summary: "Preview not available for this file type yet.",
+      summary: "暂不支持预览此文件类型。",
     };
   }
 
@@ -294,7 +295,7 @@ export class FileService {
     const timestamp = now();
     const roots = this.writableCourseRoots(input.courseId, semesterId);
     const root = roots[0];
-    if (!root) throw new Error("Course file tree is not available.");
+    if (!root) throw new Error("课程文件树不可用。");
     const task = input.targetSection === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
     const targetFolder = ensureTargetFolderInTree(root, input, task, timestamp);
     const managedTargetDir = this.ensureImportTargetDir(input);
@@ -396,7 +397,7 @@ export class FileService {
 
   private mutableSourcePath(file: WorkspaceFileNode, semesterId: string, operation: "delete" | "rename"): string {
     if (!file.sourcePath) throw new Error(`This workspace folder is managed by Brevyn and cannot be ${operation === "delete" ? "deleted" : "renamed"} here.`);
-    if (!existsSync(file.sourcePath)) throw new Error("File source path not available.");
+    if (!existsSync(file.sourcePath)) throw new Error("文件源路径不可用。");
     const allowedRoot = file.courseId === SEMESTER_HOME_COURSE_ID
       ? join(semesterWorkspaceDir(this.options.rootDataDir, semesterId), "Semester shared")
       : courseWorkspaceDir(this.options.rootDataDir, semesterId, file.courseId);
@@ -510,7 +511,7 @@ export class FileService {
 
   indexCourseFiles(courseId: string, sectionId?: string): IndexingJob {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
-    if (!semesterId) throw new Error("Select a semester before indexing files.");
+    if (!semesterId) throw new Error("请先选择学期，再索引文件。");
     activeCourseScopeOrThrow(this.options.businessStore, courseId, semesterId);
     const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, courseId, sectionId);
     if (activeJob) return { ...activeJob };
@@ -529,7 +530,7 @@ export class FileService {
       status = "idle";
       stage = "empty";
       progress = 0;
-      error = "No local source files are available for indexing in this section.";
+      error = "这个分区没有可用于索引的本地源文件。";
     } else if (!hasProvider) {
       status = "failed";
       stage = "no_provider";
@@ -595,7 +596,7 @@ export class FileService {
   async indexActiveSemesterCourses(): Promise<IndexActiveSemesterResult> {
     await this.options.ragIndex.rebuildOutdatedSchemaForExplicitReindex();
     const semesterId = currentActiveSemesterId(this.options.businessStore);
-    if (!semesterId) throw new Error("Select a semester before indexing files.");
+    if (!semesterId) throw new Error("请先选择学期，再索引文件。");
     const courses = new Map<string, string>([[SEMESTER_HOME_COURSE_ID, "Home"]]);
     for (const course of this.options.businessStore.listCourses(semesterId)) {
       if (course.id !== SEMESTER_HOME_COURSE_ID && !course.archivedAt) courses.set(course.id, course.name || course.code || course.id);
@@ -682,6 +683,17 @@ export class FileService {
     const semester = this.options.businessStore.getSemester(semesterId);
     const course = courseId === SEMESTER_HOME_COURSE_ID ? undefined : this.options.businessStore.getCourse(courseId);
     if (!semester || (courseId !== SEMESTER_HOME_COURSE_ID && (!course || course.semesterId !== semesterId))) return [];
+    if (courseId === SEMESTER_HOME_COURSE_ID) ensureSemesterSharedDirs(this.options.rootDataDir, semesterId);
+    const before = JSON.stringify(roots);
+    ensureCourseFolderInTree({
+      roots,
+      courseId,
+      semester,
+      course,
+      tasks: courseId === SEMESTER_HOME_COURSE_ID ? [] : this.options.businessStore.listTasks(semesterId, courseId),
+      timestamp: now(),
+    });
+    if (before !== JSON.stringify(roots)) this.persistWorkspaceFilesForCourse(courseId, roots, semesterId);
     return roots;
   }
 
@@ -918,16 +930,16 @@ function readPreviewSource(sourcePath?: string): string {
 
 function truncatePreviewText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
-  return `${value.slice(0, maxLength)}\n\n[truncated at ${maxLength} chars]`;
+  return `${value.slice(0, maxLength)}\n\n[已截断至 ${maxLength} 个字符]`;
 }
 
 async function previewDocxHtml(sourcePath?: string): Promise<{ summary: string; content: string; html?: string }> {
   if (!sourcePath || !existsSync(sourcePath)) {
-    return { summary: "DOCX source is not available for preview.", content: "" };
+    return { summary: "DOCX 源文件不可用于预览。", content: "" };
   }
   if (extname(sourcePath).toLowerCase() === ".doc") {
     return {
-      summary: "Legacy .doc files need to be opened in Word/WPS/Office for full preview.",
+      summary: "旧版 .doc 文件需要用 Word/WPS/Office 打开才能完整预览。",
       content: "",
     };
   }
@@ -947,13 +959,13 @@ async function previewDocxHtml(sourcePath?: string): Promise<{ summary: string; 
     const warning = [...htmlResult.messages, ...textResult.messages].map((message) => message.message).filter(Boolean).join("; ");
     const html = htmlResult.value.trim();
     return {
-      summary: warning ? `Rendered DOCX as HTML. ${warning}` : "Rendered DOCX as an HTML document preview.",
-      content: truncatePreviewText(normalizePreviewText(textResult.value), 24000) || "(No extractable text found.)",
+      summary: warning ? `已将 DOCX 渲染为 HTML。${warning}` : "已将 DOCX 渲染为 HTML 文档预览。",
+      content: truncatePreviewText(normalizePreviewText(textResult.value), 24000) || "（未找到可提取文本。）",
       html: html || undefined,
     };
   } catch (error) {
     return {
-      summary: `DOCX preview failed: ${errorMessage(error)}`,
+      summary: `DOCX 预览失败：${errorMessage(error)}`,
       content: "",
     };
   }
@@ -961,11 +973,11 @@ async function previewDocxHtml(sourcePath?: string): Promise<{ summary: string; 
 
 async function previewPptxText(sourcePath?: string): Promise<{ summary: string; content: string; pages?: string[] }> {
   if (!sourcePath || !existsSync(sourcePath)) {
-    return { summary: "PPTX source is not available for preview.", content: "" };
+    return { summary: "PPTX 源文件不可用于预览。", content: "" };
   }
   if (extname(sourcePath).toLowerCase() === ".ppt") {
     return {
-      summary: "Legacy .ppt files need to be opened in PowerPoint/WPS/Office for full preview.",
+      summary: "旧版 .ppt 文件需要用 PowerPoint/WPS/Office 打开才能完整预览。",
       content: "",
     };
   }
@@ -977,17 +989,17 @@ async function previewPptxText(sourcePath?: string): Promise<{ summary: string; 
     const pages: string[] = [];
     for (const file of slideFiles) {
       const text = extractPptxPreviewText(await file.async("string"));
-      pages.push(text || "(No text on this slide.)");
+      pages.push(text || "（此幻灯片没有文本。）");
     }
-    const content = pages.map((page, index) => `Slide ${index + 1}\n${page}`).join("\n\n");
+    const content = pages.map((page, index) => `幻灯片 ${index + 1}\n${page}`).join("\n\n");
     return {
-      summary: `Extracted text from ${slideFiles.length} slide${slideFiles.length === 1 ? "" : "s"}.`,
-      content: truncatePreviewText(content, 24000) || "(No extractable slide text found.)",
+      summary: `已从 ${slideFiles.length} 张幻灯片提取文本。`,
+      content: truncatePreviewText(content, 24000) || "（未找到可提取的幻灯片文本。）",
       pages,
     };
   } catch (error) {
     return {
-      summary: `PPTX preview failed: ${errorMessage(error)}`,
+      summary: `PPTX 预览失败：${errorMessage(error)}`,
       content: "",
     };
   }
@@ -999,7 +1011,7 @@ const SPREADSHEET_MAX_COLUMNS = 40;
 
 function previewSpreadsheet(sourcePath?: string): { summary: string; content: string; sheets: SpreadsheetPreviewSheet[] } {
   if (!sourcePath || !existsSync(sourcePath)) {
-    return { summary: "Spreadsheet source is not available for preview.", content: "", sheets: [] };
+    return { summary: "表格源文件不可用于预览。", content: "", sheets: [] };
   }
   try {
     const workbook = XLSX.readFile(sourcePath, { cellDates: true, dense: false });
@@ -1027,13 +1039,13 @@ function previewSpreadsheet(sourcePath?: string): { summary: string; content: st
     });
     const truncatedWorkbook = workbook.SheetNames.length > sheetNames.length;
     const content = sheets.map((sheet) => [
-      `Sheet: ${sheet.name}`,
+      `工作表：${sheet.name}`,
       ...sheet.rows.map((row) => row.map((cell) => cell == null ? "" : String(cell)).join("\t")),
     ].join("\n")).join("\n\n");
     const summary = [
-      `Previewing ${sheets.length} of ${workbook.SheetNames.length} sheet${workbook.SheetNames.length === 1 ? "" : "s"}.`,
-      truncatedWorkbook ? `Showing the first ${SPREADSHEET_MAX_SHEETS} sheets.` : "",
-      "Rendered as a table preview, not an exact Excel layout.",
+      `正在预览 ${sheets.length} / ${workbook.SheetNames.length} 个工作表。`,
+      truncatedWorkbook ? `仅显示前 ${SPREADSHEET_MAX_SHEETS} 个工作表。` : "",
+      "当前以表格形式预览，不完全等同于 Excel 原始版式。",
     ].filter(Boolean).join(" ");
     return {
       summary,
@@ -1042,7 +1054,7 @@ function previewSpreadsheet(sourcePath?: string): { summary: string; content: st
     };
   } catch (error) {
     return {
-      summary: `Spreadsheet preview failed: ${errorMessage(error)}`,
+      summary: `表格预览失败：${errorMessage(error)}`,
       content: "",
       sheets: [],
     };

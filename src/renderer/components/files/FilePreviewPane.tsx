@@ -27,14 +27,14 @@ export function FilePreviewPane({
         <div className="flex items-center justify-between border-b bg-card/60 px-3 py-2.5">
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Eye className="h-4 w-4 text-muted-foreground" />
-            Preview
+            预览
           </div>
           {onToggleExpanded && (
             <button
               type="button"
               className="flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
               onClick={onToggleExpanded}
-              title={expanded ? "Collapse preview" : "Expand preview"}
+              title={expanded ? "收起预览" : "展开预览"}
             >
               {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             </button>
@@ -82,13 +82,13 @@ export function FilePreviewPane({
           <div className="truncate text-xs font-semibold">{preview.title}</div>
           <div className="truncate text-[10px] text-muted-foreground">{preview.path}</div>
         </div>
-        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">{preview.kind}</span>
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{previewKindLabel(preview.kind)}</span>
         {preview.fileUrl && !preview.id.startsWith("/") && (
           <button
             type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={() => void window.brevyn.files.open(preview.id)}
-            title="Open source file"
+            title="打开源文件"
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </button>
@@ -98,7 +98,7 @@ export function FilePreviewPane({
             type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onToggleExpanded}
-            title={expanded ? "Collapse preview" : "Expand preview"}
+            title={expanded ? "收起预览" : "展开预览"}
           >
             {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </button>
@@ -131,7 +131,7 @@ export function FilePreviewPane({
             {preview.fileUrl ? (
               <img className="max-h-[70vh] w-full rounded-md object-contain" src={preview.fileUrl} alt={preview.title} />
             ) : (
-              <div className="flex aspect-[4/3] items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">Image source is not available.</div>
+              <div className="flex aspect-[4/3] items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">图片源不可用。</div>
             )}
           </div>
         )}
@@ -171,8 +171,8 @@ export function FilePreviewPane({
             {preview.pages.map((page, index) => (
               <div key={`${page}-${index}`} className="rounded-lg border bg-background px-3 py-3">
                 <div className="mb-2 flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>{preview.kind === "pptx" ? `Slide ${index + 1}` : `Page ${index + 1}`}</span>
-                  <span>preview</span>
+                  <span>{preview.kind === "pptx" ? `幻灯片 ${index + 1}` : `页面 ${index + 1}`}</span>
+                  <span>预览</span>
                 </div>
                 <div className="whitespace-pre-wrap rounded-md bg-muted/55 px-3 py-3 text-[12px] leading-5 text-foreground/80">{page}</div>
               </div>
@@ -198,7 +198,7 @@ function SpreadsheetPreview({
   if (!activeSheet) {
     return (
       <div className="rounded-lg border border-dashed bg-background/65 px-4 py-8 text-center text-xs text-muted-foreground">
-        No spreadsheet cells available for preview.
+        没有可预览的表格单元格。
       </div>
     );
   }
@@ -215,7 +215,7 @@ function SpreadsheetPreview({
               sheet.name === activeSheet.name ? "border-foreground/25 bg-card text-foreground shadow-sm" : "border-transparent text-muted-foreground hover:bg-card/80 hover:text-foreground"
             }`}
             onClick={() => onSelectSheet(sheet.name)}
-            title={`${sheet.name} · ${sheet.totalRows} rows × ${sheet.totalColumns} columns`}
+            title={`${sheet.name} · ${sheet.totalRows} 行 × ${sheet.totalColumns} 列`}
           >
             {sheet.name}
           </button>
@@ -223,9 +223,9 @@ function SpreadsheetPreview({
       </div>
       <div className="flex items-center justify-between gap-3 border-b bg-card/50 px-3 py-2 text-[10px] text-muted-foreground">
         <span>
-          {activeSheet.totalRows} rows × {activeSheet.totalColumns} columns
+          {activeSheet.totalRows} 行 × {activeSheet.totalColumns} 列
         </span>
-        {activeSheet.truncated && <span>Showing first 120 rows × 40 columns</span>}
+        {activeSheet.truncated && <span>仅显示前 120 行 × 40 列</span>}
       </div>
       <div className="max-h-[68vh] overflow-auto brevyn-scrollbar">
         <table className="min-w-full border-separate border-spacing-0 text-left text-[11px]">
@@ -243,7 +243,7 @@ function SpreadsheetPreview({
             {activeSheet.rows.length === 0 ? (
               <tr>
                 <td className="px-3 py-8 text-center text-muted-foreground" colSpan={visibleColumnCount + 1}>
-                  Empty sheet
+                  空工作表
                 </td>
               </tr>
             ) : (
@@ -268,6 +268,19 @@ function SpreadsheetPreview({
       </div>
     </div>
   );
+}
+
+function previewKindLabel(kind: FilePreview["kind"]): string {
+  if (kind === "folder") return "文件夹";
+  if (kind === "markdown") return "Markdown";
+  if (kind === "pdf") return "PDF";
+  if (kind === "image") return "图片";
+  if (kind === "code") return "代码";
+  if (kind === "text") return "文本";
+  if (kind === "docx") return "Word";
+  if (kind === "pptx") return "演示文稿";
+  if (kind === "spreadsheet") return "表格";
+  return "文件";
 }
 
 function spreadsheetColumnName(index: number): string {

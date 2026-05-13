@@ -47,7 +47,7 @@ export function activeCourseOrThrow(businessStore: SQLiteBusinessStore, courseId
 }
 
 export function activeCourseScopeOrThrow(businessStore: SQLiteBusinessStore, courseId: string, semesterId: string): Course | null {
-  if (!semesterId) throw new Error("Select a semester before using courses.");
+  if (!semesterId) throw new Error("请先选择学期，再使用课程。");
   if (courseId === SEMESTER_HOME_COURSE_ID) {
     if (isSemesterArchived(businessStore, semesterId)) throw new Error("Restore this semester before using the home workspace.");
     return null;
@@ -56,7 +56,7 @@ export function activeCourseScopeOrThrow(businessStore: SQLiteBusinessStore, cou
 }
 
 export function activeCourseInSemesterOrThrow(businessStore: SQLiteBusinessStore, courseId: string, semesterId: string): Course {
-  if (!semesterId) throw new Error("Select a semester before using courses.");
+  if (!semesterId) throw new Error("请先选择学期，再使用课程。");
   const course = businessStore.getCourse(courseId);
   if (!course) throw new Error(`Course not found: ${courseId}`);
   if (course.semesterId !== semesterId) throw new Error("Course does not belong to the current semester.");
@@ -67,7 +67,7 @@ export function activeCourseInSemesterOrThrow(businessStore: SQLiteBusinessStore
 }
 
 export function taskInCourseOrThrow(businessStore: SQLiteBusinessStore, taskId: string | undefined, courseId: string, semesterId: string): BrevynTask {
-  if (!taskId) throw new Error("Select a task before using the task workspace.");
+  if (!taskId) throw new Error("请先选择任务，再使用任务工作区。");
   const task = businessStore.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
   if (task.courseId !== courseId) throw new Error("Task does not belong to this course.");

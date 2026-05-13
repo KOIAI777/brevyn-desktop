@@ -35,14 +35,14 @@ function statusIcon(status: FileIndexingStatus) {
 }
 
 function statusLabel(status: FileIndexingStatus): string {
-  if (status === "indexed") return "Indexed";
-  if (status === "indexing") return "Indexing";
-  if (status === "queued") return "Queued";
-  if (status === "failed") return "Failed";
-  if (status === "warning") return "Warning";
-  if (status === "skipped") return "Skipped";
-  if (status === "cancelled") return "Cancelled";
-  return "Not indexed";
+  if (status === "indexed") return "已索引";
+  if (status === "indexing") return "索引中";
+  if (status === "queued") return "排队中";
+  if (status === "failed") return "失败";
+  if (status === "warning") return "警告";
+  if (status === "skipped") return "已跳过";
+  if (status === "cancelled") return "已取消";
+  return "未索引";
 }
 
 function statusTone(status: FileIndexingStatus): string {

@@ -168,7 +168,7 @@ export function ensureTargetFolderInTree(root: WorkspaceFileNode, input: FileImp
     return ensureFolderPath(root, [{ name: "Lecture", extra: { sectionKind: "lecture" } }], timestamp);
   }
 
-  if (!task) throw new Error("Select a task before importing into a task workspace.");
+  if (!task) throw new Error("请先选择任务，再导入到任务工作区。");
   const taskType = task.taskType || DEFAULT_TASK_TYPE;
   const taskFolder = ensureTaskWorkspace(root, task, timestamp);
   ensureTaskBucketFolders(taskFolder, input.courseId, input.taskId, taskType, timestamp);

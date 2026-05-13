@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { Archive, CalendarDays, ChevronRight, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask } from "@/types/domain";
@@ -133,10 +133,12 @@ export function WorkspaceSidebar({
       </button>
       <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-3 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <img src={brevynLogoUrl} alt="Brevyn" className="h-8 w-8 shrink-0 rounded-xl border border-white/60 shadow-sm" />
+          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/70 bg-background shadow-sm">
+            <img src={brevynLogoUrl} alt="" className="h-full w-full object-cover p-1.5" />
+          </div>
           <div className="min-w-0">
-            <div className="text-[10px] uppercase text-muted-foreground">TaskAgent</div>
-            <div className="truncate text-sm font-semibold">Brevyn Workspace</div>
+            <div className="truncate text-sm font-semibold">Koi</div>
+            <div className="truncate text-[10px] text-muted-foreground">本地账号 · 登录预留</div>
           </div>
         </div>
         <button className="no-drag rounded-md border bg-background/70 p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
@@ -307,31 +309,12 @@ export function WorkspaceSidebar({
         })}
       </div>
 
-      <div className="space-y-1 border-t px-3 pb-3 pt-2">
-        <button onClick={onOpenTimetable} className="w-full rounded-[10px] px-3 py-2 text-left text-foreground/70 transition-colors hover:bg-foreground/[0.04] hover:text-foreground">
-          <div className="flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <CalendarDays className="h-3.5 w-3.5" />
-            </div>
-            <span className="flex-1 truncate text-sm">Timetable</span>
-          </div>
-        </button>
-        <button onClick={onOpenCourses} className="w-full rounded-[10px] px-3 py-2 text-left text-foreground/70 transition-colors hover:bg-foreground/[0.04] hover:text-foreground">
-          <div className="flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <GraduationCap className="h-3.5 w-3.5" />
-            </div>
-            <span className="flex-1 truncate text-sm">Courses</span>
-          </div>
-        </button>
-        <button onClick={onOpenSettings} className="w-full rounded-[10px] px-3 py-2 text-left text-foreground/70 transition-colors hover:bg-foreground/[0.04] hover:text-foreground">
-          <div className="flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <Settings className="h-3.5 w-3.5" />
-            </div>
-            <span className="flex-1 truncate text-sm">Settings</span>
-          </div>
-        </button>
+      <div className="border-t px-3 pb-3 pt-2">
+        <div className="flex items-center justify-around gap-2">
+          <SidebarFooterIconButton icon={<CalendarDays className="h-4 w-4" />} title="Timetable" onClick={onOpenTimetable} />
+          <SidebarFooterIconButton icon={<GraduationCap className="h-4 w-4" />} title="Courses" onClick={onOpenCourses} />
+          <SidebarFooterIconButton icon={<Settings className="h-4 w-4" />} title="Settings" onClick={onOpenSettings} />
+        </div>
       </div>
       <ThreadContextMenu
         state={threadMenu}
@@ -352,6 +335,20 @@ function compareThreadsByUpdatedAtDesc(a: Thread, b: Thread): number {
 
 function SessionCount({ count }: { count: number }) {
   return <span className="shrink-0 rounded bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
+}
+
+function SidebarFooterIconButton({ icon, title, onClick }: { icon: ReactNode; title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+    >
+      {icon}
+    </button>
+  );
 }
 
 type ThreadButtonProps = {

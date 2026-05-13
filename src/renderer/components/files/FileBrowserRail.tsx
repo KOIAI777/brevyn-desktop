@@ -41,7 +41,7 @@ export function FileBrowserRail({
   const [actionError, setActionError] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
   const uploadDisabled = !course || Boolean(course.archivedAt);
-  const uploadTitle = !course ? "Select a course before uploading files" : course.archivedAt ? "Restore this course before uploading files" : "Import course files";
+  const uploadTitle = !course ? "请先选择课程再上传文件" : course.archivedAt ? "请先恢复课程再上传文件" : "导入课程文件";
 
   useEffect(() => {
     if (!collapsed) {
@@ -92,18 +92,16 @@ export function FileBrowserRail({
       }
       const name = fileDisplayName(file);
       const ok = await confirm({
-        title: `Delete "${name}"?`,
-        message: file.kind === "folder" ? "This folder and everything inside it will be removed from the workspace." : "This file will be removed from the workspace.",
-        confirmLabel: "Delete",
-        cancelLabel: "Cancel",
+        title: `删除“${name}”？`,
+        message: file.kind === "folder" ? "这个文件夹及其中所有内容都会从工作区移除。" : "这个文件会从工作区移除。",
+        confirmLabel: "删除",
+        cancelLabel: "取消",
         tone: "danger",
-        verificationText: name,
-        verificationLabel: "Type the name to confirm",
       });
       if (!ok) return;
       await window.brevyn.files.delete(file.id);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "File action failed.");
+      setActionError(error instanceof Error ? error.message : "文件操作失败。");
     }
   }
 
@@ -125,7 +123,7 @@ export function FileBrowserRail({
               setRenameFile(null);
               refreshSelectedFile({ ...renameFile, name });
             } catch (error) {
-              setActionError(error instanceof Error ? error.message : "Rename failed.");
+              setActionError(error instanceof Error ? error.message : "重命名失败。");
               throw error;
             }
           }}
@@ -135,7 +133,7 @@ export function FileBrowserRail({
         type="button"
         tabIndex={collapsed ? -1 : 0}
         className="absolute left-0 top-0 z-10 h-full w-3 cursor-col-resize touch-none bg-transparent focus:outline-none"
-        aria-label="Resize course files rail"
+        aria-label="调整文件浏览器宽度"
         onPointerDown={onResizeStart}
       >
         <span className="absolute left-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/rail:opacity-100" />
@@ -148,10 +146,10 @@ export function FileBrowserRail({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-xs font-semibold">
                 <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Session files</span>
+                <span className="truncate">会话文件</span>
               </div>
               <div className="truncate text-[11px] text-muted-foreground">
-                {(sessionFiles || []).reduce((count, node) => count + countLeafFiles(node), 0)} files in this chat
+                本次对话 {(sessionFiles || []).reduce((count, node) => count + countLeafFiles(node), 0)} 个文件
               </div>
             </div>
           </div>
@@ -173,7 +171,7 @@ export function FileBrowserRail({
               </div>
             ) : (
               <div className="rounded-lg border border-dashed bg-card/45 px-3 py-4 text-center text-[11px] leading-5 text-muted-foreground">
-                Attach files in chat and they will appear here.
+                在对话中添加附件后，会显示在这里。
               </div>
             )}
           </div>
@@ -184,17 +182,17 @@ export function FileBrowserRail({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-xs font-semibold">
                 <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Course Files</span>
+                <span className="truncate">课程文件</span>
               </div>
               <div className="truncate text-[11px] text-muted-foreground">
-                {course?.name || "Workspace"} · {stats?.totalFiles ?? files.reduce((count, node) => count + countLeafFiles(node), 0)} files
+                {course?.name || "工作区"} · {stats?.totalFiles ?? files.reduce((count, node) => count + countLeafFiles(node), 0)} 个文件
               </div>
               {actionError && <div className="mt-1 truncate text-[10px] text-red-600" title={actionError}>{actionError}</div>}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {loading && files.length > 0 && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
               {stats && (
-                <span className="rounded-md bg-muted px-1.5 py-1 text-[10px] text-muted-foreground" title={`${stats.sectionCount} sections`}>
+                <span className="rounded-md bg-muted px-1.5 py-1 text-[10px] text-muted-foreground" title={`${stats.sectionCount} 个分区`}>
                   {stats.sectionCount}
                 </span>
               )}
@@ -215,10 +213,10 @@ export function FileBrowserRail({
             {loading && files.length === 0 ? (
               <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Loading course files...
+                正在加载课程文件...
               </div>
             ) : files.length === 0 ? (
-              <div className="rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">No course files yet.</div>
+              <div className="rounded-lg border border-dashed bg-background/60 px-3 py-5 text-center text-xs text-muted-foreground">还没有课程文件。</div>
             ) : (
               <div className="space-y-0.5">
                 {files.map((file) => (
@@ -298,7 +296,7 @@ function RenameFileDialog({
     try {
       await onRename(trimmed);
     } catch (renameError) {
-      setError(renameError instanceof Error ? renameError.message : "Rename failed.");
+      setError(renameError instanceof Error ? renameError.message : "重命名失败。");
     } finally {
       setSaving(false);
     }
@@ -312,14 +310,14 @@ function RenameFileDialog({
       >
         <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">Rename</div>
+            <div className="truncate text-sm font-semibold">重命名</div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{fileDisplayName(file)}</div>
           </div>
           <button
             type="button"
             className="flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onClose}
-            title="Close"
+            title="关闭"
           >
             <X className="h-4 w-4" />
           </button>
@@ -344,7 +342,7 @@ function RenameFileDialog({
               className="inline-flex h-8 items-center rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
               onClick={onClose}
             >
-              Cancel
+              取消
             </button>
             <button
               type="button"
@@ -352,7 +350,7 @@ function RenameFileDialog({
               disabled={!canSave}
               onClick={() => void submit()}
             >
-              {saving ? "Saving..." : "Rename"}
+              {saving ? "正在保存..." : "重命名"}
             </button>
           </div>
         </div>
