@@ -113,8 +113,8 @@ function VisionRecognitionImportDialog({
   const subtitle = kind === "course_timetable" ? "确认后创建课程和每周上课安排。" : "确认后创建学期校历事件。";
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
-      <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-[2px]">
+      <div className="isolate flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80 [contain:layout_paint_style]">
         <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -155,10 +155,10 @@ function VisionRecognitionImportDialog({
           </div>
         )}
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-[0.9fr_1.1fr]">
-          <section className="min-h-0 overflow-hidden rounded-lg border bg-background/70">
+        <div className="grid min-h-0 flex-1 items-stretch gap-4 overflow-hidden p-4 md:grid-cols-[0.9fr_1.1fr]">
+          <section className="min-h-0 overflow-hidden rounded-lg border bg-background [contain:layout_paint]">
             {imagePreviewUrl ? (
-              <img src={imagePreviewUrl} alt="识别图片" className="h-full w-full object-contain" />
+              <img src={imagePreviewUrl} alt="识别图片" className="h-full w-full select-none object-contain [backface-visibility:hidden] [transform:translateZ(0)]" draggable={false} />
             ) : sourcePath ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-xs text-muted-foreground">
                 <AlertCircle className="h-5 w-5" />
@@ -172,7 +172,7 @@ function VisionRecognitionImportDialog({
             )}
           </section>
 
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-background/70">
+          <section className="isolate flex min-h-0 flex-col overflow-hidden rounded-lg border bg-background/70 [contain:layout_paint]">
             {busy === "recognizing" ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin" />
@@ -181,7 +181,7 @@ function VisionRecognitionImportDialog({
             ) : draft ? (
               <>
                 <RecognitionSummary draft={draft} />
-                <div className="min-h-0 flex-1 overflow-y-auto border-t p-3 brevyn-scrollbar">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t p-3 [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
                   <RecognitionStructuredReview draft={draft} onChange={updateDraft} />
                 </div>
                 <div className="border-t bg-card/50">
@@ -403,7 +403,7 @@ function AcademicCalendarReview({ draft, onChange }: { draft: RecognizedAcademic
       {weeks.length > 0 ? (
         <div className="space-y-2">
           {weeks.map((week) => (
-            <div key={week.week} className="overflow-hidden rounded-lg border bg-card/70">
+            <div key={week.week} className="overflow-hidden rounded-lg border bg-card/70 [contain:layout_paint] [content-visibility:auto] [contain-intrinsic-size:220px]">
               <div className="flex items-center justify-between gap-3 border-b bg-muted/30 px-3 py-2">
                 <div>
                   <div className="text-xs font-semibold">第 {week.week} 周</div>
@@ -451,7 +451,7 @@ function AcademicCalendarReview({ draft, onChange }: { draft: RecognizedAcademic
           <div className="border-b bg-muted/30 px-3 py-2 text-xs font-semibold">未归入周次的事件</div>
           <div className="space-y-2 p-3">
             {draft.events.map((event, index) => (
-              <div key={`${event.title}-${event.startsAt}-${index}`} className="grid gap-2 rounded-md border bg-background/70 p-2 md:grid-cols-[1.4fr_0.8fr_0.8fr]">
+              <div key={`${event.title}-${event.startsAt}-${index}`} className="grid gap-2 rounded-md border bg-background/70 p-2 [contain:layout_paint] [content-visibility:auto] [contain-intrinsic-size:96px] md:grid-cols-[1.4fr_0.8fr_0.8fr]">
                 <EditableField label="事件" value={event.title} onChange={(value) => updateEvent(index, { title: value })} />
                 <EditableField label="开始" value={event.startsAt} onChange={(value) => updateEvent(index, { startsAt: value })} />
                 <EditableField label="结束" value={event.endsAt || ""} onChange={(value) => updateEvent(index, { endsAt: value || undefined })} />

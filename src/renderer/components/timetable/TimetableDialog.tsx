@@ -26,6 +26,7 @@ export function TimetableDialog({
   const [managingSemesters, setManagingSemesters] = useState(false);
   const [semesterLoading, setSemesterLoading] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [showEventsLoading, setShowEventsLoading] = useState(false);
   const [semesterError, setSemesterError] = useState("");
   const [eventsError, setEventsError] = useState("");
   const eventsRequestRef = useRef(0);
@@ -44,6 +45,15 @@ export function TimetableDialog({
   useEffect(() => {
     void loadEvents();
   }, [course?.id, range.start.toISOString(), range.end.toISOString(), viewMode]);
+
+  useEffect(() => {
+    if (!eventsLoading) {
+      setShowEventsLoading(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowEventsLoading(true), 180);
+    return () => window.clearTimeout(timer);
+  }, [eventsLoading]);
 
   async function loadSemester() {
     setSemesterLoading(true);
@@ -189,11 +199,11 @@ export function TimetableDialog({
           </div>
         </div>
 
-        {(loadError || semesterLoading || eventsLoading) && (
+        {(loadError || semesterLoading) && (
           <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-4 py-2 text-[11px] text-muted-foreground">
             <div className="flex min-w-0 items-center gap-2">
               {loadError ? <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-600" /> : <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-              <span className="truncate">{loadError || "正在加载时间表..."}</span>
+              <span className="truncate">{loadError || "正在加载学期..."}</span>
             </div>
             {loadError && (
               <button
@@ -261,7 +271,15 @@ export function TimetableDialog({
                     </div>
                   )}
                 </div>
-                <EventLegend />
+                <div className="flex items-center gap-2">
+                  {showEventsLoading && !loadError && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      更新中
+                    </span>
+                  )}
+                  <EventLegend />
+                </div>
               </div>
               <div className="h-[calc(100%-34px)] min-h-0 overflow-auto pr-1 brevyn-scrollbar">
                 {viewMode === "week" && <WeekGrid start={range.start} events={events} weekNumber={weekNumber} />}
@@ -292,6 +310,7 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
   const weekMarker = events.find((event) => event.kind === "school_week" && eventOverlapsRange(event, start, weekEnd));
   const now = new Date();
   const showNowLine = now >= start && now <= weekEnd;
+  const eventsByDay = days.map((day) => eventsForDay(events, day).filter((event) => event.kind !== "school_event" && event.kind !== "school_week"));
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between rounded-md border bg-muted/25 px-3 py-2">
@@ -302,6 +321,7 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
         {days.map((day, index) => {
           const isToday = isSameDay(day, now);
           const startsNewMonth = index > 0 && day.getMonth() !== days[index - 1].getMonth();
+          const dayEvents = eventsByDay[index] || [];
           return (
             <div key={day.toISOString()} className={cx("relative min-h-[560px] rounded-md border bg-card px-2 py-2", isToday && "border-rose-200 bg-rose-50/20")}>
               {startsNewMonth && (
@@ -312,12 +332,10 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
               <div className={cx("mb-2 text-[11px] font-medium text-muted-foreground", isToday && "text-rose-700")}>{formatDay(day)}</div>
               {showNowLine && isToday && <CurrentTimeLine />}
               <div className="space-y-2">
-                {eventsForDay(events, day)
-                  .filter((event) => event.kind !== "school_event" && event.kind !== "school_week")
-                  .map((event) => (
-                    <EventCard key={event.id} event={event} />
-                  ))}
-                {eventsForDay(events, day).filter((event) => event.kind !== "school_event" && event.kind !== "school_week").length === 0 && (
+                {dayEvents.map((event) => (
+                  <EventCard key={event.id} event={event} />
+                ))}
+                {dayEvents.length === 0 && (
                   <div className="rounded-md border border-dashed bg-muted/25 px-2 py-2 text-[10px] leading-4 text-muted-foreground">暂无课程或截止日期。</div>
                 )}
               </div>

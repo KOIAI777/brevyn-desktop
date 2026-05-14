@@ -15,6 +15,7 @@ import type {
   BrevynAgentTimelineRecord,
   BrevynTask,
   Course,
+  ModelProviderConfig,
   SemesterWorkspace,
   Thread,
   RagSearchResult,
@@ -29,6 +30,7 @@ import { AskUserService } from "./ask-user-service";
 import { createBrevynMcpServer } from "./brevyn-mcp-server";
 import { ClaudeSdkAdapter } from "./claude-sdk-adapter";
 import { ExitPlanService } from "./exit-plan-service";
+import { AgentGatewayService } from "./agent-gateway-service";
 import { PermissionService } from "./permission-service";
 import { PromptBuilder } from "./prompt-builder";
 
@@ -44,6 +46,7 @@ interface AgentOrchestratorOptions {
   askUsers: AskUserService;
   exitPlans: ExitPlanService;
   sdk: ClaudeSdkAdapter;
+  gateway?: AgentGatewayService;
   ragSearch?: (input: { query: string; courseId?: string; taskId?: string; sectionKind?: "course_shared" | "lecture" | "task"; limit?: number }) => Promise<RagSearchResult[]>;
 }
 
@@ -58,6 +61,7 @@ interface ActiveRun {
   permissionMode: AgentPermissionMode;
   providerId?: string;
   modelId?: string;
+  gatewayToken?: string;
   terminalResultWritten: boolean;
   terminalLifecycleWritten: boolean;
 }
@@ -140,7 +144,7 @@ export class AgentOrchestrator {
       if (!active) return;
       const provider = this.options.providers.agentProviderFor(active.providerId, active.modelId);
       if (!provider) {
-        throw new Error("Configure at least one enabled Anthropic-compatible agent provider before running the agent.");
+        throw new Error("Configure at least one enabled agent provider before running the agent.");
       }
       const apiKey = this.options.providers.apiKey(provider.id) || envApiKeyForProvider(provider);
       if (!apiKey) {
@@ -158,7 +162,7 @@ export class AgentOrchestrator {
         }),
         permissionInstructions(active),
       ].join("\n\n");
-      const env = this.options.sdk.buildEnv(provider, apiKey);
+      const env = await this.buildSdkEnvForProvider(provider, apiKey, active);
       const sdkRuntime = await this.options.sdk.loadSdk();
       const mcpServers = {
         brevyn: createBrevynMcpServer({
@@ -217,11 +221,36 @@ export class AgentOrchestrator {
         this.appendAndEmitSdkMessage(context.thread, resultSdkMessage("error_during_execution", message));
       }
     } finally {
+      const active = this.activeRuns.get(context.thread.id);
+      if (active?.gatewayToken) {
+        this.options.gateway?.unregisterSession(active.gatewayToken);
+        active.gatewayToken = undefined;
+      }
       this.options.permissions.clearThread(context.thread.id);
       this.options.askUsers.clearThread(context.thread.id);
       this.options.exitPlans.clearThread(context.thread.id);
       this.activeRuns.delete(context.thread.id);
     }
+  }
+
+  private async buildSdkEnvForProvider(provider: ModelProviderConfig, apiKey: string, active: ActiveRun): Promise<Record<string, string>> {
+    if (provider.protocol !== "openai_responses") {
+      return this.options.sdk.buildEnv(provider, apiKey);
+    }
+    if (!this.options.gateway) {
+      throw new Error("OpenAI Responses agent provider requires the local Anthropic gateway.");
+    }
+    const baseUrl = await this.options.gateway.start();
+    const registration = this.options.gateway.registerSession({
+      provider,
+      apiKey,
+      signal: active.abortController.signal,
+    });
+    active.gatewayToken = registration.token;
+    return {
+      ANTHROPIC_API_KEY: registration.token,
+      ANTHROPIC_BASE_URL: baseUrl,
+    };
   }
 
   private createCanUseTool(context: ResolvedThreadContext, runId: string): CanUseTool {

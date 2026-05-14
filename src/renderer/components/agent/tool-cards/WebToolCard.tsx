@@ -17,14 +17,16 @@ export function WebToolCard({
 } & ToolCardHelpers) {
   const data = helpers.recordObject(input);
   const isSearch = toolName === "WebSearch";
+  const hosted = data.hosted === true;
+  const hostedQuery = webSearchQueryFromInput(data, helpers);
   const target = isSearch
-    ? helpers.stringValue(data.query, "query")
+    ? hostedQuery || helpers.stringValue(data.query, "query")
     : helpers.stringValue(data.url, "URL");
-  const running = !result;
+  const running = !result && data.status !== "completed";
   const output = result ? helpers.formatToolResultContent(result.content) : "";
-  const links = isSearch ? parseWebSearchLinks(output, helpers) : [];
-  const title = webToolTitle({ isSearch, running, isError: result?.isError, target, linkCount: links.length }, helpers);
-  const status = running ? "运行中" : result?.isError ? "失败" : isSearch ? `${links.length || resultCountFromText(output)} 个结果` : "完成";
+  const links = isSearch ? parseWebSearchLinks(result?.content, output, helpers) : [];
+  const title = webToolTitle({ isSearch, hosted, running, isError: result?.isError, target, linkCount: links.length }, helpers);
+  const status = running ? "运行中" : result?.isError ? "失败" : hosted ? "完成" : isSearch ? `${links.length || resultCountFromText(output)} 个结果` : "完成";
 
   if (collapsed) {
     return (
@@ -46,7 +48,7 @@ export function WebToolCard({
         onToggleCollapsed={onToggleCollapsed}
       />
       {isSearch ? (
-        <WebSearchSummary query={target} links={links} result={result} output={output} />
+        <WebSearchSummary query={target} links={links} result={result} output={output} hosted={hosted} />
       ) : (
         <WebFetchSummary url={target} result={result} output={output} />
       )}
@@ -59,16 +61,23 @@ function WebSearchSummary({
   links,
   result,
   output,
+  hosted,
 }: {
   query: string;
   links: WebSearchLink[];
   result?: ToolResultBlock;
   output: string;
+  hosted?: boolean;
 }) {
   return (
     <div className="px-1 py-1">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Search</p>
       <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
+      {hosted && !result && (
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+          OpenAI Responses hosted web search 已完成，搜索结果会由模型在正文里引用。
+        </p>
+      )}
       {result && (
         <div className="mt-3 space-y-1.5">
           {links.length > 0 ? links.map((link, index) => (
@@ -86,7 +95,11 @@ function WebSearchSummary({
               <span className="min-w-0 flex-1 truncate">{link.title || link.url}</span>
               <span className="shrink-0 truncate text-[11px] text-muted-foreground">{hostFromUrl(link.url)}</span>
             </a>
-          )) : (
+          )) : hosted ? (
+            <p className="text-xs text-muted-foreground">
+              Hosted web search 已完成，暂无可展示引用链接。
+            </p>
+          ) : (
             <p className="text-xs text-muted-foreground">
               {result.isError ? "搜索失败，展开结果不可用。" : `${resultCountFromText(output)} 个搜索结果`}
             </p>
@@ -95,6 +108,19 @@ function WebSearchSummary({
       )}
     </div>
   );
+}
+
+function webSearchQueryFromInput(data: Record<string, unknown>, helpers: ToolCardHelpers): string {
+  const direct = helpers.stringValue(data.query, "");
+  if (direct) return direct;
+  const queries = Array.isArray(data.queries) ? data.queries : [];
+  for (const query of queries) {
+    if (typeof query === "string" && query.trim()) return query.trim();
+    const object = helpers.recordObject(query);
+    const value = helpers.stringValue(object.query ?? object.search_query ?? object.text, "");
+    if (value) return value;
+  }
+  return "";
 }
 
 function WebFetchSummary({ url, result, output }: { url: string; result?: ToolResultBlock; output: string }) {
@@ -111,8 +137,10 @@ function WebFetchSummary({ url, result, output }: { url: string; result?: ToolRe
   );
 }
 
-function webToolTitle(input: { isSearch: boolean; running: boolean; isError?: boolean; target: string; linkCount: number }, helpers: ToolCardHelpers): string {
+function webToolTitle(input: { isSearch: boolean; hosted?: boolean; running: boolean; isError?: boolean; target: string; linkCount: number }, helpers: ToolCardHelpers): string {
   if (input.isSearch) {
+    if (input.hosted && input.running) return input.target === "query" ? "正在通过 hosted web search 搜索网络" : `正在通过 hosted web search 搜索 "${helpers.singleLine(input.target)}"`;
+    if (input.hosted) return input.target === "query" ? "Hosted web search 已完成" : `Hosted web search · ${helpers.singleLine(input.target)}`;
     if (input.running) return `正在搜索网络 "${helpers.singleLine(input.target)}"`;
     if (input.isError) return `搜索网络失败 "${helpers.singleLine(input.target)}"`;
     return `搜索网络 · ${input.linkCount} 个结果`;
@@ -122,7 +150,9 @@ function webToolTitle(input: { isSearch: boolean; running: boolean; isError?: bo
   return `已读取网页 "${helpers.singleLine(input.target)}"`;
 }
 
-function parseWebSearchLinks(output: string, helpers: ToolCardHelpers): WebSearchLink[] {
+function parseWebSearchLinks(content: unknown, output: string, helpers: ToolCardHelpers): WebSearchLink[] {
+  const structured = linksFromStructuredContent(content, helpers);
+  if (structured.length > 0) return structured;
   const match = output.match(/Links:\s*(\[[\s\S]*?\])(?:\n|$)/);
   if (!match) return [];
   try {
@@ -140,6 +170,20 @@ function parseWebSearchLinks(output: string, helpers: ToolCardHelpers): WebSearc
   } catch {
     return [];
   }
+}
+
+function linksFromStructuredContent(content: unknown, helpers: ToolCardHelpers): WebSearchLink[] {
+  const data = helpers.recordObject(content);
+  const links = Array.isArray(data.links) ? data.links : [];
+  return links.flatMap((item) => {
+    const link = helpers.recordObject(item);
+    const url = helpers.stringValue(link.url, "");
+    if (!url) return [];
+    return [{
+      title: helpers.stringValue(link.title, url),
+      url,
+    }];
+  });
 }
 
 function resultCountFromText(output: string): number {

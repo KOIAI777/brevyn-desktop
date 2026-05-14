@@ -87,6 +87,7 @@ function cloneProvider(provider: ModelProviderConfig): ModelProviderConfig {
     models: Array.isArray(provider.models) ? provider.models.map(cloneProviderModel) : [],
     selectedModel: provider.selectedModel,
     enabled: provider.enabled,
+    autoCompactThresholdPercent: provider.autoCompactThresholdPercent,
     createdAt: provider.createdAt,
     updatedAt: provider.updatedAt,
   };

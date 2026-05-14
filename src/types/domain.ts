@@ -441,12 +441,12 @@ export interface FileImportResult {
 }
 
 export type ProviderPurpose = "agent" | "embedding" | "vision";
-export type AgentProtocol = "anthropic_messages";
+export type AgentProtocol = "anthropic_messages" | "openai_responses";
 export type EmbeddingProtocol = "openai_compatible";
 export type VisionProtocol = "anthropic_messages" | "openai_compatible" | "openai_responses";
 export type ProviderProtocol = AgentProtocol | EmbeddingProtocol | VisionProtocol;
 export type ProviderAdapterKind = "anthropic" | "openai_embedding" | "openai_chat_completions" | "openai_responses";
-export type AgentProviderKind = "anthropic" | "deepseek" | "bailian-anthropic" | "kimi-api" | "kimi-coding" | "custom-anthropic";
+export type AgentProviderKind = "anthropic" | "deepseek" | "bailian-anthropic" | "kimi-api" | "kimi-coding" | "custom-anthropic" | "openai-responses-agent";
 export type EmbeddingProviderKind = "openai" | "qwen" | "doubao" | "zhipu" | "minimax" | "custom-openai";
 export type VisionProviderKind = "vision-bailian-openai" | "vision-custom-openai" | "vision-custom-anthropic" | "vision-openai-responses" | "vision-custom-openai-responses";
 export type ProviderKind = AgentProviderKind | EmbeddingProviderKind | VisionProviderKind;
@@ -530,6 +530,15 @@ export const AGENT_PROVIDER_PRESETS = {
     protocol: "anthropic_messages",
     baseUrl: "",
     authMode: "api_key",
+  },
+  "openai-responses-agent": {
+    kind: "openai-responses-agent",
+    purpose: "agent",
+    label: "OpenAI Responses",
+    adapterKind: "openai_responses",
+    protocol: "openai_responses",
+    baseUrl: "https://api.openai.com/v1",
+    authMode: "bearer",
   },
 } as const satisfies Record<AgentProviderKind, ProviderPreset>;
 
@@ -644,6 +653,10 @@ export const PROVIDER_PRESETS = {
   ...VISION_PROVIDER_PRESETS,
 } as const satisfies Record<ProviderKind, ProviderPreset>;
 
+export const DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT = 77.5;
+export const MIN_AUTO_COMPACT_THRESHOLD_PERCENT = 50;
+export const MAX_AUTO_COMPACT_THRESHOLD_PERCENT = 95;
+
 export interface ModelProviderConfig {
   id: string;
   purpose: ProviderPurpose;
@@ -658,6 +671,7 @@ export interface ModelProviderConfig {
   models: ProviderModel[];
   selectedModel: string;
   enabled: boolean;
+  autoCompactThresholdPercent?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -675,6 +689,7 @@ export interface ProviderDraftInput {
   models?: ProviderModel[];
   selectedModel: string;
   enabled?: boolean;
+  autoCompactThresholdPercent?: number;
 }
 
 export interface ProviderSaveResult {
@@ -864,6 +879,20 @@ export type UpdaterStatus =
   | { status: "not-available"; currentVersion: string; supported: boolean }
   | { status: "error"; currentVersion: string; supported: boolean; error: string };
 
+export interface AppSettings {
+  agentGateway: {
+    openAiResponsesEnabled: boolean;
+  };
+}
+
+export interface AgentGatewayStatus {
+  enabled: boolean;
+  state: "disabled" | "starting" | "running" | "stopping" | "failed";
+  url?: string;
+  activeRuns: number;
+  error?: string;
+}
+
 export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
@@ -957,6 +986,10 @@ export interface BrevynAPI {
     answerQuestion: (input: AgentAskUserResponseInput) => Promise<boolean>;
     resolveExitPlan: (input: AgentExitPlanResponseInput) => Promise<boolean>;
     onEvent: (callback: (event: BrevynAgentEvent) => void) => () => void;
+  };
+  agentGateway: {
+    status: () => Promise<AgentGatewayStatus>;
+    setEnabled: (enabled: boolean) => Promise<AgentGatewayStatus>;
   };
   attachments: {
     pick: (threadId: string) => Promise<AgentAttachment[]>;

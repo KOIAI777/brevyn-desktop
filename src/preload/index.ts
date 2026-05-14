@@ -131,6 +131,10 @@ const api: BrevynAPI = {
       return () => ipcRenderer.off(IPC_CHANNELS.agentEvent, listener);
     },
   },
+  agentGateway: {
+    status: () => ipcRenderer.invoke(IPC_CHANNELS.agentGatewayStatus),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.agentGatewaySetEnabled, enabled),
+  },
   attachments: {
     pick: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsPick, threadId),
     list: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.attachmentsList, threadId),

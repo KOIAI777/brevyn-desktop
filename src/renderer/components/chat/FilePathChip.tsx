@@ -106,7 +106,7 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
       type="button"
       disabled={!threadId && !onPreviewFilePath}
       onClick={() => void handleClick()}
-      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md border border-sky-200/70 bg-sky-50/60 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-sky-900 align-baseline shadow-[inset_0_-1px_0_rgba(2,132,199,0.24)] transition hover:border-sky-300 hover:bg-sky-100/70 hover:text-sky-950 disabled:cursor-default disabled:hover:bg-sky-50/60"
+      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md border border-stone-300/55 bg-[#f8f3e8]/65 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-stone-700 align-baseline shadow-[0_1px_0_rgba(120,113,108,0.08)] transition hover:border-stone-400/65 hover:bg-[#f2eadb]/75 hover:text-stone-900 disabled:cursor-default disabled:hover:border-stone-300/55 disabled:hover:bg-[#f8f3e8]/65"
       title={filePath}
     >
       <FileTypeIcon name={filename} isDirectory={isDirectory} size={14} />

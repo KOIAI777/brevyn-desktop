@@ -68,6 +68,8 @@ export const IPC_CHANNELS = {
   agentAnswerQuestion: "brevyn:agent:answer-question",
   agentResolveExitPlan: "brevyn:agent:resolve-exit-plan",
   agentEvent: "brevyn:agent:event",
+  agentGatewayStatus: "brevyn:agent-gateway:status",
+  agentGatewaySetEnabled: "brevyn:agent-gateway:set-enabled",
   attachmentsPick: "brevyn:attachments:pick",
   attachmentsList: "brevyn:attachments:list",
   attachmentsSavePaths: "brevyn:attachments:save-paths",

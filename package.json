@@ -19,7 +19,8 @@
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit",
-    "test:agent-timeline": "esbuild src/renderer/components/agent/agentTimelineModel.test.ts --bundle --platform=node --format=cjs --outfile=dist/agentTimelineModel.test.cjs && node dist/agentTimelineModel.test.cjs"
+    "test:agent-timeline": "esbuild src/renderer/components/agent/agentTimelineModel.test.ts --bundle --platform=node --format=cjs --outfile=dist/agentTimelineModel.test.cjs && node dist/agentTimelineModel.test.cjs",
+    "test:protocols": "esbuild src/main/protocols/openai-responses-anthropic-adapter.test.ts --bundle --platform=node --format=cjs --outfile=dist/openai-responses-anthropic-adapter.test.cjs && node dist/openai-responses-anthropic-adapter.test.cjs && esbuild src/main/protocols/openai-responses-anthropic-stream.test.ts --bundle --platform=node --format=cjs --outfile=dist/openai-responses-anthropic-stream.test.cjs && node dist/openai-responses-anthropic-stream.test.cjs && esbuild src/main/agent/local-anthropic-gateway.test.ts --bundle --platform=node --format=cjs --outfile=dist/local-anthropic-gateway.test.cjs && node dist/local-anthropic-gateway.test.cjs && esbuild src/main/agent/agent-gateway-service.test.ts --bundle --platform=node --format=cjs --outfile=dist/agent-gateway-service.test.cjs && node dist/agent-gateway-service.test.cjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.138",

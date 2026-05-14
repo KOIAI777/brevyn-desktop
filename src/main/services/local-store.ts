@@ -13,6 +13,7 @@ import type {
   AgentExitPlanResponseInput,
   AgentRunInput,
   AgentRunResult,
+  AgentGatewayStatus,
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
   CreateCourseInput,
@@ -50,12 +51,13 @@ import type {
   UpdateTaskInput,
   WorkspaceFileNode,
 } from "../../types/domain";
-import { AgentEventBus, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
+import { AgentEventBus, AgentGatewayService, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import { SkillFileStore } from "../skills/skill-file-store";
 import { BUILTIN_SKILL_BLUEPRINTS } from "../skills/skill-registry";
 import { SQLiteBusinessStore } from "../storage";
 import { FileService } from "./file-service";
+import { AppSettingsStore } from "./app-settings-store";
 import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
@@ -78,6 +80,8 @@ export class LocalStore {
   private readonly workspace: WorkspaceService;
   private readonly files: FileService;
   private readonly agent: AgentOrchestrator;
+  private readonly appSettings: AppSettingsStore;
+  private readonly agentGateway: AgentGatewayService;
 
   constructor(
     private readonly filePath: string,
@@ -86,6 +90,10 @@ export class LocalStore {
     providerSecrets?: ProviderSecretStore,
   ) {
     this.rootDataDir = dirname(this.filePath);
+    this.appSettings = new AppSettingsStore(join(this.rootDataDir, "app-settings.json"));
+    this.agentGateway = new AgentGatewayService({
+      enabled: this.appSettings.get().agentGateway.openAiResponsesEnabled,
+    });
     this.providers = new ProviderService(providerConfigs, providerSecrets, new ProviderTransactionStore(join(this.rootDataDir, "provider-transactions.json")));
     this.skillFiles = new SkillFileStore(this.rootDataDir);
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
@@ -125,7 +133,11 @@ export class LocalStore {
       askUsers: new AskUserService(),
       exitPlans: new ExitPlanService(),
       sdk: new ClaudeSdkAdapter(),
+      gateway: this.agentGateway,
       ragSearch: (input) => this.files.searchRag(input.query, input.courseId, input),
+    });
+    void this.agentGateway.syncConfiguredState().catch((error) => {
+      console.warn("[agent-gateway] Failed to sync configured state", error);
     });
   }
 
@@ -415,6 +427,15 @@ export class LocalStore {
     return this.providers.secretStorageAvailable();
   }
 
+  agentGatewayStatus(): AgentGatewayStatus {
+    return this.agentGateway.getStatus();
+  }
+
+  async setAgentGatewayEnabled(enabled: boolean): Promise<AgentGatewayStatus> {
+    this.appSettings.updateAgentGateway({ openAiResponsesEnabled: enabled });
+    return await this.agentGateway.setEnabled(enabled);
+  }
+
   listTimetableEvents(query: TimetableRangeQuery): TimetableEvent[] {
     if (isCurrentSemesterArchived(this.businessStore)) return [];
     const semesterId = currentActiveSemesterId(this.businessStore);
@@ -560,6 +581,12 @@ export class LocalStore {
 
     try {
       await this.ragIndex.close();
+    } catch (error) {
+      if (!closeError) closeError = error;
+    }
+
+    try {
+      await this.agentGateway.close();
     } catch (error) {
       if (!closeError) closeError = error;
     }

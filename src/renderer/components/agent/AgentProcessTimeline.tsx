@@ -354,13 +354,15 @@ function groupProcessEvents(events: ProcessEvent[]): ProcessGroup[] {
 function summarizeProcessGroup(tools: Array<Extract<ProcessEvent, { kind: "tool_use" }>>): string {
   const explored = tools.filter((event) => event.tool.name === "Read" || event.tool.name === "Glob").length;
   const searched = tools.filter((event) => event.tool.name === "Grep").length;
+  const webSearched = tools.filter((event) => event.tool.name === "WebSearch").length;
   const commands = tools.filter((event) => event.tool.name === "Bash").length;
   const edited = tools.filter((event) => ["Write", "Edit", "MultiEdit"].includes(event.tool.name)).length;
-  const other = tools.length - explored - searched - commands - edited;
+  const other = tools.length - explored - searched - webSearched - commands - edited;
   const parts: string[] = [];
   if (edited) parts.push(`已编辑 ${edited} 个文件`);
   if (explored) parts.push(`已探索 ${explored} 个文件`);
   if (searched) parts.push(`${searched} 次搜索`);
+  if (webSearched) parts.push(`搜索网络 ${webSearched} 次`);
   if (commands) parts.push(`已运行 ${commands} 条命令`);
   if (other) parts.push(`调用 ${other} 个工具`);
   return parts.join(",") || `调用 ${tools.length} 个工具`;

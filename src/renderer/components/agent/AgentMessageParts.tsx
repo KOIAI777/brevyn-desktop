@@ -255,7 +255,8 @@ function useSmoothStreamingText(target: string, options?: { disabled?: boolean }
       const elapsed = Math.max(8, time - last);
       last = time;
       const remaining = latest.length - visible.length;
-      const chars = Math.max(8, Math.min(remaining, Math.ceil(elapsed * 0.18 + remaining * 0.035)));
+      const catchUp = remaining > 480 ? 10 : remaining > 180 ? 5 : remaining > 64 ? 3 : 1;
+      const chars = Math.max(1, Math.min(remaining, Math.ceil(elapsed * 0.045), catchUp));
       displayedRef.current = latest.slice(0, visible.length + chars);
       setDisplayed(displayedRef.current);
       frame = window.requestAnimationFrame(tick);

@@ -49,7 +49,7 @@ export function CourseManagementDialog({
   onCourseCreated: (course: Course) => void;
   onCourseUpdated: (course: Course) => void;
   onTaskCreated: (task: BrevynTask) => void;
-  onWorkspaceChanged?: () => void;
+  onWorkspaceChanged?: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const [archivedCourses, setArchivedCourses] = useState<Course[]>([]);
@@ -617,7 +617,7 @@ export function CourseManagementDialog({
                 kind="course_timetable"
                 className="mt-2 w-full"
                 onImported={async () => {
-                  onWorkspaceChanged?.();
+                  await onWorkspaceChanged?.();
                   await loadArchivedCourses();
                   if (activeCourse?.id) await loadCourseView(activeCourse.id);
                 }}

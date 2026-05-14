@@ -119,4 +119,42 @@ assert.equal(globTool?.kind, "tool_use");
 assert.equal(globTool?.kind === "tool_use" ? globTool.tool.name : "", "Glob");
 assert.equal(globTool?.kind === "tool_use" ? globTool.result?.content : "", "threads/thread-fixture.jsonl");
 
+const hostedSearchRecords: AgentTimelineRecord[] = [
+  userText("Search today's AI news.", "user_search"),
+  { kind: "thinking_stream", id: "thinking_search", text: "I should search the web first." },
+  assistant([
+    {
+      type: "server_tool_use",
+      id: "web_search_1",
+      name: "WebSearch",
+      input: { hosted: true, status: "completed", query: "AI news today" },
+    },
+    {
+      type: "text",
+      text: "Here are the latest AI stories.",
+      citations: [{
+        type: "web_search_result_location",
+        url: "https://openai.com/news",
+        title: "OpenAI News",
+      }],
+    },
+  ], "assistant_search"),
+  result("result_search"),
+];
+
+const hostedSearchMeta = buildTimelineRenderMeta(hostedSearchRecords);
+const hostedSearchFinal = hostedSearchMeta.byIndex.get(2);
+const hostedSearchTool = hostedSearchFinal?.processEvents?.find((event) => event.kind === "tool_use");
+assert.equal(hostedSearchFinal?.attachProcess, true);
+assert.equal(hostedSearchFinal?.processEvents?.[0]?.kind, "thinking");
+assert.match(hostedSearchFinal?.processEvents?.[0]?.kind === "thinking" ? hostedSearchFinal.processEvents[0].text : "", /search the web/);
+assert.equal(hostedSearchTool?.kind, "tool_use");
+assert.equal(hostedSearchTool?.kind === "tool_use" ? hostedSearchTool.tool.name : "", "WebSearch");
+assert.equal(hostedSearchTool?.kind === "tool_use" ? hostedSearchTool.result?.isError : true, false);
+assert.deepEqual(hostedSearchTool?.kind === "tool_use" ? (hostedSearchTool.result?.content as { links?: unknown[] }).links : [], [{
+  title: "OpenAI News",
+  url: "https://openai.com/news",
+}]);
+assert.equal(hostedSearchFinal?.assistantCopyContent, "Here are the latest AI stories.");
+
 console.log("agentTimelineModel fixture tests passed");

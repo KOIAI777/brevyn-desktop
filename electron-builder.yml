@@ -15,8 +15,10 @@ npmRebuild: false
 
 asar: true
 asarUnpack:
-  - "node_modules/@anthropic-ai/**"
-  - "node_modules/@lancedb/**"
+  # Agent and skill helper scripts may run in a normal Node.js process outside
+  # Electron's ASAR-aware module loader, so runtime dependencies must exist on
+  # the real filesystem.
+  - "node_modules/**/*"
 
 files:
   - dist/**/*

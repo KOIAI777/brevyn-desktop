@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Check, ChevronDown, FileText, FolderOpen, Globe, HelpCircle, ListTodo, Loader2, MessageCircleQuestion, Pencil, Search, Send, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare, X } from "lucide-react";
-import type { AgentApprovalRequest, AgentAskUserRequest, AgentAttachment, AgentExitPlanRequest, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread, WorkspaceFileNode } from "@/types/domain";
+import { DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT, MIN_AUTO_COMPACT_THRESHOLD_PERCENT, type AgentApprovalRequest, type AgentAskUserRequest, type AgentAttachment, type AgentExitPlanRequest, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { AgentComposer } from "@/components/agent/AgentComposer";
 import { CompactContextNote, MessageBubble, PromptTooLongCard, ResolvedRuntimeNote, RevealedAssistantBubble, StreamingMessageBubble } from "@/components/agent/AgentMessageParts";
@@ -32,6 +32,7 @@ import {
   isPromptTooLongMessage,
   isRuntimeRecord,
   isStreamRecord,
+  isThinkingStreamRecord,
   nextQuestionAnswer,
   questionAnswers,
   questionResolutionMap,
@@ -94,6 +95,8 @@ interface ChangedFileDiffRow {
   text: string;
 }
 
+const SCROLL_BOTTOM_THRESHOLD_PX = 64;
+
 export function AgentThreadPanel({
   thread,
   records,
@@ -114,7 +117,11 @@ export function AgentThreadPanel({
 }: AgentThreadPanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const autoCompactKeyRef = useRef("");
+  const followOutputRef = useRef(true);
+  const wasRunningRef = useRef(false);
   const [timelineBottomInset, setTimelineBottomInset] = useState(224);
+  const [isFollowingOutput, setIsFollowingOutput] = useState(true);
   const [processCollapsedByKey, setProcessCollapsedByKey] = useState<Record<string, boolean>>({});
   const [planMode, setPlanMode] = useState(false);
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("review");
@@ -152,8 +159,21 @@ export function AgentThreadPanel({
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
-    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
-  }, [records.length, timelineRecords.length, effectiveRunning, loading]);
+    const updateFollowState = () => {
+      const following = isNearScrollBottom(node);
+      followOutputRef.current = following;
+      setIsFollowingOutput((current) => current === following ? current : following);
+    };
+    updateFollowState();
+    node.addEventListener("scroll", updateFollowState, { passive: true });
+    return () => node.removeEventListener("scroll", updateFollowState);
+  }, [thread.id]);
+
+  useEffect(() => {
+    if (!followOutputRef.current) return;
+    const frame = window.requestAnimationFrame(() => scrollTimelineToBottom(scrollRef.current, "auto"));
+    return () => window.cancelAnimationFrame(frame);
+  }, [records, timelineRecords, effectiveRunning, loading, timelineBottomInset]);
 
   useEffect(() => {
     if (!effectiveRunning) {
@@ -167,6 +187,11 @@ export function AgentThreadPanel({
   useEffect(() => {
     setCompactInFlightAfterCount(null);
     setProcessCollapsedByKey({});
+    autoCompactKeyRef.current = "";
+    followOutputRef.current = true;
+    setIsFollowingOutput(true);
+    wasRunningRef.current = false;
+    window.requestAnimationFrame(() => scrollTimelineToBottom(scrollRef.current, "auto"));
   }, [thread.id]);
 
   useEffect(() => {
@@ -189,8 +214,7 @@ export function AgentThreadPanel({
       const nextInset = Math.ceil(dock.getBoundingClientRect().height + 28);
       setTimelineBottomInset(nextInset);
       window.requestAnimationFrame(() => {
-        const scrollNode = scrollRef.current;
-        if (scrollNode) scrollNode.scrollTo({ top: scrollNode.scrollHeight, behavior: "smooth" });
+        if (followOutputRef.current) scrollTimelineToBottom(scrollRef.current, "auto");
       });
     };
 
@@ -210,6 +234,27 @@ export function AgentThreadPanel({
       throw error;
     }
   }
+
+  useEffect(() => {
+    const wasRunning = wasRunningRef.current;
+    wasRunningRef.current = effectiveRunning;
+    if (!wasRunning) return;
+    if (effectiveRunning || effectiveCompacting || loading || error) return;
+    if (!activeProvider || !shouldAutoCompactContext(contextUsage, activeProvider)) return;
+    const bounds = latestTurnBounds(records);
+    if (!bounds || !bounds.result || isCompactCommandMessage(bounds.user)) return;
+    const threshold = autoCompactThresholdPercent(activeProvider);
+    const key = [
+      thread.id,
+      records.length,
+      contextUsage?.inputTokens ?? 0,
+      contextUsage?.contextWindow ?? 0,
+      threshold,
+    ].join(":");
+    if (autoCompactKeyRef.current === key) return;
+    autoCompactKeyRef.current = key;
+    void handleCompact();
+  }, [activeProvider, contextUsage, effectiveCompacting, effectiveRunning, error, loading, records, thread.id]);
 
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
@@ -231,7 +276,7 @@ export function AgentThreadPanel({
                 ? runSummary
                 : runSummaryForUserIndex(timelineRecords, meta.processUserIndex, nowMs, effectiveRunning);
               const processKey = processStateKey(itemSummary, meta?.processUserIndex, index);
-              const defaultCollapsed = liveAssistantText && !itemSummary?.running;
+              const defaultCollapsed = !itemSummary?.running;
               const isProcessLockedOpen = Boolean(forceProcessOpen && itemSummary?.running);
               const isProcessCollapsed = processCollapsedByKey[processKey] ?? defaultCollapsed;
               return (
@@ -269,6 +314,23 @@ export function AgentThreadPanel({
         )}
       </div>
 
+      {!isFollowingOutput && (
+        <button
+          type="button"
+          className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-card/92 text-muted-foreground shadow-[0_12px_34px_rgba(64,55,38,0.16)] ring-1 ring-border/50 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
+          style={{ bottom: timelineBottomInset + 10 }}
+          onClick={() => {
+            followOutputRef.current = true;
+            setIsFollowingOutput(true);
+            scrollTimelineToBottom(scrollRef.current, "smooth");
+          }}
+          title="回到底部"
+          aria-label="回到底部"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      )}
+
       {error && <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">{error}</div>}
 
       <AgentComposer
@@ -278,6 +340,7 @@ export function AgentThreadPanel({
         planMode={planMode}
         permissionMode={permissionMode}
         contextUsage={contextUsage}
+        autoCompactThresholdPercent={autoCompactThresholdPercent(activeProvider)}
         compacting={effectiveCompacting}
         threadId={thread.id}
         agentProviders={agentProviders}
@@ -294,6 +357,15 @@ export function AgentThreadPanel({
     </FilePathPreviewProvider>
     </AgentThreadIdContext.Provider>
   );
+}
+
+function isNearScrollBottom(node: HTMLDivElement): boolean {
+  return node.scrollHeight - node.scrollTop - node.clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX;
+}
+
+function scrollTimelineToBottom(node: HTMLDivElement | null, behavior: ScrollBehavior): void {
+  if (!node) return;
+  node.scrollTo({ top: node.scrollHeight, behavior });
 }
 
 function ProcessTimelinePanel({
@@ -1537,7 +1609,9 @@ function latestCopyableAssistantIndex(meta: ReturnType<typeof buildTimelineRende
 
 function latestTodoList(records: BrevynAgentTimelineRecord[]): AgentTodoItem[] {
   let latest: AgentTodoItem[] = [];
-  for (const record of records) {
+  let latestTodoUserInputIndex = -1;
+  const latestUserInputIndex = lastUserInputIndex(records);
+  for (const [index, record] of records.entries()) {
     if (isRuntimeRecord(record) || (record as SDKMessage).type !== "assistant") continue;
     for (const block of assistantBlocks(record as SDKMessage)) {
       if (block.type !== "tool_use" || block.name !== "TodoWrite") continue;
@@ -1551,9 +1625,33 @@ function latestTodoList(records: BrevynAgentTimelineRecord[]): AgentTodoItem[] {
         const status = rawStatus === "completed" || rawStatus === "in_progress" ? rawStatus : "pending";
         return [{ content, status }];
       });
+      latestTodoUserInputIndex = ownerUserInputIndex(records, index);
     }
   }
+  if (latest.length === 0) return [];
+  const completed = latest.every((todo) => todo.status === "completed");
+  if (completed && latestUserInputIndex > latestTodoUserInputIndex) return [];
   return latest;
+}
+
+function lastUserInputIndex(records: BrevynAgentTimelineRecord[]): number {
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (!record || isRuntimeRecord(record) || (record as SDKMessage).type !== "user") continue;
+    if (toolResultBlocks(record as SDKMessage).length || !userText(record as SDKMessage).trim()) continue;
+    return index;
+  }
+  return -1;
+}
+
+function ownerUserInputIndex(records: BrevynAgentTimelineRecord[], beforeIndex: number): number {
+  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (!record || isRuntimeRecord(record) || (record as SDKMessage).type !== "user") continue;
+    if (toolResultBlocks(record as SDKMessage).length || !userText(record as SDKMessage).trim()) continue;
+    return index;
+  }
+  return -1;
 }
 
 function latestContextUsage(records: BrevynAgentTimelineRecord[]): ContextUsage | null {
@@ -1580,22 +1678,37 @@ function latestContextUsage(records: BrevynAgentTimelineRecord[]): ContextUsage 
     if (message.type === "result") {
       const usage = recordObject((message as { usage?: unknown }).usage);
       const primaryUsage = primaryModelUsageFromResult(message);
+      const contextWindow = primaryUsage?.contextWindow;
+      if (latest && contextWindow) {
+        latest = { ...latest, contextWindow };
+        continue;
+      }
       const inputTokens = primaryUsage
         ? primaryUsage.inputTokens + (primaryUsage.cacheReadTokens || 0) + (primaryUsage.cacheCreationTokens || 0)
         : tokenNumber(usage.input_tokens) + tokenNumber(usage.cache_read_input_tokens) + tokenNumber(usage.cache_creation_input_tokens);
-      const contextWindow = primaryUsage?.contextWindow;
-      if (inputTokens > 0 || contextWindow) {
+      if (!latest && (inputTokens > 0 || contextWindow)) {
         latest = {
-          inputTokens: inputTokens || latest?.inputTokens || 0,
-          outputTokens: primaryUsage?.outputTokens || tokenNumber(usage.output_tokens) || latest?.outputTokens,
-          cacheReadTokens: primaryUsage?.cacheReadTokens || tokenNumber(usage.cache_read_input_tokens) || latest?.cacheReadTokens,
-          cacheCreationTokens: primaryUsage?.cacheCreationTokens || tokenNumber(usage.cache_creation_input_tokens) || latest?.cacheCreationTokens,
-          contextWindow: contextWindow || latest?.contextWindow,
+          inputTokens: inputTokens || 0,
+          outputTokens: primaryUsage?.outputTokens || tokenNumber(usage.output_tokens) || undefined,
+          cacheReadTokens: primaryUsage?.cacheReadTokens || tokenNumber(usage.cache_read_input_tokens) || undefined,
+          cacheCreationTokens: primaryUsage?.cacheCreationTokens || tokenNumber(usage.cache_creation_input_tokens) || undefined,
+          contextWindow,
         };
       }
     }
   }
   return latest && latest.inputTokens > 0 ? latest : null;
+}
+
+function autoCompactThresholdPercent(provider?: ModelProviderConfig): number {
+  const value = provider?.autoCompactThresholdPercent;
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT;
+  return clampNumber(value, MIN_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT);
+}
+
+function shouldAutoCompactContext(usage: ContextUsage | null, provider?: ModelProviderConfig): boolean {
+  if (!usage?.contextWindow || usage.inputTokens <= 0) return false;
+  return usage.inputTokens / usage.contextWindow >= autoCompactThresholdPercent(provider) / 100;
 }
 
 function defaultContextUsage(model?: string): ContextUsage | null {
@@ -1692,28 +1805,69 @@ function normalizeTimelineRecords(records: BrevynAgentTimelineRecord[], running:
   const normalized: AgentTimelineRecord[] = [];
   let streamText = "";
   let streamId = "stream";
+  let thinkingText = "";
+  let thinkingId = "thinking-stream";
+  let streamOwnerActive = false;
 
   for (const record of records) {
     if (isHiddenSystemRecord(record)) continue;
+    const startsUserTurn = isTimelineUserInputRecord(record);
+    const startsRuntimeRun = isRuntimeRecord(record) && record.event.type === "run_started";
+    if ((startsUserTurn || startsRuntimeRun) && streamText) {
+      streamText = "";
+      streamId = "stream";
+    }
+    if ((startsUserTurn || startsRuntimeRun) && thinkingText) {
+      thinkingText = "";
+      thinkingId = "thinking-stream";
+    }
+
+    const thinkingDelta = streamThinkingDelta(record);
+    if (thinkingDelta) {
+      if (streamOwnerActive) thinkingText += thinkingDelta;
+      if (thinkingId === "thinking-stream") thinkingId = stringValue((record as { uuid?: unknown }).uuid, thinkingId);
+      continue;
+    }
     const delta = streamTextDelta(record);
     if (delta) {
-      streamText += delta;
+      if (streamOwnerActive) streamText += delta;
       if (streamId === "stream") streamId = stringValue((record as { uuid?: unknown }).uuid, streamId);
       continue;
     }
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "stream_event") continue;
 
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant" && thinkingText.trim()) {
+      normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
+      thinkingText = "";
+      thinkingId = "thinking-stream";
+    }
     if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant" && assistantText(record as SDKMessage).trim()) {
+      const fullText = assistantText(record as SDKMessage);
+      if (running && streamText && textMatchesStream(fullText, streamText)) {
+        normalized.push({ kind: "stream", id: streamId, text: streamText });
+      }
       streamText = "";
     }
     if (streamText && isBoundaryRecord(record)) {
       normalized.push({ kind: "stream", id: streamId, text: streamText });
       streamText = "";
     }
+    if (thinkingText && isBoundaryRecord(record)) {
+      normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
+      thinkingText = "";
+      thinkingId = "thinking-stream";
+    }
     normalized.push(record);
+    if (startsRuntimeRun) streamOwnerActive = false;
+    if (startsUserTurn) streamOwnerActive = true;
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "result") streamOwnerActive = false;
   }
 
-  if (streamText.trim()) {
+  if (streamOwnerActive && streamText.trim()) {
     normalized.push({ kind: "stream", id: streamId, text: streamText });
+  }
+  if (streamOwnerActive && thinkingText.trim()) {
+    normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
   }
   if ((compactInFlight || running) && shouldShowCompactPlaceholder(normalized)) {
     normalized.push({ kind: "compact_placeholder", id: "active-compact-placeholder" });
@@ -1734,7 +1888,7 @@ function shouldShowCompactPlaceholder(records: AgentTimelineRecord[]): boolean {
   const bounds = latestTurnBounds(records);
   if (!bounds || bounds.result || !isCompactCommandMessage(bounds.user)) return false;
   return !records.slice(bounds.userIndex + 1).some((record) => {
-    if (isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
+    if (isRuntimeRecord(record) || isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
     if ((record as SDKMessage).type !== "system") return false;
     const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
     return subtype === "compacting" || subtype === "compact_boundary";
@@ -1771,6 +1925,28 @@ function streamTextDelta(record: BrevynAgentTimelineRecord): string {
   if (event.type !== "content_block_delta") return "";
   const delta = recordObject(event.delta);
   return delta.type === "text_delta" && typeof delta.text === "string" ? delta.text : "";
+}
+
+function streamThinkingDelta(record: BrevynAgentTimelineRecord): string {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
+  const event = recordObject((record as { event?: unknown }).event);
+  if (event.type !== "content_block_delta") return "";
+  const delta = recordObject(event.delta);
+  if (delta.type === "thinking_delta" && typeof delta.thinking === "string") return delta.thinking;
+  return "";
+}
+
+function isTimelineUserInputRecord(record: BrevynAgentTimelineRecord): boolean {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "user") return false;
+  const message = record as SDKMessage;
+  return toolResultBlocks(message).length === 0 && userText(message).trim().length > 0;
+}
+
+function textMatchesStream(fullText: string, streamText: string): boolean {
+  const full = fullText.trim();
+  const streamed = streamText.trim();
+  if (!full || !streamed) return false;
+  return full === streamed || full.startsWith(streamed) || streamed.startsWith(full);
 }
 
 function ToolGlyph({ toolName, className }: { toolName: string; className?: string }) {

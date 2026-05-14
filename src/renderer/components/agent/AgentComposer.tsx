@@ -28,6 +28,7 @@ interface AgentComposerProps {
   planMode: boolean;
   permissionMode: AgentPermissionMode;
   contextUsage: ContextUsage | null;
+  autoCompactThresholdPercent: number;
   compacting: boolean;
   threadId: string;
   agentProviders: ModelProviderConfig[];
@@ -48,6 +49,7 @@ export function AgentComposer({
   planMode,
   permissionMode,
   contextUsage,
+  autoCompactThresholdPercent,
   compacting,
   threadId,
   agentProviders,
@@ -81,20 +83,6 @@ export function AgentComposer({
         detail: provider.name,
       }));
     }), [agentProviders]);
-
-  const permissionOptions = useMemo(() => [
-    {
-      value: "review",
-      label: "Review",
-      icon: <ShieldAlert className="h-3.5 w-3.5" />,
-    },
-    {
-      value: "full_access",
-      label: "Full Access",
-      disabled: planMode,
-      icon: <ShieldCheck className="h-3.5 w-3.5" />,
-    },
-  ], [planMode]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -276,26 +264,31 @@ export function AgentComposer({
             <div className="flex min-w-0 shrink-0 items-center gap-1.5">
               <ContextUsageButton
                 usage={contextUsage}
+                autoCompactThresholdPercent={autoCompactThresholdPercent}
                 compacting={compacting}
                 compactDisabled={running || !contextUsage || contextUsage.inputTokens <= 0}
                 onCompact={onCompact}
               />
-              <DropdownSelect
-                value={planMode ? "review" : permissionMode}
-                options={permissionOptions}
-                onChange={(mode) => onSetPermissionMode(mode === "full_access" ? "full_access" : "review")}
-                placeholder="Permission"
-                ariaLabel="Select agent permission mode"
-                disabled={running || planMode}
-                className="w-fit shrink-0"
-                buttonClassName={`h-7 min-w-[96px] rounded-full border px-2 text-[11px] font-semibold shadow-sm backdrop-blur ${
-                  !planMode && permissionMode === "full_access"
-                    ? "border-amber-200 bg-amber-50/80 text-amber-900"
-                    : "border-border/70 bg-background/55"
-                }`}
-                menuClassName="bg-card/95 backdrop-blur-xl"
-                menuMinWidth={132}
-              />
+              <div className="group/permission relative shrink-0">
+                <button
+                  type="button"
+                  disabled={running || planMode}
+                  onClick={() => onSetPermissionMode(permissionMode === "full_access" ? "review" : "full_access")}
+                  className={`inline-flex h-7 w-8 items-center justify-center rounded-full transition hover:bg-accent/70 disabled:cursor-not-allowed disabled:opacity-45 ${
+                    !planMode && permissionMode === "full_access" ? "text-amber-600" : "text-muted-foreground"
+                  }`}
+                  aria-label={planMode ? "Review" : permissionMode === "full_access" ? "Full Access" : "Review"}
+                >
+                  {!planMode && permissionMode === "full_access"
+                    ? <ShieldAlert className="h-4 w-4" strokeWidth={2.1} />
+                    : <ShieldCheck className="h-4 w-4" strokeWidth={2.1} />}
+                </button>
+                <div className="pointer-events-none absolute bottom-full right-0 z-[80] mb-2 w-52 translate-y-1 rounded-xl border border-white/60 bg-card/95 px-3 py-2 text-[11px] text-muted-foreground opacity-0 shadow-[0_14px_36px_rgba(64,55,38,0.16)] ring-1 ring-border/50 backdrop-blur-xl transition duration-150 group-hover/permission:translate-y-0 group-hover/permission:opacity-100 group-focus-within/permission:translate-y-0 group-focus-within/permission:opacity-100">
+                  <p className="font-semibold text-foreground">{!planMode && permissionMode === "full_access" ? "Full Access" : "Review"}</p>
+                  <p className="mt-0.5">{!planMode && permissionMode === "full_access" ? "可直接写入；危险命令仍需确认" : "写入前先请求确认"}</p>
+                  {!running && !planMode && <p className="mt-1 text-[10px] text-muted-foreground/80">点击切换到 {permissionMode === "full_access" ? "Review" : "Full Access"}</p>}
+                </div>
+              </div>
               <DropdownSelect
                 value={activeProviderId}
                 options={providerOptions}
@@ -560,18 +553,42 @@ function TodoRow({ todo, running }: { todo: AgentTodoItem; running: boolean }) {
 
 function ContextUsageButton({
   usage,
+  autoCompactThresholdPercent,
   compacting,
   compactDisabled,
   onCompact,
 }: {
   usage: ContextUsage | null;
+  autoCompactThresholdPercent: number;
   compacting: boolean;
   compactDisabled: boolean;
   onCompact: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current === null) return;
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  };
+
+  const showMenu = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+
+  const hideMenuSoon = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 90);
+  };
+
+  useEffect(() => () => clearCloseTimer(), []);
 
   useEffect(() => {
     if (!open || compacting || !usage) return;
@@ -608,7 +625,8 @@ function ContextUsageButton({
   if (!usage) return null;
 
   const ratio = usage.contextWindow ? clampNumber(usage.inputTokens / usage.contextWindow, 0, 1) : 0;
-  const compactThreshold = usage.contextWindow ? usage.contextWindow * 0.775 : 0;
+  const compactThresholdRatio = clampNumber(autoCompactThresholdPercent, 50, 95) / 100;
+  const compactThreshold = usage.contextWindow ? usage.contextWindow * compactThresholdRatio : 0;
   const warning = compactThreshold > 0 ? usage.inputTokens / compactThreshold >= 0.8 : false;
   const percent = usage.contextWindow ? Math.round((usage.inputTokens / usage.contextWindow) * 100) : undefined;
   const pureInput = Math.max(0, usage.inputTokens - (usage.cacheReadTokens || 0) - (usage.cacheCreationTokens || 0));
@@ -626,7 +644,10 @@ function ContextUsageButton({
         }`}
         aria-label="Context usage"
         title="Context usage"
-        onClick={() => setOpen((current) => !current)}
+        onMouseEnter={showMenu}
+        onMouseLeave={hideMenuSoon}
+        onFocus={showMenu}
+        onBlur={hideMenuSoon}
       >
         <span className="absolute inset-[5px] rounded-full" style={ringStyle} />
         <span className="absolute inset-[8px] rounded-full bg-card" />
@@ -636,7 +657,8 @@ function ContextUsageButton({
         <div
           className="fixed z-[120] w-64 -translate-y-full rounded-2xl border border-white/65 bg-card/95 p-3 text-xs shadow-[0_18px_48px_rgba(64,55,38,0.18)] ring-1 ring-border/50 backdrop-blur-xl"
           style={{ left: menuPosition.left, top: menuPosition.top }}
-          onMouseLeave={() => setOpen(false)}
+          onMouseEnter={showMenu}
+          onMouseLeave={hideMenuSoon}
         >
           <div className="flex items-start justify-between gap-3">
             <div>

@@ -19,6 +19,7 @@ import {
   GitBranch,
   Info,
   KeyRound,
+  Languages,
   Layers3,
   MessageSquare,
   Minus,
@@ -46,10 +47,12 @@ import { Markdownish } from "@/components/chat/Markdownish";
 import brevynMarkUrl from "@/assets/brevyn-marginal-mark.svg";
 import {
   AGENT_PROVIDER_PRESETS,
+  DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
   EMBEDDING_PROVIDER_PRESETS,
   PROVIDER_PRESETS,
   VISION_PROVIDER_PRESETS,
   type AgentProviderKind,
+  type AgentGatewayStatus,
   type EmbeddingProviderKind,
   type VisionProviderKind,
   type Course,
@@ -70,7 +73,7 @@ import {
 } from "../../../types/domain";
 import { cx } from "@/lib/cn";
 
-type SettingsPage = "providers" | "archive" | "skills" | "about";
+type SettingsPage = "general" | "providers" | "archive" | "skills" | "about";
 type VisionTestKind = "calendar" | "timetable";
 type VisionTestResult = RecognizedAcademicCalendar | RecognizedCourseTimetable;
 type ProviderBusyAction =
@@ -108,6 +111,7 @@ const emptyDraft: ProviderDraftInput = {
   models: [],
   selectedModel: "",
   enabled: false,
+  autoCompactThresholdPercent: DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
 };
 
 const emptyEmbeddingDraft: ProviderDraftInput = {
@@ -178,6 +182,8 @@ export function SettingsDialog({
   const [reindexingActiveSemester, setReindexingActiveSemester] = useState(false);
   const [providerToast, setProviderToast] = useState<{ id: number; message: string } | null>(null);
   const [providerBusyActions, setProviderBusyActions] = useState<Partial<Record<ProviderBusyAction, boolean>>>({});
+  const [agentGatewayStatus, setAgentGatewayStatus] = useState<AgentGatewayStatus | null>(null);
+  const [agentGatewayBusy, setAgentGatewayBusy] = useState(false);
   const [localSkills, setLocalSkills] = useState(skills);
   const [selectedSkillId, setSelectedSkillId] = useState("");
   const [skillContent, setSkillContent] = useState("");
@@ -206,6 +212,7 @@ export function SettingsDialog({
 
   useEffect(() => {
     void loadProviders();
+    void loadAgentGatewayStatus();
   }, []);
 
   useEffect(() => {
@@ -346,6 +353,33 @@ export function SettingsDialog({
     }
   }
 
+  async function loadAgentGatewayStatus() {
+    try {
+      setAgentGatewayStatus(await window.brevyn.agentGateway.status());
+    } catch (error) {
+      console.warn("[agent-gateway] Failed to load status", error);
+    }
+  }
+
+  async function setOpenAiResponsesGatewayEnabled(enabled: boolean) {
+    setAgentGatewayBusy(true);
+    try {
+      const status = await window.brevyn.agentGateway.setEnabled(enabled);
+      setAgentGatewayStatus(status);
+      showProviderToast(enabled ? "OpenAI Responses Gateway 已启用。" : "OpenAI Responses Gateway 已关闭。");
+    } catch (error) {
+      setAgentGatewayStatus((current) => ({
+        enabled,
+        state: "failed",
+        activeRuns: current?.activeRuns ?? 0,
+        url: current?.url,
+        error: errorMessage(error),
+      }));
+    } finally {
+      setAgentGatewayBusy(false);
+    }
+  }
+
   function selectProvider(provider: ModelProviderConfig) {
     closeEmbeddingEditor();
     closeVisionEditor();
@@ -476,7 +510,7 @@ export function SettingsDialog({
   async function saveProvider() {
     setProviderBusy("agent-save", true);
     try {
-      const result = await window.brevyn.providers.save({ ...draft, purpose: "agent", protocol: "anthropic_messages" });
+      const result = await window.brevyn.providers.save({ ...draft, purpose: "agent", protocol: AGENT_PROVIDER_PRESETS[draft.providerKind as AgentProviderKind]?.protocol || draft.protocol });
       const saved = result.provider;
       const next = await window.brevyn.providers.list();
       setProviders(next);
@@ -877,6 +911,13 @@ export function SettingsDialog({
           <aside className="border-r bg-background/45 p-3">
             <div className="space-y-1.5">
               <SettingsNavButton
+                active={activePage === "general"}
+                icon={<Languages className="h-4 w-4" />}
+                title="通用"
+                detail="语言 · 外观占位"
+                onClick={() => setActivePage("general")}
+              />
+              <SettingsNavButton
                 active={activePage === "providers"}
                 icon={<PlugZap className="h-4 w-4" />}
                 title="模型配置"
@@ -908,7 +949,9 @@ export function SettingsDialog({
           </aside>
 
           <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto brevyn-scrollbar")}>
-            {activePage === "providers" ? (
+            {activePage === "general" ? (
+              <GeneralSettingsPage />
+            ) : activePage === "providers" ? (
               <ProviderSettingsPage
                 providers={providers}
                 selectedProviderId={selectedProviderId}
@@ -929,6 +972,8 @@ export function SettingsDialog({
                 embeddingReindexNotice={embeddingReindexNotice}
                 reindexingActiveSemester={reindexingActiveSemester}
                 busyActions={providerBusyActions}
+                agentGatewayStatus={agentGatewayStatus}
+                agentGatewayBusy={agentGatewayBusy}
                 onSelectProvider={selectProvider}
                 onSelectEmbeddingProvider={selectEmbeddingProvider}
                 onSelectVisionProvider={selectVisionProvider}
@@ -958,6 +1003,7 @@ export function SettingsDialog({
                 onSaveVisionProvider={saveVisionProvider}
                 onReindexActiveSemester={() => void reindexActiveSemester()}
                 onDismissEmbeddingReindexNotice={() => setEmbeddingReindexNotice("")}
+                onToggleOpenAiResponsesGateway={(enabled) => void setOpenAiResponsesGatewayEnabled(enabled)}
               />
             ) : activePage === "archive" ? (
               <ArchiveSettingsPage onWorkspaceChanged={onWorkspaceChanged} />
@@ -987,6 +1033,29 @@ export function SettingsDialog({
   );
 }
 
+function GeneralSettingsPage() {
+  return (
+    <div className="space-y-4">
+      <section className="rounded-lg border bg-background/70 p-4">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <Languages className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-foreground">通用设置</div>
+            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">先放全局偏好入口，后面语言、外观和行为设置都可以收在这里。</div>
+          </div>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-2">
+          <ReadOnlyField label="语言" value="中文" />
+          <ReadOnlyField label="状态" value="占位，暂不切换界面语言" />
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ProviderSettingsPage({
   providers,
   selectedProviderId,
@@ -1007,6 +1076,8 @@ function ProviderSettingsPage({
   embeddingReindexNotice,
   reindexingActiveSemester,
   busyActions,
+  agentGatewayStatus,
+  agentGatewayBusy,
   onSelectProvider,
   onSelectEmbeddingProvider,
   onSelectVisionProvider,
@@ -1036,6 +1107,7 @@ function ProviderSettingsPage({
   onSaveVisionProvider,
   onReindexActiveSemester,
   onDismissEmbeddingReindexNotice,
+  onToggleOpenAiResponsesGateway,
 }: {
   providers: ModelProviderConfig[];
   selectedProviderId: string;
@@ -1056,6 +1128,8 @@ function ProviderSettingsPage({
   embeddingReindexNotice: string;
   reindexingActiveSemester: boolean;
   busyActions: Partial<Record<ProviderBusyAction, boolean>>;
+  agentGatewayStatus: AgentGatewayStatus | null;
+  agentGatewayBusy: boolean;
   onSelectProvider: (provider: ModelProviderConfig) => void;
   onSelectEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onSelectVisionProvider: (provider: ModelProviderConfig) => void;
@@ -1085,6 +1159,7 @@ function ProviderSettingsPage({
   onSaveVisionProvider: () => void;
   onReindexActiveSemester: () => void;
   onDismissEmbeddingReindexNotice: () => void;
+  onToggleOpenAiResponsesGateway: (enabled: boolean) => void;
 }) {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
   const selectedEmbeddingProvider = providers.find((provider) => provider.id === selectedEmbeddingProviderId);
@@ -1193,6 +1268,23 @@ function ProviderSettingsPage({
               icon={<KeyRound className="h-3 w-3" />}
             />
             <ReadOnlyField label="默认模型" value={draft.selectedModel || "请在下方选择已启用模型"} />
+            <Field
+              label="自动压缩阈值 (%)"
+              value={String(draft.autoCompactThresholdPercent ?? DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT)}
+              onChange={(value) => {
+                if (!value.trim()) {
+                  onDraftChange({ ...draft, autoCompactThresholdPercent: undefined });
+                  return;
+                }
+                const numeric = Number(value);
+                if (Number.isFinite(numeric)) onDraftChange({ ...draft, autoCompactThresholdPercent: numeric });
+              }}
+              type="number"
+              placeholder={String(DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT)}
+            />
+          </div>
+          <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+            每个模型上下文窗口不同，这里只设置百分比；默认按 Proma/SDK 经验在 77.5% 左右触发自动压缩。
           </div>
 
           <div className="mt-3 rounded-md border bg-card p-2">
@@ -1435,6 +1527,11 @@ function ProviderSettingsPage({
             ))}
             {chatProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无 Agent 配置。新建后会显示在这里。</div>}
           </div>
+          <AgentGatewayAdvancedPanel
+            status={agentGatewayStatus}
+            busy={agentGatewayBusy}
+            onToggle={onToggleOpenAiResponsesGateway}
+          />
           {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
         </section>
 
@@ -1549,6 +1646,64 @@ function ProviderSettingsPage({
       </div>
     </div>
   );
+}
+
+function AgentGatewayAdvancedPanel({
+  status,
+  busy,
+  onToggle,
+}: {
+  status: AgentGatewayStatus | null;
+  busy: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const enabled = Boolean(status?.enabled);
+  const label = agentGatewayStatusLabel(status);
+  const detail = status?.state === "running" && status.url
+    ? `${status.url}${status.activeRuns > 0 ? ` · ${status.activeRuns} 个运行中` : ""}`
+    : status?.state === "failed"
+      ? status.error || "启动失败"
+      : "关闭时仍会在 OpenAI Responses Agent 运行时按需启动。";
+  return (
+    <div className="mt-3 rounded-lg border bg-card/70 px-3 py-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+            <TerminalSquare className="h-3.5 w-3.5 text-muted-foreground" />
+            OpenAI Responses Gateway
+            <span className={cx("rounded-full px-1.5 py-0.5 text-[10px] font-medium", status?.state === "failed" ? "bg-rose-100 text-rose-800" : "bg-muted text-muted-foreground")}>
+              {label}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+            {detail}
+          </div>
+        </div>
+        <button
+          type="button"
+          className={cx(
+            "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
+            enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+          )}
+          onClick={() => onToggle(!enabled)}
+          disabled={busy || status?.state === "starting" || status?.state === "stopping"}
+        >
+          {enabled ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+          {busy || status?.state === "starting" || status?.state === "stopping" ? "处理中" : enabled ? "开启" : "关闭"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function agentGatewayStatusLabel(status: AgentGatewayStatus | null): string {
+  if (!status) return "加载中";
+  if (!status.enabled && status.state === "disabled") return "按需模式";
+  if (status.state === "running") return "运行中";
+  if (status.state === "starting") return "启动中";
+  if (status.state === "stopping") return "停止中";
+  if (status.state === "failed") return "启动失败";
+  return status.enabled ? "已启用" : "按需模式";
 }
 
 function nextProviderDraftName(providers: ModelProviderConfig[], purpose: ProviderPurpose): string {
@@ -3502,6 +3657,7 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
     models: provider.models.map((model) => ({ ...model })),
     selectedModel: provider.selectedModel,
     enabled: provider.enabled,
+    autoCompactThresholdPercent: provider.autoCompactThresholdPercent ?? DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
     ...overrides,
   };
 }
@@ -3545,6 +3701,9 @@ function applyProviderPreset(draft: ProviderDraftInput, providerKind: ProviderKi
     baseUrl: preset.baseUrl,
     models,
     selectedModel: "",
+    autoCompactThresholdPercent: preset.purpose === "agent"
+      ? draft.autoCompactThresholdPercent ?? DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT
+      : undefined,
   };
 }
 

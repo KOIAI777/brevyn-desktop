@@ -1,6 +1,7 @@
 import type { AgentProviderKind, EmbeddingProviderKind, ModelProviderConfig } from "../../types/domain";
 import { AnthropicAgentAdapter } from "./anthropic-agent-adapter";
 import { OpenAIEmbeddingAdapter } from "./openai-embedding-adapter";
+import { OpenAIResponsesAgentAdapter } from "./openai-responses-agent-adapter";
 import type { AgentProviderAdapter, EmbeddingProviderAdapter } from "./types";
 
 const agentAdapters = new Map<AgentProviderKind, AgentProviderAdapter>([
@@ -10,6 +11,7 @@ const agentAdapters = new Map<AgentProviderKind, AgentProviderAdapter>([
   ["kimi-api", new AnthropicAgentAdapter("kimi-api")],
   ["kimi-coding", new AnthropicAgentAdapter("kimi-coding")],
   ["custom-anthropic", new AnthropicAgentAdapter("custom-anthropic")],
+  ["openai-responses-agent", new OpenAIResponsesAgentAdapter("openai-responses-agent")],
 ]);
 
 const embeddingAdapters = new Map<EmbeddingProviderKind, EmbeddingProviderAdapter>([

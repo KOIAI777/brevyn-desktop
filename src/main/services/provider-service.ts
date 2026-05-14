@@ -1,6 +1,9 @@
 import {
   AGENT_PROVIDER_PRESETS,
+  DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
   EMBEDDING_PROVIDER_PRESETS,
+  MAX_AUTO_COMPACT_THRESHOLD_PERCENT,
+  MIN_AUTO_COMPACT_THRESHOLD_PERCENT,
   PROVIDER_PRESETS,
   VISION_PROVIDER_PRESETS,
   type AgentProviderKind,
@@ -93,6 +96,7 @@ export class ProviderService {
         models: normalizeProviderModels(modelSeed, selectedModel),
         selectedModel,
         enabled: draft.enabled ?? existing?.enabled ?? false,
+        autoCompactThresholdPercent: normalizeAutoCompactThresholdPercent(draft.autoCompactThresholdPercent, purpose),
         createdAt: existing?.createdAt || timestamp,
         updatedAt: timestamp,
       };
@@ -327,8 +331,10 @@ export class ProviderService {
   agentProviderFor(providerId?: string, modelId?: string): ModelProviderConfig | undefined {
     const providers = this.list().filter((provider) =>
       provider.purpose === "agent" &&
-      provider.protocol === "anthropic_messages" &&
-      provider.adapterKind === "anthropic" &&
+      (
+        (provider.protocol === "anthropic_messages" && provider.adapterKind === "anthropic") ||
+        (provider.protocol === "openai_responses" && provider.adapterKind === "openai_responses")
+      ) &&
       provider.enabled &&
       provider.models.some((model) => model.enabled !== false) &&
       Boolean(provider.baseUrl) &&
@@ -482,6 +488,7 @@ export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProv
       models: normalizeProviderModels(modelSeed, selectedModel),
       selectedModel,
       enabled: normalizeProviderEnabled(provider),
+      autoCompactThresholdPercent: normalizeAutoCompactThresholdPercent(provider.autoCompactThresholdPercent, purpose),
       createdAt: stringValue(provider.createdAt) || new Date().toISOString(),
       updatedAt: stringValue(provider.updatedAt) || new Date().toISOString(),
     };
@@ -499,6 +506,9 @@ export function envApiKeyForProvider(provider: ModelProviderConfig): string | un
 }
 
 function envAgentApiKey(provider: ModelProviderConfig): string | undefined {
+  if (provider.protocol === "openai_responses") {
+    return process.env.BREVYN_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  }
   if (provider.providerKind === "deepseek") {
     return process.env.BREVYN_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
   }
@@ -629,6 +639,7 @@ function normalizeKindAlias(kind: string | undefined): string {
   if (value === "vision_openai_responses") return "vision-openai-responses";
   if (value === "vision_custom_openai_responses") return "vision-custom-openai-responses";
   if (value === "custom_anthropic") return "custom-anthropic";
+  if (value === "openai_responses_agent" || value === "openai-responses" || value === "custom_openai_responses_agent") return "openai-responses-agent";
   if (value === "custom_openai" || value === "custom") return "custom-openai";
   return value;
 }
@@ -655,6 +666,9 @@ function isVisionProviderKind(kind: string): kind is VisionProviderKind {
 
 function inferAgentProviderKind(protocol?: string, baseUrl?: string): AgentProviderKind {
   const url = normalizeBaseUrl(baseUrl).toLowerCase();
+  if (protocol === "openai_responses") {
+    return "openai-responses-agent";
+  }
   if (url.includes("deepseek.com")) return "deepseek";
   if (url.includes("dashscope.aliyuncs.com/apps/anthropic")) return "bailian-anthropic";
   if (url.includes("api.kimi.com/coding")) return "kimi-coding";
@@ -698,6 +712,13 @@ function normalizeSelectedModel(provider: LegacyProviderConfig): string {
 
 function normalizeProviderEnabled(provider: LegacyProviderConfig): boolean {
   return Boolean(provider.enabled);
+}
+
+function normalizeAutoCompactThresholdPercent(value: unknown, purpose: ProviderPurpose): number | undefined {
+  if (purpose !== "agent") return undefined;
+  const numeric = typeof value === "number" ? value : Number.parseFloat(stringValue(value));
+  if (!Number.isFinite(numeric)) return DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT;
+  return Math.min(MAX_AUTO_COMPACT_THRESHOLD_PERCENT, Math.max(MIN_AUTO_COMPACT_THRESHOLD_PERCENT, numeric));
 }
 
 function activeEmbeddingProviderFingerprint(providers: ModelProviderConfig[]): string | undefined {
@@ -1039,6 +1060,7 @@ function normalizeProviderDraftInput(input: unknown): ProviderDraftInput {
     models: Array.isArray(draft.models) ? draft.models : [],
     selectedModel: stringValue(draft.selectedModel).trim(),
     enabled: typeof draft.enabled === "boolean" ? draft.enabled : undefined,
+    autoCompactThresholdPercent: normalizeAutoCompactThresholdPercent(draft.autoCompactThresholdPercent, purpose),
   };
 }
 

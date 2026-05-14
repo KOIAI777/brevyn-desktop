@@ -49,9 +49,10 @@ export class ClaudeSdkAdapter {
         resume: input.resumeSessionId,
         systemPrompt: input.systemPrompt,
         settingSources: [],
-        // Match Proma's stable SDK mode: render complete SDK events instead of
-        // token-level partials, which are too chatty for persisted timelines.
-        includePartialMessages: false,
+        // Keep partial SDK events in the live stream so the renderer can reveal
+        // assistant text progressively. The orchestrator emits them without
+        // persisting, so JSONL timelines stay compact on replay.
+        includePartialMessages: true,
         tools: ["Read", "Glob", "Grep", "TodoRead", "TodoWrite", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "Write", "Edit", "MultiEdit", "Bash", "WebFetch", "WebSearch"],
         allowedTools: [
           "Read",
@@ -112,6 +113,7 @@ function stringProcessEnv(): Record<string, string> {
 function resolveRuntimeRequireFrom(): string {
   const candidates = [
     join(process.cwd(), "package.json"),
+    join(process.resourcesPath || "", "app.asar.unpacked", "node_modules", "docx", "package.json"),
     join(process.resourcesPath || "", "app", "package.json"),
     join(process.resourcesPath || "", "package.json"),
     join(__dirname, "..", "package.json"),

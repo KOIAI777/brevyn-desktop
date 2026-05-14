@@ -50,6 +50,8 @@ function App() {
   const fileLoadRequestRef = useRef(0);
   const filePreviewRequestRef = useRef(0);
   const pendingWriteToolPathsRef = useRef<Map<string, string>>(new Map());
+  const pendingAgentStreamEventsRef = useRef<BrevynAgentTimelineRecord[]>([]);
+  const pendingAgentStreamFrameRef = useRef<number | null>(null);
   const workspaceReloadRequestRef = useRef(0);
   const agentLoadRequestRef = useRef(0);
   const contentGridRef = useRef<HTMLDivElement | null>(null);
@@ -107,6 +109,29 @@ function App() {
   fileTreeRef.current = fileTree;
   railWidthsRef.current = { files: fileRailWidth, preview: previewRailWidth };
 
+  function flushPendingAgentStreamEvents() {
+    if (pendingAgentStreamFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingAgentStreamFrameRef.current);
+      pendingAgentStreamFrameRef.current = null;
+    }
+    const pending = pendingAgentStreamEventsRef.current;
+    if (pending.length === 0) return;
+    pendingAgentStreamEventsRef.current = [];
+    setAgentRecords((current) => [...current, ...pending]);
+  }
+
+  function enqueueAgentStreamEvent(message: BrevynAgentTimelineRecord) {
+    pendingAgentStreamEventsRef.current.push(message);
+    if (pendingAgentStreamFrameRef.current !== null) return;
+    pendingAgentStreamFrameRef.current = window.requestAnimationFrame(() => {
+      pendingAgentStreamFrameRef.current = null;
+      const pending = pendingAgentStreamEventsRef.current;
+      if (pending.length === 0) return;
+      pendingAgentStreamEventsRef.current = [];
+      setAgentRecords((current) => [...current, ...pending]);
+    });
+  }
+
   useEffect(() => {
     let cancelled = false;
     mountedRef.current = true;
@@ -114,6 +139,9 @@ function App() {
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      if (pendingAgentStreamFrameRef.current !== null) window.cancelAnimationFrame(pendingAgentStreamFrameRef.current);
+      pendingAgentStreamFrameRef.current = null;
+      pendingAgentStreamEventsRef.current = [];
     };
   }, []);
 
@@ -155,6 +183,11 @@ function App() {
             : event.event.threadId;
       if (!eventThreadId || eventThreadId !== activeThreadIdRef.current) return;
       if (event.kind === "sdk_message") {
+        if (isLiveStreamEventMessage(event.message)) {
+          enqueueAgentStreamEvent(event.message);
+          return;
+        }
+        flushPendingAgentStreamEvents();
         rememberWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
         const completedWritePaths = completedWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
         for (const path of completedWritePaths) scheduleWorkspacePathPreview(path);
@@ -169,6 +202,7 @@ function App() {
         }
         return;
       }
+      flushPendingAgentStreamEvents();
       setAgentRecords((current) => [...current, { kind: "runtime", event: event.event }]);
       if (event.event.type === "run_started") {
         setAgentRunning(true);
@@ -183,6 +217,8 @@ function App() {
 
   useEffect(() => {
     if (!activeThreadId) {
+      flushPendingAgentStreamEvents();
+      pendingAgentStreamEventsRef.current = [];
       agentLoadRequestRef.current += 1;
       setAgentRecords([]);
       setSessionFiles([]);
@@ -191,6 +227,8 @@ function App() {
       setAgentError("");
       return;
     }
+    flushPendingAgentStreamEvents();
+    pendingAgentStreamEventsRef.current = [];
     void loadAgentMessages(activeThreadId);
     void loadSessionFiles(activeThreadId);
   }, [activeThreadId]);
@@ -1122,7 +1160,9 @@ function App() {
           onCourseCreated={handleCourseCreated}
           onCourseUpdated={handleCourseUpdated}
           onTaskCreated={handleTaskCreated}
-          onWorkspaceChanged={() => void reloadWorkspace()}
+          onWorkspaceChanged={async () => {
+            await reloadWorkspace();
+          }}
           onClose={() => setCoursesOpen(false)}
         />
       )}
@@ -1175,6 +1215,14 @@ function resultErrorMessage(message: BrevynAgentSessionRecord): string {
   const result = (message as { result?: unknown }).result;
   if (typeof result === "string" && result.trim()) return result;
   return "Agent run failed.";
+}
+
+function isLiveStreamEventMessage(message: BrevynAgentTimelineRecord): boolean {
+  if ((message as { type?: unknown }).type !== "stream_event") return false;
+  const event = (message as { event?: unknown }).event;
+  if (!event || typeof event !== "object") return false;
+  const type = (event as { type?: unknown }).type;
+  return type === "content_block_delta" || type === "content_block_start" || type === "content_block_stop";
 }
 
 function dedupeThreads(threads: Thread[]): Thread[] {

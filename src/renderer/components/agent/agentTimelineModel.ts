@@ -15,6 +15,11 @@ export interface ToolResultBlock {
   isError: boolean;
 }
 
+export interface WebCitationLink {
+  title: string;
+  url: string;
+}
+
 export interface AgentTodoItem {
   content: string;
   status: "pending" | "in_progress" | "completed";
@@ -45,6 +50,7 @@ export type ProcessEvent =
 export type AgentTimelineRecord =
   | BrevynAgentTimelineRecord
   | { kind: "stream"; id: string; text: string }
+  | { kind: "thinking_stream"; id: string; text: string }
   | { kind: "process_placeholder"; id: string }
   | { kind: "compact_placeholder"; id: string };
 
@@ -102,7 +108,15 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
       return;
     }
 
-    if (isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) {
+    if (isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) {
+      if (!currentTurn) {
+        currentTurn = {
+          type: "assistant-turn",
+          assistantMessages: [],
+          turnRecords: [],
+          model: sessionModelId || "",
+        };
+      }
       if (currentTurn) currentTurn.turnRecords.push({ record, index });
       return;
     }
@@ -184,11 +198,11 @@ export function buildTimelineRenderMeta(records: AgentTimelineRecord[]): Timelin
       const item = turnItems[itemIndex];
       if (!item) continue;
       const { record, index } = item;
-      const assistant = !record || isRuntimeRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)
+      const assistant = !record || isRuntimeRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)
         ? null
         : record as SDKMessage;
       const blocks = assistant && !isStreamRecord(record) && assistant.type === "assistant" ? assistantBlocks(assistant) : [];
-      const hasToolUse = blocks.some((block) => block.type === "tool_use" && block.name !== "TodoWrite");
+      const hasToolUse = blocks.some((block) => block.type === "tool_use" && block.name !== "TodoWrite" && !isHostedToolUse(block));
       const hasText = isStreamRecord(record)
         ? record.text.trim().length > 0
         : Boolean(assistant && assistant.type === "assistant" && assistantText(assistant).trim());
@@ -249,7 +263,8 @@ function firstProcessItemIndex(
   narrationByIndex: Map<number, boolean>,
 ): number | undefined {
   for (const { record, index } of items) {
-    if (!record || isRuntimeRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if (isThinkingStreamRecord(record) && record.text.trim()) return index;
     if (narrationByIndex.get(index)) return index;
     if ((record as SDKMessage).type !== "assistant") continue;
     const message = record as SDKMessage;
@@ -266,10 +281,19 @@ function processEventsFromItems(
   const events: ProcessEvent[] = [];
   const toolById = new Map<string, Extract<ProcessEvent, { kind: "tool_use" }>>();
   const approvalByToolUseId = approvalDecisionByToolUseId(items);
+  const webCitationLinks = webCitationLinksFromItems(items);
   let thinkingIndex = 0;
 
   for (const { record, index } of items) {
     if (!record || isRuntimeRecord(record)) continue;
+    if (isThinkingStreamRecord(record)) {
+      const text = record.text.trim();
+      if (text) {
+        events.push({ kind: "thinking", id: `thinking-stream-${record.id}-${thinkingIndex}`, text });
+        thinkingIndex += 1;
+      }
+      continue;
+    }
     if ((record as SDKMessage).type === "assistant") {
       const message = record as SDKMessage;
       const blocks = assistantBlocks(message);
@@ -287,10 +311,12 @@ function processEventsFromItems(
       }
       for (const block of blocks) {
         if (block.type !== "tool_use" || block.name === "TodoWrite") continue;
+        const syntheticResult = hostedToolResult(block, webCitationLinks);
         const event: Extract<ProcessEvent, { kind: "tool_use" }> = {
           kind: "tool_use",
           id: `tool-use-${block.id}`,
           tool: block,
+          result: syntheticResult,
           approvalDecision: approvalByToolUseId.get(block.id),
         };
         toolById.set(block.id, event);
@@ -331,6 +357,27 @@ function approvalDecisionByToolUseId(
   return approvalByToolUseId;
 }
 
+function hostedToolResult(block: ToolUseBlock, links: WebCitationLink[] = []): ToolResultBlock | undefined {
+  const input = recordObject(block.input);
+  if (input.hosted !== true) return undefined;
+  return {
+    type: "tool_result",
+    toolUseId: block.id,
+    content: {
+      status: stringValue(input.status, "completed"),
+      providerStatus: stringValue(input.providerStatus, ""),
+      query: webSearchQueryFromInput(input),
+      hosted: true,
+      links,
+    },
+    isError: false,
+  };
+}
+
+function isHostedToolUse(block: ToolUseBlock): boolean {
+  return recordObject(block.input).hosted === true;
+}
+
 function lastTextAssistantItemIndex(items: Array<{ record: AgentTimelineRecord; index: number }>): number {
   for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
     const item = items[itemIndex];
@@ -347,7 +394,7 @@ function lastTextAssistantItemIndex(items: Array<{ record: AgentTimelineRecord; 
 }
 
 function isFinalAssistantOutputRecord(record: AgentTimelineRecord | undefined, processNarration: boolean): boolean {
-  if (!record || isRuntimeRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
+  if (!record || isRuntimeRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
   if (isStreamRecord(record)) return record.text.trim().length > 0;
   return (record as SDKMessage).type === "assistant" && assistantText(record as SDKMessage).trim().length > 0 && !processNarration;
 }
@@ -365,13 +412,13 @@ function assistantCopyContentForTurnItems(
   if (!finalItem || !isFinalAssistantOutputRecord(finalItem.record, Boolean(narrationByIndex.get(finalIndex)))) return undefined;
   for (let itemIndex = finalItemPosition + 1; itemIndex < items.length; itemIndex += 1) {
     const { record, index } = items[itemIndex] ?? {};
-    if (!record || isRuntimeRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
     if (isStreamRecord(record) && record.text.trim()) return undefined;
     if ((record as SDKMessage).type === "assistant" && assistantText(record as SDKMessage).trim() && !narrationByIndex.get(index)) return undefined;
   }
   const parts: string[] = [];
   for (const { record: candidate, index: candidateIndex } of items) {
-    if (!candidate || isRuntimeRecord(candidate) || isProcessPlaceholderRecord(candidate) || isCompactPlaceholderRecord(candidate)) continue;
+    if (!candidate || isRuntimeRecord(candidate) || isThinkingStreamRecord(candidate) || isProcessPlaceholderRecord(candidate) || isCompactPlaceholderRecord(candidate)) continue;
     if (isStreamRecord(candidate) && candidate.text.trim()) {
       parts.push(candidate.text.trim());
       continue;
@@ -388,12 +435,13 @@ function assistantCopyContentForTurnItems(
 export function latestTurnBounds(records: AgentTimelineRecord[]): { user: SDKMessage; userIndex: number; result?: SDKMessage; resultIndex?: number } | null {
   for (let index = records.length - 1; index >= 0; index -= 1) {
     const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isThinkingStreamRecord(record)) continue;
     if ((record as SDKMessage).type !== "user" || toolResultBlocks(record as SDKMessage).length > 0) continue;
     const resultIndex = records.findIndex((candidate, candidateIndex) => (
       candidateIndex > index
         && !isRuntimeRecord(candidate)
         && !isStreamRecord(candidate)
+        && !isThinkingStreamRecord(candidate)
         && (candidate as SDKMessage).type === "result"
     ));
     const result = resultIndex >= 0 ? records[resultIndex] as SDKMessage : undefined;
@@ -407,7 +455,7 @@ function turnBoundsForUserIndex(records: AgentTimelineRecord[], userIndex: numbe
   const searchEnd = nextUserIndex ?? records.length;
   for (let index = userIndex + 1; index < searchEnd; index += 1) {
     const candidate = records[index];
-    if (!candidate || isRuntimeRecord(candidate) || isStreamRecord(candidate)) continue;
+    if (!candidate || isRuntimeRecord(candidate) || isStreamRecord(candidate) || isThinkingStreamRecord(candidate)) continue;
     if ((candidate as SDKMessage).type === "result") {
       return { result: candidate as SDKMessage, resultIndex: index };
     }
@@ -418,7 +466,7 @@ function turnBoundsForUserIndex(records: AgentTimelineRecord[], userIndex: numbe
 function nextUserInputIndex(records: AgentTimelineRecord[], afterIndex: number): number | undefined {
   for (let index = afterIndex + 1; index < records.length; index += 1) {
     const candidate = records[index];
-    if (!candidate || isRuntimeRecord(candidate) || isStreamRecord(candidate)) continue;
+    if (!candidate || isRuntimeRecord(candidate) || isStreamRecord(candidate) || isThinkingStreamRecord(candidate)) continue;
     if ((candidate as SDKMessage).type === "user" && isUserInputMessage(candidate as SDKMessage)) return index;
   }
   return undefined;
@@ -501,14 +549,15 @@ export function isBoundaryRecord(record: BrevynAgentTimelineRecord): boolean {
   return type === "user" || type === "result" || type === "system";
 }
 
-export function assistantBlocks(record: SDKMessage): Array<{ type: "text"; text: string } | ToolUseBlock> {
+export function assistantBlocks(record: SDKMessage): Array<{ type: "text"; text: string; citations?: unknown[] } | ToolUseBlock> {
   const content = messageContent(record);
   if (!Array.isArray(content)) return [];
-  const blocks: Array<{ type: "text"; text: string } | ToolUseBlock> = [];
+  const blocks: Array<{ type: "text"; text: string; citations?: unknown[] } | ToolUseBlock> = [];
   for (const block of content) {
     const item = recordObject(block);
     if (item.type === "text" && typeof item.text === "string") {
-      blocks.push({ type: "text", text: item.text });
+      const citations = Array.isArray(item.citations) ? item.citations : Array.isArray(item.annotations) ? item.annotations : undefined;
+      blocks.push(citations ? { type: "text", text: item.text, citations } : { type: "text", text: item.text });
       continue;
     }
     if (item.type === "tool_use") {
@@ -518,9 +567,47 @@ export function assistantBlocks(record: SDKMessage): Array<{ type: "text"; text:
         name: stringValue(item.name, "tool"),
         input: item.input,
       });
+      continue;
+    }
+    if (item.type === "server_tool_use") {
+      blocks.push({
+        type: "tool_use",
+        id: stringValue(item.id, "server-tool"),
+        name: stringValue(item.name, "ServerTool"),
+        input: { ...recordObject(item.input), hosted: true },
+      });
     }
   }
   return blocks;
+}
+
+function webCitationLinksFromItems(items: Array<{ record: AgentTimelineRecord; index: number }>): WebCitationLink[] {
+  const byUrl = new Map<string, WebCitationLink>();
+  for (const { record } of items) {
+    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if ((record as SDKMessage).type !== "assistant") continue;
+    for (const block of assistantBlocks(record as SDKMessage)) {
+      if (block.type !== "text" || !Array.isArray(block.citations)) continue;
+      for (const citation of block.citations) {
+        const link = webCitationLinkFromCitation(citation);
+        if (!link || byUrl.has(link.url)) continue;
+        byUrl.set(link.url, link);
+      }
+    }
+  }
+  return [...byUrl.values()];
+}
+
+function webCitationLinkFromCitation(citation: unknown): WebCitationLink | undefined {
+  const object = recordObject(citation);
+  const citationType = stringValue(object.type, "");
+  if (citationType && citationType !== "web_search_result_location" && citationType !== "url_citation") return undefined;
+  const url = stringValue(object.url, "");
+  if (!url) return undefined;
+  return {
+    title: stringValue(object.title, url),
+    url,
+  };
 }
 
 export function toolResultBlocks(record: SDKMessage): ToolResultBlock[] {
@@ -634,13 +721,29 @@ export function toolTitle(toolName: string, input: unknown): string {
   if (toolName === "Grep") return `Grep · ${singleLine(stringValue(data.pattern, "pattern"))}`;
   if (toolName === "Glob") return `Glob · ${singleLine(stringValue(data.pattern, "pattern"))}`;
   if (toolName === "WebFetch") return `WebFetch · ${stringValue(data.url, "URL")}`;
-  if (toolName === "WebSearch") return `WebSearch · ${singleLine(stringValue(data.query, "query"))}`;
+  const webSearchQuery = webSearchQueryFromInput(data);
+  if (toolName === "WebSearch") return data.hosted === true
+    ? `WebSearch · hosted${webSearchQuery ? ` · ${singleLine(webSearchQuery)}` : ""}`
+    : `WebSearch · ${singleLine(webSearchQuery || "query")}`;
   if (toolName === "TodoWrite") return "Update todo list";
   if (toolName === "mcp__brevyn__load_skill") return `加载技能 · ${skillNameFromId(stringValue(data.skillId, "skill"))}`;
   if (toolName === "mcp__brevyn__read_skill_resource") return `读取技能资源 · ${singleLine(stringValue(data.relativePath, "resource"))}`;
   if (toolName === "mcp__brevyn__rag_search") return `检索课程材料 · ${singleLine(stringValue(data.query, "query"))}`;
   if (toolName.startsWith("mcp__brevyn__")) return `Brevyn · ${toolName.replace("mcp__brevyn__", "")}`;
   return `Tool · ${toolName}`;
+}
+
+function webSearchQueryFromInput(input: Record<string, unknown>): string {
+  const direct = stringValue(input.query, "");
+  if (direct) return direct;
+  const queries = Array.isArray(input.queries) ? input.queries : [];
+  for (const query of queries) {
+    if (typeof query === "string" && query.trim()) return query.trim();
+    const object = recordObject(query);
+    const value = stringValue(object.query ?? object.search_query ?? object.text, "");
+    if (value) return value;
+  }
+  return "";
 }
 
 function skillNameFromId(skillId: string): string {
@@ -710,6 +813,7 @@ export function truncatePreview(value: string): string {
 
 export function recordKey(record: AgentTimelineRecord, index: number): string {
   if (isStreamRecord(record)) return `${record.id}-${index}`;
+  if (isThinkingStreamRecord(record)) return `${record.id}-${index}`;
   if (isProcessPlaceholderRecord(record)) return `${record.id}-${index}`;
   if (isCompactPlaceholderRecord(record)) return `${record.id}-${index}`;
   if (isRuntimeRecord(record)) return `${record.event.type}-${record.event.createdAt}-${index}`;
@@ -723,6 +827,10 @@ export function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentT
 
 export function isStreamRecord(record: unknown): record is Extract<AgentTimelineRecord, { kind: "stream" }> {
   return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "stream");
+}
+
+export function isThinkingStreamRecord(record: unknown): record is Extract<AgentTimelineRecord, { kind: "thinking_stream" }> {
+  return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "thinking_stream");
 }
 
 export function isProcessPlaceholderRecord(record: unknown): record is Extract<AgentTimelineRecord, { kind: "process_placeholder" }> {

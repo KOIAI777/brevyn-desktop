@@ -22,6 +22,7 @@ export function DropdownSelect({
   buttonClassName,
   menuClassName,
   menuMinWidth = 220,
+  renderValue,
 }: {
   value: string;
   options: DropdownOption[];
@@ -33,6 +34,7 @@ export function DropdownSelect({
   buttonClassName?: string;
   menuClassName?: string;
   menuMinWidth?: number;
+  renderValue?: (option: DropdownOption | undefined) => ReactNode;
 }) {
   const id = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -186,8 +188,8 @@ export function DropdownSelect({
           }
         }}
       >
-        <span className={cx("min-w-0 flex-1 truncate", !selectedOption && "text-muted-foreground")}>
-          {selectedOption ? selectedOption.label : placeholder}
+        <span className={cx("min-w-0 flex flex-1 items-center truncate", !selectedOption && "text-muted-foreground")}>
+          {renderValue ? renderValue(selectedOption) : selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown className={cx("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
