@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentTimelineRecord } from "@/types/domain";
-import { useAgentLiveRunning } from "@/lib/agent-live-store";
-import type { QueuedAgentMessage } from "@/components/agent/AgentComposer";
-import { isRuntimeRecord, toolResultBlocks, userText } from "@/components/agent/agentTimelineModel";
+import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
+import { isRuntimeRecord } from "@/components/agent/agentTimelineModel";
 
 export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
@@ -15,16 +14,14 @@ export interface AgentQueueState {
 export function useAgentQueueState({
   threadId,
   records,
-  running,
+  effectiveRunning,
   onRun,
 }: {
   threadId: string;
   records: BrevynAgentTimelineRecord[];
-  running: boolean;
+  effectiveRunning: boolean;
   onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
 }): AgentQueueState {
-  const liveRunning = useAgentLiveRunning(threadId);
-  const effectiveRunning = running || liveRunning;
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
   const [queuedMessagesByThread, setQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});
   const [sentQueuedMessagesByThread, setSentQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});

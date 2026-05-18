@@ -123,7 +123,7 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
     if (!dock) return;
 
     const updateInset = () => {
-      const nextInset = Math.ceil(dock.getBoundingClientRect().height + 28);
+      const nextInset = Math.ceil(dock.getBoundingClientRect().height + 80);
       setTimelineBottomInset(nextInset);
       window.requestAnimationFrame(() => {
         if (followOutputRef.current) scrollTimelineToBottom(scrollRef.current, "auto");

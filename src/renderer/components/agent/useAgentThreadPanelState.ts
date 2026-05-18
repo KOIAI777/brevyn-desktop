@@ -4,9 +4,9 @@ import { useAgentAutoCompactState } from "@/components/agent/useAgentAutoCompact
 import { useAgentPanelPreferencesState } from "@/components/agent/useAgentPanelPreferencesState";
 import { useAgentQueueState } from "@/components/agent/useAgentQueueState";
 import { useAgentScrollState } from "@/components/agent/useAgentScrollState";
-import { autoCompactThresholdPercent, processStateKey, runSummaryForUserIndex, useAgentTimelineState } from "@/components/agent/useAgentTimelineState";
+import { useAgentTimelineState } from "@/components/agent/useAgentTimelineState";
 import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, RunSummary } from "@/components/agent/agentTimelineModel";
-import type { QueuedAgentMessage } from "@/components/agent/AgentComposer";
+import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export interface AgentThreadPanelState {
   scrollRef: RefObject<HTMLDivElement>;
@@ -86,7 +86,7 @@ export function useAgentThreadPanelState({
   const queueState = useAgentQueueState({
     threadId: thread.id,
     records,
-    running: timelineState.effectiveRunning,
+    effectiveRunning: timelineState.effectiveRunning,
     onRun,
   });
 
@@ -110,5 +110,3 @@ export function useAgentThreadPanelState({
     ...queueState,
   };
 }
-
-export { autoCompactThresholdPercent, processStateKey, runSummaryForUserIndex } from "@/components/agent/useAgentTimelineState";

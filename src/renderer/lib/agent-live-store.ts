@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { timelineRecordIdentity } from "@/components/agent/agentTimelineModel";
+import { timelineRecordIdentity } from "@/lib/agent-timeline-identity";
 import type { BrevynAgentRuntimeEvent, BrevynAgentTimelineRecord } from "@/types/domain";
 
 const EMPTY_RECORDS: BrevynAgentTimelineRecord[] = [];

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread } from "@/types/domain";
 import { DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT, MIN_AUTO_COMPACT_THRESHOLD_PERCENT } from "../../../types/domain";
+import { recordCreatedAtMs, timelineRecordIdentity } from "@/lib/agent-timeline-identity";
 import { changedFilesFromProcessEvents, type ChangedFileSummary } from "@/components/agent/agentChangedFilesModel";
 import { useAgentTimelineRecords } from "@/components/agent/useAgentTimelineRecords";
 import {
@@ -23,7 +24,6 @@ import {
   latestTurnBounds,
   recordObject,
   stringValue,
-  timelineRecordIdentity,
   toolResultBlocks,
   userText,
   questionAnswers,
@@ -426,21 +426,6 @@ function latestRunStart(records: AgentTimelineRecord[], userIndex: number): { ru
     return { runId: record.event.runId, permissionMode: record.event.permissionMode };
   }
   return null;
-}
-
-function recordCreatedAtMs(record: AgentTimelineRecord): number | undefined {
-  if (isRuntimeRecord(record)) {
-    const parsed = Date.parse(record.event.createdAt);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  const createdAt = (record as { _createdAt?: unknown })._createdAt;
-  if (typeof createdAt === "number" && Number.isFinite(createdAt)) return createdAt;
-  const timestamp = (record as { timestamp?: unknown }).timestamp;
-  if (typeof timestamp === "string") {
-    const parsed = Date.parse(timestamp);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
 }
 
 function latestRunLifecycle(records: AgentTimelineRecord[], userIndex: number): { status: RunSummary["status"]; detail?: string; createdAtMs?: number } | null {

@@ -1,5 +1,7 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentAskUserRequest, AgentExitPlanRequest, AgentPermissionMode, BrevynAgentTimelineRecord } from "@/types/domain";
+import { recordCreatedAtMs, timelineRecordIdentity } from "@/lib/agent-timeline-identity";
+export { timelineRecordIdentity } from "@/lib/agent-timeline-identity";
 
 export interface ToolUseBlock {
   type: "tool_use";
@@ -711,44 +713,6 @@ export function messageContentEnvelope(record: SDKMessage): Record<string, unkno
   return recordObject((record as { message?: unknown }).message);
 }
 
-export function recordCreatedAtMs(record: unknown): number | undefined {
-  const createdAt = (record as { _createdAt?: unknown })._createdAt;
-  if (typeof createdAt === "number") return createdAt;
-  const timestamp = (record as { timestamp?: unknown }).timestamp;
-  if (typeof timestamp === "string") {
-    const parsed = Date.parse(timestamp);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
-}
-
-function runtimeIdentityPayload(event: object): string {
-  const payload = recordObject(event);
-  const runId = stringValue(payload.runId, "");
-  const requestId = stringValue(payload.requestId, "");
-  const detail = stringValue(payload.reason ?? payload.error, "");
-  const createdAt = stringValue(payload.createdAt, "");
-  return [runId, requestId, detail, createdAt].filter(Boolean).join(":");
-}
-
-function stableRecordSignature(value: unknown): string {
-  try {
-    const json = JSON.stringify(value);
-    if (!json) return "";
-    return hashString(json);
-  } catch {
-    return hashString(String(value));
-  }
-}
-
-function hashString(value: string): string {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return (hash >>> 0).toString(36);
-}
-
 export function recordObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -1003,19 +967,6 @@ export function normalizeTimelineRecords(
 
 export function recordKey(record: AgentTimelineRecord, index: number): string {
   return timelineRecordIdentity(record) || `${String((record as { type?: unknown }).type || "record")}-${index}`;
-}
-
-export function timelineRecordIdentity(record: AgentTimelineRecord): string {
-  if (isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) {
-    return `${record.kind}:${record.id}`;
-  }
-  if (isRuntimeRecord(record)) {
-    return `runtime:${record.event.type}:${runtimeIdentityPayload(record.event)}:${stableRecordSignature(record.event)}`;
-  }
-  const maybeUuid = (record as { uuid?: unknown }).uuid;
-  if (typeof maybeUuid === "string" && maybeUuid.trim()) return `uuid:${maybeUuid.trim()}`;
-  const message = record as SDKMessage;
-  return `${message.type}:${recordCreatedAtMs(message) ?? ""}:${stableRecordSignature(message)}`;
 }
 
 export function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
