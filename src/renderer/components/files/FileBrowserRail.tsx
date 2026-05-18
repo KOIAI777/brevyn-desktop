@@ -108,7 +108,7 @@ export function FileBrowserRail({
   return (
     <aside
       aria-hidden={collapsed}
-      className={`group/rail relative hidden min-w-0 shrink-0 origin-right transform-gpu flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity] transition-[opacity,transform,box-shadow,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex lg:w-full ${collapsed ? "pointer-events-none translate-x-6 border-transparent opacity-0 shadow-none ring-0" : "translate-x-0 opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20 transition-none" : ""}`}
+      className={`group/rail relative hidden min-w-0 shrink-0 origin-right transform-gpu flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm ring-1 ring-border/60 will-change-[transform,opacity] transition-[opacity,transform,box-shadow,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:flex ${collapsed ? "pointer-events-none w-full translate-x-6 border-transparent opacity-0 shadow-none ring-0" : "ml-2 w-[calc(100%-0.5rem)] translate-x-0 opacity-100"} ${resizing ? "select-none ring-2 ring-ring/20 transition-none" : ""}`}
     >
       {confirmDialog}
       {renderContent && <FileContextMenu state={menu} onAction={handleContextAction} onClose={() => setMenu(null)} />}

@@ -131,7 +131,7 @@ function App() {
 
         <div
           ref={contentGridRef}
-          className={`grid min-w-0 flex-1 gap-2 ${layoutState.resizingRail ? "" : "transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"}`}
+          className={`grid min-w-0 flex-1 gap-0 ${layoutState.resizingRail || layoutState.windowResizing ? "" : "transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"}`}
           style={{ gridTemplateColumns: layoutState.contentGridColumns }}
         >
           <main className="flex min-w-0 max-w-full flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">

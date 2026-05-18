@@ -23,6 +23,7 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
   const [previewRailWidth, setPreviewRailWidth] = useState<number>(RAIL_WIDTHS.preview.default);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [resizingRail, setResizingRail] = useState<ResizableRail | null>(null);
+  const [windowResizing, setWindowResizing] = useState(false);
 
   const sidebarResizeStateRef = useRef<{ startX: number; startWidth: number; element: HTMLElement } | null>(null);
   const sidebarResizeFrameRef = useRef<number | null>(null);
@@ -35,6 +36,23 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
   railWidthsRef.current = { files: fileRailWidth, preview: previewRailWidth };
 
   useEffect(() => {
+    let timeout = 0;
+    function handleResize() {
+      setWindowResizing(true);
+      if (timeout) window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => {
+        setWindowResizing(false);
+        timeout = 0;
+      }, 140);
+    }
+    window.addEventListener("resize", handleResize, { passive: true });
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!resizingRail) return;
     function applyResize(clientX: number) {
       const state = resizeStateRef.current;
@@ -44,8 +62,7 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
       const otherRailWidth = state.rail === "files"
         ? (previewRailCollapsed ? 0 : railWidthsRef.current.preview)
         : (fileRailCollapsed ? 0 : railWidthsRef.current.files);
-      const gridGapWidth = otherRailWidth > 0 ? 16 : 8;
-      const availableMax = gridWidth - otherRailWidth - gridGapWidth - CHAT_MIN_WIDTH;
+      const availableMax = gridWidth - otherRailWidth - CHAT_MIN_WIDTH;
       const maxWidth = Math.max(config.min, availableMax);
       const nextWidth = clamp(state.startWidth - (clientX - state.startX), config.min, maxWidth);
       railWidthsRef.current = { ...railWidthsRef.current, [state.rail]: nextWidth };
@@ -183,6 +200,7 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
     fileRailWidth,
     previewRailWidth,
     resizingRail,
+    windowResizing,
     contentGridColumns,
     startRailResize,
     startSidebarResize,
