@@ -50,7 +50,7 @@ export function CompactProcessCard({
       <span className="inline-flex shrink-0 items-center gap-1.5">
         {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isError ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
         {status}
-        <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+        <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </button>
   );

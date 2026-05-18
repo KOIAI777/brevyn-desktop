@@ -1,10 +1,11 @@
-import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, Ref } from "react";
+import type { ChangeEvent, FormEvent, KeyboardEvent, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, ChevronUp, Circle, ClipboardList, FileText, Loader2, Minimize2, Plus, Send, ShieldAlert, ShieldCheck, Square, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Circle, ClipboardList, FileText, Loader2, Minimize2, Pencil, Plus, Send, Square, Trash2, X } from "lucide-react";
 import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, WorkspaceFileKind, WorkspaceFileNode } from "@/types/domain";
-import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
+import { AgentProviderPicker, parseProviderModelValue } from "@/components/agent/AgentProviderPicker";
+import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 
 const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
 
@@ -21,9 +22,19 @@ interface ContextUsage {
   contextWindow?: number;
 }
 
+export interface QueuedAgentMessage {
+  id: string;
+  prompt: string;
+  mode: "execute" | "plan";
+  permissionMode: AgentPermissionMode;
+  providerSelection: { providerId?: string; modelId?: string };
+  createdAt: number;
+}
+
 interface AgentComposerProps {
   dockRef: Ref<HTMLDivElement>;
   todos: AgentTodoItem[];
+  queuedMessages: QueuedAgentMessage[];
   running: boolean;
   planMode: boolean;
   permissionMode: AgentPermissionMode;
@@ -37,6 +48,9 @@ interface AgentComposerProps {
   onSetPlanMode: (value: boolean | ((current: boolean) => boolean)) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
   onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onQueueMessage: (message: QueuedAgentMessage) => void;
+  onSendQueuedMessage: (messageId: string) => void;
+  onDeleteQueuedMessage: (messageId: string) => void;
   onStop: () => Promise<void>;
   onCompact: () => void;
   onSelectProvider: (providerId: string) => Promise<void>;
@@ -45,6 +59,7 @@ interface AgentComposerProps {
 export function AgentComposer({
   dockRef,
   todos,
+  queuedMessages,
   running,
   planMode,
   permissionMode,
@@ -58,46 +73,68 @@ export function AgentComposer({
   onSetPlanMode,
   onSetPermissionMode,
   onRun,
+  onQueueMessage,
+  onSendQueuedMessage,
+  onDeleteQueuedMessage,
   onStop,
   onCompact,
   onSelectProvider,
 }: AgentComposerProps) {
   const [promptValue, setPromptValue] = useState("");
   const [mentionedFiles, setMentionedFiles] = useState<WorkspaceFileNode[]>([]);
-  const [pendingAttachments, setPendingAttachments] = useState<AgentAttachment[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [draggingFiles, setDraggingFiles] = useState(false);
+  const {
+    pendingAttachments,
+    draggingFiles,
+    setDraggingFiles,
+    pickAttachments,
+    removeAttachment,
+    restoreAttachments,
+    clearAttachments,
+    handlePaste,
+    handleDrop,
+  } = useAgentAttachmentsState({ threadId, running });
   const mentionableFiles = useMemo(() => flattenMentionableFiles(files), [files]);
   const mentionSuggestions = useMemo(() => filterMentionSuggestions(mentionableFiles, mentionQuery), [mentionableFiles, mentionQuery]);
-  const providerOptions = useMemo(() => agentProviders
-    .filter((provider) => provider.enabled)
-    .flatMap((provider) => {
-      const models = provider.models.filter((model) => model.enabled !== false);
-      const orderedModels = [
-        ...models.filter((model) => model.id === provider.selectedModel),
-        ...models.filter((model) => model.id !== provider.selectedModel),
-      ];
-      return orderedModels.map((model) => ({
-        value: providerModelValue(provider.id, model.id),
-        label: model.name || model.id,
-        detail: provider.name,
-      }));
-    }), [agentProviders]);
+  const promptText = promptValue.trim();
+  const canSubmit = Boolean(promptText || pendingAttachments.length > 0);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const prompt = buildPromptWithMentions(promptValue.trim(), mentionedFiles);
-    if ((!prompt && pendingAttachments.length === 0) || running) return;
+  useEffect(() => {
     setPromptValue("");
     setMentionedFiles([]);
     setMentionQuery(null);
-    const attachments = pendingAttachments;
-    setPendingAttachments([]);
+  }, [threadId]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const prompt = buildPromptWithMentions(promptText, mentionedFiles);
+    if (!prompt && pendingAttachments.length === 0) return;
+
+    if (running) {
+      if (!prompt || pendingAttachments.length > 0) return;
+      onQueueMessage({
+        id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        prompt,
+        mode: planMode ? "plan" : "execute",
+        permissionMode: planMode ? "review" : permissionMode,
+        providerSelection: parseProviderModelValue(activeProviderId),
+        createdAt: Date.now(),
+      });
+      setPromptValue("");
+      setMentionedFiles([]);
+      setMentionQuery(null);
+      return;
+    }
+
+    setPromptValue("");
+    setMentionedFiles([]);
+    setMentionQuery(null);
+    const attachments = clearAttachments();
     try {
       await onRun(prompt || "请查看附件。", planMode ? "plan" : "execute", planMode ? "review" : permissionMode, attachments, parseProviderModelValue(activeProviderId));
     } catch (error) {
-      setPendingAttachments((current) => mergeAttachments(attachments, current));
-      throw error;
+      restoreAttachments(attachments);
+      console.error("[AgentComposer] Failed to start agent run:", error);
     }
   }
 
@@ -113,62 +150,23 @@ export function AgentComposer({
     event.currentTarget.form?.requestSubmit();
   }
 
-  async function pickAttachments() {
-    if (running) return;
-    const next = await window.brevyn.attachments.pick(threadId);
-    if (next.length) setPendingAttachments((current) => mergeAttachments(current, next));
-  }
-
-  async function addDroppedFiles(files: File[]) {
-    if (running || files.length === 0) return;
-    const pathItems: string[] = [];
-    const dataItems: Promise<AgentAttachment>[] = [];
-    for (const file of files) {
-      const path = window.brevyn.attachments.pathForFile(file);
-      if (path) {
-        pathItems.push(path);
-      } else {
-        dataItems.push(fileToBase64(file).then((data) => window.brevyn.attachments.saveData({
-          threadId,
-          name: file.name || `pasted-file-${Date.now()}`,
-          mediaType: file.type || undefined,
-          data,
-        })));
-      }
-    }
-    const [savedPaths, ...savedData] = await Promise.all([
-      pathItems.length ? window.brevyn.attachments.savePaths({ threadId, paths: pathItems }) : Promise.resolve([]),
-      ...dataItems,
-    ]);
-    setPendingAttachments((current) => mergeAttachments(current, [...savedPaths, ...savedData]));
-  }
-
-  async function removeAttachment(attachment: AgentAttachment) {
-    setPendingAttachments((current) => current.filter((item) => item.id !== attachment.id));
-    try {
-      await window.brevyn.attachments.delete({ threadId, path: attachment.path });
-    } catch (error) {
-      console.error("[AgentComposer] Failed to delete pending attachment:", error);
-    }
-  }
-
-  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const files = Array.from(event.clipboardData.files || []);
-    if (files.length === 0) return;
-    event.preventDefault();
-    void addDroppedFiles(files);
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDraggingFiles(false);
-    void addDroppedFiles(Array.from(event.dataTransfer.files || []));
-  }
-
   return (
     <form className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-5 pt-8 [background:linear-gradient(180deg,rgba(247,244,236,0),rgba(247,244,236,0.82))]" onSubmit={handleSubmit}>
       <div ref={dockRef} className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
+        {queuedMessages.length > 0 && (
+          <QueuedMessageDock
+            messages={queuedMessages}
+            running={running}
+            onSend={onSendQueuedMessage}
+            onDelete={onDeleteQueuedMessage}
+            onEdit={(message) => {
+              onDeleteQueuedMessage(message.id);
+              setPromptValue(message.prompt);
+              setMentionQuery(null);
+            }}
+          />
+        )}
         <div
           className={`pointer-events-auto w-full min-w-0 rounded-2xl border p-3 shadow-[0_18px_52px_rgba(64,55,38,0.18)] ring-1 backdrop-blur-2xl transition ${
             draggingFiles
@@ -199,12 +197,11 @@ export function AgentComposer({
             name="prompt"
             rows={1}
             value={promptValue}
-            disabled={running}
             onChange={handlePromptChange}
             onKeyDown={handlePromptKeyDown}
             onPaste={handlePaste}
-            placeholder={running ? "Brevyn is working..." : "Ask Brevyn about this thread..."}
-            className="max-h-32 min-h-11 w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+            placeholder={running ? "输入补充消息，会加入排队列表..." : "Ask Brevyn about this thread..."}
+            className="max-h-32 min-h-11 w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
           />
           {mentionQuery !== null && mentionSuggestions.length > 0 && (
             <MentionSuggestions
@@ -269,47 +266,36 @@ export function AgentComposer({
                 compactDisabled={running || !contextUsage || contextUsage.inputTokens <= 0}
                 onCompact={onCompact}
               />
-              <div className="group/permission relative shrink-0">
-                <button
-                  type="button"
-                  disabled={running || planMode}
-                  onClick={() => onSetPermissionMode(permissionMode === "full_access" ? "review" : "full_access")}
-                  className={`inline-flex h-7 w-8 items-center justify-center rounded-full transition hover:bg-accent/70 disabled:cursor-not-allowed disabled:opacity-45 ${
-                    !planMode && permissionMode === "full_access" ? "text-amber-600" : "text-muted-foreground"
-                  }`}
-                  aria-label={planMode ? "Review" : permissionMode === "full_access" ? "Full Access" : "Review"}
-                >
-                  {!planMode && permissionMode === "full_access"
-                    ? <ShieldAlert className="h-4 w-4" strokeWidth={2.1} />
-                    : <ShieldCheck className="h-4 w-4" strokeWidth={2.1} />}
-                </button>
-                <div className="pointer-events-none absolute bottom-full right-0 z-[80] mb-2 w-52 translate-y-1 rounded-xl border border-white/60 bg-card/95 px-3 py-2 text-[11px] text-muted-foreground opacity-0 shadow-[0_14px_36px_rgba(64,55,38,0.16)] ring-1 ring-border/50 backdrop-blur-xl transition duration-150 group-hover/permission:translate-y-0 group-hover/permission:opacity-100 group-focus-within/permission:translate-y-0 group-focus-within/permission:opacity-100">
-                  <p className="font-semibold text-foreground">{!planMode && permissionMode === "full_access" ? "Full Access" : "Review"}</p>
-                  <p className="mt-0.5">{!planMode && permissionMode === "full_access" ? "可直接写入；危险命令仍需确认" : "写入前先请求确认"}</p>
-                  {!running && !planMode && <p className="mt-1 text-[10px] text-muted-foreground/80">点击切换到 {permissionMode === "full_access" ? "Review" : "Full Access"}</p>}
-                </div>
-              </div>
-              <DropdownSelect
-                value={activeProviderId}
-                options={providerOptions}
-                onChange={(providerId) => void onSelectProvider(providerId)}
-                placeholder="Select model"
-                ariaLabel="Select agent model"
-                disabled={providerOptions.length === 0}
-                className="w-[132px] shrink-0 sm:w-[156px]"
-                buttonClassName="h-7 rounded-full border border-border/70 bg-background/55 px-2 text-[11px] font-semibold shadow-sm backdrop-blur"
-                menuClassName="bg-card/95 backdrop-blur-xl"
-                menuMinWidth={172}
+              <AgentProviderPicker
+                running={running}
+                planMode={planMode}
+                permissionMode={permissionMode}
+                agentProviders={agentProviders}
+                activeProviderId={activeProviderId}
+                onSetPermissionMode={onSetPermissionMode}
+                onSelectProvider={onSelectProvider}
               />
               {running ? (
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03]"
-                  onClick={() => void onStop()}
-                  aria-label="Stop agent run"
-                >
-                  <Square className="h-4 w-4 fill-current" />
-                </button>
+                canSubmit ? (
+                  <button
+                    type="submit"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
+                    aria-label="Queue message"
+                    title={pendingAttachments.length > 0 ? "运行中暂不支持排队附件" : "加入排队"}
+                    disabled={pendingAttachments.length > 0}
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03]"
+                    onClick={() => void onStop()}
+                    aria-label="Stop agent run"
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                  </button>
+                )
               ) : (
                 <button
                   type="submit"
@@ -361,19 +347,6 @@ function FileKindBadge({ kind }: { kind: WorkspaceFileKind }) {
       {fileKindLabel(kind)}
     </span>
   );
-}
-
-function providerModelValue(providerId: string, modelId: string): string {
-  return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
-}
-
-function parseProviderModelValue(value: string): { providerId?: string; modelId?: string } {
-  const [providerId, modelId] = value.split("::");
-  if (!providerId || !modelId) return {};
-  return {
-    providerId: decodeURIComponent(providerId),
-    modelId: decodeURIComponent(modelId),
-  };
 }
 
 function flattenMentionableFiles(files: WorkspaceFileNode[]): WorkspaceFileNode[] {
@@ -446,27 +419,6 @@ function AttachmentChip({
   );
 }
 
-function mergeAttachments(current: AgentAttachment[], next: AgentAttachment[]): AgentAttachment[] {
-  const seen = new Set(current.map((item) => item.path));
-  return [...current, ...next.filter((item) => {
-    if (seen.has(item.path)) return false;
-    seen.add(item.path);
-    return true;
-  })];
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error("Failed to read attachment."));
-    reader.onload = () => {
-      const value = String(reader.result || "");
-      resolve(value.includes(",") ? value.slice(value.indexOf(",") + 1) : value);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function fileKindLabel(kind: WorkspaceFileKind): string {
   if (kind === "markdown") return "MD";
   if (kind === "image") return "IMG";
@@ -524,6 +476,76 @@ function TodoDock({ todos, running }: { todos: AgentTodoItem[]; running: boolean
         </span>
         {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
       </button>
+    </div>
+  );
+}
+
+function QueuedMessageDock({
+  messages,
+  running,
+  onSend,
+  onDelete,
+  onEdit,
+}: {
+  messages: QueuedAgentMessage[];
+  running: boolean;
+  onSend: (messageId: string) => void;
+  onDelete: (messageId: string) => void;
+  onEdit: (message: QueuedAgentMessage) => void;
+}) {
+  return (
+    <div className="pointer-events-auto w-full rounded-2xl border border-white/55 bg-card/78 px-3 py-2 shadow-[0_10px_28px_rgba(64,55,38,0.10)] ring-1 ring-border/30 backdrop-blur-2xl">
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold text-foreground">Queued messages</p>
+          <p className="text-[10px] text-muted-foreground">{running ? "点击发送会打断当前输出并继续" : "可直接发送或继续编辑"}</p>
+        </div>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{messages.length}</span>
+      </div>
+      <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
+        {messages.map((message, index) => (
+          <div
+            key={message.id}
+            className="group flex min-w-0 items-center gap-2 rounded-xl border border-transparent bg-background/48 px-2 py-1.5 text-[11px] transition hover:border-border/70 hover:bg-background/72"
+          >
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
+              {message.prompt}
+            </span>
+            <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={() => onSend(message.id)}
+                title={running ? "发送并打断当前输出" : "立即发送"}
+                aria-label="Send queued message"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={() => onEdit(message)}
+                title="重新编辑"
+                aria-label="Edit queued message"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-red-50 hover:text-red-600"
+                onClick={() => onDelete(message.id)}
+                title="删除"
+                aria-label="Delete queued message"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

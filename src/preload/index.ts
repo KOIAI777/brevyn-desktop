@@ -14,6 +14,7 @@ import type {
   AgentAttachmentDataInput,
   AgentAskUserResponseInput,
   AgentExitPlanResponseInput,
+  AgentQueueMessageInput,
   AgentRunInput,
   BrevynAgentEvent,
   FileImportInput,
@@ -120,6 +121,7 @@ const api: BrevynAPI = {
   agent: {
     messages: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentMessages, threadId),
     run: (input: AgentRunInput) => ipcRenderer.invoke(IPC_CHANNELS.agentRun, input),
+    queueMessage: (input: AgentQueueMessageInput) => ipcRenderer.invoke(IPC_CHANNELS.agentQueueMessage, input),
     stop: (threadId: string) => ipcRenderer.invoke(IPC_CHANNELS.agentStop, threadId),
     approve: (input: AgentApprovalInput) => ipcRenderer.invoke(IPC_CHANNELS.agentApprove, input),
     reject: (input: AgentApprovalInput) => ipcRenderer.invoke(IPC_CHANNELS.agentReject, input),

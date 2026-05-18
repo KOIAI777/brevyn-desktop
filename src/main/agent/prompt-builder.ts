@@ -66,6 +66,7 @@ export class PromptBuilder {
       "",
       "## Response Style",
       "- Be concise, warm, and practical. Match the user's language.",
+      "- Use the same language as the latest user message for visible thinking, progress narration, tool-use narration, and the final answer. If the user writes Chinese, think and narrate in Chinese; if the user writes English, use English.",
       "- Surface uncertainty plainly. A good answer can say 'I need to inspect the file first.'",
       "- When you used files, summarize what you inspected and what each file contributed.",
     ];

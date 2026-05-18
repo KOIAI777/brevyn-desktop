@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Minimize2, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, Copy, Minimize2, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
@@ -56,6 +56,31 @@ export function PromptTooLongCard({ message, onCompact }: { message: string; onC
   );
 }
 
+export function ProviderErrorCard({ message }: { message: string }) {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+  return (
+    <div className="flex justify-start">
+      <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50/82 p-4 text-sm text-red-950 shadow-sm ring-1 ring-white/55 backdrop-blur-xl">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-700">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Provider 返回错误</p>
+            <p className="mt-1 text-xs leading-5 text-red-900/78">
+              这是模型服务商返回的原始错误，Brevyn 已停止本轮输出。
+            </p>
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-red-200/70 bg-white/58 p-2.5 text-[11px] leading-5 text-red-950">
+              {trimmed}
+            </pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubble({
   role,
   content,
@@ -81,7 +106,6 @@ export function MessageBubble({
       <div className="group/message flex justify-start">
         <div className="min-w-0 w-full animate-[message-rise-in_180ms_cubic-bezier(0.22,1,0.36,1)] px-1 py-1 text-sm leading-6 text-foreground">
           <Markdownish content={content} threadId={threadId} />
-          {streaming && <span className="ml-0.5 inline-block h-4 w-1 translate-y-0.5 animate-pulse rounded-full bg-current opacity-50" />}
           {!streaming && stoppedByUser && (
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
               <X className="h-3.5 w-3.5" />
@@ -192,9 +216,9 @@ function MessageCopyAction({ content, align }: { content: string; align: "left" 
   );
 }
 
-export function StreamingMessageBubble({ content, threadId }: { content: string; threadId?: string }) {
-  const smoothContent = useSmoothStreamingText(content);
-  return <MessageBubble role="assistant" content={smoothContent} threadId={threadId} streaming />;
+export function StreamingMessageBubble({ content, threadId, active = true }: { content: string; threadId?: string; active?: boolean }) {
+  const smoothContent = useSmoothStreamingText(content, { disabled: !active });
+  return <MessageBubble role="assistant" content={smoothContent} threadId={threadId} streaming={active} copyable={false} />;
 }
 
 export function RevealedAssistantBubble({
@@ -219,7 +243,7 @@ export function RevealedAssistantBubble({
       role="assistant"
       content={smoothContent}
       threadId={threadId}
-      streaming={!revealed}
+      streaming={false}
       copyable={copyable && revealed}
       copyContent={copyContent}
       stoppedByUser={stoppedByUser && revealed}

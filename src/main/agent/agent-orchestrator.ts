@@ -7,6 +7,7 @@ import type {
   AgentAskUserResponseInput,
   AgentExitPlanResponseInput,
   AgentPermissionMode,
+  AgentQueueMessageInput,
   AgentRunInput,
   AgentRunResult,
   BrevynAgentEvent,
@@ -62,8 +63,10 @@ interface ActiveRun {
   providerId?: string;
   modelId?: string;
   gatewayToken?: string;
+  ignoreNextResult?: boolean;
   terminalResultWritten: boolean;
   terminalLifecycleWritten: boolean;
+  assistantErrorWritten: boolean;
 }
 
 interface ResolvedThreadContext {
@@ -97,7 +100,7 @@ export class AgentOrchestrator {
     const abortController = new AbortController();
     const resumeSessionId = this.options.sessions.latestSdkSessionId(context.thread);
     const attachments = input.attachments || [];
-    const promptForAgent = promptWithAttachments(input.prompt, attachments);
+    const promptForAgent = languageDirectedPrompt(promptWithAttachments(input.prompt, attachments), input.prompt);
     this.activeRuns.set(context.thread.id, {
       runId,
       threadId: context.thread.id,
@@ -110,6 +113,7 @@ export class AgentOrchestrator {
       modelId: input.modelId,
       terminalResultWritten: false,
       terminalLifecycleWritten: false,
+      assistantErrorWritten: false,
     });
 
     try {
@@ -176,6 +180,7 @@ export class AgentOrchestrator {
       };
       const stream = this.options.sdk.query({
         prompt,
+        sessionKey: context.thread.id,
         cwd: context.cwd,
         model: provider.selectedModel,
         env,
@@ -192,16 +197,28 @@ export class AgentOrchestrator {
         },
       });
       for await (const message of stream) {
+        const current = this.activeRuns.get(context.thread.id);
+        if (message.type === "result" && current?.ignoreNextResult) {
+          current.ignoreNextResult = false;
+          continue;
+        }
+        if (message.type === "result" && isContinuableSdkResult(message)) continue;
         if (shouldPersistSdkMessage(message)) {
+          if (message.type === "result" && current && lifecycleForResult(message) === "failed") {
+            const resultError = sdkResultErrorMessage(message);
+            if (resultError) this.writeAssistantError(current, resultError);
+          }
           this.appendAndEmitSdkMessage(context.thread, withCreatedAt(message));
+          if (message.type === "assistant" && sdkAssistantErrorMessage(message)) {
+            if (current) current.assistantErrorWritten = true;
+          }
           if (message.type === "result") {
-            const current = this.activeRuns.get(context.thread.id);
             if (current) {
               current.terminalResultWritten = true;
               this.writeTerminalLifecycle(current, lifecycleForResult(message), String((message as { result?: unknown }).result || ""));
             }
           }
-        } else {
+        } else if (shouldEmitLiveSdkMessage(message)) {
           this.options.eventBus.emit({ kind: "sdk_message", threadId: context.thread.id, message });
         }
       }
@@ -213,7 +230,8 @@ export class AgentOrchestrator {
       const active = this.activeRuns.get(context.thread.id);
       const stoppedByUser = Boolean(active?.stoppedByUser);
       const message = active?.abortController.signal.aborted ? "Agent run stopped." : errorMessage(error);
-      if (!stoppedByUser) this.appendAndEmitSdkMessage(context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
+      if (!stoppedByUser && active) this.writeAssistantError(active, message);
+      else if (!stoppedByUser) this.appendAndEmitSdkMessage(context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
       if (active) {
         this.writeTerminalResult(active, stoppedByUser ? "stopped_by_user" : "error_during_execution", message);
         this.writeTerminalLifecycle(active, stoppedByUser ? "stopped" : "failed", message);
@@ -331,6 +349,22 @@ export class AgentOrchestrator {
     return true;
   }
 
+  async queueMessage(input: AgentQueueMessageInput): Promise<string> {
+    const context = this.resolveThreadContext(input.threadId);
+    const active = this.activeRuns.get(context.thread.id);
+    if (!active) throw new Error("No active agent run is available for this thread.");
+    const uuid = input.uuid || entityId("msg");
+    if (input.interrupt !== false) active.ignoreNextResult = true;
+    try {
+      await this.options.sdk.queueMessage(context.thread.id, input.prompt, uuid, input.interrupt ?? true);
+    } catch (error) {
+      if (input.interrupt !== false) active.ignoreNextResult = false;
+      throw error;
+    }
+    this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, [], uuid));
+    return uuid;
+  }
+
   stopAll(): void {
     for (const threadId of Array.from(this.activeRuns.keys())) {
       this.stop(threadId);
@@ -419,6 +453,12 @@ export class AgentOrchestrator {
     if (active.terminalResultWritten) return;
     active.terminalResultWritten = true;
     this.appendAndEmitSdkMessage(active.context.thread, resultSdkMessage(subtype, message));
+  }
+
+  private writeAssistantError(active: ActiveRun, message: string): void {
+    if (active.assistantErrorWritten) return;
+    active.assistantErrorWritten = true;
+    this.appendAndEmitSdkMessage(active.context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
   }
 
   private writeTerminalLifecycle(active: ActiveRun, status: "completed" | "stopped" | "failed", message?: string): void {
@@ -519,6 +559,14 @@ function sdkBetasForModel(modelId: string): SdkBeta[] {
   return supports1MContext(modelId) ? ["context-1m-2025-08-07"] : [];
 }
 
+function languageDirectedPrompt(prompt: string, userPrompt: string): string {
+  const language = /[\u3400-\u9fff]/.test(userPrompt) ? "Chinese" : "the same language as the user";
+  return [
+    `<brevyn_language_instruction>Use ${language} for visible thinking, progress narration, tool-use narration, and the final answer in this run.</brevyn_language_instruction>`,
+    prompt,
+  ].join("\n\n");
+}
+
 function supports1MContext(modelId: string): boolean {
   const normalized = modelId.toLowerCase();
   if (normalized.includes("haiku")) return false;
@@ -538,7 +586,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Unknown agent error");
 }
 
-function userSdkMessage(content: string, attachments: AgentAttachment[] = []): SDKMessage {
+function userSdkMessage(content: string, attachments: AgentAttachment[] = [], uuid = entityId("msg")): SDKMessage {
   return {
     type: "user",
     message: {
@@ -547,7 +595,7 @@ function userSdkMessage(content: string, attachments: AgentAttachment[] = []): S
     },
     ...(attachments.length > 0 ? { _attachments: attachments } : {}),
     parent_tool_use_id: null,
-    uuid: entityId("msg"),
+    uuid,
     session_id: "",
     _createdAt: Date.now(),
   } as unknown as SDKMessage;
@@ -615,11 +663,37 @@ function resultSdkMessage(subtype: string, message?: string): SDKMessage {
   } as unknown as SDKMessage;
 }
 
+function sdkResultErrorMessage(message: SDKMessage): string | undefined {
+  const result = message as unknown as { errors?: unknown; result?: unknown; is_error?: unknown; subtype?: unknown };
+  const subtype = typeof result.subtype === "string" ? result.subtype : "";
+  if (subtype === "success" || subtype === "stopped_by_user" || subtype === "interrupted") return undefined;
+  if (Array.isArray(result.errors)) {
+    const first = result.errors.find((item) => typeof item === "string" && item.trim());
+    if (typeof first === "string") return first.trim();
+  }
+  if (typeof result.result === "string" && result.result.trim()) return result.result.trim();
+  return result.is_error === true || subtype ? "Agent provider request failed." : undefined;
+}
+
+function sdkAssistantErrorMessage(message: SDKMessage): string | undefined {
+  const error = (message as unknown as { error?: unknown }).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return undefined;
+  const value = (error as { message?: unknown }).message;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function lifecycleForResult(message: SDKMessage): "completed" | "stopped" | "failed" {
   const subtype = String((message as { subtype?: unknown }).subtype || "");
   if (subtype === "success") return "completed";
   if (subtype === "stopped_by_user") return "stopped";
   return "failed";
+}
+
+function isContinuableSdkResult(message: SDKMessage): boolean {
+  const reason = String((message as { terminal_reason?: unknown }).terminal_reason || "");
+  const subtype = String((message as { subtype?: unknown }).subtype || "");
+  return ["interrupt", "interrupted", "aborted"].includes(subtype)
+    || ["aborted_streaming", "aborted_tools", "tool_deferred", "hook_stopped", "stop_hook_prevented"].includes(reason);
 }
 
 function withCreatedAt(message: SDKMessage): SDKMessage {
@@ -633,6 +707,11 @@ function shouldPersistSdkMessage(message: SDKMessage): boolean {
   if (message.type === "assistant" || message.type === "result") return true;
   if (message.type === "user") return userMessageHasToolResult(message);
   return message.type === "system" && message.subtype === "compact_boundary";
+}
+
+function shouldEmitLiveSdkMessage(message: SDKMessage): boolean {
+  if (message.type !== "user") return true;
+  return userMessageHasToolResult(message);
 }
 
 function userMessageHasToolResult(message: SDKMessage): boolean {

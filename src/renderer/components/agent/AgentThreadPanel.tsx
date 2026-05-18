@@ -1,53 +1,27 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { Check, ChevronDown, FileText, FolderOpen, Globe, HelpCircle, ListTodo, Loader2, MessageCircleQuestion, Pencil, Search, Send, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare, X } from "lucide-react";
-import { DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT, MIN_AUTO_COMPACT_THRESHOLD_PERCENT, type AgentApprovalRequest, type AgentAskUserRequest, type AgentAttachment, type AgentExitPlanRequest, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
+import { ChevronDown, ListTodo, Loader2 } from "lucide-react";
+import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
-import { AgentComposer } from "@/components/agent/AgentComposer";
-import { CompactContextNote, MessageBubble, PromptTooLongCard, ResolvedRuntimeNote, RevealedAssistantBubble, StreamingMessageBubble } from "@/components/agent/AgentMessageParts";
+import { AgentComposer, type QueuedAgentMessage } from "@/components/agent/AgentComposer";
+import { CompactContextNote, MessageBubble, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RevealedAssistantBubble, StreamingMessageBubble } from "@/components/agent/AgentMessageParts";
 import { InlineProcessTimeline as BaseInlineProcessTimeline, ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
-import { ToolInputPreview, ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
-import { FilePathChip, FilePathPreviewProvider, useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
-import { FileTypeIcon } from "@/components/files/FileTypeIcon";
-import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, ProcessEvent, RunSummary, ToolResultBlock, ToolUseBlock } from "@/components/agent/agentTimelineModel";
+import { FilePathPreviewProvider } from "@/components/chat/FilePathChip";
+import type { ChangedFileSummary } from "@/components/agent/agentChangedFilesModel";
+import type { AgentTimelineRecord, ProcessEvent, RunSummary } from "@/components/agent/agentTimelineModel";
 import {
-  agentErrorMessage,
-  answerKey,
-  approvalDecision,
-  approvalResolutionMap,
-  assistantBlocks,
-  assistantText,
-  buildTimelineRenderMeta,
-  defaultQuestionAnswers,
-  exitPlanDecision,
-  exitPlanResolutionMap,
   exitPlanSummary,
-  formatDiffStats,
-  formatToolResultContent,
-  formatUnknown,
-  isBoundaryRecord,
-  isCompactCommandMessage,
-  isCompactPlaceholderRecord,
-  isProcessPlaceholderRecord,
-  isPromptTooLongMessage,
   isRuntimeRecord,
-  isStreamRecord,
-  isThinkingStreamRecord,
-  nextQuestionAnswer,
-  questionAnswers,
-  questionResolutionMap,
   recordKey,
-  recordObject,
-  latestTurnBounds,
-  singleLine,
-  stringValue,
-  toolDiffStats,
-  toolResultBlocks,
   toolResultSummary,
   toolTitle,
-  truncatePreview,
   userText,
 } from "@/components/agent/agentTimelineModel";
+import { useAgentThreadPanelState } from "@/components/agent/useAgentThreadPanelState";
+import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
+import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
+import { ChangedFilesSummary } from "@/components/agent/ChangedFilesSummary";
+import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
 
 interface AgentThreadPanelProps {
   thread: Thread;
@@ -69,33 +43,6 @@ interface AgentThreadPanelProps {
 }
 
 const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
-const AgentThreadIdContext = createContext<string | undefined>(undefined);
-const AGENT_PERMISSION_STORAGE_PREFIX = "brevyn.agent.permissionMode.";
-const FILE_EDIT_TOOL_NAMES = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
-
-interface ChangedFileSummary {
-  path: string;
-  name: string;
-  additions: number;
-  deletions: number;
-  edits: number;
-  hunks: ChangedFileHunk[];
-}
-
-interface ChangedFileHunk {
-  id: string;
-  label?: string;
-  rows: ChangedFileDiffRow[];
-  truncatedRows?: number;
-}
-
-interface ChangedFileDiffRow {
-  type: "added" | "removed" | "context";
-  lineNumber: number;
-  text: string;
-}
-
-const SCROLL_BOTTOM_THRESHOLD_PX = 64;
 
 export function AgentThreadPanel({
   thread,
@@ -115,203 +62,96 @@ export function AgentThreadPanel({
   files,
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const composerDockRef = useRef<HTMLDivElement | null>(null);
-  const autoCompactKeyRef = useRef("");
-  const followOutputRef = useRef(true);
-  const wasRunningRef = useRef(false);
-  const [timelineBottomInset, setTimelineBottomInset] = useState(224);
-  const [isFollowingOutput, setIsFollowingOutput] = useState(true);
-  const [processCollapsedByKey, setProcessCollapsedByKey] = useState<Record<string, boolean>>({});
-  const [planMode, setPlanMode] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("review");
-  const [compactInFlightAfterCount, setCompactInFlightAfterCount] = useState<number | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  const resolvedApprovals = useMemo(() => approvalResolutionMap(records), [records]);
-  const resolvedQuestions = useMemo(() => questionResolutionMap(records), [records]);
-  const resolvedExitPlans = useMemo(() => exitPlanResolutionMap(records), [records]);
-  const rawRunSummary = useMemo(() => latestRunSummary(records, nowMs, running), [nowMs, records, running]);
-  const effectiveRunning = running && (!rawRunSummary || rawRunSummary.status === "running");
-  const compactInFlight = compactInFlightAfterCount !== null;
-  const timelineRecords = useMemo(() => normalizeTimelineRecords(records, effectiveRunning, compactInFlight), [compactInFlight, effectiveRunning, records]);
-  const renderMeta = useMemo(() => buildTimelineRenderMeta(timelineRecords), [timelineRecords]);
-  const liveAssistantText = renderMeta.hasLiveAssistantText;
-  const forceProcessOpen = effectiveRunning && !liveAssistantText;
-  const runSummary = useMemo(() => latestRunSummary(records, nowMs, effectiveRunning), [effectiveRunning, nowMs, records]);
-  const stoppedAssistantIndex = useMemo(() => runSummary?.status === "stopped" ? latestCopyableAssistantIndex(renderMeta) : undefined, [renderMeta, runSummary?.status]);
-  const todos = useMemo(() => latestTodoList(records), [records]);
-  const activeProviderSelection = useMemo(() => parseProviderModelSelection(activeProviderId), [activeProviderId]);
-  const activeProvider = useMemo(() => agentProviders.find((provider) => provider.id === activeProviderSelection.providerId), [activeProviderSelection.providerId, agentProviders]);
-  const activeModelId = activeProviderSelection.modelId || activeProvider?.selectedModel;
-  const contextUsage = useMemo(() => latestContextUsage(records) ?? defaultContextUsage(activeModelId), [activeModelId, records]);
-  const compacting = useMemo(() => isCompactingContext(records), [records]);
-  const effectiveCompacting = compacting || compactInFlight;
-
-  useEffect(() => {
-    setPermissionMode(readStoredPermissionMode(thread.id));
-  }, [thread.id]);
-
-  function handleSetPermissionMode(mode: AgentPermissionMode) {
-    setPermissionMode(mode);
-    writeStoredPermissionMode(thread.id, mode);
-  }
-
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    const updateFollowState = () => {
-      const following = isNearScrollBottom(node);
-      followOutputRef.current = following;
-      setIsFollowingOutput((current) => current === following ? current : following);
-    };
-    updateFollowState();
-    node.addEventListener("scroll", updateFollowState, { passive: true });
-    return () => node.removeEventListener("scroll", updateFollowState);
-  }, [thread.id]);
-
-  useEffect(() => {
-    if (!followOutputRef.current) return;
-    const frame = window.requestAnimationFrame(() => scrollTimelineToBottom(scrollRef.current, "auto"));
-    return () => window.cancelAnimationFrame(frame);
-  }, [records, timelineRecords, effectiveRunning, loading, timelineBottomInset]);
-
-  useEffect(() => {
-    if (!effectiveRunning) {
-      setNowMs(Date.now());
-      return;
-    }
-    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [effectiveRunning]);
-
-  useEffect(() => {
-    setCompactInFlightAfterCount(null);
-    setProcessCollapsedByKey({});
-    autoCompactKeyRef.current = "";
-    followOutputRef.current = true;
-    setIsFollowingOutput(true);
-    wasRunningRef.current = false;
-    window.requestAnimationFrame(() => scrollTimelineToBottom(scrollRef.current, "auto"));
-  }, [thread.id]);
-
-  useEffect(() => {
-    if (compactInFlightAfterCount === null || records.length <= compactInFlightAfterCount) return;
-    const bounds = latestTurnBounds(records);
-    if (!bounds) return;
-    if (!isCompactCommandMessage(bounds.user)) {
-      setCompactInFlightAfterCount(null);
-      return;
-    }
-    const summary = latestRunSummary(records, nowMs, running);
-    if (summary && summary.status !== "running") setCompactInFlightAfterCount(null);
-  }, [compactInFlightAfterCount, nowMs, records, running]);
-
-  useEffect(() => {
-    const dock = composerDockRef.current;
-    if (!dock) return;
-
-    const updateInset = () => {
-      const nextInset = Math.ceil(dock.getBoundingClientRect().height + 28);
-      setTimelineBottomInset(nextInset);
-      window.requestAnimationFrame(() => {
-        if (followOutputRef.current) scrollTimelineToBottom(scrollRef.current, "auto");
-      });
-    };
-
-    updateInset();
-    const observer = new ResizeObserver(updateInset);
-    observer.observe(dock);
-    return () => observer.disconnect();
-  }, [todos.length]);
-
-  async function handleCompact() {
-    if (effectiveRunning || effectiveCompacting) return;
-    setCompactInFlightAfterCount(records.length);
-    try {
-      await onRun("/compact", "execute", "review", undefined, activeProviderSelection);
-    } catch (error) {
-      setCompactInFlightAfterCount(null);
-      throw error;
-    }
-  }
-
-  useEffect(() => {
-    const wasRunning = wasRunningRef.current;
-    wasRunningRef.current = effectiveRunning;
-    if (!wasRunning) return;
-    if (effectiveRunning || effectiveCompacting || loading || error) return;
-    if (!activeProvider || !shouldAutoCompactContext(contextUsage, activeProvider)) return;
-    const bounds = latestTurnBounds(records);
-    if (!bounds || !bounds.result || isCompactCommandMessage(bounds.user)) return;
-    const threshold = autoCompactThresholdPercent(activeProvider);
-    const key = [
-      thread.id,
-      records.length,
-      contextUsage?.inputTokens ?? 0,
-      contextUsage?.contextWindow ?? 0,
-      threshold,
-    ].join(":");
-    if (autoCompactKeyRef.current === key) return;
-    autoCompactKeyRef.current = key;
-    void handleCompact();
-  }, [activeProvider, contextUsage, effectiveCompacting, effectiveRunning, error, loading, records, thread.id]);
+  const {
+    scrollRef,
+    contentRef,
+    composerDockRef,
+    timelineBottomInset,
+    isFollowingOutput,
+    planMode,
+    permissionMode,
+    timelineRecords,
+    timelineItems,
+    liveAssistantText,
+    todos,
+    contextUsage,
+    compacting,
+    effectiveRunning,
+    effectiveCompacting,
+    queuedMessages,
+    sentQueuedMessages,
+    autoCompactThresholdPercent,
+    setPlanMode,
+    setPermissionMode,
+    handleCompact,
+    queueMessage,
+    deleteQueuedMessage,
+    sendQueuedMessage,
+    toggleProcessCollapsed,
+    scrollToBottom,
+  } = useAgentThreadPanelState({
+    thread,
+    records,
+    loading,
+    running,
+    error,
+    agentProviders,
+    activeProviderId,
+    onRun,
+  });
 
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
     <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
     <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(247,244,236,0.62))]">
       <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 pt-5" style={{ paddingBottom: timelineBottomInset }}>
-        {loading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading session timeline
-          </div>
-        ) : timelineRecords.length === 0 ? (
-          <EmptyThreadWelcome thread={thread} />
-        ) : (
-          <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-3`}>
-            {timelineRecords.map((record, index) => {
-              const meta = renderMeta.byIndex.get(index);
-              const itemSummary = meta?.processUserIndex === undefined
-                ? runSummary
-                : runSummaryForUserIndex(timelineRecords, meta.processUserIndex, nowMs, effectiveRunning);
-              const processKey = processStateKey(itemSummary, meta?.processUserIndex, index);
-              const defaultCollapsed = !itemSummary?.running;
-              const isProcessLockedOpen = Boolean(forceProcessOpen && itemSummary?.running);
-              const isProcessCollapsed = processCollapsedByKey[processKey] ?? defaultCollapsed;
-              return (
-                <AgentRecordItem
-                  key={recordKey(record, index)}
-                  record={record}
-                  attachProcess={Boolean(meta?.attachProcess)}
-                  processHeader={Boolean(meta?.processHeader)}
-                  processNarration={Boolean(meta?.processNarration)}
-                  assistantCopyContent={meta?.assistantCopyContent}
-                  stoppedByUser={index === stoppedAssistantIndex}
-                  approvalDecision={approvalDecision(record, resolvedApprovals)}
-                  questionAnswers={questionAnswers(record, resolvedQuestions)}
-                  exitPlanDecision={exitPlanDecision(record, resolvedExitPlans)}
-                  processSummary={itemSummary}
-                  processEvents={meta?.processEvents || []}
-                  processExpanded={isProcessLockedOpen || !isProcessCollapsed}
-                  processLockedOpen={isProcessLockedOpen}
-                  onToggleProcess={() => {
-                    if (isProcessLockedOpen) return;
-                    setProcessCollapsedByKey((current) => ({
-                      ...current,
-                      [processKey]: !(current[processKey] ?? defaultCollapsed),
-                    }));
-                  }}
-                  onApprove={onApprove}
-                  onReject={onReject}
-                  onAnswerQuestion={onAnswerQuestion}
-                  onResolveExitPlan={onResolveExitPlan}
-                  onCompact={() => void handleCompact()}
-                />
-              );
-            })}
-          </div>
-        )}
+        <div ref={contentRef} className="min-h-full">
+          {loading ? (
+            <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading session timeline
+            </div>
+          ) : timelineRecords.length === 0 ? (
+            <EmptyThreadWelcome thread={thread} />
+          ) : (
+            <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-3`}>
+              {timelineItems.map((item, index) => {
+                return (
+                  <AgentRecordItem
+                    key={recordKey(item.record, index)}
+                    record={item.record}
+                    displayKind={item.displayKind}
+                    assistantContent={item.assistantContent}
+                    promptTooLongMessage={item.promptTooLongMessage}
+                    providerErrorMessage={item.providerErrorMessage}
+                    attachProcess={item.attachProcess}
+                    processHeader={item.processHeader}
+                    processNarration={item.processNarration}
+                    assistantCopyContent={item.assistantCopyContent}
+                    stoppedByUser={item.stoppedByUser}
+                    approvalDecision={item.approvalDecision}
+                    questionAnswers={item.questionAnswers}
+                    exitPlanDecision={item.exitPlanDecision}
+                    processSummary={item.processSummary}
+                    processEvents={item.processEvents}
+                    changedFiles={item.changedFiles}
+                    processExpanded={item.processExpanded}
+                    processLockedOpen={item.processLockedOpen}
+                    onToggleProcess={() => toggleProcessCollapsed(item.processKey, item.defaultCollapsed, item.processLockedOpen)}
+                    onApprove={onApprove}
+                    onReject={onReject}
+                    onAnswerQuestion={onAnswerQuestion}
+                    onResolveExitPlan={onResolveExitPlan}
+                    onCompact={() => void handleCompact()}
+                  />
+                );
+              })}
+              {sentQueuedMessages.map((message) => (
+                <QueuedTimelineMessage key={message.id} message={message} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {!isFollowingOutput && (
@@ -319,11 +159,7 @@ export function AgentThreadPanel({
           type="button"
           className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-card/92 text-muted-foreground shadow-[0_12px_34px_rgba(64,55,38,0.16)] ring-1 ring-border/50 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
           style={{ bottom: timelineBottomInset + 10 }}
-          onClick={() => {
-            followOutputRef.current = true;
-            setIsFollowingOutput(true);
-            scrollTimelineToBottom(scrollRef.current, "smooth");
-          }}
+          onClick={() => scrollToBottom("smooth")}
           title="回到底部"
           aria-label="回到底部"
         >
@@ -336,18 +172,22 @@ export function AgentThreadPanel({
       <AgentComposer
         dockRef={composerDockRef}
         todos={todos}
+        queuedMessages={queuedMessages}
         running={effectiveRunning}
         planMode={planMode}
         permissionMode={permissionMode}
         contextUsage={contextUsage}
-        autoCompactThresholdPercent={autoCompactThresholdPercent(activeProvider)}
+        autoCompactThresholdPercent={autoCompactThresholdPercent}
         compacting={effectiveCompacting}
         threadId={thread.id}
         agentProviders={agentProviders}
         activeProviderId={activeProviderId}
         onSetPlanMode={setPlanMode}
-        onSetPermissionMode={handleSetPermissionMode}
+        onSetPermissionMode={setPermissionMode}
         onRun={onRun}
+        onQueueMessage={queueMessage}
+        onSendQueuedMessage={sendQueuedMessage}
+        onDeleteQueuedMessage={deleteQueuedMessage}
         onStop={onStop}
         onCompact={() => void handleCompact()}
         onSelectProvider={onSelectProvider}
@@ -359,13 +199,17 @@ export function AgentThreadPanel({
   );
 }
 
-function isNearScrollBottom(node: HTMLDivElement): boolean {
-  return node.scrollHeight - node.scrollTop - node.clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX;
-}
-
-function scrollTimelineToBottom(node: HTMLDivElement | null, behavior: ScrollBehavior): void {
-  if (!node) return;
-  node.scrollTo({ top: node.scrollHeight, behavior });
+function QueuedTimelineMessage({ message }: { message: QueuedAgentMessage }) {
+  return (
+    <div className="space-y-1">
+      <MessageBubble role="user" content={message.prompt} copyable={false} />
+      <div className="flex justify-end">
+        <span className="rounded-full border border-border/65 bg-background/62 px-2.5 py-1 text-[10px] font-medium text-muted-foreground shadow-sm">
+          发送中
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function ProcessTimelinePanel({
@@ -395,25 +239,16 @@ function ProcessTimelinePanel({
       toolResultSummary={toolResultSummary}
       runSummaryTone={runSummaryTone}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
-      renderToolUseCard={(event, toggle) => (
+      renderToolUseCard={(event, toggle, collapsed) => (
         <ToolUseCard
           block={event.tool}
           result={event.result}
-          collapsed={false}
-          onToggleCollapsed={toggle ?? (() => undefined)}
+          collapsed={collapsed}
+          onToggleCollapsed={toggle}
         />
       )}
     />
   );
-}
-
-function parseProviderModelSelection(value: string): { providerId?: string; modelId?: string } {
-  const [providerId, modelId] = value.split("::");
-  if (!providerId || !modelId) return {};
-  return {
-    providerId: decodeURIComponent(providerId),
-    modelId: decodeURIComponent(modelId),
-  };
 }
 
 function EmptyThreadWelcome({ thread }: { thread: Thread }) {
@@ -481,12 +316,12 @@ function InlineProcessTimeline({ events }: { events: ProcessEvent[] }) {
       toolResultSummary={toolResultSummary}
       runSummaryTone={runSummaryTone}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
-      renderToolUseCard={(event, toggle) => (
+      renderToolUseCard={(event, toggle, collapsed) => (
         <ToolUseCard
           block={event.tool}
           result={event.result}
-          collapsed={false}
-          onToggleCollapsed={toggle ?? (() => undefined)}
+          collapsed={collapsed}
+          onToggleCollapsed={toggle}
         />
       )}
     />
@@ -495,6 +330,10 @@ function InlineProcessTimeline({ events }: { events: ProcessEvent[] }) {
 
 function AgentRecordItem({
   record,
+  displayKind,
+  assistantContent,
+  promptTooLongMessage,
+  providerErrorMessage,
   attachProcess,
   processHeader,
   processNarration,
@@ -505,6 +344,7 @@ function AgentRecordItem({
   exitPlanDecision,
   processSummary,
   processEvents,
+  changedFiles,
   processExpanded,
   processLockedOpen,
   onToggleProcess,
@@ -515,6 +355,10 @@ function AgentRecordItem({
   onCompact,
 }: {
   record: AgentTimelineRecord;
+  displayKind: ReturnType<typeof useAgentThreadPanelState>["timelineItems"][number]["displayKind"];
+  assistantContent?: string;
+  promptTooLongMessage?: string;
+  providerErrorMessage?: string;
   attachProcess: boolean;
   processHeader: boolean;
   processNarration: boolean;
@@ -525,6 +369,7 @@ function AgentRecordItem({
   exitPlanDecision?: "approve" | "deny";
   processSummary: RunSummary | null;
   processEvents: ProcessEvent[];
+  changedFiles: ChangedFileSummary[];
   processExpanded: boolean;
   processLockedOpen: boolean;
   onToggleProcess: () => void;
@@ -535,11 +380,11 @@ function AgentRecordItem({
   onCompact: () => void;
 }) {
   const threadId = useContext(AgentThreadIdContext);
-  const changedFiles = processSummary && !processSummary.running
-    ? changedFilesFromProcessEvents(processEvents)
-    : [];
 
-  if (isStreamRecord(record)) {
+  if (displayKind === "hidden") return null;
+
+  if (displayKind === "stream") {
+    const streamRecord = record as Extract<AgentTimelineRecord, { kind: "stream" }>;
     return (
       <div className="space-y-3">
         {attachProcess && processSummary && processHeader && (
@@ -552,13 +397,13 @@ function AgentRecordItem({
           />
         )}
         {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
-        <StreamingMessageBubble content={record.text} threadId={threadId} />
+        <StreamingMessageBubble content={streamRecord.text} threadId={threadId} active={processSummary?.running ?? true} />
       </div>
     );
   }
 
-  if (isProcessPlaceholderRecord(record)) {
-    if (!attachProcess || !processSummary) return null;
+  if (displayKind === "process") {
+    if (!processSummary) return null;
     return processHeader ? (
       <ProcessTimelinePanel
         summary={processSummary}
@@ -570,15 +415,16 @@ function AgentRecordItem({
     ) : processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
   }
 
-  if (isCompactPlaceholderRecord(record)) {
+  if (displayKind === "compact-compacting") {
     return <CompactContextNote state="compacting" />;
   }
 
+  if (displayKind === "compact-complete") {
+    return <CompactContextNote state="complete" />;
+  }
+
   if (isRuntimeRecord(record)) {
-    if (record.event.type === "approval_requested") {
-      if (approvalDecision) {
-        return null;
-      }
+    if (displayKind === "approval-request" && record.event.type === "approval_requested") {
       return (
         <ApprovalCard
           request={record.event.request}
@@ -588,16 +434,16 @@ function AgentRecordItem({
         />
       );
     }
-    if (record.event.type === "ask_user_requested") {
-      if (questionAnswers) {
-        return (
-          <ResolvedRuntimeNote
-            tone="approved"
-            label="已回答问题"
-            detail={record.event.request.questions[0]?.question || "Brevyn question"}
-          />
-        );
-      }
+    if (displayKind === "question-resolved" && record.event.type === "ask_user_requested") {
+      return (
+        <ResolvedRuntimeNote
+          tone="approved"
+          label="已回答问题"
+          detail={record.event.request.questions[0]?.question || "Brevyn question"}
+        />
+      );
+    }
+    if (displayKind === "question-request" && record.event.type === "ask_user_requested") {
       return (
         <AskUserCard
           request={record.event.request}
@@ -606,16 +452,16 @@ function AgentRecordItem({
         />
       );
     }
-    if (record.event.type === "exit_plan_requested") {
-      if (exitPlanDecision) {
-        return (
-          <ResolvedRuntimeNote
-            tone={exitPlanDecision === "approve" ? "approved" : "denied"}
-            label={exitPlanDecision === "approve" ? "已批准计划" : "已要求修改计划"}
-            detail={exitPlanSummary(record.event.request)}
-          />
-        );
-      }
+    if (displayKind === "exit-plan-resolved" && record.event.type === "exit_plan_requested") {
+      return (
+        <ResolvedRuntimeNote
+          tone={exitPlanDecision === "approve" ? "approved" : "denied"}
+          label={exitPlanDecision === "approve" ? "已批准计划" : "已要求修改计划"}
+          detail={exitPlanSummary(record.event.request)}
+        />
+      );
+    }
+    if (displayKind === "exit-plan-request" && record.event.type === "exit_plan_requested") {
       return (
         <ExitPlanCard
           request={record.event.request}
@@ -628,46 +474,60 @@ function AgentRecordItem({
   }
 
   const message = record as SDKMessage;
-  if (message.type === "user") {
-    if (isCompactCommandMessage(message)) return null;
-    if (toolResultBlocks(message).length) return null;
+  if (displayKind === "user-message") {
     return <MessageBubble role="user" content={userText(message)} threadId={threadId} attachments={messageAttachments(message)} />;
   }
 
-  if (message.type === "assistant") {
-    if (isPromptTooLongMessage(message)) {
-      return (
-        <div className="space-y-2">
-          {attachProcess && processSummary && processHeader && (
-            <ProcessTimelinePanel
-              summary={processSummary}
-              events={processEvents}
-              expanded={processExpanded}
-              lockedOpen={processLockedOpen}
-              onToggle={onToggleProcess}
-            />
-          )}
-          {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
-          <PromptTooLongCard message={assistantText(message) || agentErrorMessage(message)} onCompact={onCompact} />
-        </div>
-      );
-    }
-    const blocks = assistantBlocks(message).filter((block) => block.type === "text");
-    if (blocks.length === 0) {
-      if (!attachProcess) return null;
-      if (!processHeader || !processSummary) return processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
-      return (
-        <ProcessTimelinePanel
-          summary={processSummary}
-          events={processEvents}
-          expanded={processExpanded}
-          lockedOpen={processLockedOpen}
-          onToggle={onToggleProcess}
-        />
-      );
-    }
-    if (processNarration) {
-      if (!attachProcess) return null;
+  if (displayKind === "prompt-too-long") {
+    return (
+      <div className="space-y-2">
+        {attachProcess && processSummary && processHeader && (
+          <ProcessTimelinePanel
+            summary={processSummary}
+            events={processEvents}
+            expanded={processExpanded}
+            lockedOpen={processLockedOpen}
+            onToggle={onToggleProcess}
+          />
+        )}
+        {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
+        <PromptTooLongCard message={promptTooLongMessage || ""} onCompact={onCompact} />
+      </div>
+    );
+  }
+
+  if (displayKind === "provider-error") {
+    return (
+      <div className="space-y-2">
+        {attachProcess && processSummary && processHeader && (
+          <ProcessTimelinePanel
+            summary={processSummary}
+            events={processEvents}
+            expanded={processExpanded}
+            lockedOpen={processLockedOpen}
+            onToggle={onToggleProcess}
+          />
+        )}
+        {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
+        <ProviderErrorCard message={providerErrorMessage || processSummary?.detail || "Provider request failed."} />
+      </div>
+    );
+  }
+
+  if (displayKind === "assistant-process-only") {
+    if (!processHeader || !processSummary) return processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
+    return (
+      <ProcessTimelinePanel
+        summary={processSummary}
+        events={processEvents}
+        expanded={processExpanded}
+        lockedOpen={processLockedOpen}
+        onToggle={onToggleProcess}
+      />
+    );
+  }
+
+  if (displayKind === "assistant-narration") {
       const inline = processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
       if (!processHeader || !processSummary) return inline;
       return (
@@ -679,23 +539,11 @@ function AgentRecordItem({
             lockedOpen={processLockedOpen}
             onToggle={onToggleProcess}
           />
-          {inline}
         </div>
       );
-    }
-    const content = blocks.map((block) => block.text).join("\n\n");
-    if (attachProcess && processSummary?.status === "running" && !assistantCopyContent) {
-      if (!processHeader || !processSummary) return processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
-      return (
-        <ProcessTimelinePanel
-          summary={processSummary}
-          events={processEvents}
-          expanded={processExpanded}
-          lockedOpen={processLockedOpen}
-          onToggle={onToggleProcess}
-        />
-      );
-    }
+  }
+
+  if (displayKind === "assistant-final") {
     return (
       <div className="space-y-2">
         {attachProcess && processSummary && processHeader && (
@@ -709,7 +557,7 @@ function AgentRecordItem({
         )}
         {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
         <RevealedAssistantBubble
-          content={content}
+          content={assistantContent || ""}
           copyable={Boolean(assistantCopyContent)}
           copyContent={assistantCopyContent}
           threadId={threadId}
@@ -721,123 +569,19 @@ function AgentRecordItem({
     );
   }
 
-  if (message.type === "result") {
-    if (attachProcess && processSummary) {
-      return processHeader ? (
-        <ProcessTimelinePanel
-          summary={processSummary}
-          events={processEvents}
-          expanded={processExpanded}
-          lockedOpen={processLockedOpen}
-          onToggle={onToggleProcess}
-        />
-      ) : processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
-    }
-    return null;
-  }
-
-  if (message.type === "system") {
-    const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
-    if (subtype === "compacting") {
-      return <CompactContextNote state="compacting" />;
-    }
-    if (subtype === "compact_boundary") {
-      return <CompactContextNote state="complete" />;
-    }
-    return null;
+  if (displayKind === "result-process") {
+    return processHeader ? (
+      <ProcessTimelinePanel
+        summary={processSummary as RunSummary}
+        events={processEvents}
+        expanded={processExpanded}
+        lockedOpen={processLockedOpen}
+        onToggle={onToggleProcess}
+      />
+    ) : processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
   }
 
   return null;
-}
-
-function ChangedFilesSummary({ changes }: { changes: ChangedFileSummary[] }) {
-  const [expanded, setExpanded] = useState(true);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
-  const threadId = useContext(AgentThreadIdContext);
-  const onPreviewFilePath = useFilePathPreviewHandler();
-  const totals = changes.reduce(
-    (acc, change) => ({
-      additions: acc.additions + change.additions,
-      deletions: acc.deletions + change.deletions,
-    }),
-    { additions: 0, deletions: 0 },
-  );
-
-  async function openPath(path: string) {
-    if (onPreviewFilePath) {
-      await onPreviewFilePath(path);
-      return;
-    }
-    if (!threadId) return;
-    await window.brevyn.app.openWorkspacePath({ threadId, path });
-  }
-
-  function togglePath(path: string) {
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-border/75 bg-card/72 shadow-sm ring-1 ring-white/50">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left transition hover:bg-accent/30"
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <span className="min-w-0 text-sm font-semibold text-foreground">
-          {changes.length} 个文件已更改 <DiffStatsText value={formatDiffStats(totals)} />
-        </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
-      </button>
-      <div className={`${expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
-        <div className="min-h-0 overflow-hidden">
-          <div className="divide-y divide-border/55 border-t border-border/60">
-            {changes.map((change) => {
-              const fileExpanded = expandedPaths.has(change.path);
-              return (
-                <div key={change.path} className="min-w-0">
-                  <div className="flex w-full min-w-0 items-center justify-between gap-3 px-3.5 py-2.5 transition hover:bg-accent/30">
-                    <button
-                      type="button"
-                      className="inline-flex min-w-0 items-center gap-2 text-left"
-                      title={change.path}
-                      onClick={() => void openPath(change.path)}
-                    >
-                      <FileTypeIcon name={change.name} size={16} />
-                      <span className="min-w-0 truncate text-sm font-medium text-foreground hover:text-sky-800">{change.name}</span>
-                      {change.edits > 1 && (
-                        <span className="shrink-0 rounded-full border bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                          {change.edits} 次
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex shrink-0 items-center gap-2 rounded-md px-1 py-0.5 transition hover:bg-accent/60"
-                      title={fileExpanded ? "收起 diff" : "展开 diff"}
-                      onClick={() => togglePath(change.path)}
-                    >
-                      <DiffStatsText value={formatDiffStats(change)} />
-                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${fileExpanded ? "" : "-rotate-90"}`} />
-                    </button>
-                  </div>
-                  <div className={`${fileExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
-                    <div className="min-h-0 overflow-hidden">
-                      <ChangedFileDiffPreview change={change} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function messageAttachments(message: SDKMessage): AgentAttachment[] {
@@ -861,700 +605,11 @@ function messageAttachments(message: SDKMessage): AgentAttachment[] {
   });
 }
 
-function ChangedFileDiffPreview({ change }: { change: ChangedFileSummary }) {
-  if (change.hunks.length === 0) {
-    return (
-      <div className="border-t border-border/50 px-3.5 py-2 text-xs text-muted-foreground">
-        暂无可展示的行级 diff。
-      </div>
-    );
-  }
-
-  return (
-    <div className="border-t border-border/55 bg-zinc-950/[0.035]">
-      <div className="max-h-80 overflow-auto brevyn-scrollbar">
-        {change.hunks.map((hunk, index) => (
-          <div key={hunk.id} className={index > 0 ? "border-t border-border/60" : undefined}>
-            {(change.hunks.length > 1 || hunk.label) && (
-              <div className="sticky top-0 z-10 border-b border-border/50 bg-card/90 px-3 py-1.5 font-mono text-[10px] text-muted-foreground backdrop-blur">
-                {hunk.label || `Change ${index + 1}`}
-              </div>
-            )}
-            <div className="min-w-[42rem]">
-              {hunk.rows.map((row, rowIndex) => (
-                <ChangedFileDiffLine key={`${hunk.id}-${rowIndex}`} row={row} />
-              ))}
-              {hunk.truncatedRows ? (
-                <div className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
-                  已隐藏 {hunk.truncatedRows} 行，完整内容可打开文件查看。
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChangedFileDiffLine({ row }: { row: ChangedFileDiffRow }) {
-  const tone = row.type === "added"
-    ? "border-l-emerald-400 bg-emerald-500/12 text-emerald-700"
-    : row.type === "removed"
-      ? "border-l-red-400 bg-red-500/12 text-red-700"
-      : "border-l-transparent text-foreground/85";
-  const marker = row.type === "added" ? "+" : row.type === "removed" ? "-" : " ";
-  return (
-    <div className={`grid grid-cols-[3.5rem_1.5rem_minmax(0,1fr)] border-l-2 font-mono leading-6 ${tone}`}>
-      <span className="select-none border-r border-border/50 pr-3 text-right text-muted-foreground/80">{row.lineNumber}</span>
-      <span className="select-none text-center text-muted-foreground/70">{marker}</span>
-      <code className="min-w-0 whitespace-pre-wrap break-words pr-3 text-[11px]">{row.text || "\u00A0"}</code>
-    </div>
-  );
-}
-
-function ToolTitle({ toolName, input, threadId, isError = false }: { toolName: string; input: unknown; threadId?: string; isError?: boolean }) {
-  const data = recordObject(input);
-  const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
-  const diff = toolDiffStats(toolName, input);
-  const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
-
-  if (path && (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
-    const action = toolName === "Read" ? "Read" : toolName === "Write" ? "已写入" : "已编辑";
-    return (
-      <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
-        <span className="shrink-0">{action}</span>
-        <span
-          className="min-w-0"
-          onClick={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <FilePathChip filePath={path} threadId={threadId} />
-        </span>
-        {diffLabel && <DiffStatsText value={diffLabel} />}
-      </span>
-    );
-  }
-
-  return <span>{toolTitle(toolName, input)}</span>;
-}
-
-function DiffStatsText({ value }: { value: string }) {
-  if (!value) return null;
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[11px]">
-      {value.split(" ").map((part) => {
-        if (part.startsWith("+")) return <span key={part} className="text-emerald-500">{part}</span>;
-        if (part.startsWith("-")) return <span key={part} className="text-red-500">{part}</span>;
-        return <span key={part}>{part}</span>;
-      })}
-    </span>
-  );
-}
-
-function changedFilesFromProcessEvents(events: ProcessEvent[]): ChangedFileSummary[] {
-  const byPath = new Map<string, ChangedFileSummary>();
-  for (const event of events) {
-    if (event.kind !== "tool_use") continue;
-    if (!FILE_EDIT_TOOL_NAMES.has(event.tool.name)) continue;
-    if (!event.result || event.result.isError) continue;
-    const data = recordObject(event.tool.input);
-    const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
-    if (!path) continue;
-    const diff = toolDiffStats(event.tool.name, event.tool.input);
-    if (!diff) continue;
-    const hunks = diffHunksForTool(event.tool.name, data, `${event.id}-${path}`);
-    const existing = byPath.get(path);
-    if (existing) {
-      existing.additions += diff.additions;
-      existing.deletions += diff.deletions;
-      existing.edits += 1;
-      existing.hunks.push(...hunks);
-      continue;
-    }
-    byPath.set(path, {
-      path,
-      name: fileName(path),
-      additions: diff.additions,
-      deletions: diff.deletions,
-      edits: 1,
-      hunks,
-    });
-  }
-  return [...byPath.values()];
-}
-
-function diffHunksForTool(toolName: string, input: Record<string, unknown>, idPrefix: string): ChangedFileHunk[] {
-  if (toolName === "Write") {
-    const content = typeof input.content === "string" ? input.content : "";
-    const rows = rowsFromText(content, "added", 1);
-    return rows.length > 0 ? [clampHunk({ id: `${idPrefix}-write`, label: "Write", rows })] : [];
-  }
-  if (toolName === "Edit") {
-    const rows = editRows(input);
-    return rows.length > 0 ? [clampHunk({ id: `${idPrefix}-edit`, label: "Edit", rows })] : [];
-  }
-  if (toolName === "MultiEdit") {
-    const edits = Array.isArray(input.edits) ? input.edits : [];
-    return edits.flatMap((edit, index) => {
-      const rows = editRows(recordObject(edit));
-      return rows.length > 0 ? [clampHunk({ id: `${idPrefix}-edit-${index}`, label: `Edit ${index + 1}`, rows })] : [];
-    });
-  }
-  return [];
-}
-
-function editRows(input: Record<string, unknown>): ChangedFileDiffRow[] {
-  const oldString = typeof input.old_string === "string" ? input.old_string : "";
-  const newString = typeof input.new_string === "string" ? input.new_string : "";
-  const startLine = numericValue(input.line_number ?? input.start_line ?? input.startLine) ?? 1;
-  return [
-    ...rowsFromText(oldString, "removed", startLine),
-    ...rowsFromText(newString, "added", startLine),
-  ];
-}
-
-function rowsFromText(value: string, type: ChangedFileDiffRow["type"], startLine: number): ChangedFileDiffRow[] {
-  if (!value) return [];
-  return value.split("\n").map((line, index) => ({
-    type,
-    lineNumber: startLine + index,
-    text: line,
-  }));
-}
-
-function clampHunk(hunk: ChangedFileHunk): ChangedFileHunk {
-  const maxRows = 220;
-  if (hunk.rows.length <= maxRows) return hunk;
-  return {
-    ...hunk,
-    rows: hunk.rows.slice(0, maxRows),
-    truncatedRows: hunk.rows.length - maxRows,
-  };
-}
-
-function numericValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(1, Math.floor(value));
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.max(1, Math.floor(parsed));
-  }
-  return null;
-}
-
-function fileName(path: string): string {
-  const normalized = path.trim().replace(/\\/g, "/");
-  return normalized.split("/").filter(Boolean).at(-1) || path;
-}
-
-function ToolUseCard({
-  block,
-  result,
-  collapsed,
-  onToggleCollapsed,
-}: {
-  block: ToolUseBlock;
-  result?: ToolResultBlock;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
-}) {
-  const threadId = useContext(AgentThreadIdContext);
-  return (
-    <BaseToolUseCard
-      block={block}
-      result={result}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
-      formatToolResultContent={formatToolResultContent}
-      formatUnknown={formatUnknown}
-      recordObject={recordObject}
-      stringValue={stringValue}
-      toolResultSummary={toolResultSummary}
-      toolTitle={toolTitle}
-      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
-      truncatePreview={truncatePreview}
-      singleLine={singleLine}
-      renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
-    />
-  );
-}
-
-function ApprovalCard({
-  request,
-  decision,
-  onApprove,
-  onReject,
-}: {
-  request: AgentApprovalRequest;
-  decision?: "allow" | "deny";
-  onApprove: (requestId: string) => Promise<void>;
-  onReject: (requestId: string) => Promise<void>;
-}) {
-  const [pending, setPending] = useState<"allow" | "deny" | null>(null);
-  const threadId = useContext(AgentThreadIdContext);
-  const resolved = Boolean(decision);
-
-  async function resolveApproval(next: "allow" | "deny") {
-    if (pending || resolved) return;
-    setPending(next);
-    try {
-      await (next === "allow" ? onApprove(request.requestId) : onReject(request.requestId));
-    } finally {
-      setPending(null);
-    }
-  }
-
-  const dangerous = request.riskLevel === "dangerous";
-
-  return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${dangerous ? "border-red-200 bg-red-50/80" : "border-amber-200 bg-amber-50/80"}`}>
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border bg-background ${dangerous ? "border-red-200 text-red-700" : "border-amber-200 text-amber-700"}`}>
-          <ShieldAlert className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">
-            {request.title || request.displayName || toolTitle(request.toolName, request.input)}
-          </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {request.description || "Brevyn needs your approval before running this tool."}
-          </p>
-          {dangerous && (
-            <p className="mt-1 text-[11px] font-medium text-red-700">
-              This command looks destructive or high-impact. Review it carefully before allowing.
-            </p>
-          )}
-          <div className="mt-3 rounded-xl border bg-background/80 p-2">
-            <div className="text-[11px] font-medium text-muted-foreground">Tool · {request.toolName}</div>
-            <ToolInputPreview
-              toolName={request.toolName}
-              input={request.input}
-              formatToolResultContent={formatToolResultContent}
-              formatUnknown={formatUnknown}
-              recordObject={recordObject}
-              stringValue={stringValue}
-              toolResultSummary={toolResultSummary}
-              toolTitle={toolTitle}
-              renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
-              truncatePreview={truncatePreview}
-              singleLine={singleLine}
-              renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {resolved ? (
-              <span className="inline-flex h-8 items-center rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground">
-                {decision === "allow" ? "Approved" : "Denied"}
-              </span>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={Boolean(pending)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
-                  onClick={() => void resolveApproval("allow")}
-                >
-                  {pending === "allow" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                  {pending === "allow" ? "Allowing" : "Allow"}
-                </button>
-                <button
-                  type="button"
-                  disabled={Boolean(pending)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void resolveApproval("deny")}
-                >
-                  {pending === "deny" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-                  {pending === "deny" ? "Denying" : "Deny"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AskUserCard({
-  request,
-  resolvedAnswers,
-  onAnswer,
-}: {
-  request: AgentAskUserRequest;
-  resolvedAnswers?: Record<string, string>;
-  onAnswer: (requestId: string, answers: Record<string, string>) => Promise<void>;
-}) {
-  const [answers, setAnswers] = useState<Record<string, string>>(() => defaultQuestionAnswers(request));
-  const [pending, setPending] = useState(false);
-  const resolved = Boolean(resolvedAnswers);
-  const visibleAnswers = resolvedAnswers || answers;
-
-  async function submit() {
-    if (pending || resolved) return;
-    setPending(true);
-    try {
-      await onAnswer(request.requestId, answers);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm ring-1 ring-white/40">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-background text-blue-700">
-          <MessageCircleQuestion className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">Brevyn needs a choice</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Answer this question so the current run can continue without losing context.
-          </p>
-          <div className="mt-3 space-y-3">
-            {request.questions.map((question, index) => {
-              const key = answerKey(question.question, index);
-              const selected = visibleAnswers[key] || "";
-              return (
-                <div key={key} className="rounded-xl border bg-background/82 p-3">
-                  <div className="mb-2">
-                    {question.header && <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">{question.header}</p>}
-                    <p className="text-xs font-semibold text-foreground">{question.question || `Question ${index + 1}`}</p>
-                  </div>
-                  {question.options.length > 0 ? (
-                    <div className="space-y-2">
-                      {question.options.map((option) => {
-                        const active = question.multiSelect
-                          ? selected.split(",").map((item) => item.trim()).includes(option.label)
-                          : selected === option.label;
-                        return (
-                          <button
-                            key={option.label}
-                            type="button"
-                            disabled={resolved}
-                            className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition ${
-                              active
-                                ? "border-foreground bg-foreground text-background"
-                                : "border-border bg-card/70 text-foreground hover:bg-accent"
-                            } disabled:cursor-default disabled:opacity-80`}
-                            onClick={() => {
-                              setAnswers((current) => ({
-                                ...current,
-                                [key]: nextQuestionAnswer(current[key] || "", option.label, Boolean(question.multiSelect)),
-                              }));
-                            }}
-                          >
-                            <span className="font-semibold">{option.label}</span>
-                            {option.description && <span className={`mt-0.5 block leading-5 ${active ? "text-background/75" : "text-muted-foreground"}`}>{option.description}</span>}
-                            {option.preview && <span className={`mt-1 block truncate text-[11px] ${active ? "text-background/70" : "text-muted-foreground/80"}`}>{option.preview}</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <textarea
-                      value={selected}
-                      disabled={resolved}
-                      rows={2}
-                      className="w-full resize-none rounded-xl border bg-card/80 px-3 py-2 text-xs leading-5 text-foreground outline-none transition focus:border-foreground disabled:opacity-80"
-                      placeholder="Type your answer..."
-                      onChange={(event) => setAnswers((current) => ({ ...current, [key]: event.target.value }))}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            {resolved ? (
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground">
-                <Check className="h-3.5 w-3.5" />
-                Answered
-              </span>
-            ) : (
-              <button
-                type="button"
-                disabled={pending}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void submit()}
-              >
-                {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                {pending ? "Sending" : "Answer"}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExitPlanCard({
-  request,
-  decision,
-  onResolve,
-}: {
-  request: AgentExitPlanRequest;
-  decision?: "approve" | "deny";
-  onResolve: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
-}) {
-  const [pending, setPending] = useState<"approve" | "deny" | null>(null);
-  const [feedback, setFeedback] = useState("");
-  const resolved = Boolean(decision);
-
-  async function resolvePlan(next: "approve" | "deny") {
-    if (pending || resolved) return;
-    setPending(next);
-    try {
-      await onResolve(request.requestId, next, next === "deny" ? feedback.trim() : undefined);
-    } finally {
-      setPending(null);
-    }
-  }
-
-  return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm ring-1 ring-white/45">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-background text-blue-700">
-          <ShieldAlert className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">Plan ready for review</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Brevyn finished planning. Approve to leave plan mode and continue execution, or send feedback to revise the plan.
-          </p>
-          {request.allowedPrompts.length > 0 && (
-            <div className="mt-3 rounded-xl border bg-background/82 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">Requested execution scope</p>
-              <div className="mt-2 space-y-1.5">
-                {request.allowedPrompts.map((prompt, index) => (
-                  <div key={`${prompt.tool}-${prompt.prompt}-${index}`} className="flex items-start gap-2 text-xs leading-5 text-foreground">
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />
-                    <span className="min-w-0 break-words">{prompt.tool}: {prompt.prompt}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {!resolved && (
-            <textarea
-              value={feedback}
-              rows={2}
-              className="mt-3 w-full resize-none rounded-xl border bg-background/82 px-3 py-2 text-xs leading-5 text-foreground outline-none transition focus:border-blue-300"
-              placeholder="Optional feedback if you want Brevyn to revise the plan..."
-              onChange={(event) => setFeedback(event.target.value)}
-            />
-          )}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {resolved ? (
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground">
-                <Check className="h-3.5 w-3.5" />
-                {decision === "approve" ? "Approved" : "Sent back"}
-              </span>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={Boolean(pending)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void resolvePlan("approve")}
-                >
-                  {pending === "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                  {pending === "approve" ? "Approving" : "Approve plan"}
-                </button>
-                <button
-                  type="button"
-                  disabled={Boolean(pending)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void resolvePlan("deny")}
-                >
-                  {pending === "deny" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-                  {pending === "deny" ? "Sending" : "Revise"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResultCard({ record }: { record: SDKMessage }) {
-  const subtype = String((record as { subtype?: unknown }).subtype || "result");
-  const turns = typeof (record as { num_turns?: unknown }).num_turns === "number" ? (record as { num_turns: number }).num_turns : undefined;
-  return (
-    <div className="flex justify-center">
-      <span className="rounded-full border bg-background px-3 py-1 text-[11px] text-muted-foreground">
-        {subtype}{turns ? ` · ${turns} turn${turns === 1 ? "" : "s"}` : ""}
-      </span>
-    </div>
-  );
-}
-
-function latestRunSummary(records: AgentTimelineRecord[], nowMs: number, active: boolean): RunSummary | null {
-  const bounds = latestTurnBounds(records);
-  if (!bounds) return active ? { runId: "active", label: "Thinking", running: true, status: "running" } : null;
-
-  return runSummaryForUserIndex(records, bounds.userIndex, nowMs, active);
-}
-
-function processStateKey(summary: RunSummary | null, userIndex: number | undefined, recordIndex: number): string {
-  if (summary?.runId) return summary.runId;
-  if (userIndex !== undefined) return `turn-${userIndex}`;
-  return `record-${recordIndex}`;
-}
-
-function runSummaryForUserIndex(records: AgentTimelineRecord[], userIndex: number, nowMs: number, active: boolean): RunSummary | null {
-  const user = records[userIndex];
-  if (!user || isRuntimeRecord(user) || (user as SDKMessage).type !== "user") return null;
-  const result = resultForUserIndex(records, userIndex);
-  const runStart = latestRunStart(records, userIndex);
-  const lifecycle = latestRunLifecycle(records, userIndex);
-  const latestBounds = latestTurnBounds(records);
-  const isLatestTurn = latestBounds?.userIndex === userIndex;
-  const startMs = recordCreatedAtMs(user) ?? nowMs;
-  const finishMs = lifecycle?.createdAtMs ?? (result.record ? recordCreatedAtMs(result.record) ?? nowMs : nowMs);
-  const running = !lifecycle && !result.record && active && isLatestTurn;
-  const runId = runStart?.runId || stringValue((user as { uuid?: unknown }).uuid, `turn-${userIndex}`);
-  const permissionMode = runStart?.permissionMode;
-  const duration = formatDuration(Math.max(0, finishMs - startMs));
-  const resultSubtype = result.record ? String((result.record as { subtype?: unknown }).subtype || "") : "";
-  const status = lifecycle?.status ?? statusFromResultSubtype(resultSubtype, running);
-  const detail = normalizedRunDetail(lifecycle?.detail ?? resultDetail(result.record));
-  if (status === "running") return { runId, label: eventsSinceStart(records, userIndex) ? `已处理 ${duration}` : "Thinking", running: true, status, permissionMode };
-  if (status === "stopped") return { runId, label: `已停止 · ${duration}`, running: false, status, permissionMode, detail };
-  if (status === "failed") return { runId, label: `运行失败 · ${duration}`, running: false, status, permissionMode, detail };
-  if (status === "interrupted") return { runId, label: `已中断 · ${duration}`, running: false, status, permissionMode, detail };
-  return { runId, label: `已处理 ${duration}`, running: false, status: "completed", permissionMode, detail };
-}
-
-function resultForUserIndex(records: AgentTimelineRecord[], userIndex: number): { record?: SDKMessage; index?: number } {
-  const nextUserIndex = nextUserInputIndex(records, userIndex);
-  const endIndex = nextUserIndex ?? records.length;
-  for (let index = userIndex + 1; index < endIndex; index += 1) {
-    const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
-    if ((record as SDKMessage).type === "result") return { record: record as SDKMessage, index };
-  }
-  return {};
-}
-
-function nextUserInputIndex(records: AgentTimelineRecord[], afterIndex: number): number | undefined {
-  for (let index = afterIndex + 1; index < records.length; index += 1) {
-    const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
-    if ((record as SDKMessage).type === "user" && !toolResultBlocks(record as SDKMessage).length && userText(record as SDKMessage).trim()) return index;
-  }
-  return undefined;
-}
-
-function latestRunStart(records: AgentTimelineRecord[], userIndex: number): { runId: string; permissionMode?: AgentPermissionMode } | null {
-  for (let index = userIndex; index >= 0; index -= 1) {
-    const record = records[index];
-    if (!record || !isRuntimeRecord(record) || record.event.type !== "run_started") continue;
-    return { runId: record.event.runId, permissionMode: record.event.permissionMode };
-  }
-  return null;
-}
-
-function recordCreatedAtMs(record: AgentTimelineRecord): number | undefined {
-  if (isRuntimeRecord(record)) {
-    const parsed = Date.parse(record.event.createdAt);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  const createdAt = (record as { _createdAt?: unknown })._createdAt;
-  if (typeof createdAt === "number" && Number.isFinite(createdAt)) return createdAt;
-  const timestamp = (record as { timestamp?: unknown }).timestamp;
-  if (typeof timestamp === "string") {
-    const parsed = Date.parse(timestamp);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
-}
-
-function latestRunLifecycle(records: AgentTimelineRecord[], userIndex: number): { status: RunSummary["status"]; detail?: string; createdAtMs?: number } | null {
-  let runId = "";
-  let runStartIndex = -1;
-  for (let index = userIndex; index >= 0; index -= 1) {
-    const record = records[index];
-    if (!record || !isRuntimeRecord(record) || record.event.type !== "run_started") continue;
-    runId = record.event.runId;
-    runStartIndex = index;
-    break;
-  }
-  if (!runId) return null;
-
-  for (let index = runStartIndex + 1; index < records.length; index += 1) {
-    const record = records[index];
-    if (!record || !isRuntimeRecord(record) || !("runId" in record.event) || record.event.runId !== runId) continue;
-    if (record.event.type === "run_completed") return { status: "completed", createdAtMs: recordCreatedAtMs(record) };
-    if (record.event.type === "run_stopped") return { status: "stopped", detail: record.event.reason, createdAtMs: recordCreatedAtMs(record) };
-    if (record.event.type === "run_failed") return { status: "failed", detail: record.event.error, createdAtMs: recordCreatedAtMs(record) };
-    if (record.event.type === "run_interrupted") return { status: "interrupted", detail: record.event.reason, createdAtMs: recordCreatedAtMs(record) };
-  }
-  return null;
-}
-
-function statusFromResultSubtype(subtype: string, running: boolean): RunSummary["status"] {
-  if (running) return "running";
-  if (subtype === "success") return "completed";
-  if (subtype === "stopped_by_user") return "stopped";
-  if (subtype === "interrupted") return "interrupted";
-  if (subtype) return "failed";
-  return "completed";
-}
-
-function resultDetail(result?: SDKMessage): string | undefined {
-  if (!result) return undefined;
-  const errors = (result as { errors?: unknown }).errors;
-  if (Array.isArray(errors)) {
-    const first = errors.find((item) => typeof item === "string" && item.trim());
-    if (typeof first === "string") return first;
-  }
-  const text = (result as { result?: unknown }).result;
-  return typeof text === "string" && text.trim() ? text : undefined;
-}
-
-function normalizedRunDetail(detail?: string): string | undefined {
-  const text = detail?.trim();
-  if (!text || text === "Agent run stopped.") return undefined;
-  return text;
-}
-
-function eventsSinceStart(records: AgentTimelineRecord[], userIndex: number): boolean {
-  return records.slice(userIndex + 1).some((record) => {
-    if (isRuntimeRecord(record)) return false;
-    return (record as SDKMessage).type === "assistant" || (record as SDKMessage).type === "stream_event";
-  });
-}
-
-function formatDuration(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes <= 0) return `${seconds}s`;
-  return `${minutes}m ${seconds}s`;
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${trimNumber(tokens / 1_000_000)}M`;
-  if (tokens >= 1_000) return `${trimNumber(tokens / 1_000)}K`;
-  return tokens.toLocaleString();
-}
-
-function trimNumber(value: number): string {
-  return value >= 10 ? value.toFixed(0) : value.toFixed(1).replace(/\.0$/, "");
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
 function runSummaryTone(status: RunSummary["status"]): { text: string; dot: string; detail: string } {
   if (status === "running") {
     return {
       text: "text-muted-foreground",
-      dot: "bg-amber-500 animate-pulse",
+      dot: "bg-amber-500",
       detail: "border-amber-200 bg-amber-50/75 text-amber-900",
     };
   }
@@ -1584,385 +639,4 @@ function runSummaryTone(status: RunSummary["status"]): { text: string; dot: stri
     dot: "bg-red-500",
     detail: "border-red-200 bg-red-50/75 text-red-900",
   };
-}
-
-function readStoredPermissionMode(threadId: string): AgentPermissionMode {
-  try {
-    return window.localStorage.getItem(`${AGENT_PERMISSION_STORAGE_PREFIX}${threadId}`) === "full_access" ? "full_access" : "review";
-  } catch {
-    return "review";
-  }
-}
-
-function writeStoredPermissionMode(threadId: string, mode: AgentPermissionMode): void {
-  try {
-    window.localStorage.setItem(`${AGENT_PERMISSION_STORAGE_PREFIX}${threadId}`, mode);
-  } catch {
-    // Ignore storage failures; Review remains the safe fallback.
-  }
-}
-
-function latestCopyableAssistantIndex(meta: ReturnType<typeof buildTimelineRenderMeta>): number | undefined {
-  const indexes = [...meta.byIndex.entries()].flatMap(([index, value]) => value.assistantCopyContent ? [index] : []);
-  return indexes.at(-1);
-}
-
-function latestTodoList(records: BrevynAgentTimelineRecord[]): AgentTodoItem[] {
-  let latest: AgentTodoItem[] = [];
-  let latestTodoUserInputIndex = -1;
-  const latestUserInputIndex = lastUserInputIndex(records);
-  for (const [index, record] of records.entries()) {
-    if (isRuntimeRecord(record) || (record as SDKMessage).type !== "assistant") continue;
-    for (const block of assistantBlocks(record as SDKMessage)) {
-      if (block.type !== "tool_use" || block.name !== "TodoWrite") continue;
-      const todos = recordObject(block.input).todos;
-      if (!Array.isArray(todos)) continue;
-      latest = todos.flatMap((todo) => {
-        const item = recordObject(todo);
-        const content = stringValue(item.content, "");
-        if (!content) return [];
-        const rawStatus = stringValue(item.status, "pending");
-        const status = rawStatus === "completed" || rawStatus === "in_progress" ? rawStatus : "pending";
-        return [{ content, status }];
-      });
-      latestTodoUserInputIndex = ownerUserInputIndex(records, index);
-    }
-  }
-  if (latest.length === 0) return [];
-  const completed = latest.every((todo) => todo.status === "completed");
-  if (completed && latestUserInputIndex > latestTodoUserInputIndex) return [];
-  return latest;
-}
-
-function lastUserInputIndex(records: BrevynAgentTimelineRecord[]): number {
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    const record = records[index];
-    if (!record || isRuntimeRecord(record) || (record as SDKMessage).type !== "user") continue;
-    if (toolResultBlocks(record as SDKMessage).length || !userText(record as SDKMessage).trim()) continue;
-    return index;
-  }
-  return -1;
-}
-
-function ownerUserInputIndex(records: BrevynAgentTimelineRecord[], beforeIndex: number): number {
-  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
-    const record = records[index];
-    if (!record || isRuntimeRecord(record) || (record as SDKMessage).type !== "user") continue;
-    if (toolResultBlocks(record as SDKMessage).length || !userText(record as SDKMessage).trim()) continue;
-    return index;
-  }
-  return -1;
-}
-
-function latestContextUsage(records: BrevynAgentTimelineRecord[]): ContextUsage | null {
-  let latest: ContextUsage | null = null;
-  for (const record of records) {
-    if (isRuntimeRecord(record)) continue;
-    const message = record as SDKMessage;
-    if (message.type === "assistant") {
-      const rawMessage = recordObject((message as { message?: unknown }).message);
-      const usage = recordObject(rawMessage.usage);
-      const inputTokens = tokenNumber(usage.input_tokens) + tokenNumber(usage.cache_read_input_tokens) + tokenNumber(usage.cache_creation_input_tokens);
-      if (inputTokens > 0) {
-        const previousContextWindow: number | undefined = latest ? latest.contextWindow : undefined;
-        latest = {
-          inputTokens,
-          outputTokens: tokenNumber(usage.output_tokens) || undefined,
-          cacheReadTokens: tokenNumber(usage.cache_read_input_tokens) || undefined,
-          cacheCreationTokens: tokenNumber(usage.cache_creation_input_tokens) || undefined,
-          contextWindow: previousContextWindow ?? inferContextWindow(stringValue(rawMessage.model ?? (message as { _channelModelId?: unknown })._channelModelId, "")),
-        };
-      }
-      continue;
-    }
-    if (message.type === "result") {
-      const usage = recordObject((message as { usage?: unknown }).usage);
-      const primaryUsage = primaryModelUsageFromResult(message);
-      const contextWindow = primaryUsage?.contextWindow;
-      if (latest && contextWindow) {
-        latest = { ...latest, contextWindow };
-        continue;
-      }
-      const inputTokens = primaryUsage
-        ? primaryUsage.inputTokens + (primaryUsage.cacheReadTokens || 0) + (primaryUsage.cacheCreationTokens || 0)
-        : tokenNumber(usage.input_tokens) + tokenNumber(usage.cache_read_input_tokens) + tokenNumber(usage.cache_creation_input_tokens);
-      if (!latest && (inputTokens > 0 || contextWindow)) {
-        latest = {
-          inputTokens: inputTokens || 0,
-          outputTokens: primaryUsage?.outputTokens || tokenNumber(usage.output_tokens) || undefined,
-          cacheReadTokens: primaryUsage?.cacheReadTokens || tokenNumber(usage.cache_read_input_tokens) || undefined,
-          cacheCreationTokens: primaryUsage?.cacheCreationTokens || tokenNumber(usage.cache_creation_input_tokens) || undefined,
-          contextWindow,
-        };
-      }
-    }
-  }
-  return latest && latest.inputTokens > 0 ? latest : null;
-}
-
-function autoCompactThresholdPercent(provider?: ModelProviderConfig): number {
-  const value = provider?.autoCompactThresholdPercent;
-  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT;
-  return clampNumber(value, MIN_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT);
-}
-
-function shouldAutoCompactContext(usage: ContextUsage | null, provider?: ModelProviderConfig): boolean {
-  if (!usage?.contextWindow || usage.inputTokens <= 0) return false;
-  return usage.inputTokens / usage.contextWindow >= autoCompactThresholdPercent(provider) / 100;
-}
-
-function defaultContextUsage(model?: string): ContextUsage | null {
-  const contextWindow = inferContextWindow(model || "");
-  return contextWindow ? { inputTokens: 0, contextWindow } : null;
-}
-
-function isCompactingContext(records: BrevynAgentTimelineRecord[]): boolean {
-  let compacting = false;
-  for (const record of records) {
-    if (isRuntimeRecord(record)) continue;
-    if ((record as SDKMessage).type === "result") {
-      compacting = false;
-      continue;
-    }
-    if ((record as SDKMessage).type !== "system") continue;
-    const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
-    if (subtype === "compacting") compacting = true;
-    if (subtype === "compact_boundary") compacting = false;
-  }
-  return compacting;
-}
-
-function primaryModelUsageFromResult(message: SDKMessage): ContextUsage | undefined {
-  const modelUsage = recordObject((message as { modelUsage?: unknown }).modelUsage);
-  let selected: ContextUsage | undefined;
-  let selectedTokens = 0;
-  for (const value of Object.values(modelUsage)) {
-    const usage = recordObject(value);
-    const inputTokens = tokenNumber(usage.inputTokens);
-    const cacheReadTokens = tokenNumber(usage.cacheReadInputTokens);
-    const cacheCreationTokens = tokenNumber(usage.cacheCreationInputTokens);
-    const totalInputTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
-    if (totalInputTokens <= selectedTokens) continue;
-    selectedTokens = totalInputTokens;
-    selected = {
-      inputTokens,
-      outputTokens: tokenNumber(usage.outputTokens) || undefined,
-      cacheReadTokens: cacheReadTokens || undefined,
-      cacheCreationTokens: cacheCreationTokens || undefined,
-      contextWindow: tokenNumber(usage.contextWindow) || undefined,
-    };
-  }
-  return selected;
-}
-
-function inferContextWindow(model: string): number | undefined {
-  const normalized = model.toLowerCase();
-  if (!normalized) return undefined;
-  if (normalized.includes("haiku")) return 200_000;
-  if (normalized.includes("deepseek-v4")) return 1_000_000;
-  if (normalized.includes("claude-sonnet-4") || normalized.includes("claude-opus-4-6") || normalized.includes("claude-opus-4-7")) return 1_000_000;
-  return 200_000;
-}
-
-function tokenNumber(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function todoToolUseIds(records: BrevynAgentTimelineRecord[]): Set<string> {
-  const ids = new Set<string>();
-  for (const record of records) {
-    if (isRuntimeRecord(record) || (record as SDKMessage).type !== "assistant") continue;
-    for (const block of assistantBlocks(record as SDKMessage)) {
-      if (block.type === "tool_use" && block.name === "TodoWrite") ids.add(block.id);
-    }
-  }
-  return ids;
-}
-
-function toolUseMetadata(records: BrevynAgentTimelineRecord[]): Map<string, ToolUseBlock> {
-  const tools = new Map<string, ToolUseBlock>();
-  for (const record of records) {
-    if (isRuntimeRecord(record) || (record as SDKMessage).type !== "assistant") continue;
-    for (const block of assistantBlocks(record as SDKMessage)) {
-      if (block.type === "tool_use") tools.set(block.id, block);
-    }
-  }
-  return tools;
-}
-
-function completedToolResultIds(records: BrevynAgentTimelineRecord[]): Set<string> {
-  const ids = new Set<string>();
-  for (const record of records) {
-    if (isRuntimeRecord(record) || (record as SDKMessage).type !== "user") continue;
-    for (const block of toolResultBlocks(record as SDKMessage)) {
-      ids.add(block.toolUseId);
-    }
-  }
-  return ids;
-}
-
-function normalizeTimelineRecords(records: BrevynAgentTimelineRecord[], running: boolean, compactInFlight = false): AgentTimelineRecord[] {
-  const normalized: AgentTimelineRecord[] = [];
-  let streamText = "";
-  let streamId = "stream";
-  let thinkingText = "";
-  let thinkingId = "thinking-stream";
-  let streamOwnerActive = false;
-
-  for (const record of records) {
-    if (isHiddenSystemRecord(record)) continue;
-    const startsUserTurn = isTimelineUserInputRecord(record);
-    const startsRuntimeRun = isRuntimeRecord(record) && record.event.type === "run_started";
-    if ((startsUserTurn || startsRuntimeRun) && streamText) {
-      streamText = "";
-      streamId = "stream";
-    }
-    if ((startsUserTurn || startsRuntimeRun) && thinkingText) {
-      thinkingText = "";
-      thinkingId = "thinking-stream";
-    }
-
-    const thinkingDelta = streamThinkingDelta(record);
-    if (thinkingDelta) {
-      if (streamOwnerActive) thinkingText += thinkingDelta;
-      if (thinkingId === "thinking-stream") thinkingId = stringValue((record as { uuid?: unknown }).uuid, thinkingId);
-      continue;
-    }
-    const delta = streamTextDelta(record);
-    if (delta) {
-      if (streamOwnerActive) streamText += delta;
-      if (streamId === "stream") streamId = stringValue((record as { uuid?: unknown }).uuid, streamId);
-      continue;
-    }
-    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "stream_event") continue;
-
-    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant" && thinkingText.trim()) {
-      normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
-      thinkingText = "";
-      thinkingId = "thinking-stream";
-    }
-    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant" && assistantText(record as SDKMessage).trim()) {
-      const fullText = assistantText(record as SDKMessage);
-      if (running && streamText && textMatchesStream(fullText, streamText)) {
-        normalized.push({ kind: "stream", id: streamId, text: streamText });
-      }
-      streamText = "";
-    }
-    if (streamText && isBoundaryRecord(record)) {
-      normalized.push({ kind: "stream", id: streamId, text: streamText });
-      streamText = "";
-    }
-    if (thinkingText && isBoundaryRecord(record)) {
-      normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
-      thinkingText = "";
-      thinkingId = "thinking-stream";
-    }
-    normalized.push(record);
-    if (startsRuntimeRun) streamOwnerActive = false;
-    if (startsUserTurn) streamOwnerActive = true;
-    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "result") streamOwnerActive = false;
-  }
-
-  if (streamOwnerActive && streamText.trim()) {
-    normalized.push({ kind: "stream", id: streamId, text: streamText });
-  }
-  if (streamOwnerActive && thinkingText.trim()) {
-    normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
-  }
-  if ((compactInFlight || running) && shouldShowCompactPlaceholder(normalized)) {
-    normalized.push({ kind: "compact_placeholder", id: "active-compact-placeholder" });
-  } else if (compactInFlight && shouldShowOptimisticCompactPlaceholder(normalized)) {
-    normalized.push({ kind: "compact_placeholder", id: "active-compact-placeholder" });
-  }
-  if (running && shouldShowProcessPlaceholder(normalized)) {
-    normalized.push({ kind: "process_placeholder", id: "active-process-placeholder" });
-  }
-  return normalized;
-}
-
-function shouldShowOptimisticCompactPlaceholder(records: AgentTimelineRecord[]): boolean {
-  return !records.some((record) => isCompactPlaceholderRecord(record) || isCompactSystemRecord(record));
-}
-
-function shouldShowCompactPlaceholder(records: AgentTimelineRecord[]): boolean {
-  const bounds = latestTurnBounds(records);
-  if (!bounds || bounds.result || !isCompactCommandMessage(bounds.user)) return false;
-  return !records.slice(bounds.userIndex + 1).some((record) => {
-    if (isRuntimeRecord(record) || isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
-    if ((record as SDKMessage).type !== "system") return false;
-    const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
-    return subtype === "compacting" || subtype === "compact_boundary";
-  });
-}
-
-function isCompactSystemRecord(record: AgentTimelineRecord): boolean {
-  if (isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
-  if ((record as SDKMessage).type !== "system") return false;
-  const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
-  return subtype === "compacting" || subtype === "compact_boundary";
-}
-
-function shouldShowProcessPlaceholder(records: AgentTimelineRecord[]): boolean {
-  const bounds = latestTurnBounds(records);
-  if (!bounds || bounds.result) return false;
-  if (isCompactCommandMessage(bounds.user)) return false;
-  const afterUser = records.slice(bounds.userIndex + 1);
-  return !afterUser.some((record) => {
-    if (isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
-    return (record as SDKMessage).type === "assistant";
-  });
-}
-
-function isHiddenSystemRecord(record: BrevynAgentTimelineRecord): boolean {
-  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "system") return false;
-  const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
-  return subtype !== "compacting" && subtype !== "compact_boundary";
-}
-
-function streamTextDelta(record: BrevynAgentTimelineRecord): string {
-  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
-  const event = recordObject((record as { event?: unknown }).event);
-  if (event.type !== "content_block_delta") return "";
-  const delta = recordObject(event.delta);
-  return delta.type === "text_delta" && typeof delta.text === "string" ? delta.text : "";
-}
-
-function streamThinkingDelta(record: BrevynAgentTimelineRecord): string {
-  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
-  const event = recordObject((record as { event?: unknown }).event);
-  if (event.type !== "content_block_delta") return "";
-  const delta = recordObject(event.delta);
-  if (delta.type === "thinking_delta" && typeof delta.thinking === "string") return delta.thinking;
-  return "";
-}
-
-function isTimelineUserInputRecord(record: BrevynAgentTimelineRecord): boolean {
-  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "user") return false;
-  const message = record as SDKMessage;
-  return toolResultBlocks(message).length === 0 && userText(message).trim().length > 0;
-}
-
-function textMatchesStream(fullText: string, streamText: string): boolean {
-  const full = fullText.trim();
-  const streamed = streamText.trim();
-  if (!full || !streamed) return false;
-  return full === streamed || full.startsWith(streamed) || streamed.startsWith(full);
-}
-
-function ToolGlyph({ toolName, className }: { toolName: string; className?: string }) {
-  if (toolName === "Bash") return <TerminalSquare className={className} />;
-  if (toolName === "Read") return <FileText className={className} />;
-  if (toolName === "Glob") return <FolderOpen className={className} />;
-  if (toolName === "Grep") return <Search className={className} />;
-  if (toolName === "Write") return <FileText className={className} />;
-  if (toolName === "Edit" || toolName === "MultiEdit") return <Pencil className={className} />;
-  if (toolName === "TodoWrite" || toolName === "TodoRead") return <ListTodo className={className} />;
-  if (toolName === "mcp__brevyn__load_skill") return <Sparkles className={className} />;
-  if (toolName === "mcp__brevyn__read_skill_resource") return <FileText className={className} />;
-  if (toolName === "mcp__brevyn__rag_search") return <Search className={className} />;
-  if (toolName === "WebFetch" || toolName === "WebSearch") return <Globe className={className} />;
-  if (toolName === "AskUserQuestion") return <MessageCircleQuestion className={className} />;
-  if (toolName === "EnterPlanMode" || toolName === "ExitPlanMode") return <ShieldAlert className={className} />;
-  if (toolName.startsWith("mcp__brevyn__")) return <ShieldCheck className={className} />;
-  return <HelpCircle className={className} />;
 }

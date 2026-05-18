@@ -1,4 +1,4 @@
-import type { CanUseTool, McpServerConfig, PermissionMode, PermissionResult, Query, SDKMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, McpServerConfig, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
 import type * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -9,6 +9,7 @@ export type ClaudeSdkRuntime = typeof ClaudeAgentSdk;
 
 export interface ClaudeSdkRunInput {
   prompt: string;
+  sessionKey?: string;
   cwd: string;
   model: string;
   env: Record<string, string>;
@@ -23,7 +24,18 @@ export interface ClaudeSdkRunInput {
   betas?: SdkBeta[];
 }
 
+interface MessageChannel {
+  enqueue: (message: SDKUserMessage) => void;
+  generator: AsyncGenerator<SDKUserMessage>;
+  close: () => void;
+  keepOpenOnNextResult: () => void;
+  consumeKeepOpenOnResult: () => boolean;
+}
+
 export class ClaudeSdkAdapter {
+  private readonly activeQueries = new Map<string, Query>();
+  private readonly activeChannels = new Map<string, MessageChannel>();
+
   async loadSdk(): Promise<ClaudeSdkRuntime> {
     return await import("@anthropic-ai/claude-agent-sdk") as ClaudeSdkRuntime;
   }
@@ -34,8 +46,18 @@ export class ClaudeSdkAdapter {
 
   async *query(input: ClaudeSdkRunInput): AsyncIterable<SDKMessage> {
     const sdk = await this.loadSdk();
+    const sessionKey = input.sessionKey;
+    const channel = createMessageChannel(input.abortController.signal);
+    channel.enqueue({
+      type: "user",
+      message: {
+        role: "user",
+        content: input.prompt,
+      },
+      parent_tool_use_id: null,
+    } as SDKUserMessage);
     const query = sdk.query({
-      prompt: input.prompt,
+      prompt: channel.generator,
       options: {
         abortController: input.abortController,
         cwd: input.cwd,
@@ -81,10 +103,108 @@ export class ClaudeSdkAdapter {
       },
     });
     input.onQuery?.(query);
-    for await (const message of query) {
-      yield message;
+    if (sessionKey) {
+      this.activeQueries.set(sessionKey, query);
+      this.activeChannels.set(sessionKey, channel);
+    }
+    try {
+      for await (const message of query) {
+        if (message.type === "result" && !shouldKeepChannelOpen(message) && !channel.consumeKeepOpenOnResult()) {
+          channel.close();
+        }
+        yield message;
+      }
+    } finally {
+      if (sessionKey) {
+        this.activeQueries.delete(sessionKey);
+        this.activeChannels.delete(sessionKey);
+      }
+      channel.close();
     }
   }
+
+  async queueMessage(sessionKey: string, content: string, uuid?: string, interrupt = true): Promise<void> {
+    const channel = this.activeChannels.get(sessionKey);
+    if (!channel) throw new Error("No active Claude SDK input channel is available for this thread.");
+    if (interrupt) {
+      channel.keepOpenOnNextResult();
+      const query = this.activeQueries.get(sessionKey);
+      try {
+        await query?.interrupt();
+      } catch (error) {
+        console.warn("[ClaudeSdkAdapter] Failed to interrupt active turn before queueing message:", error);
+      }
+    }
+    channel.enqueue({
+      type: "user",
+      uuid,
+      message: {
+        role: "user",
+        content,
+      },
+      parent_tool_use_id: null,
+      priority: "now",
+    } as SDKUserMessage);
+  }
+}
+
+function createMessageChannel(signal: AbortSignal): MessageChannel {
+  const queue: SDKUserMessage[] = [];
+  let resolver: (() => void) | null = null;
+  let done = signal.aborted;
+  let keepOpenOnResult = false;
+
+  if (!done) {
+    signal.addEventListener("abort", () => {
+      done = true;
+      resolver?.();
+      resolver = null;
+    }, { once: true });
+  }
+
+  async function* generator(): AsyncGenerator<SDKUserMessage> {
+    while (!done) {
+      if (queue.length > 0) {
+        yield queue.shift()!;
+        continue;
+      }
+      await new Promise<void>((resolve) => {
+        resolver = resolve;
+      });
+    }
+    while (queue.length > 0) {
+      yield queue.shift()!;
+    }
+  }
+
+  return {
+    enqueue(message) {
+      queue.push(message);
+      resolver?.();
+      resolver = null;
+    },
+    generator: generator(),
+    close() {
+      done = true;
+      resolver?.();
+      resolver = null;
+    },
+    keepOpenOnNextResult() {
+      keepOpenOnResult = true;
+    },
+    consumeKeepOpenOnResult() {
+      const keepOpen = keepOpenOnResult;
+      keepOpenOnResult = false;
+      return keepOpen;
+    },
+  };
+}
+
+function shouldKeepChannelOpen(message: SDKMessage): boolean {
+  const reason = String((message as { terminal_reason?: unknown }).terminal_reason || "");
+  const subtype = String((message as { subtype?: unknown }).subtype || "");
+  return ["interrupt", "interrupted", "aborted"].includes(subtype)
+    || ["aborted_streaming", "aborted_tools", "tool_deferred", "hook_stopped", "stop_hook_prevented"].includes(reason);
 }
 
 const SAFE_TOOLS = new Set([

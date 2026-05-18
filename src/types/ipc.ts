@@ -62,6 +62,7 @@ export const IPC_CHANNELS = {
   timetableRange: "brevyn:timetable:range",
   agentMessages: "brevyn:agent:messages",
   agentRun: "brevyn:agent:run",
+  agentQueueMessage: "brevyn:agent:queue-message",
   agentStop: "brevyn:agent:stop",
   agentApprove: "brevyn:agent:approve",
   agentReject: "brevyn:agent:reject",

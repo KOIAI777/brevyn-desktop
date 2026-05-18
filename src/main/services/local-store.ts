@@ -11,6 +11,7 @@ import type {
   AgentApprovalInput,
   AgentAskUserResponseInput,
   AgentExitPlanResponseInput,
+  AgentQueueMessageInput,
   AgentRunInput,
   AgentRunResult,
   AgentGatewayStatus,
@@ -464,6 +465,10 @@ export class LocalStore {
 
   runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     return this.agent.run(input);
+  }
+
+  queueAgentMessage(input: AgentQueueMessageInput): Promise<string> {
+    return this.agent.queueMessage(input);
   }
 
   async saveAgentAttachmentPaths(threadId: string, sourcePaths: string[]): Promise<AgentAttachment[]> {

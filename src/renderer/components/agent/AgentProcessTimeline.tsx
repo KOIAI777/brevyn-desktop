@@ -28,9 +28,9 @@ interface RunSummary {
 }
 
 type ProcessEvent =
-  | { kind: "thinking"; id: string; text: string }
-  | { kind: "narration"; id: string; text: string }
-  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny" };
+  | { kind: "thinking"; id: string; text: string; sourceIndex?: number }
+  | { kind: "narration"; id: string; text: string; sourceIndex?: number }
+  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny"; sourceIndex?: number };
 
 interface ProcessGroup {
   id: string;
@@ -52,7 +52,7 @@ interface ProcessTimelineHelpers {
   toolResultSummary: (tool: ToolResultBlock) => string;
   runSummaryTone: (status: RunSummary["status"]) => TimelineTone;
   renderToolGlyph: (toolName: string, className: string) => ReactNode;
-  renderToolUseCard: (event: Extract<ProcessEvent, { kind: "tool_use" }>, onToggle?: () => void) => ReactNode;
+  renderToolUseCard: (event: Extract<ProcessEvent, { kind: "tool_use" }>, onToggle: () => void, collapsed: boolean) => ReactNode;
 }
 
 interface ProcessTimelinePanelProps extends ProcessTimelineHelpers {
@@ -228,8 +228,8 @@ function ProcessGroupRow({
         <span className="min-w-0 truncate">{group.summary}</span>
         <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
       </button>
-      <div className={`${expanded ? "mt-1.5 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
-        <div className="min-h-0 overflow-hidden">
+      {expanded && (
+        <div className="mt-1.5 animate-[process-row-in_180ms_cubic-bezier(0.22,1,0.36,1)_both] overflow-hidden">
           <div className="space-y-1.5 border-l border-border/60 pl-3">
             {group.events.map((event) => (
               <ProcessEventRow
@@ -242,7 +242,7 @@ function ProcessGroupRow({
             ))}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -269,33 +269,10 @@ function ProcessEventRow({
     );
   }
 
-  const title = helpers.renderToolTitle(event.tool.name, event.tool.input, { isError: event.result?.isError });
-  const status = event.result ? helpers.toolResultSummary(event.result) : "运行中";
   return (
     <div className="animate-[process-row-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] text-xs text-muted-foreground">
-      <div
-        role="button"
-        tabIndex={0}
-        className="flex w-fit max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-[background-color,color,transform] duration-200 hover:bg-accent/35 hover:text-foreground"
-        onClick={onToggle}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onToggle?.();
-          }
-        }}
-      >
-        {helpers.renderToolGlyph(event.tool.name, "h-3.5 w-3.5 shrink-0")}
-        <span className="min-w-0 truncate">{title}</span>
-        {event.approvalDecision && <ApprovalStatusPill decision={event.approvalDecision} />}
-        <span className="shrink-0 text-muted-foreground/80">{status}</span>
-        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
-      </div>
-      <div className={`${expanded ? "mt-1.5 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
-        <div className="min-h-0 overflow-hidden">
-          {helpers.renderToolUseCard(event, onToggle)}
-        </div>
-      </div>
+      {helpers.renderToolUseCard(event, onToggle ?? (() => undefined), !expanded)}
+      {event.approvalDecision && <div className="mt-1 px-1"><ApprovalStatusPill decision={event.approvalDecision} /></div>}
     </div>
   );
 }

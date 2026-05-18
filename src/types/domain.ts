@@ -738,6 +738,13 @@ export interface AgentRunInput {
   attachments?: AgentAttachment[];
 }
 
+export interface AgentQueueMessageInput {
+  threadId: string;
+  prompt: string;
+  uuid?: string;
+  interrupt?: boolean;
+}
+
 export interface AgentApprovalInput {
   threadId: string;
   requestId: string;
@@ -980,6 +987,7 @@ export interface BrevynAPI {
   agent: {
     messages: (threadId: string) => Promise<BrevynAgentTimelineRecord[]>;
     run: (input: AgentRunInput) => Promise<AgentRunResult>;
+    queueMessage: (input: AgentQueueMessageInput) => Promise<string>;
     stop: (threadId: string) => Promise<boolean>;
     approve: (input: AgentApprovalInput) => Promise<boolean>;
     reject: (input: AgentApprovalInput) => Promise<boolean>;

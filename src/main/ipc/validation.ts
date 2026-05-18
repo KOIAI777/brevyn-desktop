@@ -5,6 +5,7 @@ import type {
   AgentAskUserResponseInput,
   AgentApprovalInput,
   AgentExitPlanResponseInput,
+  AgentQueueMessageInput,
   AgentRunInput,
   CourseIconKey,
   CreateCourseInput,
@@ -205,6 +206,16 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
     providerId: optionalString(input.providerId),
     modelId: optionalString(input.modelId),
     attachments: normalizeAgentAttachments(input.attachments),
+  };
+}
+
+export function normalizeAgentQueueMessageInput(value: unknown): AgentQueueMessageInput {
+  const input = requireObject(value, "Agent queue message input");
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    prompt: requireString(input.prompt, "Prompt"),
+    uuid: optionalString(input.uuid),
+    interrupt: input.interrupt === undefined ? undefined : Boolean(input.interrupt),
   };
 }
 

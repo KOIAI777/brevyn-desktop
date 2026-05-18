@@ -1,9 +1,5 @@
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
-import { GenericToolResultCard, GenericToolUseCard } from "@/components/agent/tool-cards/GenericToolCard";
-import { RagSearchToolCard } from "@/components/agent/tool-cards/RagSearchToolCard";
-import { ShellToolCard } from "@/components/agent/tool-cards/ShellToolCard";
-import { SkillToolCard } from "@/components/agent/tool-cards/SkillToolCard";
-import { WebToolCard } from "@/components/agent/tool-cards/WebToolCard";
+import { renderToolResult, renderToolUse } from "@/components/agent/tool-result-renderers";
 export { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
 
 interface ToolUseCardProps extends ToolCardHelpers {
@@ -20,66 +16,7 @@ export function ToolUseCard({
   onToggleCollapsed,
   ...helpers
 }: ToolUseCardProps) {
-  if (block.name === "mcp__brevyn__rag_search") {
-    return (
-      <RagSearchToolCard
-        input={block.input}
-        result={result}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  if (block.name === "mcp__brevyn__load_skill") {
-    return (
-      <SkillToolCard
-        input={block.input}
-        result={result}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  if (block.name === "WebSearch" || block.name === "WebFetch") {
-    return (
-      <WebToolCard
-        toolName={block.name}
-        input={block.input}
-        result={result}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  if (block.name === "Bash") {
-    return (
-      <ShellToolCard
-        command={helpers.stringValue(helpers.recordObject(block.input).command, "")}
-        output={result ? helpers.formatToolResultContent(result.content) : undefined}
-        running={!result}
-        isError={result?.isError}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  return (
-    <GenericToolUseCard
-      block={block}
-      result={result}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
-      {...helpers}
-    />
-  );
+  return renderToolUse({ toolUse: block, result, collapsed, onToggleCollapsed, helpers });
 }
 
 interface ToolResultCardProps extends ToolCardHelpers {
@@ -96,63 +33,5 @@ export function ToolResultCard({
   onToggleCollapsed,
   ...helpers
 }: ToolResultCardProps) {
-  if (toolUse?.name === "mcp__brevyn__rag_search") {
-    return (
-      <RagSearchToolCard
-        input={toolUse.input}
-        result={tool}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  if (toolUse?.name === "mcp__brevyn__load_skill") {
-    return (
-      <SkillToolCard
-        input={toolUse.input}
-        result={tool}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  if (toolUse?.name === "WebSearch" || toolUse?.name === "WebFetch") {
-    return (
-      <WebToolCard
-        toolName={toolUse.name}
-        input={toolUse.input}
-        result={tool}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  if (toolUse?.name === "Bash") {
-    return (
-      <ShellToolCard
-        command={helpers.stringValue(helpers.recordObject(toolUse.input).command, "")}
-        output={helpers.formatToolResultContent(tool.content)}
-        isError={tool.isError}
-        collapsed={collapsed}
-        onToggleCollapsed={onToggleCollapsed}
-        {...helpers}
-      />
-    );
-  }
-
-  return (
-    <GenericToolResultCard
-      tool={tool}
-      toolUse={toolUse}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
-      {...helpers}
-    />
-  );
+  return renderToolResult({ tool, toolUse, collapsed, onToggleCollapsed, helpers });
 }

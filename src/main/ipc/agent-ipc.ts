@@ -1,11 +1,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
-import { normalizeAgentApprovalInput, normalizeAgentAskUserResponseInput, normalizeAgentExitPlanResponseInput, normalizeAgentRunInput, requireString } from "./validation";
+import { normalizeAgentApprovalInput, normalizeAgentAskUserResponseInput, normalizeAgentExitPlanResponseInput, normalizeAgentQueueMessageInput, normalizeAgentRunInput, requireString } from "./validation";
 
 export function registerAgentIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.agentMessages, (_event, threadId: unknown) => store.agentMessages(requireString(threadId, "Thread id")));
   ipcMain.handle(IPC_CHANNELS.agentRun, (_event, input: unknown) => store.runAgent(normalizeAgentRunInput(input)));
+  ipcMain.handle(IPC_CHANNELS.agentQueueMessage, (_event, input: unknown) => store.queueAgentMessage(normalizeAgentQueueMessageInput(input)));
   ipcMain.handle(IPC_CHANNELS.agentStop, (_event, threadId: unknown) => store.stopAgent(requireString(threadId, "Thread id")));
   ipcMain.handle(IPC_CHANNELS.agentApprove, (_event, input: unknown) => store.approveAgent(normalizeAgentApprovalInput(input)));
   ipcMain.handle(IPC_CHANNELS.agentReject, (_event, input: unknown) => store.rejectAgent(normalizeAgentApprovalInput(input)));

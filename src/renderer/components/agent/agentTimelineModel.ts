@@ -43,9 +43,9 @@ export interface ContextUsage {
 }
 
 export type ProcessEvent =
-  | { kind: "thinking"; id: string; text: string }
-  | { kind: "narration"; id: string; text: string }
-  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny" };
+  | { kind: "thinking"; id: string; text: string; sourceIndex?: number }
+  | { kind: "narration"; id: string; text: string; sourceIndex?: number }
+  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny"; sourceIndex?: number };
 
 export type AgentTimelineRecord =
   | BrevynAgentTimelineRecord
@@ -217,11 +217,14 @@ export function buildTimelineRenderMeta(records: AgentTimelineRecord[]): Timelin
       hasLiveAssistantText = true;
     }
     const processEvents = processEventsFromItems(turnItems, narrationByIndex);
+    const processEventsByIndex = processEventsBySourceIndex(processEvents);
     const placeholderIndex = turnItems.find((item) => isProcessPlaceholderRecord(item.record))?.index;
     const firstProcessIndex = firstProcessItemIndex(turnItems, narrationByIndex);
-    const anchorIndex = finalOutputIndexes[0]
-      ?? placeholderIndex
+    const firstProcessEventIndex = [...processEventsByIndex.keys()].sort((left, right) => left - right)[0];
+    const anchorIndex = firstProcessEventIndex
       ?? firstProcessIndex
+      ?? placeholderIndex
+      ?? finalOutputIndexes[0]
       ?? bounds.resultIndex;
 
     for (const { index } of turnItems) {
@@ -242,7 +245,17 @@ export function buildTimelineRenderMeta(records: AgentTimelineRecord[]): Timelin
         ...byIndex.get(anchorIndex),
         attachProcess: true,
         processHeader: true,
-        processEvents,
+        processEvents: processEventsByIndex.get(anchorIndex) || [],
+        processUserIndex: userGroup.index,
+      });
+    }
+    for (const [index, events] of processEventsByIndex) {
+      if (index === anchorIndex) continue;
+      byIndex.set(index, {
+        ...byIndex.get(index),
+        attachProcess: true,
+        processHeader: false,
+        processEvents: events,
         processUserIndex: userGroup.index,
       });
     }
@@ -263,7 +276,7 @@ function firstProcessItemIndex(
   narrationByIndex: Map<number, boolean>,
 ): number | undefined {
   for (const { record, index } of items) {
-    if (!record || isRuntimeRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
     if (isThinkingStreamRecord(record) && record.text.trim()) return index;
     if (narrationByIndex.get(index)) return index;
     if ((record as SDKMessage).type !== "assistant") continue;
@@ -279,6 +292,7 @@ function processEventsFromItems(
   narrationByIndex: Map<number, boolean>,
 ): ProcessEvent[] {
   const events: ProcessEvent[] = [];
+  const lastTextEventByKind = new Map<"thinking" | "narration", string>();
   const toolById = new Map<string, Extract<ProcessEvent, { kind: "tool_use" }>>();
   const approvalByToolUseId = approvalDecisionByToolUseId(items);
   const webCitationLinks = webCitationLinksFromItems(items);
@@ -289,8 +303,12 @@ function processEventsFromItems(
     if (isThinkingStreamRecord(record)) {
       const text = record.text.trim();
       if (text) {
-        events.push({ kind: "thinking", id: `thinking-stream-${record.id}-${thinkingIndex}`, text });
-        thinkingIndex += 1;
+        thinkingIndex += pushUniqueTextProcessEvent(events, lastTextEventByKind, {
+          kind: "thinking",
+          id: `thinking-stream-${record.id}-${thinkingIndex}`,
+          text,
+          sourceIndex: index,
+        });
       }
       continue;
     }
@@ -299,14 +317,22 @@ function processEventsFromItems(
       const blocks = assistantBlocks(message);
       const thinkingText = thinkingTextForMessage(message);
       if (thinkingText) {
-        events.push({ kind: "thinking", id: `thinking-${index}-${thinkingIndex}`, text: thinkingText });
-        thinkingIndex += 1;
+        thinkingIndex += pushUniqueTextProcessEvent(events, lastTextEventByKind, {
+          kind: "thinking",
+          id: `thinking-${index}-${thinkingIndex}`,
+          text: thinkingText,
+          sourceIndex: index,
+        });
       }
       if (narrationByIndex.get(index)) {
         const narrationText = assistantText(message).trim();
         if (narrationText) {
-          events.push({ kind: "narration", id: `narration-${index}-${thinkingIndex}`, text: narrationText });
-          thinkingIndex += 1;
+          thinkingIndex += pushUniqueTextProcessEvent(events, lastTextEventByKind, {
+            kind: "narration",
+            id: `narration-${index}-${thinkingIndex}`,
+            text: narrationText,
+            sourceIndex: index,
+          });
         }
       }
       for (const block of blocks) {
@@ -318,6 +344,7 @@ function processEventsFromItems(
           tool: block,
           result: syntheticResult,
           approvalDecision: approvalByToolUseId.get(block.id),
+          sourceIndex: index,
         };
         toolById.set(block.id, event);
         events.push(event);
@@ -333,6 +360,43 @@ function processEventsFromItems(
   }
 
   return events;
+}
+
+function processEventsBySourceIndex(events: ProcessEvent[]): Map<number, ProcessEvent[]> {
+  const byIndex = new Map<number, ProcessEvent[]>();
+  let activeToolIndex: number | undefined;
+  for (const event of events) {
+    if (typeof event.sourceIndex !== "number") continue;
+    if (event.kind !== "tool_use") {
+      activeToolIndex = undefined;
+      const list = byIndex.get(event.sourceIndex) || [];
+      list.push(event);
+      byIndex.set(event.sourceIndex, list);
+      continue;
+    }
+    activeToolIndex ??= event.sourceIndex;
+    const list = byIndex.get(activeToolIndex) || [];
+    list.push(event);
+    byIndex.set(activeToolIndex, list);
+  }
+  return byIndex;
+}
+
+function pushUniqueTextProcessEvent(
+  events: ProcessEvent[],
+  lastByKind: Map<"thinking" | "narration", string>,
+  event: Extract<ProcessEvent, { kind: "thinking" | "narration" }>,
+): 0 | 1 {
+  const key = normalizeProcessText(event.text);
+  if (!key) return 0;
+  if (lastByKind.get(event.kind) === key) return 0;
+  lastByKind.set(event.kind, key);
+  events.push(event);
+  return 1;
+}
+
+function normalizeProcessText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function approvalDecisionByToolUseId(
@@ -658,6 +722,33 @@ export function recordCreatedAtMs(record: unknown): number | undefined {
   return undefined;
 }
 
+function runtimeIdentityPayload(event: object): string {
+  const payload = recordObject(event);
+  const runId = stringValue(payload.runId, "");
+  const requestId = stringValue(payload.requestId, "");
+  const detail = stringValue(payload.reason ?? payload.error, "");
+  const createdAt = stringValue(payload.createdAt, "");
+  return [runId, requestId, detail, createdAt].filter(Boolean).join(":");
+}
+
+function stableRecordSignature(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    if (!json) return "";
+    return hashString(json);
+  } catch {
+    return hashString(String(value));
+  }
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function recordObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -811,14 +902,120 @@ export function truncatePreview(value: string): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength)}\n... truncated for display`;
 }
 
+export function normalizeTimelineRecords(
+  records: BrevynAgentTimelineRecord[],
+  liveRecords: BrevynAgentTimelineRecord[],
+  running: boolean,
+  compactInFlight = false,
+): AgentTimelineRecord[] {
+  const normalized: AgentTimelineRecord[] = [];
+  const sourceRecords = [...records, ...liveRecords];
+  let streamText = "";
+  let streamId = "stream";
+  let thinkingText = "";
+  let thinkingId = "thinking-stream";
+  let streamOwnerActive = false;
+  const seenRecords = new Set<string>();
+
+  for (const record of sourceRecords) {
+    const identity = timelineRecordIdentity(record);
+    if (identity) {
+      if (seenRecords.has(identity)) continue;
+      seenRecords.add(identity);
+    }
+    if (isHiddenSystemRecord(record)) continue;
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "prompt_suggestion") continue;
+    const startsUserTurn = isTimelineUserInputRecord(record);
+    const startsRuntimeRun = isRuntimeRecord(record) && record.event.type === "run_started";
+    if ((startsUserTurn || startsRuntimeRun) && streamText) {
+      streamText = "";
+      streamId = "stream";
+    }
+    if ((startsUserTurn || startsRuntimeRun) && thinkingText) {
+      thinkingText = "";
+      thinkingId = "thinking-stream";
+    }
+
+    const thinkingDelta = streamThinkingDelta(record);
+    if (thinkingDelta) {
+      if (streamOwnerActive) thinkingText += thinkingDelta;
+      if (thinkingId === "thinking-stream") thinkingId = stringValue((record as { uuid?: unknown }).uuid, thinkingId);
+      continue;
+    }
+    const delta = streamTextDelta(record);
+    if (delta) {
+      if (streamOwnerActive) streamText += delta;
+      if (streamId === "stream") streamId = stringValue((record as { uuid?: unknown }).uuid, streamId);
+      continue;
+    }
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "stream_event") continue;
+
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant" && thinkingText.trim()) {
+      normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
+      thinkingText = "";
+      thinkingId = "thinking-stream";
+    }
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant" && assistantText(record as SDKMessage).trim()) {
+      const message = record as SDKMessage;
+      const fullText = assistantText(message);
+      if (running && streamText && textMatchesStream(fullText, streamText)) {
+        if (assistantBlocks(message).some((block) => block.type === "tool_use")) {
+          streamText = "";
+        } else {
+          normalized.push({ kind: "stream", id: streamId, text: streamText });
+          streamText = "";
+          continue;
+        }
+      }
+      streamText = "";
+    }
+    if (streamText && isBoundaryRecord(record)) {
+      normalized.push({ kind: "stream", id: streamId, text: streamText });
+      streamText = "";
+    }
+    if (thinkingText && isBoundaryRecord(record)) {
+      normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
+      thinkingText = "";
+      thinkingId = "thinking-stream";
+    }
+    normalized.push(record);
+    if (startsRuntimeRun) streamOwnerActive = false;
+    if (startsUserTurn) streamOwnerActive = true;
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "result") streamOwnerActive = false;
+  }
+
+  if (streamOwnerActive && streamText.trim()) {
+    normalized.push({ kind: "stream", id: streamId, text: streamText });
+  }
+  if (streamOwnerActive && thinkingText.trim()) {
+    normalized.push({ kind: "thinking_stream", id: thinkingId, text: thinkingText });
+  }
+  if ((compactInFlight || running) && shouldShowCompactPlaceholder(normalized)) {
+    normalized.push({ kind: "compact_placeholder", id: "active-compact-placeholder" });
+  } else if (compactInFlight && shouldShowOptimisticCompactPlaceholder(normalized)) {
+    normalized.push({ kind: "compact_placeholder", id: "active-compact-placeholder" });
+  }
+  if (running && shouldShowProcessPlaceholder(normalized)) {
+    normalized.push({ kind: "process_placeholder", id: "active-process-placeholder" });
+  }
+  return normalized;
+}
+
 export function recordKey(record: AgentTimelineRecord, index: number): string {
-  if (isStreamRecord(record)) return `${record.id}-${index}`;
-  if (isThinkingStreamRecord(record)) return `${record.id}-${index}`;
-  if (isProcessPlaceholderRecord(record)) return `${record.id}-${index}`;
-  if (isCompactPlaceholderRecord(record)) return `${record.id}-${index}`;
-  if (isRuntimeRecord(record)) return `${record.event.type}-${record.event.createdAt}-${index}`;
+  return timelineRecordIdentity(record) || `${String((record as { type?: unknown }).type || "record")}-${index}`;
+}
+
+export function timelineRecordIdentity(record: AgentTimelineRecord): string {
+  if (isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) {
+    return `${record.kind}:${record.id}`;
+  }
+  if (isRuntimeRecord(record)) {
+    return `runtime:${record.event.type}:${runtimeIdentityPayload(record.event)}:${stableRecordSignature(record.event)}`;
+  }
   const maybeUuid = (record as { uuid?: unknown }).uuid;
-  return typeof maybeUuid === "string" ? `${maybeUuid}-${index}` : `${String((record as { type?: unknown }).type || "record")}-${index}`;
+  if (typeof maybeUuid === "string" && maybeUuid.trim()) return `uuid:${maybeUuid.trim()}`;
+  const message = record as SDKMessage;
+  return `${message.type}:${recordCreatedAtMs(message) ?? ""}:${stableRecordSignature(message)}`;
 }
 
 export function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
@@ -839,6 +1036,75 @@ export function isProcessPlaceholderRecord(record: unknown): record is Extract<A
 
 export function isCompactPlaceholderRecord(record: unknown): record is Extract<AgentTimelineRecord, { kind: "compact_placeholder" }> {
   return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "compact_placeholder");
+}
+
+function shouldShowOptimisticCompactPlaceholder(records: AgentTimelineRecord[]): boolean {
+  return !records.some((record) => isCompactPlaceholderRecord(record) || isCompactSystemRecord(record));
+}
+
+function shouldShowCompactPlaceholder(records: AgentTimelineRecord[]): boolean {
+  const bounds = latestTurnBounds(records);
+  if (!bounds || bounds.result || !isCompactCommandMessage(bounds.user)) return false;
+  return !records.slice(bounds.userIndex + 1).some((record) => {
+    if (isRuntimeRecord(record) || isStreamRecord(record) || isThinkingStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
+    if ((record as SDKMessage).type !== "system") return false;
+    const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
+    return subtype === "compacting" || subtype === "compact_boundary";
+  });
+}
+
+function isCompactSystemRecord(record: AgentTimelineRecord): boolean {
+  if (isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
+  if ((record as SDKMessage).type !== "system") return false;
+  const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
+  return subtype === "compacting" || subtype === "compact_boundary";
+}
+
+function shouldShowProcessPlaceholder(records: AgentTimelineRecord[]): boolean {
+  const bounds = latestTurnBounds(records);
+  if (!bounds || bounds.result) return false;
+  if (isCompactCommandMessage(bounds.user)) return false;
+  const afterUser = records.slice(bounds.userIndex + 1);
+  return !afterUser.some((record) => {
+    if (isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) return false;
+    return (record as SDKMessage).type === "assistant";
+  });
+}
+
+function isHiddenSystemRecord(record: BrevynAgentTimelineRecord): boolean {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "system") return false;
+  const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
+  return subtype !== "compacting" && subtype !== "compact_boundary";
+}
+
+function streamTextDelta(record: BrevynAgentTimelineRecord): string {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
+  const event = recordObject((record as { event?: unknown }).event);
+  if (event.type !== "content_block_delta") return "";
+  const delta = recordObject(event.delta);
+  return delta.type === "text_delta" && typeof delta.text === "string" ? delta.text : "";
+}
+
+function streamThinkingDelta(record: BrevynAgentTimelineRecord): string {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
+  const event = recordObject((record as { event?: unknown }).event);
+  if (event.type !== "content_block_delta") return "";
+  const delta = recordObject(event.delta);
+  if (delta.type === "thinking_delta" && typeof delta.thinking === "string") return delta.thinking;
+  return "";
+}
+
+function isTimelineUserInputRecord(record: BrevynAgentTimelineRecord): boolean {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "user") return false;
+  const message = record as SDKMessage;
+  return toolResultBlocks(message).length === 0 && userText(message).trim().length > 0;
+}
+
+function textMatchesStream(fullText: string, streamText: string): boolean {
+  const full = fullText.trim();
+  const streamed = streamText.trim();
+  if (!full || !streamed) return false;
+  return full === streamed || full.startsWith(streamed) || streamed.startsWith(full);
 }
 
 export function approvalResolutionMap(records: BrevynAgentTimelineRecord[]): Map<string, "allow" | "deny"> {

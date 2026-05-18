@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { buildTimelineRenderMeta, latestTurnBounds, type AgentTimelineRecord } from "./agentTimelineModel";
+import { buildTimelineRenderMeta, latestTurnBounds, normalizeTimelineRecords, recordKey, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
+import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAllAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
+
+(globalThis as unknown as { window: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (id: number) => void } }).window = {
+  requestAnimationFrame(callback: () => void) {
+    callback();
+    return 1;
+  },
+  cancelAnimationFrame() {
+    return undefined;
+  },
+};
 
 function userText(content: string, uuid: string): SDKMessage {
   return {
@@ -66,6 +77,19 @@ function result(uuid: string): SDKMessage {
   } as unknown as SDKMessage;
 }
 
+function streamEvent(delta: unknown, uuid: string): SDKMessage {
+  return {
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      delta,
+    },
+    session_id: "session_fixture",
+    uuid,
+    _createdAt: 3,
+  } as unknown as SDKMessage;
+}
+
 const records: AgentTimelineRecord[] = [
   userText("Inspect the workspace and summarize it.", "user_1"),
   assistant([
@@ -94,19 +118,18 @@ assert.equal(meta.hasLiveAssistantText, true);
 
 const firstNarration = meta.byIndex.get(1);
 assert.equal(firstNarration?.processNarration, true);
-assert.equal(firstNarration?.attachProcess, undefined);
+assert.equal(firstNarration?.attachProcess, true);
+assert.equal(firstNarration?.processHeader, true);
 
 const finalMeta = meta.byIndex.get(5);
-assert.equal(finalMeta?.attachProcess, true);
-assert.equal(finalMeta?.processHeader, true);
 assert.equal(finalMeta?.assistantCopyContent, "The workspace contains a threads folder with one JSONL timeline file.");
-assert.equal(finalMeta?.processEvents?.length, 5);
+assert.equal(firstNarration?.processEvents?.length, 3);
 assert.deepEqual(
-  finalMeta?.processEvents?.map((event) => event.kind),
-  ["thinking", "narration", "tool_use", "thinking", "tool_use"],
+  firstNarration?.processEvents?.map((event) => event.kind),
+  ["thinking", "narration", "tool_use"],
 );
 
-const [firstThinking, narration, pwdTool, secondThinking, globTool] = finalMeta?.processEvents || [];
+const [firstThinking, narration, pwdTool] = firstNarration?.processEvents || [];
 assert.equal(firstThinking?.kind, "thinking");
 assert.match(firstThinking?.kind === "thinking" ? firstThinking.text : "", /inspect/);
 assert.equal(narration?.kind, "narration");
@@ -114,6 +137,14 @@ assert.match(narration?.kind === "narration" ? narration.text : "", /workspace s
 assert.equal(pwdTool?.kind, "tool_use");
 assert.equal(pwdTool?.kind === "tool_use" ? pwdTool.tool.name : "", "Bash");
 assert.equal(pwdTool?.kind === "tool_use" ? pwdTool.result?.content : "", "/Users/koi/.brevyn-dev/semesters/semester-fixture");
+const secondProcess = meta.byIndex.get(3);
+assert.equal(secondProcess?.attachProcess, true);
+assert.equal(secondProcess?.processHeader, false);
+assert.deepEqual(
+  secondProcess?.processEvents?.map((event) => event.kind),
+  ["thinking", "tool_use"],
+);
+const [secondThinking, globTool] = secondProcess?.processEvents || [];
 assert.equal(secondThinking?.kind, "thinking");
 assert.equal(globTool?.kind, "tool_use");
 assert.equal(globTool?.kind === "tool_use" ? globTool.tool.name : "", "Glob");
@@ -143,11 +174,15 @@ const hostedSearchRecords: AgentTimelineRecord[] = [
 ];
 
 const hostedSearchMeta = buildTimelineRenderMeta(hostedSearchRecords);
+const hostedSearchProcess = hostedSearchMeta.byIndex.get(1);
 const hostedSearchFinal = hostedSearchMeta.byIndex.get(2);
 const hostedSearchTool = hostedSearchFinal?.processEvents?.find((event) => event.kind === "tool_use");
+assert.equal(hostedSearchProcess?.attachProcess, true);
+assert.equal(hostedSearchProcess?.processHeader, true);
+assert.equal(hostedSearchProcess?.processEvents?.[0]?.kind, "thinking");
+assert.match(hostedSearchProcess?.processEvents?.[0]?.kind === "thinking" ? hostedSearchProcess.processEvents[0].text : "", /search the web/);
 assert.equal(hostedSearchFinal?.attachProcess, true);
-assert.equal(hostedSearchFinal?.processEvents?.[0]?.kind, "thinking");
-assert.match(hostedSearchFinal?.processEvents?.[0]?.kind === "thinking" ? hostedSearchFinal.processEvents[0].text : "", /search the web/);
+assert.equal(hostedSearchFinal?.processHeader, false);
 assert.equal(hostedSearchTool?.kind, "tool_use");
 assert.equal(hostedSearchTool?.kind === "tool_use" ? hostedSearchTool.tool.name : "", "WebSearch");
 assert.equal(hostedSearchTool?.kind === "tool_use" ? hostedSearchTool.result?.isError : true, false);
@@ -156,5 +191,67 @@ assert.deepEqual(hostedSearchTool?.kind === "tool_use" ? (hostedSearchTool.resul
   url: "https://openai.com/news",
 }]);
 assert.equal(hostedSearchFinal?.assistantCopyContent, "Here are the latest AI stories.");
+
+assert.equal(recordKey(records[0]!, 0), recordKey(records[0]!, 99));
+assert.equal(
+  timelineRecordIdentity({ kind: "runtime", event: { type: "run_started", threadId: "thread_fixture", runId: "run_fixture", permissionMode: "review", createdAt: "2026-05-16T00:00:00.000Z" } } as AgentTimelineRecord),
+  timelineRecordIdentity({ kind: "runtime", event: { type: "run_started", threadId: "thread_fixture", runId: "run_fixture", permissionMode: "review", createdAt: "2026-05-16T00:00:00.000Z" } } as AgentTimelineRecord),
+);
+
+const duplicateThinkingRecords: AgentTimelineRecord[] = [
+  userText("Think, then answer.", "user_duplicate_thinking"),
+  { kind: "thinking_stream", id: "live_duplicate_thinking", text: "I should inspect the request first." },
+  assistant([
+    { type: "thinking", thinking: "I should inspect the request first." },
+    { type: "text", text: "Done." },
+  ], "assistant_duplicate_thinking"),
+  result("result_duplicate_thinking"),
+];
+const duplicateThinkingMeta = buildTimelineRenderMeta(duplicateThinkingRecords);
+const duplicateThinkingEvents = duplicateThinkingMeta.byIndex.get(1)?.processEvents || [];
+assert.deepEqual(duplicateThinkingEvents.map((event) => event.kind), ["thinking"]);
+assert.equal(duplicateThinkingEvents[0]?.kind === "thinking" ? duplicateThinkingEvents[0].text : "", "I should inspect the request first.");
+
+const liveMergeRecords = normalizeTimelineRecords(
+  [
+    userText("Stream an answer.", "user_stream"),
+    assistant([{ type: "text", text: "Hello world" }], "assistant_stream_final"),
+  ],
+  [
+    userText("Stream an answer.", "user_stream"),
+    streamEvent({ type: "text_delta", text: "Hello " }, "stream_1"),
+    streamEvent({ type: "text_delta", text: "world" }, "stream_2"),
+    assistant([{ type: "text", text: "Hello world" }], "assistant_stream_final"),
+  ],
+  true,
+);
+assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "user").length, 1);
+assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "assistant").length, 1);
+assert.equal(liveMergeRecords.some((record) => {
+  const item = record as { kind?: string; text?: string };
+  return item.kind === "stream" && item.text === "Hello world";
+}), true);
+
+const promptSuggestion = {
+  type: "prompt_suggestion",
+  suggestion: "Do something else",
+  uuid: "prompt_suggestion_1",
+} as unknown as SDKMessage;
+const promptSuggestionRecords = normalizeTimelineRecords([userText("Hi.", "user_prompt_suggestion")], [promptSuggestion], false);
+assert.equal(promptSuggestionRecords.some((record) => (record as SDKMessage).type === "prompt_suggestion"), false);
+
+clearAllAgentLiveRecords();
+assert.equal(appendAgentLiveMessage("thread_live", promptSuggestion), false);
+assert.equal(getAgentLiveRecords("thread_live").length, 0);
+assert.equal(appendAgentLiveMessage("thread_live", assistant([{ type: "text", text: "Live text" }], "assistant_live"), { modelId: "deepseek-v4-pro" }), true);
+const liveAssistant = getAgentLiveRecords("thread_live")[0] as SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown };
+assert.equal(liveAssistant.type, "assistant");
+assert.equal(typeof liveAssistant._createdAt, "number");
+assert.equal(liveAssistant._channelModelId, "deepseek-v4-pro");
+
+appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_live", runId: "run_live", permissionMode: "review", createdAt: "2026-05-16T00:00:00.000Z" });
+assert.equal(getAgentLiveRunning("thread_live"), true);
+appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_live", runId: "run_live", resultSubtype: "success", createdAt: "2026-05-16T00:00:01.000Z" });
+assert.equal(getAgentLiveRunning("thread_live"), false);
 
 console.log("agentTimelineModel fixture tests passed");
