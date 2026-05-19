@@ -146,6 +146,10 @@ export class ClaudeSdkAdapter {
       priority: "now",
     } as SDKUserMessage);
   }
+
+  canQueueMessage(sessionKey: string): boolean {
+    return this.activeChannels.has(sessionKey);
+  }
 }
 
 function createMessageChannel(signal: AbortSignal): MessageChannel {

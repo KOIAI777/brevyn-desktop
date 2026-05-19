@@ -217,8 +217,35 @@ function MessageCopyAction({ content, align }: { content: string; align: "left" 
 }
 
 export function StreamingMessageBubble({ content, threadId, active = true }: { content: string; threadId?: string; active?: boolean }) {
-  const smoothContent = useSmoothStreamingText(content, { disabled: !active });
-  return <MessageBubble role="assistant" content={smoothContent} threadId={threadId} streaming={active} copyable={false} />;
+  const smoothContent = useSmoothStreamingText(content, { disabled: !active || content.length > 12_000 });
+  const displayContent = normalizeStreamingDisplayText(smoothContent);
+  if (!displayContent.trim()) return null;
+  return (
+    <div className="group/message flex justify-start">
+      <div
+        className="min-w-0 w-full px-1 py-1 text-sm leading-6 text-foreground"
+        data-thread-id={threadId}
+        data-streaming={active ? "true" : "false"}
+      >
+        <span className="whitespace-normal break-words">{displayContent}</span>
+      </div>
+    </div>
+  );
+}
+
+function normalizeStreamingDisplayText(value: string): string {
+  const text = value.replace(/\u0000/g, "").trim();
+  if (!text.includes("\n")) return text;
+
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 6) return text;
+
+  const shortLineCount = lines.filter((line) => line.length <= 8 && !/^[*-]$/.test(line)).length;
+  const looksFragmented = shortLineCount / lines.length >= 0.72;
+  if (!looksFragmented) return text;
+
+  const mostlyAscii = lines.filter((line) => /^[\x00-\x7F]+$/.test(line)).length / lines.length >= 0.72;
+  return mostlyAscii ? lines.join(" ") : lines.join("");
 }
 
 export function RevealedAssistantBubble({
@@ -255,40 +282,57 @@ function useSmoothStreamingText(target: string, options?: { disabled?: boolean }
   const [displayed, setDisplayed] = useState("");
   const displayedRef = useRef("");
   const targetRef = useRef(target);
+  const frameRef = useRef(0);
+  const lastFlushRef = useRef(0);
 
   useEffect(() => {
-    if (options?.disabled) {
-      displayedRef.current = target;
-      setDisplayed(target);
-      return;
-    }
     targetRef.current = target;
     const current = displayedRef.current;
     if (target.length < current.length || !target.startsWith(current)) {
-      displayedRef.current = "";
-      setDisplayed("");
+      displayedRef.current = options?.disabled ? target : "";
+      setDisplayed(displayedRef.current);
+      lastFlushRef.current = performance.now();
+    }
+  }, [options?.disabled, target]);
+
+  useEffect(() => {
+    if (options?.disabled) {
+      displayedRef.current = targetRef.current;
+      setDisplayed(targetRef.current);
+      return;
     }
 
-    let frame = 0;
-    let last = performance.now();
     const tick = (time: number) => {
       const latest = targetRef.current;
       const visible = displayedRef.current;
-      if (visible.length >= latest.length) return;
+      if (visible.length >= latest.length) {
+        frameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
 
-      const elapsed = Math.max(8, time - last);
-      last = time;
       const remaining = latest.length - visible.length;
-      const catchUp = remaining > 480 ? 10 : remaining > 180 ? 5 : remaining > 64 ? 3 : 1;
-      const chars = Math.max(1, Math.min(remaining, Math.ceil(elapsed * 0.045), catchUp));
+      const elapsedSinceFlush = time - lastFlushRef.current;
+      const shouldBuffer = remaining < 8 && elapsedSinceFlush < 72;
+      if (shouldBuffer) {
+        frameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      const burst = remaining > 480 ? 96 : remaining > 180 ? 48 : remaining > 64 ? 24 : remaining > 16 ? 10 : remaining;
+      const chars = Math.max(1, Math.min(remaining, burst));
       displayedRef.current = latest.slice(0, visible.length + chars);
       setDisplayed(displayedRef.current);
-      frame = window.requestAnimationFrame(tick);
+      lastFlushRef.current = time;
+      frameRef.current = window.requestAnimationFrame(tick);
     };
 
-    frame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frame);
-  }, [options?.disabled, target]);
+    lastFlushRef.current = performance.now();
+    frameRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
+    };
+  }, [options?.disabled]);
 
   return displayed;
 }

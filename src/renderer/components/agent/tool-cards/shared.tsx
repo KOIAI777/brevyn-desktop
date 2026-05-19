@@ -1,43 +1,19 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Loader2, X } from "lucide-react";
-
-export function ProcessCardHeader({
-  title,
-  collapsed,
-  onToggleCollapsed,
-}: {
-  title: ReactNode;
-  collapsed: boolean;
-  onToggleCollapsed?: () => void;
-}) {
-  return (
-    <div className="mb-2 flex items-center justify-between gap-3 font-sans">
-      <div className="min-w-0 truncate text-xs font-semibold text-muted-foreground">{title}</div>
-      {onToggleCollapsed && (
-        <button
-          type="button"
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/45 hover:text-foreground"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand tool timeline" : "Collapse tool timeline"}
-        >
-          <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
-        </button>
-      )}
-    </div>
-  );
-}
 
 export function CompactProcessCard({
   title,
   status,
   running = false,
   isError = false,
+  collapsed = true,
   onToggleCollapsed,
 }: {
   title: ReactNode;
   status: string;
   running?: boolean;
   isError?: boolean;
+  collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }) {
   return (
@@ -50,7 +26,7 @@ export function CompactProcessCard({
       <span className="inline-flex shrink-0 items-center gap-1.5">
         {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isError ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
         {status}
-        <ChevronRight className="h-3.5 w-3.5" />
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
       </span>
     </button>
   );
@@ -86,4 +62,26 @@ export function PreviewBlock({
       </pre>
     </div>
   );
+}
+
+export function DeferredToolDetails({
+  collapsed,
+  children,
+}: {
+  collapsed: boolean;
+  children: ReactNode;
+}) {
+  const [mounted, setMounted] = useState(!collapsed);
+
+  useEffect(() => {
+    if (collapsed) {
+      setMounted(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => setMounted(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [collapsed]);
+
+  if (!mounted) return null;
+  return <>{children}</>;
 }

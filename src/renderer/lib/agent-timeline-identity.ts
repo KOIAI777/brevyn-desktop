@@ -1,12 +1,7 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BrevynAgentTimelineRecord } from "@/types/domain";
 
-export type AgentTimelineIdentityRecord =
-  | BrevynAgentTimelineRecord
-  | { kind: "stream"; id: string; text: string }
-  | { kind: "thinking_stream"; id: string; text: string }
-  | { kind: "process_placeholder"; id: string }
-  | { kind: "compact_placeholder"; id: string };
+export type AgentTimelineIdentityRecord = BrevynAgentTimelineRecord;
 
 export function recordCreatedAtMs(record: unknown): number | undefined {
   if (isRuntimeRecord(record)) {
@@ -24,7 +19,6 @@ export function recordCreatedAtMs(record: unknown): number | undefined {
 }
 
 export function timelineRecordIdentity(record: AgentTimelineIdentityRecord): string {
-  if (isSyntheticTimelineRecord(record)) return `${record.kind}:${record.id}`;
   if (isRuntimeRecord(record)) {
     return `runtime:${record.event.type}:${runtimeIdentityPayload(record.event)}:${stableRecordSignature(record.event)}`;
   }
@@ -36,12 +30,6 @@ export function timelineRecordIdentity(record: AgentTimelineIdentityRecord): str
 
 function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
   return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "runtime");
-}
-
-function isSyntheticTimelineRecord(record: unknown): record is Exclude<AgentTimelineIdentityRecord, BrevynAgentTimelineRecord> {
-  if (!record || typeof record !== "object" || !("kind" in record)) return false;
-  const kind = (record as { kind?: unknown }).kind;
-  return kind === "stream" || kind === "thinking_stream" || kind === "process_placeholder" || kind === "compact_placeholder";
 }
 
 function runtimeIdentityPayload(event: object): string {

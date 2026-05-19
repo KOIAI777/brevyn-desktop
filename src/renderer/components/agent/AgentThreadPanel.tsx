@@ -1,24 +1,22 @@
-import { useContext } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ChevronDown, ListTodo, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Copy, ListTodo, Loader2 } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { AgentComposer } from "@/components/agent/AgentComposer";
-import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import { CompactContextNote, MessageBubble, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RevealedAssistantBubble, StreamingMessageBubble } from "@/components/agent/AgentMessageParts";
-import { InlineProcessTimeline as BaseInlineProcessTimeline, ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
+import { ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
 import { FilePathPreviewProvider } from "@/components/chat/FilePathChip";
-import type { ChangedFileSummary } from "@/components/agent/agentChangedFilesModel";
-import type { AgentTimelineRecord, ProcessEvent, RunSummary } from "@/components/agent/agentTimelineModel";
+import { Markdownish } from "@/components/chat/Markdownish";
+import type { ProcessEvent, RunSummary } from "@/components/agent/agentTimelineModel";
 import {
   exitPlanSummary,
   isRuntimeRecord,
   recordKey,
-  toolResultSummary,
-  toolTitle,
   userText,
 } from "@/components/agent/agentTimelineModel";
 import { useAgentThreadPanelState } from "@/components/agent/useAgentThreadPanelState";
+import type { AgentTimelineViewItem } from "@/components/agent/useAgentTimelineState";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
 import { ChangedFilesSummary } from "@/components/agent/ChangedFilesSummary";
@@ -72,15 +70,13 @@ export function AgentThreadPanel({
     planMode,
     permissionMode,
     timelineRecords,
-    timelineItems,
-    liveAssistantText,
+    timelineGroups,
     todos,
     contextUsage,
-    compacting,
     effectiveRunning,
     effectiveCompacting,
     queuedMessages,
-    sentQueuedMessages,
+    sendingQueuedMessageIds,
     autoCompactThresholdPercent,
     setPlanMode,
     setPermissionMode,
@@ -116,39 +112,17 @@ export function AgentThreadPanel({
             <EmptyThreadWelcome thread={thread} />
           ) : (
             <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-3`}>
-              {timelineItems.map((item, index) => {
-                return (
-                  <AgentRecordItem
-                    key={recordKey(item.record, index)}
-                    record={item.record}
-                    displayKind={item.displayKind}
-                    assistantContent={item.assistantContent}
-                    promptTooLongMessage={item.promptTooLongMessage}
-                    providerErrorMessage={item.providerErrorMessage}
-                    attachProcess={item.attachProcess}
-                    processHeader={item.processHeader}
-                    processNarration={item.processNarration}
-                    assistantCopyContent={item.assistantCopyContent}
-                    stoppedByUser={item.stoppedByUser}
-                    approvalDecision={item.approvalDecision}
-                    questionAnswers={item.questionAnswers}
-                    exitPlanDecision={item.exitPlanDecision}
-                    processSummary={item.processSummary}
-                    processEvents={item.processEvents}
-                    changedFiles={item.changedFiles}
-                    processExpanded={item.processExpanded}
-                    processLockedOpen={item.processLockedOpen}
-                    onToggleProcess={() => toggleProcessCollapsed(item.processKey, item.defaultCollapsed, item.processLockedOpen)}
-                    onApprove={onApprove}
-                    onReject={onReject}
-                    onAnswerQuestion={onAnswerQuestion}
-                    onResolveExitPlan={onResolveExitPlan}
-                    onCompact={() => void handleCompact()}
-                  />
-                );
-              })}
-              {sentQueuedMessages.map((message) => (
-                <QueuedTimelineMessage key={message.id} message={message} />
+              {timelineGroups.map((group) => (
+                <AgentTimelineGroup
+                  key={group.key}
+                  group={group}
+                  onToggleItemProcess={(item) => toggleProcessCollapsed(item.processKey, item.defaultCollapsed, item.processLockedOpen)}
+                  onApprove={onApprove}
+                  onReject={onReject}
+                  onAnswerQuestion={onAnswerQuestion}
+                  onResolveExitPlan={onResolveExitPlan}
+                  onCompact={() => void handleCompact()}
+                />
               ))}
             </div>
           )}
@@ -174,6 +148,7 @@ export function AgentThreadPanel({
         dockRef={composerDockRef}
         todos={todos}
         queuedMessages={queuedMessages}
+        sendingQueuedMessageIds={sendingQueuedMessageIds}
         running={effectiveRunning}
         planMode={planMode}
         permissionMode={permissionMode}
@@ -200,54 +175,27 @@ export function AgentThreadPanel({
   );
 }
 
-function QueuedTimelineMessage({ message }: { message: QueuedAgentMessage }) {
-  return (
-    <div className="space-y-1">
-      <MessageBubble role="user" content={message.prompt} copyable={false} />
-      <div className="flex justify-end">
-        <span className="rounded-full border border-border/65 bg-background/62 px-2.5 py-1 text-[10px] font-medium text-muted-foreground shadow-sm">
-          发送中
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function ProcessTimelinePanel({
   summary,
-  events,
   expanded,
   lockedOpen,
+  collapsible,
   onToggle,
 }: {
   summary: RunSummary;
-  events: ProcessEvent[];
   expanded: boolean;
   lockedOpen: boolean;
+  collapsible: boolean;
   onToggle: () => void;
 }) {
-  const threadId = useContext(AgentThreadIdContext);
   return (
     <BaseProcessTimelinePanel
       summary={summary}
-      events={events}
       expanded={expanded}
       lockedOpen={lockedOpen}
+      collapsible={collapsible}
       onToggle={onToggle}
-      threadId={threadId}
-      toolTitle={toolTitle}
-      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
-      toolResultSummary={toolResultSummary}
       runSummaryTone={runSummaryTone}
-      renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
-      renderToolUseCard={(event, toggle, collapsed) => (
-        <ToolUseCard
-          block={event.tool}
-          result={event.result}
-          collapsed={collapsed}
-          onToggleCollapsed={toggle}
-        />
-      )}
     />
   );
 }
@@ -306,48 +254,227 @@ function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string;
   };
 }
 
-function InlineProcessTimeline({ events }: { events: ProcessEvent[] }) {
-  const threadId = useContext(AgentThreadIdContext);
+function AgentTimelineGroup({
+  group,
+  onToggleItemProcess,
+  onApprove,
+  onReject,
+  onAnswerQuestion,
+  onResolveExitPlan,
+  onCompact,
+}: {
+  group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
+  onToggleItemProcess: (item: AgentTimelineViewItem) => void;
+  onApprove: (requestId: string) => Promise<void>;
+  onReject: (requestId: string) => Promise<void>;
+  onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+  onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+  onCompact: () => void;
+}) {
+  if (group.type === "user") {
+    return <UserTimelineGroup item={group.item} />;
+  }
+
+  if (group.type === "system") {
+    return <SystemTimelineGroup item={group.item} />;
+  }
+
+  if (group.type === "runtime") {
+    return (
+      <RuntimeTimelineGroup
+        item={group.item}
+        onApprove={onApprove}
+        onReject={onReject}
+        onAnswerQuestion={onAnswerQuestion}
+        onResolveExitPlan={onResolveExitPlan}
+      />
+    );
+  }
+
   return (
-    <BaseInlineProcessTimeline
-      events={events}
-      threadId={threadId}
-      toolTitle={toolTitle}
-      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
-      toolResultSummary={toolResultSummary}
-      runSummaryTone={runSummaryTone}
-      renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
-      renderToolUseCard={(event, toggle, collapsed) => (
-        <ToolUseCard
-          block={event.tool}
-          result={event.result}
-          collapsed={collapsed}
-          onToggleCollapsed={toggle}
-        />
-      )}
+    <AssistantTurnTimelineGroup
+      items={group.items}
+      onToggleItemProcess={onToggleItemProcess}
+      onApprove={onApprove}
+      onReject={onReject}
+      onAnswerQuestion={onAnswerQuestion}
+      onResolveExitPlan={onResolveExitPlan}
+      onCompact={onCompact}
     />
   );
 }
 
-function AgentRecordItem({
-  record,
-  displayKind,
-  assistantContent,
-  promptTooLongMessage,
-  providerErrorMessage,
-  attachProcess,
-  processHeader,
-  processNarration,
-  assistantCopyContent,
-  stoppedByUser,
-  approvalDecision,
-  questionAnswers,
-  exitPlanDecision,
-  processSummary,
-  processEvents,
-  changedFiles,
-  processExpanded,
-  processLockedOpen,
+function UserTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
+  const threadId = useContext(AgentThreadIdContext);
+  if (item.displayKind !== "user-message") return null;
+  const message = item.record as SDKMessage;
+  return <MessageBubble role="user" content={userText(message)} threadId={threadId} attachments={messageAttachments(message)} />;
+}
+
+function SystemTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
+  if (item.displayKind === "compact-compacting") return <CompactContextNote state="compacting" />;
+  if (item.displayKind === "compact-complete") return <CompactContextNote state="complete" />;
+  return null;
+}
+
+function RuntimeTimelineGroup({
+  item,
+  onApprove,
+  onReject,
+  onAnswerQuestion,
+  onResolveExitPlan,
+}: {
+  item: AgentTimelineViewItem;
+  onApprove: (requestId: string) => Promise<void>;
+  onReject: (requestId: string) => Promise<void>;
+  onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+  onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+}) {
+  const { record, displayKind, approvalDecision, questionAnswers, exitPlanDecision } = item;
+
+  if (!isRuntimeRecord(record)) return null;
+  if (displayKind === "approval-request" && record.event.type === "approval_requested") {
+    return (
+      <ApprovalCard
+        request={record.event.request}
+        decision={approvalDecision}
+        onApprove={onApprove}
+        onReject={onReject}
+      />
+    );
+  }
+  if (displayKind === "question-resolved" && record.event.type === "ask_user_requested") {
+    return (
+      <ResolvedRuntimeNote
+        tone="approved"
+        label="已回答问题"
+        detail={record.event.request.questions[0]?.question || "Brevyn question"}
+      />
+    );
+  }
+  if (displayKind === "question-request" && record.event.type === "ask_user_requested") {
+    return (
+      <AskUserCard
+        request={record.event.request}
+        resolvedAnswers={questionAnswers}
+        onAnswer={onAnswerQuestion}
+      />
+    );
+  }
+  if (displayKind === "exit-plan-resolved" && record.event.type === "exit_plan_requested") {
+    return (
+      <ResolvedRuntimeNote
+        tone={exitPlanDecision === "approve" ? "approved" : "denied"}
+        label={exitPlanDecision === "approve" ? "已批准计划" : "已要求修改计划"}
+        detail={exitPlanSummary(record.event.request)}
+      />
+    );
+  }
+  if (displayKind === "exit-plan-request" && record.event.type === "exit_plan_requested") {
+    return (
+      <ExitPlanCard
+        request={record.event.request}
+        decision={exitPlanDecision}
+        onResolve={onResolveExitPlan}
+      />
+    );
+  }
+  return null;
+}
+
+function AssistantTurnTimelineGroup({
+  items,
+  onToggleItemProcess,
+  onApprove,
+  onReject,
+  onAnswerQuestion,
+  onResolveExitPlan,
+  onCompact,
+}: {
+  items: AgentTimelineViewItem[];
+  onToggleItemProcess: (item: AgentTimelineViewItem) => void;
+  onApprove: (requestId: string) => Promise<void>;
+  onReject: (requestId: string) => Promise<void>;
+  onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+  onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+  onCompact: () => void;
+}) {
+  const processHeader = items.find((item) => item.displayKind === "process" && item.processHeader);
+  const showTimelineItems = processHeader?.processExpanded ?? true;
+  return (
+    <div className="group/assistant-turn flex min-w-0 flex-col gap-3">
+      {items.map((item, index) => {
+        const timelineItem = isAssistantTurnTimelineItem(item);
+        const entry = (
+          <AssistantTurnEntry
+            item={item}
+            onToggleProcess={() => onToggleItemProcess(processHeader ?? item)}
+            onApprove={onApprove}
+            onReject={onReject}
+            onAnswerQuestion={onAnswerQuestion}
+            onResolveExitPlan={onResolveExitPlan}
+            onCompact={onCompact}
+          />
+        );
+        if (timelineItem) {
+          return (
+            <TimelineItemDrawer key={assistantTurnItemKey(item, index)} open={showTimelineItems}>
+              {entry}
+            </TimelineItemDrawer>
+          );
+        }
+        return (
+          <div key={assistantTurnItemKey(item, index)}>
+            {entry}
+          </div>
+        );
+      })}
+      <AssistantTurnCopyAction items={items} />
+    </div>
+  );
+}
+
+function TimelineItemDrawer({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={`${
+        open
+          ? "grid-rows-[1fr] opacity-100"
+          : "pointer-events-none grid-rows-[0fr] opacity-95"
+      } grid overflow-hidden transition-[grid-template-rows,opacity] duration-[420ms] ease-[cubic-bezier(0.16,1,0.3,1)]`}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div
+          className={`${
+            open ? "translate-y-0 scale-y-100" : "-translate-y-3 scale-y-[0.985]"
+          } origin-top transform-gpu transition-transform duration-[420ms] ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform`}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function assistantTurnItemKey(item: AgentTimelineViewItem, index: number): string {
+  if (item.displayKind === "process") return `process-${item.processKey}`;
+  const tool = item.processEvents.find((event): event is Extract<ProcessEvent, { kind: "tool_use" }> => event.kind === "tool_use");
+  if (tool) return `tool-${tool.tool.id || tool.id}`;
+  return `${item.displayKind}-${recordKey(item.record, index)}`;
+}
+
+function isAssistantTurnTimelineItem(item: AgentTimelineViewItem): boolean {
+  return item.displayKind === "thinking"
+    || item.displayKind === "tool-use"
+    || item.displayKind === "approval-request"
+    || item.displayKind === "question-request"
+    || item.displayKind === "question-resolved"
+    || item.displayKind === "exit-plan-request"
+    || item.displayKind === "exit-plan-resolved";
+}
+
+function AssistantTurnEntry({
+  item,
   onToggleProcess,
   onApprove,
   onReject,
@@ -355,24 +482,7 @@ function AgentRecordItem({
   onResolveExitPlan,
   onCompact,
 }: {
-  record: AgentTimelineRecord;
-  displayKind: ReturnType<typeof useAgentThreadPanelState>["timelineItems"][number]["displayKind"];
-  assistantContent?: string;
-  promptTooLongMessage?: string;
-  providerErrorMessage?: string;
-  attachProcess: boolean;
-  processHeader: boolean;
-  processNarration: boolean;
-  assistantCopyContent?: string;
-  stoppedByUser: boolean;
-  approvalDecision?: "allow" | "deny";
-  questionAnswers?: Record<string, string>;
-  exitPlanDecision?: "approve" | "deny";
-  processSummary: RunSummary | null;
-  processEvents: ProcessEvent[];
-  changedFiles: ChangedFileSummary[];
-  processExpanded: boolean;
-  processLockedOpen: boolean;
+  item: AgentTimelineViewItem;
   onToggleProcess: () => void;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -381,117 +491,72 @@ function AgentRecordItem({
   onCompact: () => void;
 }) {
   const threadId = useContext(AgentThreadIdContext);
+  const {
+    record,
+    displayKind,
+    assistantContent,
+    promptTooLongMessage,
+    providerErrorMessage,
+    processHeader,
+    assistantCopyContent,
+    stoppedByUser,
+    processSummary,
+    processEvents,
+    changedFiles,
+    processExpanded,
+    processLockedOpen,
+  } = item;
 
-  if (displayKind === "hidden") return null;
+  if (displayKind === "hidden" || displayKind === "user-message") return null;
+
+  if (displayKind === "compact-compacting" || displayKind === "compact-complete") {
+    return <SystemTimelineGroup item={item} />;
+  }
+
+  if (isRuntimeRecord(record)) {
+    return (
+      <RuntimeTimelineGroup
+        item={item}
+        onApprove={onApprove}
+        onReject={onReject}
+        onAnswerQuestion={onAnswerQuestion}
+        onResolveExitPlan={onResolveExitPlan}
+      />
+    );
+  }
 
   if (displayKind === "stream") {
-    const streamRecord = record as Extract<AgentTimelineRecord, { kind: "stream" }>;
     return (
-      <div className="space-y-3">
-        {attachProcess && processSummary && processHeader && (
-          <ProcessTimelinePanel
-            summary={processSummary}
-            events={processEvents}
-            expanded={processExpanded}
-            lockedOpen={processLockedOpen}
-            onToggle={onToggleProcess}
-          />
-        )}
-        {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
-        <StreamingMessageBubble content={streamRecord.text} threadId={threadId} active={processSummary?.running ?? true} />
+      <div>
+        <StreamingMessageBubble content={item.streamContent || ""} threadId={threadId} active={processSummary?.running ?? true} />
       </div>
     );
   }
 
   if (displayKind === "process") {
-    if (!processSummary) return null;
-    return processHeader ? (
-      <ProcessTimelinePanel
-        summary={processSummary}
-        events={processEvents}
-        expanded={processExpanded}
-        lockedOpen={processLockedOpen}
-        onToggle={onToggleProcess}
-      />
-    ) : processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
+    return <AttachedProcess item={item} onToggle={onToggleProcess} />;
   }
 
-  if (displayKind === "compact-compacting") {
-    return <CompactContextNote state="compacting" />;
+  if (displayKind === "thinking") {
+    return (
+      <div className="px-1 py-1 text-xs leading-5 text-foreground">
+        <div className="brevyn-thinking-markdown opacity-95">
+          <Markdownish content={assistantContent || ""} threadId={threadId} />
+        </div>
+      </div>
+    );
   }
 
-  if (displayKind === "compact-complete") {
-    return <CompactContextNote state="complete" />;
-  }
-
-  if (isRuntimeRecord(record)) {
-    if (displayKind === "approval-request" && record.event.type === "approval_requested") {
-      return (
-        <ApprovalCard
-          request={record.event.request}
-          decision={approvalDecision}
-          onApprove={onApprove}
-          onReject={onReject}
-        />
-      );
-    }
-    if (displayKind === "question-resolved" && record.event.type === "ask_user_requested") {
-      return (
-        <ResolvedRuntimeNote
-          tone="approved"
-          label="已回答问题"
-          detail={record.event.request.questions[0]?.question || "Brevyn question"}
-        />
-      );
-    }
-    if (displayKind === "question-request" && record.event.type === "ask_user_requested") {
-      return (
-        <AskUserCard
-          request={record.event.request}
-          resolvedAnswers={questionAnswers}
-          onAnswer={onAnswerQuestion}
-        />
-      );
-    }
-    if (displayKind === "exit-plan-resolved" && record.event.type === "exit_plan_requested") {
-      return (
-        <ResolvedRuntimeNote
-          tone={exitPlanDecision === "approve" ? "approved" : "denied"}
-          label={exitPlanDecision === "approve" ? "已批准计划" : "已要求修改计划"}
-          detail={exitPlanSummary(record.event.request)}
-        />
-      );
-    }
-    if (displayKind === "exit-plan-request" && record.event.type === "exit_plan_requested") {
-      return (
-        <ExitPlanCard
-          request={record.event.request}
-          decision={exitPlanDecision}
-          onResolve={onResolveExitPlan}
-        />
-      );
-    }
-    return null;
-  }
-
-  const message = record as SDKMessage;
-  if (displayKind === "user-message") {
-    return <MessageBubble role="user" content={userText(message)} threadId={threadId} attachments={messageAttachments(message)} />;
+  if (displayKind === "tool-use") {
+    const event = processEvents.find((candidate): candidate is Extract<ProcessEvent, { kind: "tool_use" }> => candidate.kind === "tool_use");
+    if (!event) return null;
+    return <OrderedToolUseEntry event={event} />;
   }
 
   if (displayKind === "prompt-too-long") {
     return (
       <div className="space-y-2">
-        {attachProcess && processSummary && processHeader && (
-          <ProcessTimelinePanel
-            summary={processSummary}
-            events={processEvents}
-            expanded={processExpanded}
-            lockedOpen={processLockedOpen}
-            onToggle={onToggleProcess}
-          />
-        )}
-        {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
+        <AttachedProcess item={item} onToggle={onToggleProcess} />
         <PromptTooLongCard message={promptTooLongMessage || ""} onCompact={onCompact} />
       </div>
     );
@@ -500,66 +565,19 @@ function AgentRecordItem({
   if (displayKind === "provider-error") {
     return (
       <div className="space-y-2">
-        {attachProcess && processSummary && processHeader && (
-          <ProcessTimelinePanel
-            summary={processSummary}
-            events={processEvents}
-            expanded={processExpanded}
-            lockedOpen={processLockedOpen}
-            onToggle={onToggleProcess}
-          />
-        )}
-        {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
+        <AttachedProcess item={item} onToggle={onToggleProcess} />
         <ProviderErrorCard message={providerErrorMessage || processSummary?.detail || "Provider request failed."} />
       </div>
     );
   }
 
-  if (displayKind === "assistant-process-only") {
-    if (!processHeader || !processSummary) return processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
-    return (
-      <ProcessTimelinePanel
-        summary={processSummary}
-        events={processEvents}
-        expanded={processExpanded}
-        lockedOpen={processLockedOpen}
-        onToggle={onToggleProcess}
-      />
-    );
-  }
-
-  if (displayKind === "assistant-narration") {
-      const inline = processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
-      if (!processHeader || !processSummary) return inline;
-      return (
-        <div className="space-y-2">
-          <ProcessTimelinePanel
-            summary={processSummary}
-            events={processEvents}
-            expanded={processExpanded}
-            lockedOpen={processLockedOpen}
-            onToggle={onToggleProcess}
-          />
-        </div>
-      );
-  }
-
   if (displayKind === "assistant-final") {
     return (
       <div className="space-y-2">
-        {attachProcess && processSummary && processHeader && (
-          <ProcessTimelinePanel
-            summary={processSummary}
-            events={processEvents}
-            expanded={processExpanded}
-            lockedOpen={processLockedOpen}
-            onToggle={onToggleProcess}
-          />
-        )}
-        {attachProcess && processExpanded && (!processHeader || !processSummary) && <InlineProcessTimeline events={processEvents} />}
+        <AttachedProcess item={item} onToggle={onToggleProcess} />
         <RevealedAssistantBubble
           content={assistantContent || ""}
-          copyable={Boolean(assistantCopyContent)}
+          copyable={false}
           copyContent={assistantCopyContent}
           threadId={threadId}
           stoppedByUser={stoppedByUser}
@@ -570,16 +588,83 @@ function AgentRecordItem({
     );
   }
 
-  if (displayKind === "result-process") {
-    return processHeader ? (
+  return null;
+}
+
+function AssistantTurnCopyAction({ items }: { items: AgentTimelineViewItem[] }) {
+  const [copied, setCopied] = useState(false);
+  const running = items.some((item) => item.processSummary?.running);
+  const content = items
+    .filter((item) => item.displayKind === "assistant-final")
+    .map((item) => item.assistantCopyContent || item.assistantContent || "")
+    .filter((text) => text.trim())
+    .join("\n\n")
+    .trim();
+
+  if (running || !content) return null;
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("[AgentThreadPanel] Failed to copy assistant turn:", error);
+    }
+  }
+
+  return (
+    <div className="-mt-1 flex justify-start px-1">
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/55 opacity-0 transition hover:bg-accent/65 hover:text-foreground hover:opacity-100 focus-visible:bg-accent focus-visible:text-foreground focus-visible:opacity-100 focus-visible:outline-none group-hover/assistant-turn:opacity-100"
+        aria-label={copied ? "Message copied" : "Copy assistant response"}
+        title={copied ? "已复制" : "复制"}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+function OrderedToolUseEntry({ event }: { event: Extract<ProcessEvent, { kind: "tool_use" }> }) {
+  const [collapsed, setCollapsed] = useState(true);
+  return (
+    <ToolUseCard
+      block={event.tool}
+      result={event.result}
+      collapsed={collapsed}
+      onToggleCollapsed={() => setCollapsed((value) => !value)}
+    />
+  );
+}
+
+function AttachedProcess({
+  item,
+  onToggle,
+}: {
+  item: AgentTimelineViewItem;
+  onToggle: () => void;
+}) {
+  const {
+    processHeader,
+    processSummary,
+    processExpanded,
+    processLockedOpen,
+    processCollapsible,
+  } = item;
+
+  if (processHeader && processSummary) {
+    return (
       <ProcessTimelinePanel
-        summary={processSummary as RunSummary}
-        events={processEvents}
+        summary={processSummary}
         expanded={processExpanded}
         lockedOpen={processLockedOpen}
-        onToggle={onToggleProcess}
+        collapsible={processCollapsible}
+        onToggle={onToggle}
       />
-    ) : processExpanded ? <InlineProcessTimeline events={processEvents} /> : null;
+    );
   }
 
   return null;

@@ -18,20 +18,14 @@ export interface AgentThreadPanelState {
   planMode: boolean;
   permissionMode: AgentPermissionMode;
   timelineRecords: AgentTimelineRecord[];
-  timelineItems: ReturnType<typeof useAgentTimelineState>["timelineItems"];
-  renderMeta: ReturnType<typeof useAgentTimelineState>["renderMeta"];
-  liveAssistantText: boolean;
-  forceProcessOpen: boolean;
+  timelineGroups: ReturnType<typeof useAgentTimelineState>["timelineGroups"];
   runSummary: RunSummary | null;
-  stoppedAssistantIndex?: number;
   todos: AgentTodoItem[];
   contextUsage: ContextUsage | null;
-  compacting: boolean;
   effectiveRunning: boolean;
   effectiveCompacting: boolean;
   queuedMessages: QueuedAgentMessage[];
-  sentQueuedMessages: QueuedAgentMessage[];
-  processCollapsedByKey: Record<string, boolean>;
+  sendingQueuedMessageIds: string[];
   autoCompactThresholdPercent: number;
   setPlanMode: (value: boolean | ((current: boolean) => boolean)) => void;
   setPermissionMode: (mode: AgentPermissionMode) => void;
@@ -76,7 +70,7 @@ export function useAgentThreadPanelState({
     thread.id,
     [
       records.length,
-      timelineState.timelineRecords.length,
+      timelineState.timelineGroups.length,
       timelineState.effectiveRunning ? "running" : "idle",
       loading ? "loading" : "ready",
       timelineState.todos.length,
@@ -85,7 +79,6 @@ export function useAgentThreadPanelState({
   const preferencesState = useAgentPanelPreferencesState(thread.id);
   const queueState = useAgentQueueState({
     threadId: thread.id,
-    records,
     effectiveRunning: timelineState.effectiveRunning,
     onRun,
   });

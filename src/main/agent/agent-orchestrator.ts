@@ -64,6 +64,7 @@ interface ActiveRun {
   modelId?: string;
   gatewayToken?: string;
   ignoreNextResult?: boolean;
+  suppressUntilInterruptResult?: boolean;
   terminalResultWritten: boolean;
   terminalLifecycleWritten: boolean;
   assistantErrorWritten: boolean;
@@ -200,6 +201,10 @@ export class AgentOrchestrator {
         const current = this.activeRuns.get(context.thread.id);
         if (message.type === "result" && current?.ignoreNextResult) {
           current.ignoreNextResult = false;
+          current.suppressUntilInterruptResult = false;
+          continue;
+        }
+        if (current?.suppressUntilInterruptResult && message.type !== "result") {
           continue;
         }
         if (message.type === "result" && isContinuableSdkResult(message)) continue;
@@ -353,15 +358,24 @@ export class AgentOrchestrator {
     const context = this.resolveThreadContext(input.threadId);
     const active = this.activeRuns.get(context.thread.id);
     if (!active) throw new Error("No active agent run is available for this thread.");
+    if (!this.options.sdk.canQueueMessage(context.thread.id)) {
+      throw new Error("No active Claude SDK input channel is available for this thread.");
+    }
     const uuid = input.uuid || entityId("msg");
-    if (input.interrupt !== false) active.ignoreNextResult = true;
+    if (input.interrupt !== false) {
+      active.ignoreNextResult = true;
+      active.suppressUntilInterruptResult = true;
+    }
     try {
+      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, [], uuid));
       await this.options.sdk.queueMessage(context.thread.id, input.prompt, uuid, input.interrupt ?? true);
     } catch (error) {
-      if (input.interrupt !== false) active.ignoreNextResult = false;
+      if (input.interrupt !== false) {
+        active.ignoreNextResult = false;
+        active.suppressUntilInterruptResult = false;
+      }
       throw error;
     }
-    this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, [], uuid));
     return uuid;
   }
 

@@ -1,6 +1,5 @@
-import { Check, Loader2, X } from "lucide-react";
 import type { ToolCardHelpers } from "./types";
-import { CompactProcessCard, ProcessCardHeader } from "./shared";
+import { CompactProcessCard, DeferredToolDetails } from "./shared";
 
 export function ShellToolCard({
   command,
@@ -18,34 +17,34 @@ export function ShellToolCard({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 } & ToolCardHelpers) {
-  if (collapsed) {
-    return (
-      <CompactProcessCard
-        title={`Shell · ${helpers.singleLine(command || "command")}`}
-        status={running ? "运行中" : isError ? "失败" : "成功"}
-        running={running}
-        isError={isError}
-        onToggleCollapsed={onToggleCollapsed}
-      />
-    );
-  }
+  const status = running ? "运行中" : isError ? "失败" : "成功";
+  const title = (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      {helpers.renderToolGlyph("Bash", "h-3.5 w-3.5 shrink-0")}
+      <span className="min-w-0 truncate">执行 {helpers.singleLine(command || "command")}</span>
+    </span>
+  );
+  const terminalText = [`$ ${command || ""}`, output ? `\n${helpers.truncatePreview(output)}` : ""].join("");
 
   return (
-    <div className="overflow-hidden border-l border-border/60 py-1 pl-3 font-mono text-[11px] leading-5 text-foreground">
-      <ProcessCardHeader title="Shell" collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} />
-      <pre className="whitespace-pre-wrap break-words text-foreground">{command ? `$ ${command}` : "$"}</pre>
-      <div className={`${output ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+    <div className="overflow-hidden">
+      <CompactProcessCard
+        title={title}
+        status={status}
+        running={running}
+        isError={isError}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+      />
+      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
         <div className="min-h-0 overflow-hidden">
-          <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-2 text-muted-foreground brevyn-scrollbar">
-            {output ? helpers.truncatePreview(output) : ""}
-          </pre>
+          <DeferredToolDetails collapsed={collapsed}>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-stone-200/70 bg-[linear-gradient(135deg,rgba(41,37,36,0.96),rgba(68,60,49,0.94))] px-4 py-3 font-mono text-[12px] leading-6 text-stone-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_24px_rgba(64,55,38,0.12)] brevyn-scrollbar">
+              <span className="text-emerald-300">$</span>
+              {terminalText.replace(/^\$/, "")}
+            </pre>
+          </DeferredToolDetails>
         </div>
-      </div>
-      <div className="mt-2 flex justify-end font-sans text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isError ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-          {running ? "运行中" : isError ? "失败" : "成功"}
-        </span>
       </div>
     </div>
   );

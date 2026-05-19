@@ -1,14 +1,16 @@
-import { Pencil, Send, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Send, Trash2 } from "lucide-react";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export function QueuedMessageDock({
   messages,
+  sendingMessageIds,
   running,
   onSend,
   onDelete,
   onEdit,
 }: {
   messages: QueuedAgentMessage[];
+  sendingMessageIds: string[];
   running: boolean;
   onSend: (messageId: string) => void;
   onDelete: (messageId: string) => void;
@@ -24,48 +26,55 @@ export function QueuedMessageDock({
         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{messages.length}</span>
       </div>
       <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
-        {messages.map((message, index) => (
-          <div
-            key={message.id}
-            className="group flex min-w-0 items-center gap-2 rounded-xl border border-transparent bg-background/48 px-2 py-1.5 text-[11px] transition hover:border-border/70 hover:bg-background/72"
-          >
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
-              {index + 1}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
-              {message.prompt}
-            </span>
-            <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">
-              <button
-                type="button"
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                onClick={() => onSend(message.id)}
-                title={running ? "发送并打断当前输出" : "立即发送"}
-                aria-label="Send queued message"
-              >
-                <Send className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                onClick={() => onEdit(message)}
-                title="重新编辑"
-                aria-label="Edit queued message"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-red-50 hover:text-red-600"
-                onClick={() => onDelete(message.id)}
-                title="删除"
-                aria-label="Delete queued message"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+        {messages.map((message, index) => {
+          const sending = sendingMessageIds.includes(message.id);
+          return (
+            <div
+              key={message.id}
+              className="group flex min-w-0 items-center gap-2 rounded-xl border border-transparent bg-background/48 px-2 py-1.5 text-[11px] transition hover:border-border/70 hover:bg-background/72"
+            >
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+                {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
+                {message.prompt}
+              </span>
+              {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">发送中</span>}
+              <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => onSend(message.id)}
+                  disabled={sending}
+                  title={running ? "发送并打断当前输出" : "立即发送"}
+                  aria-label="Send queued message"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => onEdit(message)}
+                  disabled={sending}
+                  title="重新编辑"
+                  aria-label="Edit queued message"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => onDelete(message.id)}
+                  disabled={sending}
+                  title="删除"
+                  aria-label="Delete queued message"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

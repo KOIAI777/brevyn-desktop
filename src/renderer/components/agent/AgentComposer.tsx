@@ -26,6 +26,7 @@ interface AgentComposerProps {
   dockRef: Ref<HTMLDivElement>;
   todos: AgentTodoItem[];
   queuedMessages: QueuedAgentMessage[];
+  sendingQueuedMessageIds: string[];
   running: boolean;
   planMode: boolean;
   permissionMode: AgentPermissionMode;
@@ -51,6 +52,7 @@ export function AgentComposer({
   dockRef,
   todos,
   queuedMessages,
+  sendingQueuedMessageIds,
   running,
   planMode,
   permissionMode,
@@ -148,6 +150,7 @@ export function AgentComposer({
         {queuedMessages.length > 0 && (
           <QueuedMessageDock
             messages={queuedMessages}
+            sendingMessageIds={sendingQueuedMessageIds}
             running={running}
             onSend={onSendQueuedMessage}
             onDelete={onDeleteQueuedMessage}

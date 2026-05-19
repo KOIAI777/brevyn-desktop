@@ -1,5 +1,5 @@
 import type { ToolCardHelpers, ToolResultBlock, WebSearchLink } from "./types";
-import { CompactProcessCard, ProcessCardHeader } from "./shared";
+import { CompactProcessCard, DeferredToolDetails } from "./shared";
 
 export function WebToolCard({
   toolName,
@@ -27,31 +27,34 @@ export function WebToolCard({
   const links = isSearch ? parseWebSearchLinks(result?.content, output, helpers) : [];
   const title = webToolTitle({ isSearch, hosted, running, isError: result?.isError, target, linkCount: links.length }, helpers);
   const status = running ? "运行中" : result?.isError ? "失败" : hosted ? "完成" : isSearch ? `${links.length || resultCountFromText(output)} 个结果` : "完成";
+  const heading = (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      {helpers.renderToolGlyph(toolName, "h-3.5 w-3.5 shrink-0")}
+      <span className="min-w-0 truncate">{title}</span>
+    </span>
+  );
 
-  if (collapsed) {
-    return (
+  return (
+    <div className="overflow-hidden text-xs text-foreground">
       <CompactProcessCard
-        title={title}
+        title={heading}
         status={status}
         running={running}
         isError={result?.isError}
-        onToggleCollapsed={onToggleCollapsed}
-      />
-    );
-  }
-
-  return (
-    <div className="overflow-hidden border-l border-border/60 py-1 pl-3 text-xs text-foreground">
-      <ProcessCardHeader
-        title={<span className="inline-flex min-w-0 items-center gap-2">{helpers.renderToolGlyph(toolName, "h-3.5 w-3.5 shrink-0")}<span className="min-w-0 truncate">{title}</span></span>}
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
       />
-      {isSearch ? (
-        <WebSearchSummary query={target} links={links} result={result} output={output} hosted={hosted} />
-      ) : (
-        <WebFetchSummary url={target} result={result} output={output} />
-      )}
+      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+        <div className="min-h-0 overflow-hidden">
+          <DeferredToolDetails collapsed={collapsed}>
+            {isSearch ? (
+              <WebSearchSummary query={target} links={links} result={result} output={output} hosted={hosted} />
+            ) : (
+              <WebFetchSummary url={target} result={result} output={output} />
+            )}
+          </DeferredToolDetails>
+        </div>
+      </div>
     </div>
   );
 }

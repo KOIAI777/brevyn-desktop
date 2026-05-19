@@ -18,6 +18,7 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
   const followOutputRef = useRef(true);
   const userScrollIntentRef = useRef(false);
   const userScrollIntentTimerRef = useRef(0);
+  const scrollStateFrameRef = useRef(0);
   const [contentNode, setContentNode] = useState<HTMLDivElement | null>(null);
   const [timelineBottomInset, setTimelineBottomInset] = useState(224);
   const [isFollowingOutput, setIsFollowingOutput] = useState(true);
@@ -41,6 +42,13 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
       followOutputRef.current = following;
       setIsFollowingOutput((current) => current === following ? current : following);
     };
+    const scheduleFollowStateUpdate = () => {
+      if (scrollStateFrameRef.current) return;
+      scrollStateFrameRef.current = window.requestAnimationFrame(() => {
+        scrollStateFrameRef.current = 0;
+        updateFollowState();
+      });
+    };
     const markUserScrollIntent = () => {
       userScrollIntentRef.current = true;
       if (userScrollIntentTimerRef.current) window.clearTimeout(userScrollIntentTimerRef.current);
@@ -62,14 +70,18 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
     node.addEventListener("wheel", markUserScrollIntent, { passive: true });
     node.addEventListener("touchmove", markUserScrollIntent, { passive: true });
     node.addEventListener("pointerdown", markScrollbarDragIntent, { passive: true });
-    node.addEventListener("scroll", updateFollowState, { passive: true });
+    node.addEventListener("scroll", scheduleFollowStateUpdate, { passive: true });
     window.addEventListener("keydown", markKeyboardScrollIntent, { passive: true });
     return () => {
       node.removeEventListener("wheel", markUserScrollIntent);
       node.removeEventListener("touchmove", markUserScrollIntent);
       node.removeEventListener("pointerdown", markScrollbarDragIntent);
-      node.removeEventListener("scroll", updateFollowState);
+      node.removeEventListener("scroll", scheduleFollowStateUpdate);
       window.removeEventListener("keydown", markKeyboardScrollIntent);
+      if (scrollStateFrameRef.current) {
+        window.cancelAnimationFrame(scrollStateFrameRef.current);
+        scrollStateFrameRef.current = 0;
+      }
       if (userScrollIntentTimerRef.current) {
         window.clearTimeout(userScrollIntentTimerRef.current);
         userScrollIntentTimerRef.current = 0;
@@ -104,17 +116,10 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
     followContentGrowth();
     const resizeObserver = new ResizeObserver(followContentGrowth);
     resizeObserver.observe(contentNode);
-    const mutationObserver = new MutationObserver(followContentGrowth);
-    mutationObserver.observe(contentNode, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
 
     return () => {
       if (raf) window.cancelAnimationFrame(raf);
       resizeObserver.disconnect();
-      mutationObserver.disconnect();
     };
   }, [contentNode, threadId]);
 
@@ -124,7 +129,7 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
 
     const updateInset = () => {
       const nextInset = Math.ceil(dock.getBoundingClientRect().height + 80);
-      setTimelineBottomInset(nextInset);
+      setTimelineBottomInset((current) => current === nextInset ? current : nextInset);
       window.requestAnimationFrame(() => {
         if (followOutputRef.current) scrollTimelineToBottom(scrollRef.current, "auto");
       });
@@ -159,6 +164,7 @@ function isNearScrollBottom(node: HTMLDivElement): boolean {
 
 function scrollTimelineToBottom(node: HTMLDivElement | null, behavior: ScrollBehavior): void {
   if (!node) return;
+  if (Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 1) return;
   node.scrollTo({ top: node.scrollHeight, behavior });
 }
 

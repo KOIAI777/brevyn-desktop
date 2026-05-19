@@ -3,7 +3,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread } from "@/types/domain";
 import { DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT, MIN_AUTO_COMPACT_THRESHOLD_PERCENT } from "../../../types/domain";
 import { recordCreatedAtMs, timelineRecordIdentity } from "@/lib/agent-timeline-identity";
-import { changedFilesFromProcessEvents, type ChangedFileSummary } from "@/components/agent/agentChangedFilesModel";
+import type { ChangedFileSummary } from "@/components/agent/agentChangedFilesModel";
 import { useAgentTimelineRecords } from "@/components/agent/useAgentTimelineRecords";
 import {
   assistantBlocks,
@@ -11,20 +11,26 @@ import {
   approvalDecision,
   approvalResolutionMap,
   assistantText,
-  buildTimelineRenderMeta,
   exitPlanDecision,
   exitPlanResolutionMap,
+  groupIntoTurns,
   isCompactCommandMessage,
-  isCompactPlaceholderRecord,
-  isProcessPlaceholderRecord,
   isPromptTooLongMessage,
   isRuntimeRecord,
-  isThinkingStreamRecord,
-  isStreamRecord,
+  isStreamEventRecord,
   latestTurnBounds,
+  recordKey,
   recordObject,
+  streamThinkingDelta,
+  streamToolInputDelta,
+  streamToolUseStart,
+  streamTextDelta,
   stringValue,
+  thinkingTextForMessage,
   toolResultBlocks,
+  type ToolResultBlock,
+  type ToolUseBlock,
+  type WebCitationLink,
   userText,
   questionAnswers,
   questionResolutionMap,
@@ -38,21 +44,14 @@ import {
 export interface AgentTimelinePanelState {
   nowMs: number;
   timelineRecords: AgentTimelineRecord[];
-  timelineItems: AgentTimelineViewItem[];
-  renderMeta: ReturnType<typeof buildTimelineRenderMeta>;
-  liveAssistantText: boolean;
-  forceProcessOpen: boolean;
+  timelineGroups: AgentTimelineViewGroup[];
   runSummary: RunSummary | null;
-  stoppedAssistantIndex?: number;
   todos: AgentTodoItem[];
   contextUsage: ContextUsage | null;
-  compacting: boolean;
   effectiveRunning: boolean;
   effectiveCompacting: boolean;
-  processCollapsedByKey: Record<string, boolean>;
   activeProvider?: ModelProviderConfig;
   autoCompactThresholdPercent: number;
-  setProcessCollapsedByKey: (value: Record<string, boolean> | ((current: Record<string, boolean>) => Record<string, boolean>)) => void;
   toggleProcessCollapsed: (key: string, defaultCollapsed: boolean, lockedOpen: boolean) => void;
   handleCompact: () => Promise<void>;
 }
@@ -60,12 +59,11 @@ export interface AgentTimelinePanelState {
 export interface AgentTimelineViewItem {
   record: AgentTimelineRecord;
   displayKind: AgentTimelineDisplayKind;
+  streamContent?: string;
   assistantContent?: string;
   promptTooLongMessage?: string;
   providerErrorMessage?: string;
-  attachProcess: boolean;
   processHeader: boolean;
-  processNarration: boolean;
   assistantCopyContent?: string;
   stoppedByUser: boolean;
   approvalDecision?: "allow" | "deny";
@@ -76,9 +74,16 @@ export interface AgentTimelineViewItem {
   changedFiles: ChangedFileSummary[];
   processExpanded: boolean;
   processLockedOpen: boolean;
+  processCollapsible: boolean;
   processKey: string;
   defaultCollapsed: boolean;
 }
+
+export type AgentTimelineViewGroup =
+  | { type: "user"; key: string; item: AgentTimelineViewItem }
+  | { type: "assistant-turn"; key: string; items: AgentTimelineViewItem[] }
+  | { type: "system"; key: string; item: AgentTimelineViewItem }
+  | { type: "runtime"; key: string; item: AgentTimelineViewItem };
 
 export type AgentTimelineDisplayKind =
   | "hidden"
@@ -86,6 +91,8 @@ export type AgentTimelineDisplayKind =
   | "process"
   | "compact-compacting"
   | "compact-complete"
+  | "thinking"
+  | "tool-use"
   | "approval-request"
   | "question-request"
   | "question-resolved"
@@ -94,10 +101,7 @@ export type AgentTimelineDisplayKind =
   | "user-message"
   | "prompt-too-long"
   | "provider-error"
-  | "assistant-process-only"
-  | "assistant-narration"
-  | "assistant-final"
-  | "result-process";
+  | "assistant-final";
 
 export interface UseAgentTimelinePanelStateArgs {
   thread: Thread;
@@ -128,13 +132,11 @@ export function useAgentTimelineState({
   const activeModelId = activeProviderSelection.modelId || activeProvider?.selectedModel;
   const compactInFlight = compactInFlightAfterCount !== null;
   const { effectiveRunning, timelineRecords } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
-  const renderMeta = useMemo(() => buildTimelineRenderMeta(timelineRecords), [timelineRecords]);
-  const liveAssistantText = renderMeta.hasLiveAssistantText;
-  const forceProcessOpen = effectiveRunning && !liveAssistantText;
+  const forceProcessOpen = effectiveRunning && !hasRenderableAssistantContent(timelineRecords);
   const runSummary = useMemo(() => latestRunSummary(timelineRecords, nowMs, effectiveRunning), [effectiveRunning, nowMs, timelineRecords]);
   const stoppedAssistantIndex = useMemo(
-    () => runSummary?.status === "stopped" ? latestCopyableAssistantIndex(renderMeta) : undefined,
-    [renderMeta, runSummary?.status],
+    () => runSummary?.status === "stopped" ? latestAssistantTextIndex(timelineRecords) : undefined,
+    [runSummary?.status, timelineRecords],
   );
   const todos = useMemo(() => latestTodoList(records), [records]);
   const contextUsage = useMemo(() => latestContextUsage(records) ?? defaultContextUsage(activeModelId), [activeModelId, records]);
@@ -145,21 +147,16 @@ export function useAgentTimelineState({
   const resolvedQuestions = useMemo(() => questionResolutionMap(records), [records]);
   const resolvedExitPlans = useMemo(() => exitPlanResolutionMap(records), [records]);
   const timelineItems = useMemo(() => timelineRecords.map((record, index) => {
-    const meta = renderMeta.byIndex.get(index);
-    const itemSummary = meta?.processUserIndex === undefined
-      ? runSummary
-      : runSummaryForUserIndex(timelineRecords, meta.processUserIndex, nowMs, effectiveRunning);
-    const processKey = processStateKey(itemSummary, meta?.processUserIndex, timelineRecords, index);
+    const ownerUserIndex = ownerUserInputIndex(timelineRecords, index);
+    const itemSummary = ownerUserIndex >= 0
+      ? runSummaryForUserIndex(timelineRecords, ownerUserIndex, nowMs, effectiveRunning)
+      : runSummary;
+    const processKey = processStateKey(itemSummary, ownerUserIndex >= 0 ? ownerUserIndex : undefined, timelineRecords, index);
     const defaultCollapsed = !itemSummary?.running;
     const processLockedOpen = Boolean(forceProcessOpen && itemSummary?.running);
     const processExpanded = processLockedOpen || !(processCollapsedByKey[processKey] ?? defaultCollapsed);
-    const processEvents = meta?.processEvents || [];
     const display = timelineItemDisplay(record, {
-      attachProcess: Boolean(meta?.attachProcess),
-      processHeader: Boolean(meta?.processHeader),
       processSummary: itemSummary,
-      processNarration: Boolean(meta?.processNarration),
-      assistantCopyContent: meta?.assistantCopyContent,
       approvalDecision: approvalDecision(record, resolvedApprovals),
       questionAnswers: questionAnswers(record, resolvedQuestions),
       exitPlanDecision: exitPlanDecision(record, resolvedExitPlans),
@@ -170,23 +167,32 @@ export function useAgentTimelineState({
       assistantContent: display.assistantContent,
       promptTooLongMessage: display.promptTooLongMessage,
       providerErrorMessage: display.providerErrorMessage,
-      attachProcess: Boolean(meta?.attachProcess),
-      processHeader: Boolean(meta?.processHeader),
-      processNarration: Boolean(meta?.processNarration),
-      assistantCopyContent: meta?.assistantCopyContent,
+      processHeader: false,
+      assistantCopyContent: display.assistantContent,
       stoppedByUser: index === stoppedAssistantIndex,
       approvalDecision: display.approvalDecision,
       questionAnswers: display.questionAnswers,
       exitPlanDecision: display.exitPlanDecision,
       processSummary: itemSummary,
-      processEvents,
-      changedFiles: itemSummary && !itemSummary.running ? changedFilesFromProcessEvents(processEvents) : [],
+      processEvents: [],
+      changedFiles: [],
       processExpanded,
       processLockedOpen,
+      processCollapsible: false,
       processKey,
       defaultCollapsed,
     };
-  }), [effectiveRunning, forceProcessOpen, nowMs, processCollapsedByKey, renderMeta, resolvedApprovals, resolvedExitPlans, resolvedQuestions, runSummary, stoppedAssistantIndex, timelineRecords]);
+  }), [effectiveRunning, forceProcessOpen, nowMs, processCollapsedByKey, resolvedApprovals, resolvedExitPlans, resolvedQuestions, runSummary, stoppedAssistantIndex, timelineRecords]);
+  const timelineGroups = useMemo(
+    () => buildTimelineViewGroups(timelineRecords, timelineItems, {
+      effectiveRunning,
+      forceProcessOpen,
+      runSummary,
+      activeModelId,
+      processCollapsedByKey,
+    }),
+    [activeModelId, effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineItems, timelineRecords],
+  );
 
   useEffect(() => {
     setProcessCollapsedByKey({});
@@ -236,21 +242,14 @@ export function useAgentTimelineState({
   return {
     nowMs,
     timelineRecords,
-    timelineItems,
-    renderMeta,
-    liveAssistantText,
-    forceProcessOpen,
+    timelineGroups,
     runSummary,
-    stoppedAssistantIndex,
     todos,
     contextUsage,
-    compacting,
     effectiveRunning,
     effectiveCompacting,
-    processCollapsedByKey,
     activeProvider,
     autoCompactThresholdPercent: autoCompactThreshold,
-    setProcessCollapsedByKey,
     toggleProcessCollapsed,
     handleCompact,
   };
@@ -264,14 +263,451 @@ export function processStateKey(summary: RunSummary | null, userIndex: number | 
   return `record-${recordIndex}`;
 }
 
+export function buildTimelineViewGroups(
+  records: AgentTimelineRecord[],
+  items: AgentTimelineViewItem[],
+  options?: {
+    activeModelId?: string;
+    effectiveRunning?: boolean;
+    forceProcessOpen?: boolean;
+    runSummary?: RunSummary | null;
+    processCollapsedByKey?: Record<string, boolean>;
+  },
+): AgentTimelineViewGroup[] {
+  const groups = groupIntoTurns(records, options?.activeModelId);
+  const viewGroups: AgentTimelineViewGroup[] = [];
+
+  for (const group of groups) {
+    if (group.type === "user") {
+      const item = items[group.index];
+      if (!item) continue;
+      viewGroups.push({ type: "user", key: `user-${recordKey(item.record, group.index)}`, item });
+      continue;
+    }
+
+    if (group.type === "assistant-turn") {
+      const turnItems = assistantTurnViewItems(group.turnRecords, items);
+      const visibleTurnItems = appendTurnProcessSummaryItem(turnItems, {
+        forceProcessOpen: options?.forceProcessOpen,
+        runSummary: options?.runSummary,
+        processCollapsedByKey: options?.processCollapsedByKey,
+      });
+      if (visibleTurnItems.length === 0) continue;
+      viewGroups.push({
+        type: "assistant-turn",
+        key: groupKey("assistant", visibleTurnItems),
+        items: visibleTurnItems,
+      });
+      continue;
+    }
+
+    const item = items[group.index];
+    if (!item) continue;
+    const key = `${group.type}-${recordKey(item.record, group.index)}`;
+    viewGroups.push({ type: group.type, key, item } as AgentTimelineViewGroup);
+  }
+
+  const filtered = viewGroups.filter((group) => {
+    if (group.type === "assistant-turn") return group.items.some((item) => item.displayKind !== "hidden");
+    return group.item.displayKind !== "hidden";
+  });
+  return appendRunningProcessViewGroup(filtered, items, records, options);
+}
+
+function assistantTurnViewItems(
+  turnRecords: Array<{ record: AgentTimelineRecord; index: number }>,
+  items: AgentTimelineViewItem[],
+): AgentTimelineViewItem[] {
+  const result: AgentTimelineViewItem[] = [];
+  const toolResults = toolResultsById(turnRecords);
+  const approvalByToolUseId = approvalDecisionByToolUseId(turnRecords);
+  const hostedLinks = webCitationLinksFromTurn(turnRecords);
+
+  let streamItemIndex: number | undefined;
+  let thinkingItemIndex: number | undefined;
+  const streamToolItemByBlockIndex = new Map<number, number>();
+  const streamToolInputByBlockIndex = new Map<number, string>();
+
+  for (const { record, index } of turnRecords) {
+    const item = items[index];
+    if (!item) continue;
+    if (isStreamEventRecord(record)) {
+      const thinkingDelta = streamThinkingDelta(record);
+      if (thinkingDelta) {
+        if (thinkingItemIndex === undefined) {
+          thinkingItemIndex = result.length;
+          result.push({
+            ...orderedContentItem(item),
+            displayKind: "thinking",
+            assistantContent: thinkingDelta,
+          });
+        } else {
+          const existing = result[thinkingItemIndex];
+          if (existing) result[thinkingItemIndex] = {
+            ...existing,
+            assistantContent: `${existing.assistantContent || ""}${thinkingDelta}`,
+          };
+        }
+      }
+      const textDelta = streamTextDelta(record);
+      if (textDelta) {
+        if (streamItemIndex === undefined) {
+          streamItemIndex = result.length;
+          result.push({
+            ...orderedContentItem(item),
+            displayKind: "stream",
+            streamContent: textDelta,
+          });
+        } else {
+          const existing = result[streamItemIndex];
+          if (existing) result[streamItemIndex] = {
+            ...existing,
+            streamContent: `${existing.streamContent || ""}${textDelta}`,
+          };
+        }
+      }
+      const toolUse = streamToolUseStart(record);
+      if (toolUse && toolUse.tool.name !== "TodoWrite") {
+        streamToolItemByBlockIndex.set(toolUse.index, result.length);
+        result.push({
+          ...orderedContentItem(item),
+          displayKind: "tool-use",
+          processEvents: [{
+            kind: "tool_use",
+            id: `tool-use-${toolUse.tool.id}`,
+            tool: toolUse.tool,
+            result: hostedToolResult(toolUse.tool, hostedLinks),
+            approvalDecision: approvalByToolUseId.get(toolUse.tool.id),
+            sourceIndex: index,
+          }],
+        });
+      }
+      const inputDelta = streamToolInputDelta(record);
+      if (inputDelta) {
+        const previous = streamToolInputByBlockIndex.get(inputDelta.index) || "";
+        const nextInput = `${previous}${inputDelta.partialJson}`;
+        streamToolInputByBlockIndex.set(inputDelta.index, nextInput);
+        const itemIndex = streamToolItemByBlockIndex.get(inputDelta.index);
+        const existing = itemIndex === undefined ? undefined : result[itemIndex];
+        if (existing?.displayKind === "tool-use") {
+          const event = existing.processEvents.find((candidate): candidate is Extract<ProcessEvent, { kind: "tool_use" }> => candidate.kind === "tool_use");
+          if (event) {
+            result[itemIndex!] = {
+              ...existing,
+              processEvents: [{
+                ...event,
+                tool: {
+                  ...event.tool,
+                  input: parsePartialToolInput(nextInput) ?? event.tool.input,
+                },
+              }],
+            };
+          }
+        }
+      }
+      continue;
+    }
+
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "assistant") {
+      const message = record as SDKMessage;
+      const errorItem = promptOrProviderErrorItem(item);
+      if (errorItem) {
+        result.push(errorItem);
+        continue;
+      }
+
+      const thinkingText = thinkingTextForMessage(message);
+      if (thinkingText) {
+        result.push({
+          ...orderedContentItem(item),
+          displayKind: "thinking",
+          assistantContent: thinkingText,
+        });
+      }
+
+      for (const block of assistantBlocks(message)) {
+        if (block.type === "text") {
+          if (!block.text.trim()) continue;
+          result.push({
+            ...orderedContentItem(item),
+            displayKind: "assistant-final",
+            assistantContent: block.text,
+          });
+          continue;
+        }
+
+        if (block.type === "tool_use") {
+          if (block.name === "TodoWrite") continue;
+          result.push({
+            ...orderedContentItem(item),
+            displayKind: "tool-use",
+            processEvents: [{
+              kind: "tool_use",
+              id: `tool-use-${block.id}`,
+              tool: block,
+              result: toolResults.get(block.id) ?? hostedToolResult(block, hostedLinks),
+              approvalDecision: approvalByToolUseId.get(block.id),
+              sourceIndex: index,
+            }],
+          });
+        }
+      }
+      continue;
+    }
+
+    if (isRuntimeRecord(record)) result.push(item);
+  }
+
+  return dedupeStreamingItems(result);
+}
+
+function appendTurnProcessSummaryItem(
+  items: AgentTimelineViewItem[],
+  options?: {
+    forceProcessOpen?: boolean;
+    runSummary?: RunSummary | null;
+    processCollapsedByKey?: Record<string, boolean>;
+  },
+): AgentTimelineViewItem[] {
+  if (items.length === 0 || items.some((item) => item.processHeader)) return items;
+  const summarySource = [...items].reverse().find((item) => item.processSummary);
+  const itemSource = summarySource ?? items[items.length - 1];
+  const summary = summarySource?.processSummary ?? options?.runSummary ?? null;
+  if (!itemSource) return items;
+  if (!summary) return items;
+  const hasTimelineItems = items.some(isTurnTimelineItem);
+  const defaultCollapsed = !summary.running;
+  const processLockedOpen = Boolean(options?.forceProcessOpen && summary.running);
+  const processExpanded = processLockedOpen || !(options?.processCollapsedByKey?.[itemSource.processKey] ?? defaultCollapsed);
+  const processItem: AgentTimelineViewItem = {
+    ...itemSource,
+    displayKind: "process",
+    processHeader: true,
+    processSummary: summary,
+    processEvents: [],
+    changedFiles: [],
+    processExpanded,
+    processLockedOpen,
+    processCollapsible: hasTimelineItems,
+    defaultCollapsed,
+  };
+  return [processItem, ...items];
+}
+
+function isTurnTimelineItem(item: AgentTimelineViewItem): boolean {
+  return item.displayKind === "thinking"
+    || item.displayKind === "tool-use"
+    || item.displayKind === "approval-request"
+    || item.displayKind === "question-request"
+    || item.displayKind === "question-resolved"
+    || item.displayKind === "exit-plan-request"
+    || item.displayKind === "exit-plan-resolved";
+}
+
+function parsePartialToolInput(value: string): unknown | null {
+  const text = value.trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function orderedContentItem(item: AgentTimelineViewItem): AgentTimelineViewItem {
+  return {
+    ...item,
+    processHeader: false,
+    processEvents: [],
+    changedFiles: [],
+  };
+}
+
+function toolResultsById(turnRecords: Array<{ record: AgentTimelineRecord; index: number }>): Map<string, ReturnType<typeof toolResultBlocks>[number]> {
+  const results = new Map<string, ReturnType<typeof toolResultBlocks>[number]>();
+  for (const { record } of turnRecords) {
+    if (!record || isRuntimeRecord(record) || (record as SDKMessage).type !== "user") continue;
+    for (const result of toolResultBlocks(record as SDKMessage)) {
+      results.set(result.toolUseId, result);
+    }
+  }
+  return results;
+}
+
+function approvalDecisionByToolUseId(turnRecords: Array<{ record: AgentTimelineRecord; index: number }>): Map<string, "allow" | "deny"> {
+  const requestToolUseIds = new Map<string, string>();
+  const decisions = new Map<string, "allow" | "deny">();
+  for (const { record } of turnRecords) {
+    if (!isRuntimeRecord(record)) continue;
+    if (record.event.type === "approval_requested") {
+      requestToolUseIds.set(record.event.request.requestId, record.event.request.toolUseId);
+    } else if (record.event.type === "approval_resolved") {
+      decisions.set(record.event.requestId, record.event.decision);
+    }
+  }
+
+  const approvalByToolUseId = new Map<string, "allow" | "deny">();
+  for (const [requestId, decision] of decisions) {
+    const toolUseId = requestToolUseIds.get(requestId);
+    if (toolUseId) approvalByToolUseId.set(toolUseId, decision);
+  }
+  return approvalByToolUseId;
+}
+
+function hostedToolResult(block: ToolUseBlock, links: WebCitationLink[] = []): ToolResultBlock | undefined {
+  const input = recordObject(block.input);
+  if (input.hosted !== true) return undefined;
+  return {
+    type: "tool_result",
+    toolUseId: block.id,
+    content: {
+      status: stringValue(input.status, "completed"),
+      providerStatus: stringValue(input.providerStatus, ""),
+      query: webSearchQueryFromInput(input),
+      hosted: true,
+      links,
+    },
+    isError: false,
+  };
+}
+
+function webSearchQueryFromInput(input: Record<string, unknown>): string {
+  const query = stringValue(input.query, "");
+  if (query) return query;
+  const rawInput = recordObject(input.input);
+  return stringValue(rawInput.query, "");
+}
+
+function webCitationLinksFromTurn(turnRecords: Array<{ record: AgentTimelineRecord; index: number }>): WebCitationLink[] {
+  const byUrl = new Map<string, WebCitationLink>();
+  for (const { record } of turnRecords) {
+    if (!record || isRuntimeRecord(record) || isStreamEventRecord(record)) continue;
+    if ((record as SDKMessage).type !== "assistant") continue;
+    for (const block of assistantBlocks(record as SDKMessage)) {
+      if (block.type !== "text" || !Array.isArray(block.citations)) continue;
+      for (const citation of block.citations) {
+        const link = webCitationLinkFromCitation(citation);
+        if (!link || byUrl.has(link.url)) continue;
+        byUrl.set(link.url, link);
+      }
+    }
+  }
+  return [...byUrl.values()];
+}
+
+function webCitationLinkFromCitation(citation: unknown): WebCitationLink | undefined {
+  const object = recordObject(citation);
+  const citationType = stringValue(object.type, "");
+  if (citationType && citationType !== "web_search_result_location" && citationType !== "url_citation") return undefined;
+  const url = stringValue(object.url, "");
+  if (!url) return undefined;
+  return {
+    title: stringValue(object.title, url),
+    url,
+  };
+}
+
+function promptOrProviderErrorItem(item: AgentTimelineViewItem): AgentTimelineViewItem | undefined {
+  if (item.displayKind === "prompt-too-long" || item.displayKind === "provider-error") return item;
+  return undefined;
+}
+
+function dedupeStreamingItems(items: AgentTimelineViewItem[]): AgentTimelineViewItem[] {
+  const completeToolIds = new Set(
+    items
+      .filter((item) => item.displayKind === "tool-use" && !isStreamEventRecord(item.record))
+      .flatMap((item) => item.processEvents.flatMap((event) => event.kind === "tool_use" ? [event.tool.id] : [])),
+  );
+  return items.filter((item, index, allItems) => {
+    if (item.displayKind === "hidden") return false;
+    if (item.displayKind === "tool-use" && isStreamEventRecord(item.record)) {
+      const event = item.processEvents.find((candidate): candidate is Extract<ProcessEvent, { kind: "tool_use" }> => candidate.kind === "tool_use");
+      return !event || !completeToolIds.has(event.tool.id);
+    }
+    if (item.displayKind === "stream" && item.streamContent?.trim()) {
+      return !textAlreadyRendered(allItems, item.streamContent, index, "assistant-final", "assistantContent");
+    }
+    if (item.displayKind === "thinking" && item.assistantContent?.trim() && isStreamEventRecord(item.record)) {
+      return !textAlreadyRendered(allItems, item.assistantContent, index, "thinking", "assistantContent");
+    }
+    return true;
+  });
+}
+
+function textAlreadyRendered(
+  items: AgentTimelineViewItem[],
+  content: string,
+  ignoreIndex: number,
+  displayKind: AgentTimelineDisplayKind,
+  contentKey: "assistantContent" | "streamContent",
+): boolean {
+  const normalizedStream = normalizeRenderableText(content);
+  return items.some((item, index) => {
+    if (index === ignoreIndex) return false;
+    if (item.displayKind !== displayKind) return false;
+    const text = normalizeRenderableText(item[contentKey] || "");
+    if (!text || !normalizedStream) return false;
+    return text === normalizedStream || text.startsWith(normalizedStream) || normalizedStream.startsWith(text);
+  });
+}
+
+function normalizeRenderableText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function appendRunningProcessViewGroup(
+  groups: AgentTimelineViewGroup[],
+  items: AgentTimelineViewItem[],
+  records: AgentTimelineRecord[],
+  options?: {
+    effectiveRunning?: boolean;
+    forceProcessOpen?: boolean;
+    runSummary?: RunSummary | null;
+    processCollapsedByKey?: Record<string, boolean>;
+  },
+): AgentTimelineViewGroup[] {
+  const summary = options?.runSummary;
+  if (!options?.effectiveRunning || !summary?.running) return groups;
+  const lastGroup = groups.at(-1);
+  if (lastGroup?.type !== "user") return groups;
+  const userIndex = records.findIndex((record) => record === lastGroup.item.record);
+  const processKey = processStateKey(summary, userIndex >= 0 ? userIndex : undefined, records, userIndex);
+  const defaultCollapsed = false;
+  const processLockedOpen = Boolean(options.forceProcessOpen);
+  const processExpanded = processLockedOpen || !(options.processCollapsedByKey?.[processKey] ?? defaultCollapsed);
+  const processItem: AgentTimelineViewItem = {
+    ...lastGroup.item,
+    displayKind: "process",
+    processHeader: true,
+    processSummary: summary,
+    processEvents: [],
+    changedFiles: [],
+    processExpanded,
+    processLockedOpen,
+    processCollapsible: false,
+    processKey,
+    defaultCollapsed,
+  };
+  return [
+    ...groups,
+    {
+      type: "assistant-turn",
+      key: `assistant-running-${processKey}`,
+      items: [processItem],
+    },
+  ];
+}
+
+function groupKey(prefix: string, items: AgentTimelineViewItem[]): string {
+  const first = items[0];
+  if (!first) return prefix;
+  return `${prefix}-${timelineRecordIdentity(first.record) || first.processKey}`;
+}
+
 function timelineItemDisplay(
   record: AgentTimelineRecord,
   state: {
-    attachProcess: boolean;
-    processHeader: boolean;
     processSummary: RunSummary | null;
-    processNarration: boolean;
-    assistantCopyContent?: string;
     approvalDecision?: "allow" | "deny";
     questionAnswers?: Record<string, string>;
     exitPlanDecision?: "approve" | "deny";
@@ -285,10 +721,7 @@ function timelineItemDisplay(
   questionAnswers?: Record<string, string>;
   exitPlanDecision?: "approve" | "deny";
 } {
-  if (isStreamRecord(record)) return { kind: "stream" };
-  if (isThinkingStreamRecord(record)) return { kind: state.attachProcess && state.processSummary ? "process" : "hidden" };
-  if (isProcessPlaceholderRecord(record)) return { kind: state.attachProcess && state.processSummary ? "process" : "hidden" };
-  if (isCompactPlaceholderRecord(record)) return { kind: "compact-compacting" };
+  if (isStreamEventRecord(record)) return { kind: "hidden" };
 
   if (isRuntimeRecord(record)) {
     if (record.event.type === "approval_requested") {
@@ -324,15 +757,11 @@ function timelineItemDisplay(
       return { kind: "provider-error", providerErrorMessage: assistantText(message) || errorMessage };
     }
     const content = assistantBlocks(message).flatMap((block) => block.type === "text" ? [block.text] : []).join("\n\n");
-    if (!content.trim()) return { kind: state.attachProcess ? "assistant-process-only" : "hidden" };
-    if (state.processNarration) return { kind: state.attachProcess ? "assistant-narration" : "hidden" };
-    if (state.attachProcess && state.processSummary?.status === "running" && !state.assistantCopyContent) {
-      return { kind: "assistant-process-only" };
-    }
+    if (!content.trim()) return { kind: "hidden" };
     return { kind: "assistant-final", assistantContent: content };
   }
 
-  if (message.type === "result") return { kind: state.attachProcess && state.processSummary ? "result-process" : "hidden" };
+  if (message.type === "result") return { kind: "hidden" };
 
   if (message.type === "system") {
     const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
@@ -404,7 +833,7 @@ function resultForUserIndex(records: AgentTimelineRecord[], userIndex: number): 
   const endIndex = nextUserIndex ?? records.length;
   for (let index = userIndex + 1; index < endIndex; index += 1) {
     const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isStreamEventRecord(record)) continue;
     if ((record as SDKMessage).type === "result") return { record: record as SDKMessage, index };
   }
   return {};
@@ -413,7 +842,7 @@ function resultForUserIndex(records: AgentTimelineRecord[], userIndex: number): 
 function nextUserInputIndex(records: AgentTimelineRecord[], afterIndex: number): number | undefined {
   for (let index = afterIndex + 1; index < records.length; index += 1) {
     const record = records[index];
-    if (!record || isRuntimeRecord(record) || isStreamRecord(record) || isProcessPlaceholderRecord(record) || isCompactPlaceholderRecord(record)) continue;
+    if (!record || isRuntimeRecord(record) || isStreamEventRecord(record)) continue;
     if ((record as SDKMessage).type === "user" && !toolResultBlocks(record as SDKMessage).length && userText(record as SDKMessage).trim()) return index;
   }
   return undefined;
@@ -492,9 +921,27 @@ function formatDuration(durationMs: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-function latestCopyableAssistantIndex(meta: ReturnType<typeof buildTimelineRenderMeta>): number | undefined {
-  const indexes = [...meta.byIndex.entries()].flatMap(([index, value]) => value.assistantCopyContent ? [index] : []);
-  return indexes.at(-1);
+function latestAssistantTextIndex(records: AgentTimelineRecord[]): number | undefined {
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (!record || isRuntimeRecord(record) || isStreamEventRecord(record)) continue;
+    if ((record as SDKMessage).type === "assistant" && assistantText(record as SDKMessage).trim()) return index;
+  }
+  return undefined;
+}
+
+function hasRenderableAssistantContent(records: AgentTimelineRecord[]): boolean {
+  return records.some((record) => {
+    if (!record || isRuntimeRecord(record)) return false;
+    if (isStreamEventRecord(record)) return Boolean(streamTextDelta(record).trim() || streamThinkingDelta(record).trim());
+    if ((record as SDKMessage).type !== "assistant") return false;
+    const message = record as SDKMessage;
+    if (thinkingTextForMessage(message)) return true;
+    return assistantBlocks(message).some((block) => {
+      if (block.type === "text") return block.text.trim().length > 0;
+      return block.name !== "TodoWrite";
+    });
+  });
 }
 
 function latestTodoList(records: BrevynAgentTimelineRecord[]): AgentTodoItem[] {
