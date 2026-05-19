@@ -1,5 +1,5 @@
 import type { ToolCardHelpers, ToolResultBlock } from "./types";
-import { CompactProcessCard, DeferredToolDetails, PreviewPill } from "./shared";
+import { CompactProcessCard, DeferredToolDetails, PreviewPill, ToolDetailsShell } from "./shared";
 
 interface LoadedSkill {
   id: string;
@@ -56,7 +56,7 @@ export function SkillToolCard({
               result.isError ? (
                 <p className="mt-3 text-xs text-destructive">技能加载失败。</p>
               ) : (
-                <div className="mt-3 rounded-lg bg-muted/30 px-2.5 py-2 [contain:layout_paint_style]">
+                <ToolDetailsShell className="mt-3 px-2.5 py-2 [contain:layout_paint_style]">
                   <div className="text-xs font-semibold text-foreground">{loaded?.name || name}</div>
                   {loaded?.description && (
                     <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-muted-foreground">{loaded.description}</p>
@@ -64,7 +64,7 @@ export function SkillToolCard({
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     SKILL.md 已加载给 agent{loaded?.content ? ` · ${lineCount(loaded.content)} lines` : ""}。
                   </p>
-                </div>
+                </ToolDetailsShell>
               )
             )}
           </DeferredToolDetails>

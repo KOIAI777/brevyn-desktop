@@ -66,16 +66,7 @@ export function useAgentThreadPanelState({
     activeProviderId,
     onRun,
   });
-  const scrollState = useAgentScrollState(
-    thread.id,
-    [
-      records.length,
-      timelineState.timelineGroups.length,
-      timelineState.effectiveRunning ? "running" : "idle",
-      loading ? "loading" : "ready",
-      timelineState.todos.length,
-    ].join(":"),
-  );
+  const scrollState = useAgentScrollState(thread.id);
   const preferencesState = useAgentPanelPreferencesState(thread.id);
   const queueState = useAgentQueueState({
     threadId: thread.id,

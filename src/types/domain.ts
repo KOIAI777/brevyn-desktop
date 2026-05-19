@@ -731,6 +731,7 @@ export interface AgentAttachmentDataInput {
 export interface AgentRunInput {
   threadId: string;
   prompt: string;
+  uuid?: string;
   mode?: "execute" | "plan";
   permissionMode?: AgentPermissionMode;
   providerId?: string;

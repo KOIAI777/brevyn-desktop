@@ -1,10 +1,10 @@
-import { memo, useContext, useState, type ReactNode } from "react";
+import { memo, useContext, useEffect, useRef, useState, type ReactNode, type TransitionEvent } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Check, ChevronDown, Copy, ListTodo, Loader2 } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { AgentComposer } from "@/components/agent/AgentComposer";
-import { AssistantTextBubble, CompactContextNote, MessageBubble, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote } from "@/components/agent/AgentMessageParts";
+import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, UserMessageBubble } from "@/components/agent/AgentMessageParts";
 import { ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
 import { FilePathPreviewProvider } from "@/components/chat/FilePathChip";
 import { Markdownish } from "@/components/chat/Markdownish";
@@ -12,16 +12,12 @@ import type { ProcessEvent, RunSummary } from "@/components/agent/agentTimelineM
 import {
   exitPlanSummary,
   isRuntimeRecord,
-  recordKey,
-  recordObject,
-  stringValue,
   userText,
 } from "@/components/agent/agentTimelineModel";
 import { useAgentThreadPanelState } from "@/components/agent/useAgentThreadPanelState";
-import type { AgentTimelineViewItem } from "@/components/agent/useAgentTimelineState";
+import type { AgentTimelineTurnEntry, AgentTimelineViewItem } from "@/components/agent/useAgentTimelineState";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
-import { ChangedFilesSummary } from "@/components/agent/ChangedFilesSummary";
 import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
 
 interface AgentThreadPanelProps {
@@ -117,7 +113,7 @@ export function AgentThreadPanel({
               {timelineGroups.map((group) => (
                 <div
                   key={group.key}
-                  className="timeline-group min-w-0 [content-visibility:auto] [contain-intrinsic-size:320px]"
+                  className="timeline-group min-w-0"
                 >
                   <AgentTimelineGroup
                     group={group}
@@ -300,6 +296,9 @@ function AgentTimelineGroup({
   return (
     <AssistantTurnTimelineGroup
       items={group.items}
+      entries={group.entries}
+      collapsedVisibleEntryKeys={group.collapsedVisibleEntryKeys}
+      processItem={group.processItem}
       onToggleItemProcess={onToggleItemProcess}
       onApprove={onApprove}
       onReject={onReject}
@@ -314,7 +313,7 @@ function UserTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
   const threadId = useContext(AgentThreadIdContext);
   if (item.displayKind !== "user-message") return null;
   const message = item.record as SDKMessage;
-  return <MessageBubble role="user" content={userText(message)} threadId={threadId} attachments={messageAttachments(message)} />;
+  return <UserMessageBubble content={userText(message)} threadId={threadId} attachments={messageAttachments(message)} />;
 }
 
 function SystemTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
@@ -390,6 +389,9 @@ function RuntimeTimelineGroup({
 
 function AssistantTurnTimelineGroup({
   items,
+  entries,
+  collapsedVisibleEntryKeys,
+  processItem,
   onToggleItemProcess,
   onApprove,
   onReject,
@@ -398,6 +400,9 @@ function AssistantTurnTimelineGroup({
   onCompact,
 }: {
   items: AgentTimelineViewItem[];
+  entries: AgentTimelineTurnEntry[];
+  collapsedVisibleEntryKeys: string[];
+  processItem?: AgentTimelineViewItem;
   onToggleItemProcess: (item: AgentTimelineViewItem) => void;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -405,84 +410,164 @@ function AssistantTurnTimelineGroup({
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
 }) {
-  const processHeader = items.find((item) => item.displayKind === "process" && item.processHeader);
-  const showTimelineItems = processHeader?.processExpanded ?? true;
+  const showTimelineItems = processItem?.processExpanded ?? true;
+  const stableBodyTextKeys = new Set(collapsedVisibleEntryKeys);
   return (
     <div className="group/assistant-turn flex min-w-0 flex-col gap-3">
-      {items.map((item) => {
-        const timelineItem = isAssistantTurnTimelineItem(item);
-        const entry = (
-          <AssistantTurnEntry
-            item={item}
-            onToggleProcess={() => onToggleItemProcess(processHeader ?? item)}
-            onApprove={onApprove}
-            onReject={onReject}
-            onAnswerQuestion={onAnswerQuestion}
-            onResolveExitPlan={onResolveExitPlan}
-            onCompact={onCompact}
-          />
-        );
-        if (timelineItem) {
-          return (
-            <TimelineItemDrawer key={assistantTurnItemKey(item)} open={showTimelineItems}>
-              {entry}
-            </TimelineItemDrawer>
-          );
-        }
-        return (
-          <div key={assistantTurnItemKey(item)}>
-            {entry}
-          </div>
-        );
-      })}
+      {(processItem || entries.length > 0) && (
+        <div className="flex min-w-0 flex-col">
+          {processItem && (
+            <AttachedProcess item={processItem} onToggle={() => onToggleItemProcess(processItem)} />
+          )}
+          {entries.map((entry, index) => {
+            const keepVisibleWhenCollapsed = stableBodyTextKeys.has(entry.key);
+            return (
+              <TimelineItemsDrawer
+                key={entry.key}
+                open={showTimelineItems || keepVisibleWhenCollapsed}
+                insetTop={Boolean(processItem) || index > 0}
+              >
+              <AssistantTurnRenderEntryView
+                entry={entry}
+                processItem={processItem}
+                onToggleItemProcess={onToggleItemProcess}
+                onApprove={onApprove}
+                onReject={onReject}
+                onAnswerQuestion={onAnswerQuestion}
+                onResolveExitPlan={onResolveExitPlan}
+                onCompact={onCompact}
+              />
+              </TimelineItemsDrawer>
+            );
+          })}
+        </div>
+      )}
       <AssistantTurnCopyAction items={items} />
     </div>
   );
 }
 
-function TimelineItemDrawer({ open, children }: { open: boolean; children: ReactNode }) {
+function AssistantTurnRenderEntryView({
+  entry,
+  processItem,
+  onToggleItemProcess,
+  onApprove,
+  onReject,
+  onAnswerQuestion,
+  onResolveExitPlan,
+  onCompact,
+}: {
+  entry: AgentTimelineTurnEntry;
+  processItem?: AgentTimelineViewItem;
+  onToggleItemProcess: (item: AgentTimelineViewItem) => void;
+  onApprove: (requestId: string) => Promise<void>;
+  onReject: (requestId: string) => Promise<void>;
+  onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+  onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+  onCompact: () => void;
+}) {
+  const firstItem = entry.type === "tool-group" ? entry.items[0] : entry.item;
+  if (!firstItem) return null;
+
+  const rendered = entry.type === "tool-group" ? (
+    <OrderedToolGroupEntry entry={entry} />
+  ) : (
+    <AssistantTurnEntry
+      item={entry.item}
+      onToggleProcess={() => onToggleItemProcess(processItem ?? entry.item)}
+      onApprove={onApprove}
+      onReject={onReject}
+      onAnswerQuestion={onAnswerQuestion}
+      onResolveExitPlan={onResolveExitPlan}
+      onCompact={onCompact}
+    />
+  );
+
   return (
-    <div
-      className={`${
-        open
-          ? "grid-rows-[1fr] opacity-100"
-          : "pointer-events-none grid-rows-[0fr] opacity-0"
-      } grid overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}
-      aria-hidden={!open}
-    >
-      <div className="min-h-0 overflow-hidden">
-        <div
-          className={`${
-            open ? "translate-y-0" : "-translate-y-1.5"
-          } transform-gpu transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform`}
-        >
-          {children}
-        </div>
-      </div>
+    <div>
+      {rendered}
     </div>
   );
 }
 
-function assistantTurnItemKey(item: AgentTimelineViewItem): string {
-  if (item.displayKind === "process") return `process-${item.processKey}`;
-  if (item.contentBlockIndex !== undefined && (item.displayKind === "stream" || item.displayKind === "assistant-final" || item.displayKind === "thinking")) {
-    return `${item.displayKind}-block-${item.contentBlockIndex}`;
-  }
-  const tool = item.processEvents.find((event): event is Extract<ProcessEvent, { kind: "tool_use" }> => event.kind === "tool_use");
-  if (tool) return `tool-${tool.tool.id || tool.id}`;
-  const blockKey = item.contentBlockIndex === undefined ? "" : `-block-${item.contentBlockIndex}`;
-  return `${item.displayKind}-${recordKey(item.record)}${blockKey}`;
-}
+function TimelineItemsDrawer({ open, insetTop = false, children }: { open: boolean; insetTop?: boolean; children: ReactNode }) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [rendered, setRendered] = useState(open);
+  const [visible, setVisible] = useState(open);
+  const [height, setHeight] = useState(open ? "auto" : "0px");
 
-function isAssistantTurnTimelineItem(item: AgentTimelineViewItem): boolean {
-  return item.displayKind === "thinking"
-    || item.displayKind === "tool-use"
-    || item.displayKind === "tool-group"
-    || item.displayKind === "approval-request"
-    || item.displayKind === "question-request"
-    || item.displayKind === "question-resolved"
-    || item.displayKind === "exit-plan-request"
-    || item.displayKind === "exit-plan-resolved";
+  useEffect(() => {
+    let firstFrame = 0;
+    let secondFrame = 0;
+    if (open) {
+      if (!rendered) {
+        setRendered(true);
+        setHeight("0px");
+        setVisible(false);
+        return undefined;
+      }
+      firstFrame = window.requestAnimationFrame(() => {
+        const nextHeight = contentRef.current?.scrollHeight ?? 0;
+        setHeight(`${nextHeight}px`);
+        setVisible(true);
+      });
+      return () => {
+        window.cancelAnimationFrame(firstFrame);
+      };
+    }
+    if (!rendered) return undefined;
+    const currentHeight = contentRef.current?.scrollHeight ?? 0;
+    setVisible(true);
+    setHeight(`${currentHeight}px`);
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => setHeight("0px"));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [open, rendered]);
+
+  useEffect(() => {
+    if (!open || height !== "auto") return undefined;
+    const element = contentRef.current;
+    if (!element) return undefined;
+    const observer = new ResizeObserver(() => {
+      setHeight("auto");
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [height, open]);
+
+  function handleTransitionEnd(event: TransitionEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget || event.propertyName !== "height") return;
+    if (open) {
+      setHeight("auto");
+      return;
+    }
+    setVisible(false);
+    setRendered(false);
+  }
+
+  if (!rendered && !open) return null;
+
+  return (
+    <div
+      onTransitionEnd={handleTransitionEnd}
+      className={`${open ? "" : "pointer-events-none"} min-w-0 overflow-hidden transform-gpu transition-[height] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] [contain:layout_paint]`}
+      style={{ height }}
+      aria-hidden={!open}
+    >
+      <div
+        ref={contentRef}
+        className={`${
+          visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
+        } ${insetTop ? "pt-3" : ""} flex min-w-0 flex-col gap-3 transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform`}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function AssistantTurnEntry({
@@ -507,16 +592,9 @@ function AssistantTurnEntry({
     record,
     displayKind,
     assistantContent,
-    promptTooLongMessage,
-    providerErrorMessage,
-    processHeader,
-    assistantCopyContent,
     stoppedByUser,
     processSummary,
     processEvents,
-    changedFiles,
-    processExpanded,
-    processLockedOpen,
   } = item;
 
   if (displayKind === "hidden" || displayKind === "user-message") return null;
@@ -534,14 +612,6 @@ function AssistantTurnEntry({
         onAnswerQuestion={onAnswerQuestion}
         onResolveExitPlan={onResolveExitPlan}
       />
-    );
-  }
-
-  if (displayKind === "stream") {
-    return (
-      <div>
-        <AssistantTextBubble content={item.streamContent || ""} threadId={threadId} streaming animateReveal={false} initialContent="" copyable={false} />
-      </div>
     );
   }
 
@@ -565,45 +635,28 @@ function AssistantTurnEntry({
     return <OrderedToolUseEntry event={event} />;
   }
 
-  if (displayKind === "tool-group") {
-    const events = processEvents.filter((candidate): candidate is Extract<ProcessEvent, { kind: "tool_use" }> => candidate.kind === "tool_use");
-    if (events.length === 0) return null;
-    return <OrderedToolGroupEntry events={events} />;
-  }
-
   if (displayKind === "prompt-too-long") {
     return (
-      <div className="space-y-2">
-        <AttachedProcess item={item} onToggle={onToggleProcess} />
-        <PromptTooLongCard message={promptTooLongMessage || ""} onCompact={onCompact} />
-      </div>
+      <PromptTooLongCard message={assistantContent || ""} onCompact={onCompact} />
     );
   }
 
   if (displayKind === "provider-error") {
     return (
-      <div className="space-y-2">
-        <AttachedProcess item={item} onToggle={onToggleProcess} />
-        <ProviderErrorCard message={providerErrorMessage || processSummary?.detail || "Provider request failed."} />
-      </div>
+      <ProviderErrorCard message={assistantContent || processSummary?.detail || "Provider request failed."} />
     );
   }
 
   if (displayKind === "assistant-final") {
     return (
-      <div className="space-y-2">
-        <AttachedProcess item={item} onToggle={onToggleProcess} />
-        <AssistantTextBubble
-          content={assistantContent || ""}
-          streaming={false}
-          animateReveal={false}
-          copyable={false}
-          copyContent={assistantCopyContent}
-          threadId={threadId}
-          stoppedByUser={stoppedByUser}
-        />
-        {changedFiles.length > 0 && <ChangedFilesSummary changes={changedFiles} />}
-      </div>
+      <AssistantTextBubble
+        content={assistantContent || ""}
+        streaming={item.assistantStreaming === true}
+        copyable={false}
+        copyContent={assistantContent}
+        threadId={threadId}
+        stoppedByUser={stoppedByUser}
+      />
     );
   }
 
@@ -615,7 +668,7 @@ function AssistantTurnCopyAction({ items }: { items: AgentTimelineViewItem[] }) 
   const running = items.some((item) => item.processSummary?.running);
   const content = items
     .filter((item) => item.displayKind === "assistant-final")
-    .map((item) => item.assistantCopyContent || item.assistantContent || "")
+    .map((item) => item.assistantContent || "")
     .filter((text) => text.trim())
     .join("\n\n")
     .trim();
@@ -647,179 +700,144 @@ function AssistantTurnCopyAction({ items }: { items: AgentTimelineViewItem[] }) 
   );
 }
 
-const OrderedToolUseEntry = memo(function OrderedToolUseEntry({ event }: { event: Extract<ProcessEvent, { kind: "tool_use" }> }) {
-  const [collapsed, setCollapsed] = useState(true);
+const OrderedToolUseEntry = memo(function OrderedToolUseEntry({
+  event,
+  collapsed: controlledCollapsed,
+  onToggleCollapsed,
+}: {
+  event: Extract<ProcessEvent, { kind: "tool_use" }>;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+}) {
+  const [internalCollapsed, setInternalCollapsed] = useState(true);
+  const collapsed = controlledCollapsed ?? internalCollapsed;
+  const toggleCollapsed = onToggleCollapsed ?? (() => setInternalCollapsed((value) => !value));
   return (
     <ToolUseCard
       block={event.tool}
       result={event.result}
       collapsed={collapsed}
-      onToggleCollapsed={() => setCollapsed((value) => !value)}
+      onToggleCollapsed={toggleCollapsed}
     />
   );
-}, areToolEventsEqual);
+}, areOrderedToolUseEntryPropsEqual);
 
-const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ events }: { events: Extract<ProcessEvent, { kind: "tool_use" }>[] }) {
-  const [collapsed, setCollapsed] = useState(true);
-  const summary = summarizeToolGroup(events);
+const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { entry: Extract<AgentTimelineTurnEntry, { type: "tool-group" }> }) {
+  const { collapsed, expandedToolIds, toggleCollapsed, toggleTool } = useToolGroupDisclosure(entry.key, entry.summary.running);
+
   return (
     <div className="px-1 py-0.5">
       <button
         type="button"
         className="inline-flex max-w-full items-center gap-2 rounded-md px-0.5 py-1 text-left text-[13px] font-semibold text-muted-foreground/80 transition hover:text-foreground"
-        onClick={() => setCollapsed((value) => !value)}
+        onClick={toggleCollapsed}
         title={collapsed ? "展开工具详情" : "折叠工具详情"}
       >
-        <ToolGlyph toolName={summary.iconToolName} className={`h-4 w-4 shrink-0 opacity-80 ${summary.running ? "animate-pulse" : ""}`} />
-        <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 ${summary.running ? "taskagent-sweep-text" : ""}`}>
-          {summary.parts.map((part) => (
+        <ToolGlyph toolName={entry.summary.iconToolName} className={`h-4 w-4 shrink-0 opacity-80 ${entry.summary.running ? "animate-pulse" : ""}`} />
+        <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 ${entry.summary.running ? "taskagent-sweep-text" : ""}`}>
+          {entry.summary.parts.map((part) => (
             <span key={part} className="truncate">{part}</span>
           ))}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`} />
       </button>
-      <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
-        <div className="min-h-0 overflow-hidden">
-          <div className="ml-6 space-y-1.5">
-            {events.map((event) => (
-              <OrderedToolUseEntry key={event.tool.id || event.id} event={event} />
+      <TimelineItemsDrawer open={!collapsed}>
+        {entry.summary.running ? (
+          <RunningToolGroupDetails events={entry.toolEvents} expandedToolIds={expandedToolIds} onToggleTool={toggleTool} />
+        ) : (
+          <div className="ml-6 flex flex-col gap-1.5">
+            {entry.toolEvents.map((event) => (
+              <OrderedToolUseEntry key={event.tool.id || event.id} event={event} collapsed={expandedToolIds[event.tool.id || event.id] !== true} onToggleCollapsed={() => toggleTool(event.tool.id || event.id)} />
             ))}
           </div>
-        </div>
-      </div>
+        )}
+      </TimelineItemsDrawer>
     </div>
   );
-}, areToolEventListsEqual);
+});
 
-function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): { iconToolName: string; parts: string[]; running: boolean } {
-  const runningEvent = [...events].reverse().find((event) => !event.result);
-  if (runningEvent) {
-    return {
-      iconToolName: runningEvent.tool.name,
-      parts: [runningToolLabel(runningEvent)],
-      running: true,
-    };
+function useToolGroupDisclosure(groupKey: string, running: boolean): {
+  collapsed: boolean;
+  expandedToolIds: Record<string, boolean>;
+  toggleCollapsed: () => void;
+  toggleTool: (toolId: string) => void;
+} {
+  const [collapsed, setCollapsed] = useState(true);
+  const [expandedToolIds, setExpandedToolIds] = useState<Record<string, boolean>>({});
+  const [wasRunning, setWasRunning] = useState(running);
+
+  useEffect(() => {
+    setCollapsed(true);
+    setExpandedToolIds({});
+    setWasRunning(running);
+  }, [groupKey]);
+
+  useEffect(() => {
+    if (wasRunning && !running) {
+      setCollapsed(true);
+      setExpandedToolIds({});
+    }
+    if (wasRunning !== running) setWasRunning(running);
+  }, [running, wasRunning]);
+
+  function toggleCollapsed() {
+    setCollapsed((value) => !value);
   }
 
-  const stats = {
-    editedFiles: new Set<string>(),
-    exploredFiles: new Set<string>(),
-    exploredCount: 0,
-    searches: 0,
-    commands: 0,
-    skills: 0,
-    others: 0,
-    failed: 0,
-  };
-
-  for (const event of events) {
-    const toolName = event.tool.name;
-    const input = recordObject(event.tool.input);
-    if (event.result?.isError) stats.failed += 1;
-
-    if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
-      const path = stringValue(input.file_path ?? input.filePath ?? input.path, event.tool.id);
-      stats.editedFiles.add(path);
-      continue;
-    }
-
-    if (toolName === "Read") {
-      const path = stringValue(input.file_path ?? input.filePath ?? input.path, event.tool.id);
-      stats.exploredFiles.add(path);
-      continue;
-    }
-
-    if (toolName === "Glob" || toolName === "Grep") {
-      stats.exploredCount += countResultLines(event.result?.content) || 1;
-      continue;
-    }
-
-    if (toolName === "WebSearch" || toolName === "WebFetch" || toolName === "mcp__brevyn__rag_search") {
-      stats.searches += 1;
-      continue;
-    }
-
-    if (toolName === "Bash") {
-      stats.commands += 1;
-      continue;
-    }
-
-    if (toolName === "mcp__brevyn__load_skill" || toolName === "mcp__brevyn__read_skill_resource") {
-      stats.skills += 1;
-      continue;
-    }
-
-    stats.others += 1;
+  function toggleTool(toolId: string) {
+    setExpandedToolIds((current) => ({ ...current, [toolId]: !(current[toolId] === true) }));
   }
 
-  const exploredTotal = stats.exploredFiles.size + stats.exploredCount;
-  const parts: string[] = [];
-  if (stats.editedFiles.size > 0) parts.push(`已编辑 ${stats.editedFiles.size} 个文件`);
-  if (exploredTotal > 0) parts.push(`已探索 ${exploredTotal} 个文件`);
-  if (stats.searches > 0) parts.push(`已搜索 ${stats.searches} 次`);
-  if (stats.commands > 0) parts.push(`已运行 ${stats.commands} 条命令`);
-  if (stats.skills > 0) parts.push(`已加载 ${stats.skills} 个技能`);
-  if (stats.others > 0) parts.push(`已使用 ${stats.others} 个工具`);
-  if (stats.failed > 0) parts.push(`${stats.failed} 个失败`);
-
-  return {
-    iconToolName: stats.editedFiles.size > 0
-      ? "Edit"
-      : exploredTotal > 0
-        ? "Read"
-        : stats.searches > 0
-          ? "WebSearch"
-          : stats.commands > 0
-            ? "Bash"
-            : events[0]?.tool.name || "Tool",
-    parts: parts.length > 0 ? parts : [`已使用 ${events.length} 个工具`],
-    running: false,
-  };
+  return { collapsed, expandedToolIds, toggleCollapsed, toggleTool };
 }
 
-function runningToolLabel(event: Extract<ProcessEvent, { kind: "tool_use" }>): string {
-  const toolName = event.tool.name;
-  const input = recordObject(event.tool.input);
-  if (toolName === "Read") {
-    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, "文件"));
-    return `正在读取 ${path}`;
-  }
-  if (toolName === "Glob") return `正在搜索 ${stringValue(input.pattern, "文件")}`;
-  if (toolName === "Grep") return `正在搜索 ${stringValue(input.pattern, "内容")}`;
-  if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
-    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, "文件"));
-    return `正在编辑 ${path}`;
-  }
-  if (toolName === "Bash") return `正在运行 ${stringValue(input.command, "命令")}`;
-  if (toolName === "WebSearch") return `正在搜索 ${webSearchLabel(input)}`;
-  if (toolName === "WebFetch") return `正在打开 ${stringValue(input.url, "网页")}`;
-  if (toolName === "mcp__brevyn__rag_search") return `正在检索 ${stringValue(input.query, "课程材料")}`;
-  if (toolName === "mcp__brevyn__load_skill") return `正在加载技能 ${stringValue(input.skillId, "skill")}`;
-  if (toolName === "mcp__brevyn__read_skill_resource") return `正在读取技能资源`;
-  return `正在调用 ${toolName}`;
-}
-
-function shortPathLabel(value: string): string {
-  const parts = value.split(/[\\/]/g).filter(Boolean);
-  return parts.at(-1) || value;
-}
-
-function webSearchLabel(input: Record<string, unknown>): string {
-  const query = stringValue(input.query, "");
-  if (query) return query;
-  const queries = Array.isArray(input.queries) ? input.queries : [];
-  const first = queries[0];
-  if (typeof first === "string" && first.trim()) return first.trim();
-  const object = recordObject(first);
-  return stringValue(object.query ?? object.search_query ?? object.text, "网页");
-}
-
-function countResultLines(content: unknown): number {
-  if (typeof content === "string") return content.split("\n").filter((line) => line.trim()).length;
-  const data = recordObject(content);
-  const text = stringValue(data.stdout ?? data.text ?? data.content, "");
-  return text ? text.split("\n").filter((line) => line.trim()).length : 0;
-}
+const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
+  events,
+  expandedToolIds,
+  onToggleTool,
+}: {
+  events: Extract<ProcessEvent, { kind: "tool_use" }>[];
+  expandedToolIds: Record<string, boolean>;
+  onToggleTool: (toolId: string) => void;
+}) {
+  const threadId = useContext(AgentThreadIdContext);
+  return (
+    <div className="ml-6 flex flex-col gap-1 rounded-lg border border-border/55 bg-muted/12 p-1">
+      {events.map((event) => {
+        const toolId = event.tool.id || event.id;
+        const running = !event.result;
+        const failed = event.result?.isError === true;
+        const expanded = expandedToolIds[toolId] === true;
+        return (
+          <div key={toolId} className="overflow-hidden rounded-md">
+            <button
+              type="button"
+              className="flex w-full min-w-0 items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground transition hover:bg-accent/30 hover:text-foreground"
+              onClick={() => onToggleTool(toolId)}
+              title={expanded ? "折叠工具详情" : "展开工具详情"}
+            >
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ToolGlyph toolName={event.tool.name} className={`h-3.5 w-3.5 shrink-0 ${running ? "animate-pulse" : "opacity-70"}`} />
+                <span className="min-w-0 truncate">
+                  <ToolTitle toolName={event.tool.name} input={event.tool.input} threadId={threadId} isError={failed} />
+                </span>
+              </span>
+              <span className={`inline-flex shrink-0 items-center gap-1.5 font-medium ${running ? "taskagent-sweep-text" : failed ? "text-destructive" : "text-muted-foreground/75"}`}>
+                {failed ? "失败" : running ? "运行中" : "完成"}
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
+              </span>
+            </button>
+            <TimelineItemsDrawer open={expanded}>
+              <div className="px-1 pb-1">
+                <OrderedToolUseEntry event={event} collapsed={false} onToggleCollapsed={() => onToggleTool(toolId)} />
+              </div>
+            </TimelineItemsDrawer>
+          </div>
+        );
+      })}
+    </div>
+  );
+}, areRunningToolGroupDetailsPropsEqual);
 
 function areToolEventsEqual(
   previous: { event: Extract<ProcessEvent, { kind: "tool_use" }> },
@@ -830,18 +848,44 @@ function areToolEventsEqual(
     && previous.event.approvalDecision === next.event.approvalDecision;
 }
 
-function areToolEventListsEqual(
-  previous: { events: Extract<ProcessEvent, { kind: "tool_use" }>[] },
-  next: { events: Extract<ProcessEvent, { kind: "tool_use" }>[] },
+function areOrderedToolUseEntryPropsEqual(
+  previous: {
+    event: Extract<ProcessEvent, { kind: "tool_use" }>;
+    collapsed?: boolean;
+    onToggleCollapsed?: () => void;
+  },
+  next: {
+    event: Extract<ProcessEvent, { kind: "tool_use" }>;
+    collapsed?: boolean;
+    onToggleCollapsed?: () => void;
+  },
+): boolean {
+  return previous.collapsed === next.collapsed && areToolEventsEqual(previous, next);
+}
+
+function areRunningToolGroupDetailsPropsEqual(
+  previous: {
+    events: Extract<ProcessEvent, { kind: "tool_use" }>[];
+    expandedToolIds: Record<string, boolean>;
+  },
+  next: {
+    events: Extract<ProcessEvent, { kind: "tool_use" }>[];
+    expandedToolIds: Record<string, boolean>;
+  },
 ): boolean {
   if (previous.events.length !== next.events.length) return false;
-  return previous.events.every((event, index) => {
+  const sameEvents = previous.events.every((event, index) => {
     const nextEvent = next.events[index];
     return Boolean(nextEvent)
       && event.tool === nextEvent.tool
       && event.result === nextEvent.result
       && event.approvalDecision === nextEvent.approvalDecision;
   });
+  if (!sameEvents) return false;
+  const previousExpanded = Object.keys(previous.expandedToolIds);
+  const nextExpanded = Object.keys(next.expandedToolIds);
+  if (previousExpanded.length !== nextExpanded.length) return false;
+  return previousExpanded.every((toolId) => previous.expandedToolIds[toolId] === next.expandedToolIds[toolId]);
 }
 
 function AttachedProcess({
@@ -851,15 +895,9 @@ function AttachedProcess({
   item: AgentTimelineViewItem;
   onToggle: () => void;
 }) {
-  const {
-    processHeader,
-    processSummary,
-    processExpanded,
-    processLockedOpen,
-    processCollapsible,
-  } = item;
+  const { processSummary, processExpanded, processLockedOpen, processCollapsible } = item;
 
-  if (processHeader && processSummary) {
+  if (item.displayKind === "process" && processSummary) {
     return (
       <ProcessTimelinePanel
         summary={processSummary}

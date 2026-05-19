@@ -133,7 +133,7 @@ export class AgentOrchestrator {
           createdAt: now(),
         });
       }
-      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments));
+      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments, input.uuid));
     } catch (error) {
       this.activeRuns.delete(context.thread.id);
       throw error;

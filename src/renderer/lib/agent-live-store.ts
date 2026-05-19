@@ -34,7 +34,6 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
   const threadId = agentRuntimeEventThreadId(event);
   if (!threadId) return "";
   if (event.type === "run_started") {
-    clearAgentLiveRecords(threadId);
     setAgentLiveRunning(threadId, true);
   }
   appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
@@ -134,7 +133,7 @@ function scheduleAgentLiveRecordsFlush(): void {
   pendingFlushTimer = setLiveFlushTimer(() => {
     pendingFlushTimer = null;
     flushAgentLiveRecords();
-  }, 42);
+  }, 16);
 }
 
 function setLiveFlushTimer(callback: () => void, delayMs: number): ReturnType<typeof setTimeout> {
@@ -165,13 +164,6 @@ function appendUniqueRecords(current: BrevynAgentTimelineRecord[], pending: Brev
   let changed = false;
   const next = [...current];
   for (const record of pending) {
-    const previous = next.at(-1);
-    const merged = mergeConsecutiveStreamDelta(previous, record);
-    if (merged) {
-      next[next.length - 1] = merged;
-      changed = true;
-      continue;
-    }
     const key = liveRecordKey(record);
     if (key && seenKeys.has(key)) continue;
     if (key) seenKeys.add(key);
@@ -179,48 +171,6 @@ function appendUniqueRecords(current: BrevynAgentTimelineRecord[], pending: Brev
     changed = true;
   }
   return changed ? next : current;
-}
-
-function mergeConsecutiveStreamDelta(
-  previous: BrevynAgentTimelineRecord | undefined,
-  next: BrevynAgentTimelineRecord,
-): BrevynAgentTimelineRecord | null {
-  if (!previous || isRuntimeLiveRecord(previous) || isRuntimeLiveRecord(next)) return null;
-  const previousMessage = previous as SDKMessage;
-  const nextMessage = next as SDKMessage;
-  if (previousMessage.type !== "stream_event" || nextMessage.type !== "stream_event") return null;
-  const previousDelta = streamDelta(previousMessage);
-  const nextDelta = streamDelta(nextMessage);
-  if (!previousDelta || !nextDelta || previousDelta.type !== nextDelta.type) return null;
-  if (previousDelta.type === "text_delta") {
-    return withMergedStreamDelta(previousMessage, { ...previousDelta.raw, text: `${previousDelta.text}${nextDelta.text}` });
-  }
-  if (previousDelta.type === "thinking_delta") {
-    return withMergedStreamDelta(previousMessage, { ...previousDelta.raw, thinking: `${previousDelta.text}${nextDelta.text}` });
-  }
-  return null;
-}
-
-function streamDelta(message: SDKMessage): { type: "text_delta" | "thinking_delta"; text: string; raw: Record<string, unknown> } | null {
-  const event = recordObject((message as { event?: unknown }).event);
-  if (event.type !== "content_block_delta") return null;
-  const delta = recordObject(event.delta);
-  if (delta.type === "text_delta" && typeof delta.text === "string") return { type: "text_delta", text: delta.text, raw: delta };
-  if (delta.type === "thinking_delta" && typeof delta.thinking === "string") return { type: "thinking_delta", text: delta.thinking, raw: delta };
-  return null;
-}
-
-function withMergedStreamDelta(message: SDKMessage, delta: Record<string, unknown>): BrevynAgentTimelineRecord {
-  const event = recordObject((message as { event?: unknown }).event);
-  const renderId = timelineRecordRenderKey(message, "stream");
-  return {
-    ...(message as Record<string, unknown>),
-    _renderId: renderId,
-    event: {
-      ...event,
-      delta,
-    },
-  } as unknown as BrevynAgentTimelineRecord;
 }
 
 function liveRecordKey(record: BrevynAgentTimelineRecord): string {
@@ -260,8 +210,4 @@ export function agentRuntimeEventThreadId(event: BrevynAgentRuntimeEvent): strin
 
 function isTerminalRuntimeEvent(event: BrevynAgentRuntimeEvent): boolean {
   return event.type === "run_completed" || event.type === "run_stopped" || event.type === "run_failed" || event.type === "run_interrupted";
-}
-
-function recordObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

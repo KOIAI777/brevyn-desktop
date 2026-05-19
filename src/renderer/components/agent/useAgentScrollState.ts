@@ -13,10 +13,10 @@ export interface AgentScrollState {
 
 const scrollPositionByThread = new Map<string, number>();
 
-export function useAgentScrollState(threadId: string, followSignal: string): AgentScrollState {
+export function useAgentScrollState(threadId: string): AgentScrollState {
   const sticky = useStickToBottom({
     initial: "instant",
-    resize: "smooth",
+    resize: "instant",
   });
   const composerDockRef = useRef<HTMLDivElement>(null);
   const restoredThreadRef = useRef("");
@@ -29,7 +29,7 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
     restoredThreadRef.current = threadId;
 
     const savedDistance = scrollPositionByThread.get(threadId);
-    if (typeof savedDistance === "number" && savedDistance > 5) {
+    if (typeof savedDistance === "number" && savedDistance > 16) {
       sticky.stopScroll();
       const restore = () => {
         const nextTop = node.scrollHeight - node.clientHeight - savedDistance;
@@ -64,15 +64,6 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
   }, [sticky.scrollRef, threadId]);
 
   useEffect(() => {
-    if (!sticky.isAtBottom && !sticky.isNearBottom) return;
-    void sticky.scrollToBottom({
-      animation: "instant",
-      preserveScrollPosition: true,
-      ignoreEscapes: false,
-    });
-  }, [followSignal, sticky]);
-
-  useEffect(() => {
     const dock = composerDockRef.current;
     if (!dock) return;
 
@@ -105,7 +96,7 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
     contentRef: sticky.contentRef as RefCallback<HTMLDivElement>,
     composerDockRef,
     timelineBottomInset,
-    isFollowingOutput: sticky.isAtBottom,
+    isFollowingOutput: sticky.isAtBottom || sticky.isNearBottom,
     scrollToBottom,
   };
 }

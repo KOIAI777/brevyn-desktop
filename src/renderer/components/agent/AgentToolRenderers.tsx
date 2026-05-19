@@ -56,7 +56,7 @@ export function ToolTitle({ toolName, input, threadId, isError = false }: { tool
   const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
 
   if (path && (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
-    const action = toolName === "Read" ? "Read" : toolName === "Write" ? "已写入" : "已编辑";
+    const action = toolName === "Read" ? "读取" : "编辑";
     return (
       <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
         <span className="shrink-0">{action}</span>

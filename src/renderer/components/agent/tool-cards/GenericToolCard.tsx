@@ -1,6 +1,6 @@
 import { Check, X } from "lucide-react";
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "./types";
-import { CompactProcessCard, DeferredToolDetails } from "./shared";
+import { CompactProcessCard, DeferredToolDetails, ToolCodeBlock, ToolDetailsShell } from "./shared";
 import { ToolInputPreview } from "./ToolInputPreview";
 
 export function GenericToolUseCard({
@@ -77,9 +77,11 @@ export function GenericToolResultCard({
       <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden">
           <DeferredToolDetails collapsed={collapsed}>
-            <pre className="max-h-44 overflow-auto rounded-lg bg-muted/35 p-2 text-[11px] leading-5 [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:160px]">
-              {helpers.formatToolResultContent(tool.content)}
-            </pre>
+            <ToolDetailsShell>
+              <ToolCodeBlock maxHeight="max-h-44" className="text-[11px] leading-5">
+                {helpers.formatToolResultContent(tool.content)}
+              </ToolCodeBlock>
+            </ToolDetailsShell>
           </DeferredToolDetails>
         </div>
       </div>
@@ -94,9 +96,11 @@ function InlineToolResult({ result, ...helpers }: { result: ToolResultBlock } & 
         {result.isError ? <X className="h-3.5 w-3.5 text-destructive" /> : <Check className="h-3.5 w-3.5" />}
         Result · {helpers.toolResultSummary(result)}
       </div>
-      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/35 p-2 text-[11px] leading-5 text-foreground [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:160px] brevyn-scrollbar">
-        {helpers.formatToolResultContent(result.content)}
-      </pre>
+      <ToolDetailsShell>
+        <ToolCodeBlock maxHeight="max-h-44" className="text-[11px] leading-5">
+          {helpers.formatToolResultContent(result.content)}
+        </ToolCodeBlock>
+      </ToolDetailsShell>
     </div>
   );
 }

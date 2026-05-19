@@ -1,5 +1,5 @@
 import type { ToolCardHelpers, ToolResultBlock } from "./types";
-import { CompactProcessCard, DeferredToolDetails } from "./shared";
+import { CompactProcessCard, DeferredToolDetails, ToolDetailsShell } from "./shared";
 
 interface RagEvidence {
   fileName: string;
@@ -50,38 +50,40 @@ export function RagSearchToolCard({
       <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden px-1 py-1">
           <DeferredToolDetails collapsed={collapsed} defer={!running}>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Query</p>
-            <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
-            {result && (
-              <div className="mt-3 space-y-1.5 [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:220px]">
-                {result.isError ? (
-                  <p className="text-xs text-destructive">课程材料检索失败。</p>
-                ) : parsed.results.length > 0 ? (
-                  parsed.results.map((item, index) => (
-                    <div
-                      key={`${item.path}-${item.chunkIndex ?? index}-${index}`}
-                      className="min-w-0 rounded-lg px-2 py-1.5 text-xs text-foreground transition hover:bg-accent/35 [contain:layout_paint_style]"
-                      title={item.path || item.citation}
-                    >
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <span className="min-w-0 truncate font-medium">{item.fileName || item.path || "Course material"}</span>
-                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                          {scoreLabel(item.score)}
-                        </span>
+            <ToolDetailsShell className="px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Query</p>
+              <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
+              {result && (
+                <div className="mt-3 space-y-1.5 [contain:layout_paint_style]">
+                  {result.isError ? (
+                    <p className="text-xs text-destructive">课程材料检索失败。</p>
+                  ) : parsed.results.length > 0 ? (
+                    parsed.results.map((item, index) => (
+                      <div
+                        key={`${item.path}-${item.chunkIndex ?? index}-${index}`}
+                        className="min-w-0 rounded-lg px-2 py-1.5 text-xs text-foreground transition hover:bg-accent/35 [contain:layout_paint_style]"
+                        title={item.path || item.citation}
+                      >
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-medium">{item.fileName || item.path || "Course material"}</span>
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {scoreLabel(item.score)}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">
+                          {chunkLabel(item)}
+                        </div>
+                        <p className="mt-1 line-clamp-2 break-words text-[11px] leading-5 text-muted-foreground">
+                          {item.text || item.citation || "No preview text returned."}
+                        </p>
                       </div>
-                      <div className="mt-0.5 text-[10px] text-muted-foreground">
-                        {chunkLabel(item)}
-                      </div>
-                      <p className="mt-1 line-clamp-2 break-words text-[11px] leading-5 text-muted-foreground">
-                        {item.text || item.citation || "No preview text returned."}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-muted-foreground">没有召回到课程材料。</p>
-                )}
-              </div>
-            )}
+                    ))
+                  ) : (
+                    <p className="text-xs text-muted-foreground">没有召回到课程材料。</p>
+                  )}
+                </div>
+              )}
+            </ToolDetailsShell>
           </DeferredToolDetails>
         </div>
       </div>

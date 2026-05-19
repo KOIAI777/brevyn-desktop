@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentAttachment,
   AgentPermissionMode,
@@ -64,7 +65,9 @@ export function useAgentSessionController({
       const openRun = hasOpenAgentRun(nextRecords);
       setRunning(openRun);
       setAgentLiveRunning(threadId, openRun);
-      if (!openRun) clearAgentLiveRecords(threadId);
+      if (!openRun) {
+        clearAgentLiveRecords(threadId);
+      }
       return true;
     } catch (loadError) {
       if (mountedRef.current && agentLoadRequestRef.current === requestId) {
@@ -107,11 +110,15 @@ export function useAgentSessionController({
     setError("");
     setRunning(true);
     setAgentLiveRunning(threadId, true);
+    const userMessageId = createUserMessageId();
+    appendAgentLiveMessage(threadId, liveUserMessage(prompt, attachments, userMessageId));
+    flushAgentLiveRecords(threadId);
     onThreadHasMessagesRef.current(threadId);
     try {
       await window.brevyn.agent.run({
         threadId,
         prompt,
+        uuid: userMessageId,
         mode,
         permissionMode,
         attachments,
@@ -194,7 +201,6 @@ export function useAgentSessionController({
       if (event.kind === "sdk_message") {
         const appended = appendAgentLiveMessage(eventThreadId, event.message, { modelId: modelIdFromSelection(selectedAgentModelRef.current) });
         if (event.message.type === "result") {
-          setAgentLiveRunning(eventThreadId, false);
           flushAgentLiveRecords(eventThreadId);
         }
         if (!appended) return;
@@ -207,8 +213,11 @@ export function useAgentSessionController({
           for (const path of completedWritePaths) onWriteToolCompletedRef.current?.(path);
         }
         if (event.message.type === "result" && eventThreadId === activeThreadIdRef.current) {
-          setRunning(false);
-          void loadMessages(eventThreadId);
+          void loadMessages(eventThreadId).finally(() => {
+            if (!mountedRef.current || activeThreadIdRef.current !== eventThreadId) return;
+            setRunning(false);
+            setAgentLiveRunning(eventThreadId, false);
+          });
           const subtype = String((event.message as { subtype?: unknown }).subtype || "");
           if (subtype && subtype !== "success" && subtype !== "stopped_by_user" && subtype !== "interrupted") {
             setError(resultErrorMessage(event.message));
@@ -335,6 +344,26 @@ function agentModelSelectionValue(providerId: string, modelId: string): string {
 function modelIdFromSelection(value: string): string | undefined {
   const [, modelId] = value.split("::");
   return modelId ? decodeURIComponent(modelId) : undefined;
+}
+
+function createUserMessageId(): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  return randomId ? `msg_${randomId}` : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function liveUserMessage(prompt: string, attachments: AgentAttachment[] | undefined, uuid: string): SDKMessage {
+  return {
+    type: "user",
+    message: {
+      role: "user",
+      content: prompt,
+    },
+    ...(attachments && attachments.length > 0 ? { _attachments: attachments } : {}),
+    parent_tool_use_id: null,
+    uuid,
+    session_id: "",
+    _createdAt: Date.now(),
+  } as unknown as SDKMessage;
 }
 
 const WRITE_PREVIEW_TOOL_NAMES = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);

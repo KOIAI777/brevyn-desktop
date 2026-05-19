@@ -45,9 +45,7 @@ export interface ContextUsage {
 }
 
 export type ProcessEvent =
-  | { kind: "thinking"; id: string; text: string; sourceIndex?: number }
-  | { kind: "narration"; id: string; text: string; sourceIndex?: number }
-  | { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny"; sourceIndex?: number };
+  { kind: "tool_use"; id: string; tool: ToolUseBlock; result?: ToolResultBlock; approvalDecision?: "allow" | "deny"; sourceIndex?: number };
 
 export type AgentTimelineRecord = BrevynAgentTimelineRecord;
 
@@ -78,6 +76,8 @@ const PROMPT_TOO_LONG_PATTERNS = [
 export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: string): AgentMessageGroup[] {
   const groups: AgentMessageGroup[] = [];
   let currentTurn: AssistantTurnGroup | null = null;
+  let leadingTurn: AssistantTurnGroup | null = null;
+  let seenUserInput = false;
 
   const flushTurn = (): void => {
     if (currentTurn && currentTurn.turnRecords.length > 0) {
@@ -89,18 +89,17 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
   records.forEach((record, index) => {
     if (isRuntimeRecord(record)) {
       if (currentTurn) currentTurn.turnRecords.push({ record, index });
-      else groups.push({ type: "runtime", record, index });
+      else if (!seenUserInput) {
+        leadingTurn = leadingTurn ?? emptyAssistantTurn(sessionModelId);
+        leadingTurn.turnRecords.push({ record, index });
+      } else groups.push({ type: "runtime", record, index });
       return;
     }
 
     if (!isRuntimeRecord(record) && (record as SDKMessage).type === "stream_event") {
       if (!currentTurn) {
-        currentTurn = {
-          type: "assistant-turn",
-          assistantMessages: [],
-          turnRecords: [],
-          model: sessionModelId || "",
-        };
+        currentTurn = !seenUserInput ? leadingTurn ?? emptyAssistantTurn(sessionModelId) : emptyAssistantTurn(sessionModelId);
+        if (!seenUserInput) leadingTurn = currentTurn;
       }
       if (currentTurn) currentTurn.turnRecords.push({ record, index });
       return;
@@ -109,8 +108,14 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
     const message = record as SDKMessage;
     if (message.type === "user") {
       if (isUserInputMessage(message)) {
-        flushTurn();
+        if (seenUserInput) flushTurn();
+        else currentTurn = null;
         groups.push({ type: "user", record: message, index });
+        seenUserInput = true;
+        if (leadingTurn && leadingTurn.turnRecords.length > 0) {
+          currentTurn = leadingTurn;
+          leadingTurn = null;
+        }
       } else if (currentTurn) {
         currentTurn.turnRecords.push({ record: message, index });
       }
@@ -120,13 +125,12 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
     if (message.type === "assistant") {
       if ((message as { isReplay?: unknown }).isReplay === true) return;
       if (!currentTurn) {
-        currentTurn = {
-          type: "assistant-turn",
-          assistantMessages: [message],
-          turnRecords: [{ record: message, index }],
-          model: stringValue(recordObject(messageContentEnvelope(message)).model ?? (message as { _channelModelId?: unknown })._channelModelId, sessionModelId || ""),
-          createdAt: recordCreatedAtMs(message),
-        };
+        currentTurn = !seenUserInput ? leadingTurn ?? emptyAssistantTurn(sessionModelId) : emptyAssistantTurn(sessionModelId);
+        if (!seenUserInput) leadingTurn = currentTurn;
+        currentTurn.model = currentTurn.model || stringValue(recordObject(messageContentEnvelope(message)).model ?? (message as { _channelModelId?: unknown })._channelModelId, sessionModelId || "");
+        currentTurn.createdAt = currentTurn.createdAt ?? recordCreatedAtMs(message);
+        currentTurn.assistantMessages.push(message);
+        currentTurn.turnRecords.push({ record: message, index });
       } else {
         currentTurn.assistantMessages.push(message);
         currentTurn.turnRecords.push({ record: message, index });
@@ -150,7 +154,16 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
   });
 
   flushTurn();
-  return mergeAdjacentSameModelTurns(groups);
+  return groups;
+}
+
+function emptyAssistantTurn(sessionModelId?: string): AssistantTurnGroup {
+  return {
+    type: "assistant-turn",
+    assistantMessages: [],
+    turnRecords: [],
+    model: sessionModelId || "",
+  };
 }
 
 export function latestTurnBounds(records: AgentTimelineRecord[]): { user: SDKMessage; userIndex: number; result?: SDKMessage; resultIndex?: number } | null {
@@ -170,19 +183,6 @@ export function latestTurnBounds(records: AgentTimelineRecord[]): { user: SDKMes
   return null;
 }
 
-function turnBoundsForUserIndex(records: AgentTimelineRecord[], userIndex: number): { result?: SDKMessage; resultIndex?: number } {
-  const nextUserIndex = nextUserInputIndex(records, userIndex);
-  const searchEnd = nextUserIndex ?? records.length;
-  for (let index = userIndex + 1; index < searchEnd; index += 1) {
-    const candidate = records[index];
-    if (!candidate || isRuntimeRecord(candidate) || isStreamEventRecord(candidate)) continue;
-    if ((candidate as SDKMessage).type === "result") {
-      return { result: candidate as SDKMessage, resultIndex: index };
-    }
-  }
-  return {};
-}
-
 function nextUserInputIndex(records: AgentTimelineRecord[], afterIndex: number): number | undefined {
   for (let index = afterIndex + 1; index < records.length; index += 1) {
     const candidate = records[index];
@@ -197,43 +197,6 @@ function isUserInputMessage(message: SDKMessage): boolean {
   if ((message as { isSynthetic?: unknown }).isSynthetic === true) return false;
   if (toolResultBlocks(message).length > 0) return false;
   return userText(message).trim().length > 0;
-}
-
-function mergeAdjacentSameModelTurns(groups: AgentMessageGroup[]): AgentMessageGroup[] {
-  if (groups.length <= 1) return groups;
-  const result: AgentMessageGroup[] = [];
-
-  for (const group of groups) {
-    if (group.type !== "assistant-turn") {
-      result.push(group);
-      continue;
-    }
-
-    let mergeTargetIndex = -1;
-    for (let index = result.length - 1; index >= 0; index -= 1) {
-      const previous = result[index];
-      if (!previous) break;
-      if (previous.type === "user") break;
-      if (previous.type === "system") {
-        const subtype = stringValue((previous.record as { subtype?: unknown }).subtype, "");
-        if (subtype === "compact_boundary") break;
-      }
-      if (previous.type === "assistant-turn") {
-        if (previous.model === group.model) mergeTargetIndex = index;
-        break;
-      }
-    }
-
-    if (mergeTargetIndex >= 0) {
-      const target = result[mergeTargetIndex] as AssistantTurnGroup;
-      target.assistantMessages.push(...group.assistantMessages);
-      target.turnRecords.push(...group.turnRecords);
-    } else {
-      result.push(group);
-    }
-  }
-
-  return result;
 }
 
 export function assistantText(record: SDKMessage): string {
@@ -418,8 +381,7 @@ export function toolTitle(toolName: string, input: unknown): string {
   const diff = toolDiffStats(toolName, input);
   const diffSuffix = diff ? formatDiffStats(diff) : "";
   if (toolName === "Read") return `Read · ${stringValue(data.file_path ?? data.path, "file")}`;
-  if (toolName === "Edit" || toolName === "MultiEdit") return `${toolName} · ${stringValue(data.file_path ?? data.path, "file")}${diffSuffix ? ` ${diffSuffix}` : ""}`;
-  if (toolName === "Write") return `Write · ${stringValue(data.file_path ?? data.path, "file")}${diffSuffix ? ` ${diffSuffix}` : ""}`;
+  if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") return `编辑 · ${stringValue(data.file_path ?? data.path, "file")}${diffSuffix ? ` ${diffSuffix}` : ""}`;
   if (toolName === "Bash") return `Bash · ${singleLine(stringValue(data.command, "command"))}`;
   if (toolName === "Grep") return `Grep · ${singleLine(stringValue(data.pattern, "pattern"))}`;
   if (toolName === "Glob") return `Glob · ${singleLine(stringValue(data.pattern, "pattern"))}`;
@@ -521,7 +483,14 @@ export function normalizeTimelineRecords(
   _compactInFlight = false,
 ): AgentTimelineRecord[] {
   const normalized: AgentTimelineRecord[] = [];
-  const sourceRecords = [...records, ...liveRecords];
+  const liveIdentities = new Set(liveRecords.map((record) => timelineRecordIdentity(record)).filter(Boolean));
+  const sourceRecords = [
+    ...records.filter((record) => {
+      const identity = timelineRecordIdentity(record);
+      return !identity || !liveIdentities.has(identity);
+    }),
+    ...liveRecords,
+  ];
   const seenRecords = new Set<string>();
 
   for (const record of sourceRecords) {
@@ -567,12 +536,17 @@ export function streamTextDeltaBlock(record: BrevynAgentTimelineRecord): { index
 }
 
 export function streamThinkingDelta(record: BrevynAgentTimelineRecord): string {
-  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
+  return streamThinkingDeltaBlock(record)?.text || "";
+}
+
+export function streamThinkingDeltaBlock(record: BrevynAgentTimelineRecord): { index: number; text: string } | null {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return null;
   const event = recordObject((record as { event?: unknown }).event);
-  if (event.type !== "content_block_delta") return "";
+  if (event.type !== "content_block_delta") return null;
   const delta = recordObject(event.delta);
-  if (delta.type === "thinking_delta" && typeof delta.thinking === "string") return delta.thinking;
-  return "";
+  return delta.type === "thinking_delta" && typeof delta.thinking === "string"
+    ? { index: streamEventIndex(event), text: delta.thinking }
+    : null;
 }
 
 export function streamToolUseStart(record: BrevynAgentTimelineRecord): { index: number; tool: ToolUseBlock } | null {

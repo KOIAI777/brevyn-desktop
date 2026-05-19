@@ -201,6 +201,7 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
   return {
     threadId: requireString(input.threadId, "Thread id"),
     prompt: requireString(input.prompt, "Prompt"),
+    uuid: optionalString(input.uuid),
     mode: input.mode === "plan" ? "plan" : "execute",
     permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
     providerId: optionalString(input.providerId),

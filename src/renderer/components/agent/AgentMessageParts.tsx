@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Copy, Minimize2, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
@@ -81,42 +81,16 @@ export function ProviderErrorCard({ message }: { message: string }) {
   );
 }
 
-export function MessageBubble({
-  role,
+export function UserMessageBubble({
   content,
   threadId,
-  streaming = false,
-  copyable = true,
-  copyContent,
-  stoppedByUser = false,
   attachments = [],
 }: {
-  role: "user" | "assistant";
   content: string;
   threadId?: string;
-  streaming?: boolean;
-  copyable?: boolean;
-  copyContent?: string;
-  stoppedByUser?: boolean;
   attachments?: AgentAttachment[];
 }) {
   if (!content.trim() && attachments.length === 0) return null;
-  if (role === "assistant") {
-    return (
-      <div className="group/message flex justify-start">
-        <div className="min-w-0 w-full animate-[message-rise-in_180ms_cubic-bezier(0.22,1,0.36,1)] px-1 py-1 text-sm leading-6 text-foreground">
-          <Markdownish content={content} threadId={threadId} />
-          {!streaming && stoppedByUser && (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              <X className="h-3.5 w-3.5" />
-              已停止
-            </span>
-          )}
-          {!streaming && copyable && <MessageCopyAction content={copyContent || content} align="left" />}
-        </div>
-      </div>
-    );
-  }
   return (
     <div className="group/message flex justify-end">
       <div className="flex max-w-[76%] flex-col items-end">
@@ -216,23 +190,10 @@ function MessageCopyAction({ content, align }: { content: string; align: "left" 
   );
 }
 
-export function StreamingMessageBubble({ content, threadId, active = true, smooth = true }: { content: string; threadId?: string; active?: boolean; smooth?: boolean }) {
-  return (
-    <AssistantTextBubble
-      content={content}
-      threadId={threadId}
-      streaming={active}
-      animateReveal={smooth}
-    />
-  );
-}
-
 export function AssistantTextBubble({
   content,
   threadId,
   streaming = false,
-  animateReveal = false,
-  initialContent = "",
   stoppedByUser = false,
   copyable = true,
   copyContent,
@@ -240,15 +201,11 @@ export function AssistantTextBubble({
   content: string;
   threadId?: string;
   streaming?: boolean;
-  animateReveal?: boolean;
-  initialContent?: string;
   stoppedByUser?: boolean;
   copyable?: boolean;
   copyContent?: string;
 }) {
-  void animateReveal;
-  void initialContent;
-  const displayContent = content.replace(/\u0000/g, "");
+  const displayContent = useStreamingMarkdownContent(content.replace(/\u0000/g, ""), streaming);
   if (!displayContent.trim()) return null;
   return (
     <div className="group/message flex justify-start">
@@ -270,32 +227,41 @@ export function AssistantTextBubble({
   );
 }
 
-export function RevealedAssistantBubble({
-  content,
-  copyable,
-  copyContent,
-  threadId,
-  stoppedByUser = false,
-  animateReveal = false,
-  initialContent = "",
-}: {
-  content: string;
-  copyable: boolean;
-  copyContent?: string;
-  threadId?: string;
-  stoppedByUser?: boolean;
-  animateReveal?: boolean;
-  initialContent?: string;
-}) {
-  return (
-    <AssistantTextBubble
-      content={content}
-      threadId={threadId}
-      animateReveal={animateReveal}
-      initialContent={initialContent}
-      stoppedByUser={stoppedByUser}
-      copyable={copyable}
-      copyContent={copyContent}
-    />
-  );
+function useStreamingMarkdownContent(content: string, streaming: boolean): string {
+  const [displayedContent, setDisplayedContent] = useState(content);
+  const latestContentRef = useRef(content);
+  const frameRef = useRef(0);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    latestContentRef.current = content;
+    if (!streaming) {
+      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
+      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+      frameRef.current = 0;
+      timeoutRef.current = null;
+      setDisplayedContent(content);
+      return;
+    }
+
+    if (frameRef.current || timeoutRef.current) return;
+    timeoutRef.current = window.setTimeout(() => {
+      timeoutRef.current = null;
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = 0;
+        setDisplayedContent(latestContentRef.current);
+      });
+    }, 48);
+  }, [content, streaming]);
+
+  useEffect(() => {
+    return () => {
+      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
+      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+      frameRef.current = 0;
+      timeoutRef.current = null;
+    };
+  }, []);
+
+  return streaming ? displayedContent : content;
 }

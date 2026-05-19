@@ -49,7 +49,6 @@ export function useFilePreviewState({
       setFilePreviewLoading(false);
       return;
     }
-    setFilePreview(null);
     setFilePreviewLoading(true);
     try {
       const preview = options.sourcePath && activeThreadIdRef.current
@@ -60,7 +59,6 @@ export function useFilePreviewState({
       setFilePreviewLoading(false);
     } catch (error) {
       if (!mountedRef.current || filePreviewRequestRef.current !== requestId) return;
-      setFilePreview(null);
       setFilePreviewLoading(false);
       onError(errorMessage(error, options.errorFallback || "Failed to preview file."));
     }
@@ -89,8 +87,10 @@ export function useFilePreviewState({
         return;
       }
       try {
+        setFilePreviewLoading(true);
         const preview = await window.brevyn.app.previewWorkspacePath({ threadId: activeThreadIdRef.current, path: filePath });
         if (!preview) {
+          setFilePreviewLoading(false);
           if (!options.silent) onError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
           return;
         }
@@ -98,6 +98,7 @@ export function useFilePreviewState({
         setFilePreview(preview);
         setFilePreviewLoading(false);
       } catch (error) {
+        setFilePreviewLoading(false);
         if (!options.silent) onError(errorMessage(error, "Failed to preview workspace file."));
       }
       return;
@@ -110,7 +111,6 @@ export function useFilePreviewState({
     filePreviewRequestRef.current = previewRequestId;
     commitSelectedFileId(file?.id || "");
     if (file) {
-      setFilePreview(null);
       setFilePreviewLoading(true);
     } else {
       setFilePreview(null);

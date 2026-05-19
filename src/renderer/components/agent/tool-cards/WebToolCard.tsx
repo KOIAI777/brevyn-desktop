@@ -1,5 +1,5 @@
 import type { ToolCardHelpers, ToolResultBlock, WebSearchLink } from "./types";
-import { CompactProcessCard, DeferredToolDetails } from "./shared";
+import { CompactProcessCard, DeferredToolDetails, ToolDetailsShell } from "./shared";
 
 export function WebToolCard({
   toolName,
@@ -73,7 +73,7 @@ function WebSearchSummary({
   hosted?: boolean;
 }) {
   return (
-    <div className="px-1 py-1 [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:180px]">
+    <ToolDetailsShell className="px-3 py-2 [contain:layout_paint_style]">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Search</p>
       <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
       {hosted && !result && (
@@ -109,7 +109,7 @@ function WebSearchSummary({
           )}
         </div>
       )}
-    </div>
+    </ToolDetailsShell>
   );
 }
 
@@ -128,7 +128,7 @@ function webSearchQueryFromInput(data: Record<string, unknown>, helpers: ToolCar
 
 function WebFetchSummary({ url, result, output }: { url: string; result?: ToolResultBlock; output: string }) {
   return (
-    <div className="px-1 py-1">
+    <ToolDetailsShell className="px-3 py-2">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">URL</p>
       <p className="mt-1 break-words text-xs leading-5 text-foreground">{url}</p>
       {result && (
@@ -136,7 +136,7 @@ function WebFetchSummary({ url, result, output }: { url: string; result?: ToolRe
           {result.isError ? "网页读取失败。" : firstMeaningfulLine(output) || "网页读取完成。"}
         </p>
       )}
-    </div>
+    </ToolDetailsShell>
   );
 }
 
