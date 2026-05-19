@@ -28,7 +28,7 @@ import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon
 import { FileIndexingBadge } from "@/components/files/FileIndexingBadge";
 import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
 
-const DEFAULT_TASK_TYPE = "Assignment";
+const DEFAULT_TASK_TYPE = "作业";
 const RAG_RESULTS_PAGE_SIZE = 5;
 const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
 type CoursePanel = "files" | "tasks" | "indexing" | "search";
@@ -78,7 +78,7 @@ export function CourseManagementDialog({
   const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
   const activeCourse = displayedCourses.find((course) => course.id === viewingCourseId);
   const activeCourseArchived = Boolean(activeCourse?.archivedAt);
-  const courseReadOnlyReason = !activeCourse ? "Select a course before changing files, tasks, indexing, or RAG search." : activeCourseArchived ? "Restore this course before changing files, tasks, indexing, or RAG search." : "";
+  const courseReadOnlyReason = !activeCourse ? "请先选择课程，再修改文件、任务、索引或向量搜索。" : activeCourseArchived ? "请先恢复课程，再修改文件、任务、索引或向量搜索。" : "";
   const [sections, setSections] = useState<CourseFileSection[]>([]);
   const [indexingSectionId, setIndexingSectionId] = useState("");
   const [indexingJobs, setIndexingJobs] = useState<IndexingJob[]>([]);
@@ -173,7 +173,7 @@ export function CourseManagementDialog({
       setArchivedCourses(await window.brevyn.courses.listArchived());
     } catch (error) {
       setArchivedCourses([]);
-      setCourseActionError(errorMessage(error, "Failed to load archived courses."));
+      setCourseActionError(errorMessage(error, "加载已归档课程失败。"));
     }
   }
 
@@ -194,7 +194,7 @@ export function CourseManagementDialog({
       if (courseViewRequestRef.current === requestId) {
         setSections([]);
         setIndexingJobs([]);
-        setCourseActionError(errorMessage(error, "Failed to load course view."));
+        setCourseActionError(errorMessage(error, "加载课程视图失败。"));
       }
       return false;
     } finally {
@@ -204,13 +204,13 @@ export function CourseManagementDialog({
 
   async function createCourse() {
     if (!canCreateCourse) {
-      setNewCourseError("Select or create a semester before creating courses.");
+      setNewCourseError("请先选择或创建学期，再创建课程。");
       return;
     }
     const name = newCourseName.trim();
     const code = newCourseCode.trim();
     if (!name || !code) {
-      setNewCourseError("Course name and code are required.");
+      setNewCourseError("课程名称和课程代码不能为空。");
       return;
     }
     setNewCourseError("");
@@ -229,7 +229,7 @@ export function CourseManagementDialog({
       setNewCourseInstructor("");
       await loadCourseView(created.id);
     } catch (error) {
-      setNewCourseError(error instanceof Error ? error.message : "Failed to create course.");
+      setNewCourseError(error instanceof Error ? error.message : "创建课程失败。");
     } finally {
       setCreatingCourse(false);
     }
@@ -264,7 +264,7 @@ export function CourseManagementDialog({
       resetCourseDetailsDraft(updated);
       setEditingCourseDetails(false);
     } catch (error) {
-      setCourseActionError(errorMessage(error, "Failed to update course details."));
+      setCourseActionError(errorMessage(error, "更新课程详情失败。"));
     } finally {
       setSavingCourseDetails(false);
     }
@@ -282,7 +282,7 @@ export function CourseManagementDialog({
     }
     const title = taskName.trim();
     if (!title) {
-      setTaskError("Task name is required.");
+      setTaskError("任务名称不能为空。");
       return;
     }
     setCreatingTask(true);
@@ -297,7 +297,7 @@ export function CourseManagementDialog({
       setTaskName("");
       await loadCourseView(activeCourse.id);
     } catch (error) {
-      setTaskError(errorMessage(error, "Failed to create task."));
+      setTaskError(errorMessage(error, "创建任务失败。"));
     } finally {
       setCreatingTask(false);
     }
@@ -324,7 +324,7 @@ export function CourseManagementDialog({
       setRagError("");
       await loadCourseView(activeCourse.id);
     } catch (error) {
-      setCourseActionError(errorMessage(error, "Failed to start indexing."));
+      setCourseActionError(errorMessage(error, "启动索引失败。"));
     } finally {
       setIndexingSectionId("");
     }
@@ -347,10 +347,10 @@ export function CourseManagementDialog({
       });
       await loadCourseView(activeCourse.id);
       if (result.indexingError) {
-        setCourseActionError(`Imported ${result.files.length} file${result.files.length === 1 ? "" : "s"}, but indexing did not queue: ${result.indexingError}`);
+        setCourseActionError(`已导入 ${result.files.length} 个文件，但索引未排队：${result.indexingError}`);
       }
     } catch (error) {
-      setCourseActionError(errorMessage(error, "Failed to import files."));
+      setCourseActionError(errorMessage(error, "导入文件失败。"));
     } finally {
       setUploadingSectionId("");
     }
@@ -366,7 +366,7 @@ export function CourseManagementDialog({
       await window.brevyn.files.cancelIndexing(jobId);
       await loadCourseView(activeCourse.id);
     } catch (error) {
-      setCourseActionError(errorMessage(error, "Failed to cancel indexing."));
+      setCourseActionError(errorMessage(error, "取消索引失败。"));
     }
   }
 
@@ -394,7 +394,7 @@ export function CourseManagementDialog({
       setRagResults(results);
     } catch (error) {
       if (ragSearchRequestRef.current !== requestId) return;
-      setRagError(errorMessage(error, "RAG search failed."));
+      setRagError(errorMessage(error, "向量搜索失败。"));
       setRagResults([]);
     } finally {
       if (ragSearchRequestRef.current === requestId) setRagSearching(false);
@@ -403,10 +403,10 @@ export function CourseManagementDialog({
 
   async function archiveCourse(course: Course) {
     const ok = await confirm({
-      title: `Archive "${course.name}"?`,
-      message: "It will disappear from the main workspace until restored.",
-      confirmLabel: "Archive",
-      cancelLabel: "Keep it",
+      title: `归档「${course.name}」？`,
+      message: "课程会从主工作区隐藏，恢复后可再次显示。",
+      confirmLabel: "归档",
+      cancelLabel: "保留",
     });
     if (!ok) return;
     setCourseBusyId(course.id);
@@ -416,7 +416,7 @@ export function CourseManagementDialog({
       await loadArchivedCourses();
       onWorkspaceChanged?.();
     } catch (reason) {
-      setCourseActionError(errorMessage(reason, "Failed to archive course."));
+      setCourseActionError(errorMessage(reason, "归档课程失败。"));
     } finally {
       setCourseBusyId("");
     }
@@ -432,7 +432,7 @@ export function CourseManagementDialog({
       setViewingCourseId(restored.id);
       onWorkspaceChanged?.();
     } catch (reason) {
-      setCourseActionError(errorMessage(reason, "Failed to restore course."));
+      setCourseActionError(errorMessage(reason, "恢复课程失败。"));
     } finally {
       setCourseBusyId("");
     }
@@ -440,14 +440,14 @@ export function CourseManagementDialog({
 
   async function deleteCourse(course: Course) {
     if (!course.archivedAt) {
-      setCourseActionError("Archive this course before deleting it permanently.");
+      setCourseActionError("请先归档课程，再永久删除。");
       return;
     }
     const ok = await confirm({
-      title: `Delete "${course.name}" permanently?`,
-      message: "This removes all files and indexed data.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `永久删除「${course.name}」？`,
+      message: "这会删除该课程的所有文件和索引数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
     });
     if (!ok) return;
@@ -458,7 +458,7 @@ export function CourseManagementDialog({
       await loadArchivedCourses();
       onWorkspaceChanged?.();
     } catch (reason) {
-      setCourseActionError(errorMessage(reason, "Failed to delete course."));
+      setCourseActionError(errorMessage(reason, "删除课程失败。"));
     } finally {
       setCourseBusyId("");
     }
@@ -472,14 +472,14 @@ export function CourseManagementDialog({
           <div className="flex items-start gap-2.5">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold">Embedding provider error</div>
+              <div className="text-xs font-semibold">向量服务商错误</div>
               <div className="mt-1 max-h-24 overflow-y-auto break-words pr-1 text-[11px] leading-5 brevyn-scrollbar">{indexingNotice.message}</div>
             </div>
             <button
               type="button"
               className="shrink-0 rounded-md p-1 text-red-700/70 transition hover:bg-red-100 hover:text-red-900"
               onClick={() => setIndexingNotice(null)}
-              title="Dismiss"
+              title="关闭"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -491,15 +491,15 @@ export function CourseManagementDialog({
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <BookOpen className="h-4 w-4" />
-              Courses
+              课程管理
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">Course recognition, file organization, task sections, and embedding indexing</div>
+            <div className="truncate text-[11px] text-muted-foreground">课程识别、文件整理、任务分区和向量索引</div>
           </div>
           <button
             type="button"
             className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onClose}
-            title="Close courses"
+            title="关闭课程管理"
           >
             <X className="h-4 w-4" />
           </button>
@@ -513,8 +513,8 @@ export function CourseManagementDialog({
                 className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={() => setShowArchived((value) => !value)}
               >
-                <span>{showArchived ? "Showing archived courses" : "Active courses only"}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} archived</span>
+                <span>{showArchived ? "显示已归档课程" : "仅显示活跃课程"}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} 已归档</span>
               </button>
             </section>
             {courseActionError && (
@@ -540,7 +540,7 @@ export function CourseManagementDialog({
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-1.5">
                         <span className="block truncate text-sm font-semibold">{course.name}</span>
-                        {course.archivedAt && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase">Archived</span>}
+                        {course.archivedAt && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px]">已归档</span>}
                       </span>
                       <span className="block truncate text-[11px] text-muted-foreground">
                         {course.code} · {course.term}
@@ -550,15 +550,15 @@ export function CourseManagementDialog({
                   </button>
                   <div className="flex shrink-0 items-center gap-1">
                     {course.archivedAt ? (
-                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="Restore course" disabled={courseBusyId === course.id} onClick={() => void restoreCourse(course)}>
+                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={courseBusyId === course.id} onClick={() => void restoreCourse(course)}>
                         {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                       </button>
                     ) : (
-                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="Archive course" disabled={courseBusyId === course.id} onClick={() => void archiveCourse(course)}>
+                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={courseBusyId === course.id} onClick={() => void archiveCourse(course)}>
                         {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
                       </button>
                     )}
-                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "Delete permanently" : "Archive before deleting"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
+                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -569,39 +569,39 @@ export function CourseManagementDialog({
             <section className="rounded-lg border bg-background/70 p-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
                 <Plus className="h-3.5 w-3.5" />
-                New Course
+                新建课程
               </div>
               <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                <span>Course name</span>
+                <span>课程名称</span>
                 <input
                   className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                   value={newCourseName}
                   onChange={(event) => setNewCourseName(event.target.value)}
-                  placeholder="e.g. Constitutional Law"
+                  placeholder="例如：宪法学"
                 />
               </label>
               <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                <span>Course code</span>
+                <span>课程代码</span>
                 <input
                   className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                   value={newCourseCode}
                   onChange={(event) => setNewCourseCode(event.target.value)}
-                  placeholder="e.g. LAW 200"
+                  placeholder="例如：LAW 200"
                 />
               </label>
               <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                <span>Instructor (optional)</span>
+                <span>教师（可选）</span>
                 <input
                   className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                   value={newCourseInstructor}
                   onChange={(event) => setNewCourseInstructor(event.target.value)}
-                  placeholder="e.g. Prof. Lee"
+                  placeholder="例如：Prof. Lee"
                 />
               </label>
               {newCourseError && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
               {!canCreateCourse && !newCourseError && (
                 <div className="mb-2 rounded-md bg-muted/55 px-2 py-1 text-[11px] leading-5 text-muted-foreground">
-                  Select or create a semester before adding courses.
+                  请先选择或创建学期，再添加课程。
                 </div>
               )}
               <button
@@ -611,7 +611,7 @@ export function CourseManagementDialog({
                 disabled={creatingCourse || !canCreateCourse}
               >
                 {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                {creatingCourse ? "Creating..." : "Create course"}
+                {creatingCourse ? "正在创建..." : "创建课程"}
               </button>
               <VisionRecognitionImportButton
                 kind="course_timetable"
@@ -628,12 +628,12 @@ export function CourseManagementDialog({
           <section className="min-h-0 rounded-lg border bg-background/70 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-base font-semibold">{activeCourse?.name || "No course selected"}</div>
+                <div className="truncate text-base font-semibold">{activeCourse?.name || "未选择课程"}</div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {activeCourse?.code || "Brevyn"} · {activeCourse?.term || "local"} · {activeCourse?.instructor || "Instructor TBD"}
+                  {activeCourse?.code || "Brevyn"} · {activeCourse?.term || "本地"} · {activeCourse?.instructor || "教师待定"}
                 </div>
                 <div className="mt-1 truncate text-[11px] text-muted-foreground/80">
-                  {activeCourse?.meetingTime || "Time TBD"} · {activeCourse?.location || "Location TBD"}
+                  {activeCourse?.meetingTime || "时间待定"} · {activeCourse?.location || "地点待定"}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
@@ -647,7 +647,7 @@ export function CourseManagementDialog({
                   disabled={!activeCourse?.id || activeCourseArchived || savingCourseDetails}
                 >
                   <Pencil className="h-3.5 w-3.5" />
-                  Details
+                  详情
                 </button>
                 <button
                   type="button"
@@ -656,7 +656,7 @@ export function CourseManagementDialog({
                   disabled={!activeCourse?.id || activeCourseArchived || Boolean(indexingSectionId)}
                 >
                   {indexingSectionId === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
-                  Index all
+                  全部索引
                 </button>
               </div>
             </div>
@@ -670,7 +670,7 @@ export function CourseManagementDialog({
               <section className="mt-3 rounded-lg border bg-card p-3">
                 <div className="grid gap-2 md:grid-cols-2">
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
-                    <span>Course code</span>
+                    <span>课程代码</span>
                     <input
                       className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.code}
@@ -678,7 +678,7 @@ export function CourseManagementDialog({
                     />
                   </label>
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
-                    <span>Instructor</span>
+                    <span>教师</span>
                     <input
                       className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.instructor}
@@ -686,7 +686,7 @@ export function CourseManagementDialog({
                     />
                   </label>
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
-                    <span>Meeting time</span>
+                    <span>上课时间</span>
                     <input
                       className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.meetingTime}
@@ -694,7 +694,7 @@ export function CourseManagementDialog({
                     />
                   </label>
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
-                    <span>Location</span>
+                    <span>地点</span>
                     <input
                       className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.location}
@@ -742,7 +742,7 @@ export function CourseManagementDialog({
                       }}
                       disabled={savingCourseDetails}
                     >
-                      Cancel
+                      取消
                     </button>
                     <button
                       type="button"
@@ -751,7 +751,7 @@ export function CourseManagementDialog({
                       disabled={savingCourseDetails || !courseDetailsDraft.code.trim()}
                     >
                       {savingCourseDetails ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                      Save
+                      保存
                     </button>
                     </div>
                   </div>
@@ -761,15 +761,15 @@ export function CourseManagementDialog({
 
             <div className="mt-4">
               <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1">
-                <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="Files" onClick={() => setCoursePanel("files")} />
-                <CoursePanelButton active={coursePanel === "tasks"} icon={<Plus className="h-3.5 w-3.5" />} label="Tasks" onClick={() => setCoursePanel("tasks")} />
-                <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="Indexing" onClick={() => setCoursePanel("indexing")} />
-                <CoursePanelButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="Search" onClick={() => setCoursePanel("search")} />
+                <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="文件" onClick={() => setCoursePanel("files")} />
+                <CoursePanelButton active={coursePanel === "tasks"} icon={<Plus className="h-3.5 w-3.5" />} label="任务" onClick={() => setCoursePanel("tasks")} />
+                <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="索引" onClick={() => setCoursePanel("indexing")} />
+                <CoursePanelButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="向量搜索" onClick={() => setCoursePanel("search")} />
               </div>
 
               {!activeCourse && (
                 <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
-                  Select a course on the left before viewing files, tasks, indexing jobs, or RAG search.
+                  请先从左侧选择课程，再查看文件、任务、索引任务或向量搜索。
                 </div>
               )}
 
@@ -794,21 +794,21 @@ export function CourseManagementDialog({
                 <section className="rounded-lg border bg-card p-3">
                   <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
                     <Plus className="h-3.5 w-3.5" />
-                    New Task Section
+                    新建任务分区
                   </div>
                   <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto]">
                     <label className="block space-y-1 text-[11px] text-muted-foreground">
-                      <span>Task type</span>
+                      <span>任务类型</span>
                       <input
                         className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                         value={taskType}
                         onChange={(event) => setTaskType(event.target.value)}
-                        placeholder="Assignment"
+                        placeholder="作业"
                         disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
                       />
                     </label>
                     <label className="block space-y-1 text-[11px] text-muted-foreground">
-                      <span>Task name</span>
+                      <span>任务名称</span>
                       <input
                         className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                         value={taskName}
@@ -816,7 +816,7 @@ export function CourseManagementDialog({
                         onKeyDown={(event) => {
                           if (event.key === "Enter" && !creatingTask) void createTask();
                         }}
-                        placeholder="Custom task name"
+                        placeholder="自定义任务名称"
                         disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
                       />
                     </label>
@@ -827,7 +827,7 @@ export function CourseManagementDialog({
                       disabled={!activeCourse?.id || activeCourseArchived || creatingTask || !taskName.trim()}
                     >
                       {creatingTask ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                      {creatingTask ? "Creating..." : "Create"}
+                      {creatingTask ? "正在创建..." : "创建"}
                     </button>
                   </div>
                   {existingTaskTypes.length > 0 && (
@@ -907,7 +907,7 @@ function IndexingProgressPanel({
   onRefresh: () => void;
   onCancel: (jobId: string) => void;
 }) {
-  const sectionTitles = new Map(sections.map((section) => [section.id, section.title]));
+  const sectionTitles = new Map(sections.map((section) => [section.id, displaySectionTitle(section)]));
   const visibleJobs = latestIndexingJobsBySection(jobs);
   const activeCount = visibleJobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
 
@@ -916,21 +916,21 @@ function IndexingProgressPanel({
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
           <Database className="h-3.5 w-3.5" />
-          <span className="truncate">Indexing</span>
-          {activeCount > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{activeCount} active</span>}
+          <span className="truncate">索引</span>
+          {activeCount > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{activeCount} 个进行中</span>}
         </div>
         <button
           type="button"
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
           onClick={onRefresh}
-          title="Refresh indexing jobs"
+          title="刷新索引任务"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
         </button>
       </div>
 
       {visibleJobs.length === 0 ? (
-        <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">No indexing jobs</div>
+        <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">暂无索引任务</div>
       ) : (
         <div className="space-y-2">
           {visibleJobs.slice(0, 5).map((job) => {
@@ -940,19 +940,19 @@ function IndexingProgressPanel({
               <div key={job.id} className="rounded-md border bg-background/70 p-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="truncate text-[11px] font-semibold text-foreground">{job.sectionId ? sectionTitles.get(job.sectionId) || "Section" : "All sections"}</div>
+                    <div className="truncate text-[11px] font-semibold text-foreground">{job.sectionId ? sectionTitles.get(job.sectionId) || "分区" : "全部分区"}</div>
                     <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-                      {job.indexedFiles}/{job.totalFiles ?? 0} files · {job.stage || job.status} · {formatJobTime(job.updatedAt)}
+                      {job.indexedFiles}/{job.totalFiles ?? 0} 个文件 · {displayIndexingStage(job.stage || job.status)} · {formatJobTime(job.updatedAt)}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(job.status))}>{job.status}</span>
+                    <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(job.status))}>{displayIndexingStatus(job.status)}</span>
                     {cancellable && (
                       <button
                         type="button"
                         className="flex h-6 w-6 items-center justify-center rounded-md border bg-card text-muted-foreground transition hover:bg-accent hover:text-foreground"
                         onClick={() => onCancel(job.id)}
-                        title="Cancel indexing"
+                        title="取消索引"
                       >
                         <CircleStop className="h-3.5 w-3.5" />
                       </button>
@@ -1019,7 +1019,7 @@ function RagDebugPanel({
     <section className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
         <Search className="h-3.5 w-3.5" />
-        RAG Debug
+        向量搜索调试
       </div>
       <form
         className="flex gap-1.5"
@@ -1032,14 +1032,14 @@ function RagDebugPanel({
           className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search indexed chunks"
+          placeholder="搜索已索引片段"
           disabled={disabled}
         />
         <button
           type="submit"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           disabled={disabled || searching || !query.trim()}
-          title="Run RAG search"
+          title="运行向量搜索"
         >
           {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
         </button>
@@ -1057,7 +1057,7 @@ function RagDebugPanel({
       <div className="mt-2 max-h-[420px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
         {results.length === 0 ? (
           <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">
-            {query.trim() ? "No chunks returned" : "No query"}
+            {query.trim() ? "没有召回片段" : "请输入查询"}
           </div>
         ) : (
           visibleResults.map((result) => {
@@ -1078,14 +1078,14 @@ function RagDebugPanel({
       </div>
       {results.length > RAG_RESULTS_PAGE_SIZE && (
         <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2 text-[10px] text-muted-foreground">
-          <span>{results.length} results · Page {safePage + 1}/{pageCount}</span>
+          <span>{results.length} 条结果 · 第 {safePage + 1}/{pageCount} 页</span>
           <div className="flex items-center gap-1">
             <button
               type="button"
               className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
               disabled={safePage === 0}
               onClick={() => setPage((current) => Math.max(0, current - 1))}
-              title="Previous results"
+              title="上一页"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
@@ -1094,7 +1094,7 @@ function RagDebugPanel({
               className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
               disabled={safePage >= pageCount - 1}
               onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
-              title="Next results"
+              title="下一页"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -1112,7 +1112,7 @@ function compactRagCitation(citation: string): string {
   const normalized = pathPart.replace(/\\/g, "/");
   const semanticMatch = normalized.match(/(?:Course shared|Lecture|Materials|Drafts|Submitted)\/[^/]+$/);
   const compactPath = semanticMatch?.[0] || normalized.split("/").slice(-2).join("/");
-  return [compactPath, ...rest].filter(Boolean).join(" · ");
+  return [localizePathSegment(compactPath), ...rest].filter(Boolean).join(" · ");
 }
 
 function SectionCard({
@@ -1140,10 +1140,10 @@ function SectionCard({
 
   async function deleteFile(fileId: string, fileName: string) {
     const ok = await confirm({
-      title: `Delete "${fileName}"?`,
-      message: "The local copy will be removed.",
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: `删除「${fileName}」？`,
+      message: "本地文件副本将被移除。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       tone: "danger",
     });
     if (!ok) return;
@@ -1153,7 +1153,7 @@ function SectionCard({
       await window.brevyn.files.delete(fileId);
       onFileDeleted();
     } catch (error) {
-      setFileActionError(error instanceof Error ? error.message : "Delete failed");
+      setFileActionError(error instanceof Error ? error.message : "删除失败");
     } finally {
       setDeletingFileId("");
     }
@@ -1163,7 +1163,7 @@ function SectionCard({
     try {
       await window.brevyn.files.reveal(fileId);
     } catch (error) {
-      setFileActionError(error instanceof Error ? error.message : "Reveal failed");
+      setFileActionError(error instanceof Error ? error.message : "在访达中显示失败");
     }
   }
 
@@ -1179,22 +1179,22 @@ function SectionCard({
           <ChevronRight className={cx("mt-1 h-3.5 w-3.5 shrink-0 transition-transform text-muted-foreground", open && "rotate-90")} />
           <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{section.title}</div>
+            <div className="truncate text-sm font-semibold">{displaySectionTitle(section)}</div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {section.files.length} files · {section.embeddingModel || "no embedding provider"}
+              {section.files.length} 个文件 · {section.embeddingModel || "未配置向量服务商"}
             </div>
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
-            {section.indexingStatus}
+            {displayIndexingStatus(section.indexingStatus)}
           </span>
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={onUpload}
             disabled={disabled || uploading}
-            title="Upload files into this section"
+            title="上传文件到此分区"
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           </button>
@@ -1203,7 +1203,7 @@ function SectionCard({
             className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={onIndex}
             disabled={disabled}
-            title="Re-index this section"
+            title="重新索引此分区"
           >
             {indexing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
           </button>
@@ -1211,7 +1211,7 @@ function SectionCard({
       </div>
       {open && section.files.length === 0 && (
         <div className="mt-3 rounded-md border border-dashed bg-background px-3 py-3 text-center text-[11px] text-muted-foreground">
-          No files yet. Click the upload button to add some.
+          暂无文件。点击上传按钮添加文件。
         </div>
       )}
       {open && section.files.length > 0 && (
@@ -1226,7 +1226,7 @@ function SectionCard({
                 type="button"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={() => void revealFile(file.id)}
-                title="Show in Finder"
+                title="在访达中显示"
               >
                 <FolderOpen className="h-3 w-3" />
               </button>
@@ -1235,7 +1235,7 @@ function SectionCard({
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
                 onClick={() => void deleteFile(file.id, file.name)}
                 disabled={deletingFileId === file.id}
-                title="Delete file"
+                title="删除文件"
               >
                 {deletingFileId === file.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
               </button>
@@ -1255,6 +1255,61 @@ function statusTone(status: IndexingJob["status"]): string {
   if (status === "queued") return "bg-amber-50 text-amber-700";
   if (status === "indexing") return "bg-blue-50 text-blue-700";
   return "bg-muted text-muted-foreground";
+}
+
+function displaySectionTitle(section: CourseFileSection): string {
+  if (section.kind === "course_shared") return section.courseId === "semester-home" || section.title === "All semester files" ? "学期共享" : "课程共享";
+  if (section.kind === "lecture") return section.weekNumber ? `第 ${section.weekNumber} 周课件` : "课件";
+  if (section.kind === "task") {
+    const title = localizeTaskSectionTitle(section.title);
+    const bucketLabel = section.taskFileBucket ? taskBucketLabel(section.taskFileBucket) : "";
+    return [title || section.taskType || "任务", bucketLabel].filter(Boolean).join(" · ");
+  }
+  return section.title;
+}
+
+function localizeTaskSectionTitle(title: string): string {
+  const [type, ...rest] = title.split(" / ");
+  if (rest.length === 0) return title === "Assignment" ? "作业" : title;
+  return [type === "Assignment" ? "作业" : type, ...rest].join(" / ");
+}
+
+function taskBucketLabel(bucket: string): string {
+  if (bucket === "materials") return "材料";
+  if (bucket === "drafts") return "草稿";
+  if (bucket === "submitted") return "已提交";
+  return bucket;
+}
+
+function displayIndexingStatus(status: IndexingJob["status"]): string {
+  if (status === "idle") return "空闲";
+  if (status === "indexed") return "已索引";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已取消";
+  if (status === "queued") return "排队中";
+  if (status === "indexing") return "索引中";
+  return status;
+}
+
+function displayIndexingStage(stage: string): string {
+  const normalized = stage.trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "queued") return "排队中";
+  if (normalized === "indexing") return "索引中";
+  if (normalized === "indexed") return "已索引";
+  if (normalized === "idle") return "空闲";
+  if (normalized === "failed") return "失败";
+  if (normalized === "cancelled") return "已取消";
+  return stage;
+}
+
+function localizePathSegment(value: string): string {
+  return value
+    .replace(/^Course shared\//, "课程共享/")
+    .replace(/^Lecture\//, "课件/")
+    .replace(/^Materials\//, "材料/")
+    .replace(/^Drafts\//, "草稿/")
+    .replace(/^Submitted\//, "已提交/");
 }
 
 function formatJobTime(value: string): string {

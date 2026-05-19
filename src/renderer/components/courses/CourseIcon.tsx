@@ -18,18 +18,18 @@ import type { Course, CourseIconKey } from "@/types/domain";
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
 export const COURSE_ICON_OPTIONS: Array<{ key: CourseIconKey; label: string; Icon: IconComponent }> = [
-  { key: "graduation-cap", label: "Academic", Icon: GraduationCap },
-  { key: "book-open", label: "Reading", Icon: BookOpen },
-  { key: "scale", label: "Law", Icon: Scale },
-  { key: "landmark", label: "Institution", Icon: Landmark },
-  { key: "briefcase", label: "Business", Icon: BriefcaseBusiness },
-  { key: "file-text", label: "Writing", Icon: FileText },
-  { key: "gavel", label: "Court", Icon: Gavel },
-  { key: "library", label: "Library", Icon: Library },
-  { key: "microscope", label: "Research", Icon: Microscope },
-  { key: "calculator", label: "Quant", Icon: Calculator },
-  { key: "globe", label: "Global", Icon: Globe2 },
-  { key: "presentation", label: "Seminar", Icon: Presentation },
+  { key: "graduation-cap", label: "学术", Icon: GraduationCap },
+  { key: "book-open", label: "阅读", Icon: BookOpen },
+  { key: "scale", label: "法律", Icon: Scale },
+  { key: "landmark", label: "学院", Icon: Landmark },
+  { key: "briefcase", label: "商科", Icon: BriefcaseBusiness },
+  { key: "file-text", label: "写作", Icon: FileText },
+  { key: "gavel", label: "法庭", Icon: Gavel },
+  { key: "library", label: "资料库", Icon: Library },
+  { key: "microscope", label: "研究", Icon: Microscope },
+  { key: "calculator", label: "量化", Icon: Calculator },
+  { key: "globe", label: "全球", Icon: Globe2 },
+  { key: "presentation", label: "研讨", Icon: Presentation },
 ];
 
 const iconMap = new Map<CourseIconKey, IconComponent>(COURSE_ICON_OPTIONS.map((option) => [option.key, option.Icon]));
