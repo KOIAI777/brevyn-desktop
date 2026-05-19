@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread } from "@/types/domain";
 import { DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT, MAX_AUTO_COMPACT_THRESHOLD_PERCENT, MIN_AUTO_COMPACT_THRESHOLD_PERCENT } from "../../../types/domain";
-import { recordCreatedAtMs, timelineRecordIdentity } from "@/lib/agent-timeline-identity";
+import { recordCreatedAtMs } from "@/lib/agent-timeline-identity";
 import type { ChangedFileSummary } from "@/components/agent/agentChangedFilesModel";
 import { useAgentTimelineRecords } from "@/components/agent/useAgentTimelineRecords";
 import {
@@ -23,6 +23,7 @@ import {
   recordObject,
   streamThinkingDelta,
   streamToolInputDelta,
+  streamTextDeltaBlock,
   streamToolUseStart,
   streamTextDelta,
   stringValue,
@@ -61,6 +62,7 @@ export interface AgentTimelineViewItem {
   displayKind: AgentTimelineDisplayKind;
   streamContent?: string;
   assistantContent?: string;
+  contentBlockIndex?: number;
   promptTooLongMessage?: string;
   providerErrorMessage?: string;
   processHeader: boolean;
@@ -93,6 +95,7 @@ export type AgentTimelineDisplayKind =
   | "compact-complete"
   | "thinking"
   | "tool-use"
+  | "tool-group"
   | "approval-request"
   | "question-request"
   | "question-resolved"
@@ -257,9 +260,9 @@ export function useAgentTimelineState({
 
 export function processStateKey(summary: RunSummary | null, userIndex: number | undefined, records: AgentTimelineRecord[], recordIndex: number): string {
   if (summary?.runId) return `run-${summary.runId}`;
-  if (userIndex !== undefined && records[userIndex]) return `turn-${timelineRecordIdentity(records[userIndex])}`;
+  if (userIndex !== undefined && records[userIndex]) return `turn-${recordKey(records[userIndex])}`;
   const record = records[recordIndex];
-  if (record) return `record-${timelineRecordIdentity(record)}`;
+  if (record) return `record-${recordKey(record)}`;
   return `record-${recordIndex}`;
 }
 
@@ -322,9 +325,20 @@ function assistantTurnViewItems(
   const toolResults = toolResultsById(turnRecords);
   const approvalByToolUseId = approvalDecisionByToolUseId(turnRecords);
   const hostedLinks = webCitationLinksFromTurn(turnRecords);
+  const hasFinalAssistantMessage = turnRecords.some(({ record }) => (
+    !isRuntimeRecord(record)
+      && !isStreamEventRecord(record)
+      && (record as SDKMessage).type === "assistant"
+  ));
+  const hasFinalThinking = turnRecords.some(({ record }) => (
+    !isRuntimeRecord(record)
+      && !isStreamEventRecord(record)
+      && (record as SDKMessage).type === "assistant"
+      && Boolean(thinkingTextForMessage(record as SDKMessage))
+  ));
 
-  let streamItemIndex: number | undefined;
   let thinkingItemIndex: number | undefined;
+  const streamTextItemByBlockIndex = new Map<number, number>();
   const streamToolItemByBlockIndex = new Map<number, number>();
   const streamToolInputByBlockIndex = new Map<number, string>();
 
@@ -333,7 +347,7 @@ function assistantTurnViewItems(
     if (!item) continue;
     if (isStreamEventRecord(record)) {
       const thinkingDelta = streamThinkingDelta(record);
-      if (thinkingDelta) {
+      if (thinkingDelta && !hasFinalThinking) {
         if (thinkingItemIndex === undefined) {
           thinkingItemIndex = result.length;
           result.push({
@@ -349,20 +363,23 @@ function assistantTurnViewItems(
           };
         }
       }
-      const textDelta = streamTextDelta(record);
-      if (textDelta) {
-        if (streamItemIndex === undefined) {
-          streamItemIndex = result.length;
+      if (hasFinalAssistantMessage) continue;
+      const textDelta = streamTextDeltaBlock(record);
+      if (textDelta?.text) {
+        const existingIndex = streamTextItemByBlockIndex.get(textDelta.index);
+        if (existingIndex === undefined) {
+          streamTextItemByBlockIndex.set(textDelta.index, result.length);
           result.push({
             ...orderedContentItem(item),
             displayKind: "stream",
-            streamContent: textDelta,
+            streamContent: textDelta.text,
+            contentBlockIndex: textDelta.index,
           });
         } else {
-          const existing = result[streamItemIndex];
-          if (existing) result[streamItemIndex] = {
+          const existing = result[existingIndex];
+          if (existing) result[existingIndex] = {
             ...existing,
-            streamContent: `${existing.streamContent || ""}${textDelta}`,
+            streamContent: `${existing.streamContent || ""}${textDelta.text}`,
           };
         }
       }
@@ -425,13 +442,14 @@ function assistantTurnViewItems(
         });
       }
 
-      for (const block of assistantBlocks(message)) {
+      for (const [blockIndex, block] of assistantBlocks(message).entries()) {
         if (block.type === "text") {
           if (!block.text.trim()) continue;
           result.push({
             ...orderedContentItem(item),
             displayKind: "assistant-final",
             assistantContent: block.text,
+            contentBlockIndex: blockIndex,
           });
           continue;
         }
@@ -458,7 +476,7 @@ function assistantTurnViewItems(
     if (isRuntimeRecord(record)) result.push(item);
   }
 
-  return dedupeStreamingItems(result);
+  return groupAdjacentToolUseItems(result.filter((item) => item.displayKind !== "hidden"));
 }
 
 function appendTurnProcessSummaryItem(
@@ -497,11 +515,44 @@ function appendTurnProcessSummaryItem(
 function isTurnTimelineItem(item: AgentTimelineViewItem): boolean {
   return item.displayKind === "thinking"
     || item.displayKind === "tool-use"
+    || item.displayKind === "tool-group"
     || item.displayKind === "approval-request"
     || item.displayKind === "question-request"
     || item.displayKind === "question-resolved"
     || item.displayKind === "exit-plan-request"
     || item.displayKind === "exit-plan-resolved";
+}
+
+function groupAdjacentToolUseItems(items: AgentTimelineViewItem[]): AgentTimelineViewItem[] {
+  const grouped: AgentTimelineViewItem[] = [];
+  let pendingTools: AgentTimelineViewItem[] = [];
+
+  function flushTools() {
+    if (pendingTools.length === 0) return;
+    if (pendingTools.length === 1) {
+      grouped.push(pendingTools[0]!);
+    } else {
+      const first = pendingTools[0]!;
+      grouped.push({
+        ...first,
+        displayKind: "tool-group",
+        processEvents: pendingTools.flatMap((item) => item.processEvents.filter((event) => event.kind === "tool_use")),
+      });
+    }
+    pendingTools = [];
+  }
+
+  for (const item of items) {
+    if (item.displayKind === "tool-use") {
+      pendingTools.push(item);
+      continue;
+    }
+    flushTools();
+    grouped.push(item);
+  }
+
+  flushTools();
+  return grouped;
 }
 
 function parsePartialToolInput(value: string): unknown | null {
@@ -612,49 +663,6 @@ function promptOrProviderErrorItem(item: AgentTimelineViewItem): AgentTimelineVi
   return undefined;
 }
 
-function dedupeStreamingItems(items: AgentTimelineViewItem[]): AgentTimelineViewItem[] {
-  const completeToolIds = new Set(
-    items
-      .filter((item) => item.displayKind === "tool-use" && !isStreamEventRecord(item.record))
-      .flatMap((item) => item.processEvents.flatMap((event) => event.kind === "tool_use" ? [event.tool.id] : [])),
-  );
-  return items.filter((item, index, allItems) => {
-    if (item.displayKind === "hidden") return false;
-    if (item.displayKind === "tool-use" && isStreamEventRecord(item.record)) {
-      const event = item.processEvents.find((candidate): candidate is Extract<ProcessEvent, { kind: "tool_use" }> => candidate.kind === "tool_use");
-      return !event || !completeToolIds.has(event.tool.id);
-    }
-    if (item.displayKind === "stream" && item.streamContent?.trim()) {
-      return !textAlreadyRendered(allItems, item.streamContent, index, "assistant-final", "assistantContent");
-    }
-    if (item.displayKind === "thinking" && item.assistantContent?.trim() && isStreamEventRecord(item.record)) {
-      return !textAlreadyRendered(allItems, item.assistantContent, index, "thinking", "assistantContent");
-    }
-    return true;
-  });
-}
-
-function textAlreadyRendered(
-  items: AgentTimelineViewItem[],
-  content: string,
-  ignoreIndex: number,
-  displayKind: AgentTimelineDisplayKind,
-  contentKey: "assistantContent" | "streamContent",
-): boolean {
-  const normalizedStream = normalizeRenderableText(content);
-  return items.some((item, index) => {
-    if (index === ignoreIndex) return false;
-    if (item.displayKind !== displayKind) return false;
-    const text = normalizeRenderableText(item[contentKey] || "");
-    if (!text || !normalizedStream) return false;
-    return text === normalizedStream || text.startsWith(normalizedStream) || normalizedStream.startsWith(text);
-  });
-}
-
-function normalizeRenderableText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
 function appendRunningProcessViewGroup(
   groups: AgentTimelineViewGroup[],
   items: AgentTimelineViewItem[],
@@ -701,7 +709,7 @@ function appendRunningProcessViewGroup(
 function groupKey(prefix: string, items: AgentTimelineViewItem[]): string {
   const first = items[0];
   if (!first) return prefix;
-  return `${prefix}-${timelineRecordIdentity(first.record) || first.processKey}`;
+  return `${prefix}-${recordKey(first.record) || first.processKey}`;
 }
 
 function timelineItemDisplay(

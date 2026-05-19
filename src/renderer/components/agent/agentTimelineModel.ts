@@ -1,6 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentAskUserRequest, AgentExitPlanRequest, AgentPermissionMode, BrevynAgentTimelineRecord } from "@/types/domain";
-import { recordCreatedAtMs, timelineRecordIdentity } from "@/lib/agent-timeline-identity";
+import { recordCreatedAtMs, timelineRecordIdentity, timelineRecordRenderKey } from "@/lib/agent-timeline-identity";
 export { timelineRecordIdentity } from "@/lib/agent-timeline-identity";
 
 export interface ToolUseBlock {
@@ -538,8 +538,8 @@ export function normalizeTimelineRecords(
   return normalized;
 }
 
-export function recordKey(record: AgentTimelineRecord, index: number): string {
-  return timelineRecordIdentity(record) || `${String((record as { type?: unknown }).type || "record")}-${index}`;
+export function recordKey(record: AgentTimelineRecord, _index?: number): string {
+  return timelineRecordRenderKey(record, String((record as { type?: unknown }).type || "record"));
 }
 
 export function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
@@ -553,11 +553,17 @@ function isHiddenSystemRecord(record: BrevynAgentTimelineRecord): boolean {
 }
 
 export function streamTextDelta(record: BrevynAgentTimelineRecord): string {
-  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return "";
+  return streamTextDeltaBlock(record)?.text || "";
+}
+
+export function streamTextDeltaBlock(record: BrevynAgentTimelineRecord): { index: number; text: string } | null {
+  if (isRuntimeRecord(record) || (record as SDKMessage).type !== "stream_event") return null;
   const event = recordObject((record as { event?: unknown }).event);
-  if (event.type !== "content_block_delta") return "";
+  if (event.type !== "content_block_delta") return null;
   const delta = recordObject(event.delta);
-  return delta.type === "text_delta" && typeof delta.text === "string" ? delta.text : "";
+  return delta.type === "text_delta" && typeof delta.text === "string"
+    ? { index: streamEventIndex(event), text: delta.text }
+    : null;
 }
 
 export function streamThinkingDelta(record: BrevynAgentTimelineRecord): string {

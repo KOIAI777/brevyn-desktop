@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Check, Copy, Minimize2, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
@@ -216,36 +216,58 @@ function MessageCopyAction({ content, align }: { content: string; align: "left" 
   );
 }
 
-export function StreamingMessageBubble({ content, threadId, active = true }: { content: string; threadId?: string; active?: boolean }) {
-  const smoothContent = useSmoothStreamingText(content, { disabled: !active || content.length > 12_000 });
-  const displayContent = normalizeStreamingDisplayText(smoothContent);
+export function StreamingMessageBubble({ content, threadId, active = true, smooth = true }: { content: string; threadId?: string; active?: boolean; smooth?: boolean }) {
+  return (
+    <AssistantTextBubble
+      content={content}
+      threadId={threadId}
+      streaming={active}
+      animateReveal={smooth}
+    />
+  );
+}
+
+export function AssistantTextBubble({
+  content,
+  threadId,
+  streaming = false,
+  animateReveal = false,
+  initialContent = "",
+  stoppedByUser = false,
+  copyable = true,
+  copyContent,
+}: {
+  content: string;
+  threadId?: string;
+  streaming?: boolean;
+  animateReveal?: boolean;
+  initialContent?: string;
+  stoppedByUser?: boolean;
+  copyable?: boolean;
+  copyContent?: string;
+}) {
+  void animateReveal;
+  void initialContent;
+  const displayContent = content.replace(/\u0000/g, "");
   if (!displayContent.trim()) return null;
   return (
     <div className="group/message flex justify-start">
       <div
-        className="min-w-0 w-full px-1 py-1 text-sm leading-6 text-foreground"
+        className="min-w-0 w-full px-1 py-1 text-sm leading-6 text-foreground [contain:layout_paint_style]"
         data-thread-id={threadId}
-        data-streaming={active ? "true" : "false"}
+        data-streaming={streaming ? "true" : "false"}
       >
-        <span className="whitespace-normal break-words">{displayContent}</span>
+        <Markdownish content={displayContent} threadId={threadId} />
+        {!streaming && stoppedByUser && (
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <X className="h-3.5 w-3.5" />
+            已停止
+          </span>
+        )}
+        {!streaming && copyable && <MessageCopyAction content={copyContent || content} align="left" />}
       </div>
     </div>
   );
-}
-
-function normalizeStreamingDisplayText(value: string): string {
-  const text = value.replace(/\u0000/g, "").trim();
-  if (!text.includes("\n")) return text;
-
-  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length < 6) return text;
-
-  const shortLineCount = lines.filter((line) => line.length <= 8 && !/^[*-]$/.test(line)).length;
-  const looksFragmented = shortLineCount / lines.length >= 0.72;
-  if (!looksFragmented) return text;
-
-  const mostlyAscii = lines.filter((line) => /^[\x00-\x7F]+$/.test(line)).length / lines.length >= 0.72;
-  return mostlyAscii ? lines.join(" ") : lines.join("");
 }
 
 export function RevealedAssistantBubble({
@@ -255,6 +277,7 @@ export function RevealedAssistantBubble({
   threadId,
   stoppedByUser = false,
   animateReveal = false,
+  initialContent = "",
 }: {
   content: string;
   copyable: boolean;
@@ -262,77 +285,17 @@ export function RevealedAssistantBubble({
   threadId?: string;
   stoppedByUser?: boolean;
   animateReveal?: boolean;
+  initialContent?: string;
 }) {
-  const smoothContent = useSmoothStreamingText(content, { disabled: !animateReveal || content.length > 12_000 });
-  const revealed = smoothContent.length >= content.length;
   return (
-    <MessageBubble
-      role="assistant"
-      content={smoothContent}
+    <AssistantTextBubble
+      content={content}
       threadId={threadId}
-      streaming={false}
-      copyable={copyable && revealed}
+      animateReveal={animateReveal}
+      initialContent={initialContent}
+      stoppedByUser={stoppedByUser}
+      copyable={copyable}
       copyContent={copyContent}
-      stoppedByUser={stoppedByUser && revealed}
     />
   );
-}
-
-function useSmoothStreamingText(target: string, options?: { disabled?: boolean }): string {
-  const [displayed, setDisplayed] = useState("");
-  const displayedRef = useRef("");
-  const targetRef = useRef(target);
-  const frameRef = useRef(0);
-  const lastFlushRef = useRef(0);
-
-  useEffect(() => {
-    targetRef.current = target;
-    const current = displayedRef.current;
-    if (target.length < current.length || !target.startsWith(current)) {
-      displayedRef.current = options?.disabled ? target : "";
-      setDisplayed(displayedRef.current);
-      lastFlushRef.current = performance.now();
-    }
-  }, [options?.disabled, target]);
-
-  useEffect(() => {
-    if (options?.disabled) {
-      displayedRef.current = targetRef.current;
-      setDisplayed(targetRef.current);
-      return;
-    }
-
-    const tick = (time: number) => {
-      const latest = targetRef.current;
-      const visible = displayedRef.current;
-      if (visible.length >= latest.length) {
-        frameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      const remaining = latest.length - visible.length;
-      const elapsedSinceFlush = time - lastFlushRef.current;
-      const shouldBuffer = remaining < 8 && elapsedSinceFlush < 72;
-      if (shouldBuffer) {
-        frameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      const burst = remaining > 480 ? 96 : remaining > 180 ? 48 : remaining > 64 ? 24 : remaining > 16 ? 10 : remaining;
-      const chars = Math.max(1, Math.min(remaining, burst));
-      displayedRef.current = latest.slice(0, visible.length + chars);
-      setDisplayed(displayedRef.current);
-      lastFlushRef.current = time;
-      frameRef.current = window.requestAnimationFrame(tick);
-    };
-
-    lastFlushRef.current = performance.now();
-    frameRef.current = window.requestAnimationFrame(tick);
-    return () => {
-      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = 0;
-    };
-  }, [options?.disabled]);
-
-  return displayed;
 }

@@ -34,9 +34,9 @@ export function GenericToolUseCard({
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
       />
-      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+      <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden px-1 py-1 text-xs text-muted-foreground">
-          <DeferredToolDetails collapsed={collapsed}>
+          <DeferredToolDetails collapsed={collapsed} defer={!running}>
             <ToolInputPreview toolName={block.name} input={block.input} compact {...helpers} />
             {result && (!isFileEditTool(block.name) || result.isError) && <InlineToolResult result={result} {...helpers} />}
           </DeferredToolDetails>
@@ -74,10 +74,10 @@ export function GenericToolResultCard({
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
       />
-      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+      <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden">
           <DeferredToolDetails collapsed={collapsed}>
-            <pre className="max-h-44 overflow-auto rounded-lg bg-muted/35 p-2 text-[11px] leading-5">
+            <pre className="max-h-44 overflow-auto rounded-lg bg-muted/35 p-2 text-[11px] leading-5 [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:160px]">
               {helpers.formatToolResultContent(tool.content)}
             </pre>
           </DeferredToolDetails>
@@ -94,7 +94,7 @@ function InlineToolResult({ result, ...helpers }: { result: ToolResultBlock } & 
         {result.isError ? <X className="h-3.5 w-3.5 text-destructive" /> : <Check className="h-3.5 w-3.5" />}
         Result · {helpers.toolResultSummary(result)}
       </div>
-      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/35 p-2 text-[11px] leading-5 text-foreground brevyn-scrollbar">
+      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/35 p-2 text-[11px] leading-5 text-foreground [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:160px] brevyn-scrollbar">
         {helpers.formatToolResultContent(result.content)}
       </pre>
     </div>

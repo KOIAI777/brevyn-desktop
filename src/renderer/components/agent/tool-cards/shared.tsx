@@ -57,7 +57,7 @@ export function PreviewBlock({
   return (
     <div className="mt-2">
       <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-      <pre className={`${compact ? "max-h-36" : "max-h-56"} mt-1 overflow-auto rounded-lg bg-muted/35 p-2 text-[11px] leading-5 text-foreground`}>
+      <pre className={`${compact ? "max-h-36" : "max-h-56"} mt-1 overflow-auto rounded-lg bg-muted/35 p-2 text-[11px] leading-5 text-foreground [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:160px]`}>
         {language ? `$ ${truncatePreview(value)}` : truncatePreview(value)}
       </pre>
     </div>
@@ -66,22 +66,39 @@ export function PreviewBlock({
 
 export function DeferredToolDetails({
   collapsed,
+  defer = true,
   children,
 }: {
   collapsed: boolean;
+  defer?: boolean;
   children: ReactNode;
 }) {
-  const [mounted, setMounted] = useState(!collapsed);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     if (collapsed) {
       setMounted(false);
       return;
     }
-    const frame = window.requestAnimationFrame(() => setMounted(true));
-    return () => window.cancelAnimationFrame(frame);
-  }, [collapsed]);
+    let firstFrame = 0;
+    let secondFrame = 0;
+    const delay = defer ? 72 : 24;
+    const timeout = window.setTimeout(() => {
+      firstFrame = window.requestAnimationFrame(() => {
+        secondFrame = window.requestAnimationFrame(() => setMounted(true));
+      });
+    }, delay);
+    return () => {
+      window.clearTimeout(timeout);
+      if (firstFrame) window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [collapsed, defer]);
 
-  if (!mounted) return null;
-  return <>{children}</>;
+  if (!mounted) {
+    return (
+      <div className="h-7 rounded-lg bg-muted/15 opacity-70" />
+    );
+  }
+  return <div className="tool-details-content-in [contain:layout_paint_style]">{children}</div>;
 }

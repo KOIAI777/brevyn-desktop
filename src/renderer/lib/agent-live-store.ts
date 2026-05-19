@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { timelineRecordIdentity } from "@/lib/agent-timeline-identity";
+import { timelineRecordIdentity, timelineRecordRenderKey } from "@/lib/agent-timeline-identity";
 import type { BrevynAgentRuntimeEvent, BrevynAgentTimelineRecord } from "@/types/domain";
 
 const EMPTY_RECORDS: BrevynAgentTimelineRecord[] = [];
@@ -8,7 +8,7 @@ const EMPTY_RECORDS: BrevynAgentTimelineRecord[] = [];
 let liveRecordsByThread = new Map<string, BrevynAgentTimelineRecord[]>();
 let liveRunningByThread = new Map<string, boolean>();
 let pendingRecordsByThread = new Map<string, BrevynAgentTimelineRecord[]>();
-let pendingFrame: number | null = null;
+let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 
 export function appendAgentLiveRecords(threadId: string, records: BrevynAgentTimelineRecord[]): void {
@@ -50,9 +50,9 @@ export function flushAgentLiveRecords(threadId?: string): void {
     flushAgentLiveThread(threadId);
     return;
   }
-  if (pendingFrame !== null) {
-    window.cancelAnimationFrame(pendingFrame);
-    pendingFrame = null;
+  if (pendingFlushTimer !== null) {
+    clearLiveFlushTimer(pendingFlushTimer);
+    pendingFlushTimer = null;
   }
   if (pendingRecordsByThread.size === 0) return;
   const threadIds = [...pendingRecordsByThread.keys()];
@@ -90,9 +90,9 @@ export function useAgentLiveRunning(threadId: string): boolean {
 
 export function clearAllAgentLiveRecords(): void {
   const hadState = liveRecordsByThread.size > 0 || liveRunningByThread.size > 0 || pendingRecordsByThread.size > 0;
-  if (pendingFrame !== null) {
-    window.cancelAnimationFrame(pendingFrame);
-    pendingFrame = null;
+  if (pendingFlushTimer !== null) {
+    clearLiveFlushTimer(pendingFlushTimer);
+    pendingFlushTimer = null;
   }
   pendingRecordsByThread = new Map();
   liveRunningByThread = new Map();
@@ -130,11 +130,19 @@ function emitAgentLiveRecordsChanged(): void {
 }
 
 function scheduleAgentLiveRecordsFlush(): void {
-  if (pendingFrame !== null) return;
-  pendingFrame = window.requestAnimationFrame(() => {
-    pendingFrame = null;
+  if (pendingFlushTimer !== null) return;
+  pendingFlushTimer = setLiveFlushTimer(() => {
+    pendingFlushTimer = null;
     flushAgentLiveRecords();
-  });
+  }, 42);
+}
+
+function setLiveFlushTimer(callback: () => void, delayMs: number): ReturnType<typeof setTimeout> {
+  return globalThis.setTimeout(callback, delayMs);
+}
+
+function clearLiveFlushTimer(timer: ReturnType<typeof setTimeout>): void {
+  globalThis.clearTimeout(timer);
 }
 
 function flushAgentLiveThread(threadId: string, options?: { silent?: boolean }): void {
@@ -204,8 +212,10 @@ function streamDelta(message: SDKMessage): { type: "text_delta" | "thinking_delt
 
 function withMergedStreamDelta(message: SDKMessage, delta: Record<string, unknown>): BrevynAgentTimelineRecord {
   const event = recordObject((message as { event?: unknown }).event);
+  const renderId = timelineRecordRenderKey(message, "stream");
   return {
     ...(message as Record<string, unknown>),
+    _renderId: renderId,
     event: {
       ...event,
       delta,
@@ -226,8 +236,11 @@ function prepareLiveMessage(message: SDKMessage, options?: { modelId?: string })
   const record = message as SDKMessage & { type?: unknown; isReplay?: unknown; _createdAt?: unknown; _channelModelId?: unknown };
   if (record.isReplay === true) return null;
   if (record.type === "prompt_suggestion") return null;
-  let next: SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown } = message as SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown };
+  let next: SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown } = message as SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown };
   if (typeof next._createdAt !== "number") next = { ...next, _createdAt: Date.now() };
+  if (!(next as { _renderId?: unknown })._renderId) {
+    next = { ...next, _renderId: timelineRecordRenderKey(next, "live") };
+  }
   if (record.type === "assistant" && options?.modelId && !next._channelModelId) {
     next = { ...next, _channelModelId: options.modelId };
   }

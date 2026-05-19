@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { RefCallback, RefObject } from "react";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread } from "@/types/domain";
 import { useAgentAutoCompactState } from "@/components/agent/useAgentAutoCompactState";
 import { useAgentPanelPreferencesState } from "@/components/agent/useAgentPanelPreferencesState";
@@ -9,8 +9,8 @@ import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, RunSummary } fro
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export interface AgentThreadPanelState {
-  scrollRef: RefObject<HTMLDivElement>;
-  contentRef: (node: HTMLDivElement | null) => void;
+  scrollRef: RefCallback<HTMLDivElement>;
+  contentRef: RefCallback<HTMLDivElement>;
   composerDockRef: RefObject<HTMLDivElement>;
   timelineBottomInset: number;
   isFollowingOutput: boolean;

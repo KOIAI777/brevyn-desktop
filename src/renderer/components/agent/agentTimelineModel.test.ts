@@ -78,11 +78,12 @@ function result(uuid: string): SDKMessage {
   } as unknown as SDKMessage;
 }
 
-function streamEvent(delta: unknown, uuid: string): SDKMessage {
+function streamEvent(delta: unknown, uuid: string, index?: number): SDKMessage {
   return {
     type: "stream_event",
     event: {
       type: "content_block_delta",
+      ...(index === undefined ? {} : { index }),
       delta,
     },
     session_id: "session_fixture",
@@ -217,6 +218,26 @@ assert.deepEqual(hostedSearchTool?.kind === "tool_use" ? (hostedSearchTool.resul
 }]);
 assert.equal(hostedSearchItems[2]?.assistantContent, "Here are the latest AI stories.");
 
+const consecutiveToolRecords: AgentTimelineRecord[] = [
+  userText("Inspect with several tools.", "user_consecutive_tools"),
+  assistant([
+    { type: "tool_use", id: "tool_consecutive_pwd", name: "Bash", input: { command: "pwd" } },
+    { type: "tool_use", id: "tool_consecutive_glob", name: "Glob", input: { pattern: "**/*" } },
+    { type: "tool_use", id: "tool_consecutive_read", name: "Read", input: { file_path: "README.md" } },
+    { type: "text", text: "I inspected the workspace." },
+  ], "assistant_consecutive_tools"),
+  toolResult("tool_consecutive_pwd", "/tmp/workspace", "tool_consecutive_pwd_result"),
+  toolResult("tool_consecutive_glob", "README.md", "tool_consecutive_glob_result"),
+  toolResult("tool_consecutive_read", "# README", "tool_consecutive_read_result"),
+  result("result_consecutive_tools"),
+];
+const consecutiveToolGroups = buildTimelineViewGroups(consecutiveToolRecords, consecutiveToolRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+const consecutiveToolItems = consecutiveToolGroups[1]?.type === "assistant-turn" ? consecutiveToolGroups[1].items : [];
+assert.deepEqual(consecutiveToolItems.map((item) => item.displayKind), ["tool-group", "assistant-final"]);
+assert.equal(consecutiveToolItems[0]?.processEvents.length, 3);
+assert.deepEqual(consecutiveToolItems[0]?.processEvents.map((event) => event.kind === "tool_use" ? event.tool.name : ""), ["Bash", "Glob", "Read"]);
+assert.equal(consecutiveToolItems[1]?.assistantContent, "I inspected the workspace.");
+
 const fragmentedThinkingRecords: AgentTimelineRecord[] = [
   userText("Inspect workspace.", "user_fragmented_thinking"),
   streamEvent({ type: "thinking_delta", thinking: "I " }, "thinking_fragment_1"),
@@ -268,6 +289,34 @@ const liveMergeRecords = normalizeTimelineRecords(
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "user").length, 1);
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "assistant").length, 1);
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "stream_event").length, 2);
+
+const streamFinalGroups = buildTimelineViewGroups(liveMergeRecords, liveMergeRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+const streamFinalItems = streamFinalGroups[1]?.type === "assistant-turn" ? streamFinalGroups[1].items : [];
+assert.deepEqual(streamFinalItems.map((item) => item.displayKind), ["assistant-final"]);
+assert.equal(streamFinalItems[0]?.assistantContent, "Hello world");
+assert.equal((streamFinalItems[0]?.record as SDKMessage | undefined)?.type, "assistant");
+
+const streamBeforeToolRecords = normalizeTimelineRecords(
+  [
+    userText("Narrate, run a tool, then conclude.", "user_stream_tool_order"),
+    assistant([
+      { type: "text", text: "I will inspect the workspace first." },
+      { type: "tool_use", id: "tool_stream_order_pwd", name: "Bash", input: { command: "pwd" } },
+      { type: "text", text: "The workspace path is available now." },
+    ], "assistant_stream_tool_order"),
+    toolResult("tool_stream_order_pwd", "/tmp/workspace", "tool_stream_order_pwd_result"),
+  ],
+  [
+    streamEvent({ type: "text_delta", text: "I will inspect the workspace first." }, "stream_tool_order_text", 0),
+    streamToolStart(1, { type: "tool_use", id: "tool_stream_order_pwd", name: "Bash", input: {} }, "stream_tool_order_start"),
+  ],
+  true,
+);
+const streamBeforeToolGroups = buildTimelineViewGroups(streamBeforeToolRecords, streamBeforeToolRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+const streamBeforeToolItems = streamBeforeToolGroups[1]?.type === "assistant-turn" ? streamBeforeToolGroups[1].items : [];
+assert.deepEqual(streamBeforeToolItems.map((item) => item.displayKind), ["assistant-final", "tool-use", "assistant-final"]);
+assert.equal(streamBeforeToolItems[1]?.processEvents[0]?.kind === "tool_use" ? streamBeforeToolItems[1]?.processEvents[0]?.tool.name : "", "Bash");
+assert.equal(streamBeforeToolItems[2]?.assistantContent, "The workspace path is available now.");
 
 const outOfOrderRecords: AgentTimelineRecord[] = [
   assistant([{ type: "text", text: "This arrived before the user in live replay." }], "assistant_out_of_order"),
@@ -334,6 +383,7 @@ clearAllAgentLiveRecords();
 assert.equal(appendAgentLiveMessage("thread_live", promptSuggestion), false);
 assert.equal(getAgentLiveRecords("thread_live").length, 0);
 assert.equal(appendAgentLiveMessage("thread_live", assistant([{ type: "text", text: "Live text" }], "assistant_live"), { modelId: "deepseek-v4-pro" }), true);
+flushAgentLiveRecords("thread_live");
 const liveAssistant = getAgentLiveRecords("thread_live")[0] as SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown };
 assert.equal(liveAssistant.type, "assistant");
 assert.equal(typeof liveAssistant._createdAt, "number");

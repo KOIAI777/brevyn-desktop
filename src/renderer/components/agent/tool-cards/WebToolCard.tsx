@@ -44,9 +44,9 @@ export function WebToolCard({
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
       />
-      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+      <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden">
-          <DeferredToolDetails collapsed={collapsed}>
+          <DeferredToolDetails collapsed={collapsed} defer={!running}>
             {isSearch ? (
               <WebSearchSummary query={target} links={links} result={result} output={output} hosted={hosted} />
             ) : (
@@ -73,7 +73,7 @@ function WebSearchSummary({
   hosted?: boolean;
 }) {
   return (
-    <div className="px-1 py-1">
+    <div className="px-1 py-1 [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:180px]">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Search</p>
       <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
       {hosted && !result && (

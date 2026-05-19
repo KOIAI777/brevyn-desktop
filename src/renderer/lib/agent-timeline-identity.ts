@@ -3,6 +3,9 @@ import type { BrevynAgentTimelineRecord } from "@/types/domain";
 
 export type AgentTimelineIdentityRecord = BrevynAgentTimelineRecord;
 
+const renderIdCache = new WeakMap<object, string>();
+let renderIdCounter = 0;
+
 export function recordCreatedAtMs(record: unknown): number | undefined {
   if (isRuntimeRecord(record)) {
     const parsed = Date.parse(record.event.createdAt);
@@ -26,6 +29,21 @@ export function timelineRecordIdentity(record: AgentTimelineIdentityRecord): str
   if (typeof maybeUuid === "string" && maybeUuid.trim()) return `uuid:${maybeUuid.trim()}`;
   const message = record as SDKMessage;
   return `${message.type}:${recordCreatedAtMs(message) ?? ""}:${stableRecordSignature(message)}`;
+}
+
+export function timelineRecordRenderKey(record: AgentTimelineIdentityRecord, prefix = "record"): string {
+  if (isRuntimeRecord(record)) {
+    return `runtime:${record.event.type}:${runtimeIdentityPayload(record.event)}`;
+  }
+  const maybeUuid = (record as { uuid?: unknown }).uuid;
+  if (typeof maybeUuid === "string" && maybeUuid.trim()) return `uuid:${maybeUuid.trim()}`;
+  const explicitRenderId = (record as { _renderId?: unknown })._renderId;
+  if (typeof explicitRenderId === "string" && explicitRenderId.trim()) return explicitRenderId.trim();
+  if (record && typeof record === "object") {
+    if (!renderIdCache.has(record)) renderIdCache.set(record, `${prefix}-${++renderIdCounter}`);
+    return renderIdCache.get(record)!;
+  }
+  return `${prefix}-${++renderIdCounter}`;
 }
 
 function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {

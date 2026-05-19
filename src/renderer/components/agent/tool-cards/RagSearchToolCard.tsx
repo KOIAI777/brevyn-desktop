@@ -47,20 +47,20 @@ export function RagSearchToolCard({
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
       />
-      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+      <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden px-1 py-1">
-          <DeferredToolDetails collapsed={collapsed}>
+          <DeferredToolDetails collapsed={collapsed} defer={!running}>
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Query</p>
             <p className="mt-1 break-words text-xs leading-5 text-foreground">"{query}"</p>
             {result && (
-              <div className="mt-3 space-y-1.5">
+              <div className="mt-3 space-y-1.5 [contain:layout_paint_style] [content-visibility:auto] [contain-intrinsic-size:220px]">
                 {result.isError ? (
                   <p className="text-xs text-destructive">课程材料检索失败。</p>
                 ) : parsed.results.length > 0 ? (
                   parsed.results.map((item, index) => (
                     <div
                       key={`${item.path}-${item.chunkIndex ?? index}-${index}`}
-                      className="min-w-0 rounded-lg px-2 py-1.5 text-xs text-foreground transition hover:bg-accent/35"
+                      className="min-w-0 rounded-lg px-2 py-1.5 text-xs text-foreground transition hover:bg-accent/35 [contain:layout_paint_style]"
                       title={item.path || item.citation}
                     >
                       <div className="flex min-w-0 items-center justify-between gap-2">

@@ -45,9 +45,9 @@ export function SkillToolCard({
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
       />
-      <div className={`${collapsed ? "mt-0 grid-rows-[0fr] opacity-0" : "mt-1.5 grid-rows-[1fr] opacity-100"} grid transition-[grid-template-rows,opacity,margin] duration-[220ms] ease-out`}>
+      <div className={`${collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
         <div className="min-h-0 overflow-hidden px-1 py-1">
-          <DeferredToolDetails collapsed={collapsed}>
+          <DeferredToolDetails collapsed={collapsed} defer={!running}>
             <div className="flex flex-wrap gap-2">
               <PreviewPill label="Skill" value={skillId} />
               {loaded?.version && <PreviewPill label="Version" value={loaded.version} />}
@@ -56,7 +56,7 @@ export function SkillToolCard({
               result.isError ? (
                 <p className="mt-3 text-xs text-destructive">技能加载失败。</p>
               ) : (
-                <div className="mt-3 rounded-lg bg-muted/30 px-2.5 py-2">
+                <div className="mt-3 rounded-lg bg-muted/30 px-2.5 py-2 [contain:layout_paint_style]">
                   <div className="text-xs font-semibold text-foreground">{loaded?.name || name}</div>
                   {loaded?.description && (
                     <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-muted-foreground">{loaded.description}</p>

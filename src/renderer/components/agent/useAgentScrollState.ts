@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefCallback, RefObject } from "react";
-
-const SCROLL_BOTTOM_THRESHOLD_PX = 64;
+import { useStickToBottom } from "use-stick-to-bottom";
 
 export interface AgentScrollState {
-  scrollRef: RefObject<HTMLDivElement>;
+  scrollRef: RefCallback<HTMLDivElement>;
   contentRef: RefCallback<HTMLDivElement>;
   composerDockRef: RefObject<HTMLDivElement>;
   timelineBottomInset: number;
@@ -12,116 +11,66 @@ export interface AgentScrollState {
   scrollToBottom: (behavior: ScrollBehavior) => void;
 }
 
+const scrollPositionByThread = new Map<string, number>();
+
 export function useAgentScrollState(threadId: string, followSignal: string): AgentScrollState {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const sticky = useStickToBottom({
+    initial: "instant",
+    resize: "smooth",
+  });
   const composerDockRef = useRef<HTMLDivElement>(null);
-  const followOutputRef = useRef(true);
-  const userScrollIntentRef = useRef(false);
-  const userScrollIntentTimerRef = useRef(0);
-  const scrollStateFrameRef = useRef(0);
-  const [contentNode, setContentNode] = useState<HTMLDivElement | null>(null);
+  const restoredThreadRef = useRef("");
   const [timelineBottomInset, setTimelineBottomInset] = useState(224);
-  const [isFollowingOutput, setIsFollowingOutput] = useState(true);
-  const contentRef = useCallback((node: HTMLDivElement | null) => {
-    setContentNode(node);
-  }, []);
-
-  useEffect(() => {
-    followOutputRef.current = true;
-    setIsFollowingOutput(true);
-    const frame = window.requestAnimationFrame(() => scrollTimelineToBottom(scrollRef.current, "auto"));
-    return () => window.cancelAnimationFrame(frame);
-  }, [threadId]);
-
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    const updateFollowState = () => {
-      const following = isNearScrollBottom(node);
-      if (!following && followOutputRef.current && !userScrollIntentRef.current) return;
-      followOutputRef.current = following;
-      setIsFollowingOutput((current) => current === following ? current : following);
-    };
-    const scheduleFollowStateUpdate = () => {
-      if (scrollStateFrameRef.current) return;
-      scrollStateFrameRef.current = window.requestAnimationFrame(() => {
-        scrollStateFrameRef.current = 0;
-        updateFollowState();
-      });
-    };
-    const markUserScrollIntent = () => {
-      userScrollIntentRef.current = true;
-      if (userScrollIntentTimerRef.current) window.clearTimeout(userScrollIntentTimerRef.current);
-      userScrollIntentTimerRef.current = window.setTimeout(() => {
-        userScrollIntentRef.current = false;
-        userScrollIntentTimerRef.current = 0;
-      }, 180);
-    };
-    const markKeyboardScrollIntent = (event: KeyboardEvent) => {
-      if (!isScrollKey(event.key)) return;
-      markUserScrollIntent();
-    };
-    const markScrollbarDragIntent = (event: PointerEvent) => {
-      const rect = node.getBoundingClientRect();
-      if (event.clientX < rect.right - 18) return;
-      markUserScrollIntent();
-    };
-    updateFollowState();
-    node.addEventListener("wheel", markUserScrollIntent, { passive: true });
-    node.addEventListener("touchmove", markUserScrollIntent, { passive: true });
-    node.addEventListener("pointerdown", markScrollbarDragIntent, { passive: true });
-    node.addEventListener("scroll", scheduleFollowStateUpdate, { passive: true });
-    window.addEventListener("keydown", markKeyboardScrollIntent, { passive: true });
-    return () => {
-      node.removeEventListener("wheel", markUserScrollIntent);
-      node.removeEventListener("touchmove", markUserScrollIntent);
-      node.removeEventListener("pointerdown", markScrollbarDragIntent);
-      node.removeEventListener("scroll", scheduleFollowStateUpdate);
-      window.removeEventListener("keydown", markKeyboardScrollIntent);
-      if (scrollStateFrameRef.current) {
-        window.cancelAnimationFrame(scrollStateFrameRef.current);
-        scrollStateFrameRef.current = 0;
-      }
-      if (userScrollIntentTimerRef.current) {
-        window.clearTimeout(userScrollIntentTimerRef.current);
-        userScrollIntentTimerRef.current = 0;
-      }
-    };
-  }, [threadId]);
-
-  useEffect(() => {
-    if (!followOutputRef.current) return;
-    const frame = window.requestAnimationFrame(() => scrollTimelineToBottom(scrollRef.current, "auto"));
-    return () => window.cancelAnimationFrame(frame);
-  }, [followSignal, threadId]);
 
   useLayoutEffect(() => {
-    const scrollNode = scrollRef.current;
-    if (!scrollNode || !contentNode) return;
+    const node = sticky.scrollRef.current as HTMLDivElement | null;
+    if (!node) return;
+    if (restoredThreadRef.current === threadId) return;
+    restoredThreadRef.current = threadId;
 
-    let raf = 0;
-    let lastHeight = contentNode.getBoundingClientRect().height;
-    const followContentGrowth = () => {
-      const nextHeight = contentNode.getBoundingClientRect().height;
-      if (nextHeight === lastHeight && scrollNode.scrollHeight === scrollNode.clientHeight) return;
-      lastHeight = nextHeight;
-      if (!followOutputRef.current) return;
-      if (raf) window.cancelAnimationFrame(raf);
-      raf = window.requestAnimationFrame(() => {
-        raf = 0;
-        if (followOutputRef.current) scrollTimelineToBottom(scrollRef.current, "auto");
+    const savedDistance = scrollPositionByThread.get(threadId);
+    if (typeof savedDistance === "number" && savedDistance > 5) {
+      sticky.stopScroll();
+      const restore = () => {
+        const nextTop = node.scrollHeight - node.clientHeight - savedDistance;
+        node.scrollTop = Math.max(0, nextTop);
+      };
+      restore();
+      const frame = window.requestAnimationFrame(restore);
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    void sticky.scrollToBottom({ animation: "instant", ignoreEscapes: true });
+  }, [sticky, threadId]);
+
+  useEffect(() => {
+    const node = sticky.scrollRef.current as HTMLDivElement | null;
+    if (!node) return;
+    let frame = 0;
+    const savePosition = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+        scrollPositionByThread.set(threadId, Math.max(0, distance));
       });
     };
 
-    followContentGrowth();
-    const resizeObserver = new ResizeObserver(followContentGrowth);
-    resizeObserver.observe(contentNode);
-
+    node.addEventListener("scroll", savePosition, { passive: true });
     return () => {
-      if (raf) window.cancelAnimationFrame(raf);
-      resizeObserver.disconnect();
+      node.removeEventListener("scroll", savePosition);
+      if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [contentNode, threadId]);
+  }, [sticky.scrollRef, threadId]);
+
+  useEffect(() => {
+    if (!sticky.isAtBottom && !sticky.isNearBottom) return;
+    void sticky.scrollToBottom({
+      animation: "instant",
+      preserveScrollPosition: true,
+      ignoreEscapes: false,
+    });
+  }, [followSignal, sticky]);
 
   useEffect(() => {
     const dock = composerDockRef.current;
@@ -130,50 +79,33 @@ export function useAgentScrollState(threadId: string, followSignal: string): Age
     const updateInset = () => {
       const nextInset = Math.ceil(dock.getBoundingClientRect().height + 80);
       setTimelineBottomInset((current) => current === nextInset ? current : nextInset);
-      window.requestAnimationFrame(() => {
-        if (followOutputRef.current) scrollTimelineToBottom(scrollRef.current, "auto");
-      });
+      if (sticky.isAtBottom || sticky.isNearBottom) {
+        void sticky.scrollToBottom({
+          animation: "instant",
+          preserveScrollPosition: true,
+        });
+      }
     };
 
     updateInset();
     const observer = new ResizeObserver(updateInset);
     observer.observe(dock);
     return () => observer.disconnect();
-  }, [threadId]);
+  }, [sticky, threadId]);
 
   function scrollToBottom(behavior: ScrollBehavior) {
-    userScrollIntentRef.current = false;
-    followOutputRef.current = true;
-    setIsFollowingOutput(true);
-    scrollTimelineToBottom(scrollRef.current, behavior);
+    void sticky.scrollToBottom({
+      animation: behavior === "smooth" ? "smooth" : "instant",
+      ignoreEscapes: true,
+    });
   }
 
   return {
-    scrollRef,
-    contentRef,
+    scrollRef: sticky.scrollRef as RefCallback<HTMLDivElement>,
+    contentRef: sticky.contentRef as RefCallback<HTMLDivElement>,
     composerDockRef,
     timelineBottomInset,
-    isFollowingOutput,
+    isFollowingOutput: sticky.isAtBottom,
     scrollToBottom,
   };
-}
-
-function isNearScrollBottom(node: HTMLDivElement): boolean {
-  return node.scrollHeight - node.scrollTop - node.clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX;
-}
-
-function scrollTimelineToBottom(node: HTMLDivElement | null, behavior: ScrollBehavior): void {
-  if (!node) return;
-  if (Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 1) return;
-  node.scrollTo({ top: node.scrollHeight, behavior });
-}
-
-function isScrollKey(key: string): boolean {
-  return key === "ArrowUp"
-    || key === "ArrowDown"
-    || key === "PageUp"
-    || key === "PageDown"
-    || key === "Home"
-    || key === "End"
-    || key === " ";
 }
