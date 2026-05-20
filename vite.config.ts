@@ -16,8 +16,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": resolve(__dirname, "src/renderer"),
       "@/types": resolve(__dirname, "src/types"),
+      "@": resolve(__dirname, "src/renderer"),
     },
   },
   server: {

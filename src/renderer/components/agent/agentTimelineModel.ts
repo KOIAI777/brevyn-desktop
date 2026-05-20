@@ -258,35 +258,6 @@ export function assistantBlocks(record: SDKMessage): Array<{ type: "text"; text:
   return blocks;
 }
 
-function webCitationLinksFromItems(items: Array<{ record: AgentTimelineRecord; index: number }>): WebCitationLink[] {
-  const byUrl = new Map<string, WebCitationLink>();
-  for (const { record } of items) {
-    if (!record || isRuntimeRecord(record) || isStreamEventRecord(record)) continue;
-    if ((record as SDKMessage).type !== "assistant") continue;
-    for (const block of assistantBlocks(record as SDKMessage)) {
-      if (block.type !== "text" || !Array.isArray(block.citations)) continue;
-      for (const citation of block.citations) {
-        const link = webCitationLinkFromCitation(citation);
-        if (!link || byUrl.has(link.url)) continue;
-        byUrl.set(link.url, link);
-      }
-    }
-  }
-  return [...byUrl.values()];
-}
-
-function webCitationLinkFromCitation(citation: unknown): WebCitationLink | undefined {
-  const object = recordObject(citation);
-  const citationType = stringValue(object.type, "");
-  if (citationType && citationType !== "web_search_result_location" && citationType !== "url_citation") return undefined;
-  const url = stringValue(object.url, "");
-  if (!url) return undefined;
-  return {
-    title: stringValue(object.title, url),
-    url,
-  };
-}
-
 export function toolResultBlocks(record: SDKMessage): ToolResultBlock[] {
   const content = messageContent(record);
   if (!Array.isArray(content)) return [];
