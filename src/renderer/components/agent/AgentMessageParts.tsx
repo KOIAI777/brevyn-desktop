@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Copy, Minimize2, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, Copy, Minimize2, RotateCw, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
@@ -19,6 +19,30 @@ export function CompactContextNote({ state }: { state: "compacting" | "complete"
         <span className={`font-semibold ${compacting ? "taskagent-sweep-text" : ""}`}>{compacting ? "正在压缩上下文" : "上下文已压缩"}</span>
       </div>
       <div className="h-px flex-1 bg-gradient-to-r from-border/25 via-border/70 to-transparent" />
+    </div>
+  );
+}
+
+export function RetryRuntimeNote({
+  attempt,
+  maxRetries,
+  reason,
+  delayMs,
+}: {
+  attempt: number;
+  maxRetries: number;
+  reason: string;
+  delayMs: number;
+}) {
+  const waitSeconds = Math.max(0, Math.ceil(delayMs / 1000));
+  return (
+    <div className="flex justify-start px-1 py-1">
+      <div className="inline-flex max-w-2xl items-center gap-2 rounded-full border border-amber-200 bg-amber-50/78 px-3 py-1.5 text-[11px] text-amber-900 shadow-sm ring-1 ring-white/55 backdrop-blur-xl">
+        <RotateCw className="h-3.5 w-3.5 shrink-0 animate-spin" />
+        <span className="font-semibold">正在重试 {attempt}/{maxRetries}</span>
+        {waitSeconds > 0 && <span className="text-amber-900/70">{waitSeconds}s 后继续</span>}
+        {reason.trim() && <span className="max-w-md truncate text-amber-900/62">· {reason.trim()}</span>}
+      </div>
     </div>
   );
 }

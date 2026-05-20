@@ -4,7 +4,7 @@ import { Check, ChevronDown, Copy, ListTodo, Loader2 } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { AgentComposer } from "@/components/agent/AgentComposer";
-import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, UserMessageBubble } from "@/components/agent/AgentMessageParts";
+import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RetryRuntimeNote, UserMessageBubble } from "@/components/agent/AgentMessageParts";
 import { ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
 import { FilePathPreviewProvider } from "@/components/chat/FilePathChip";
 import { Markdownish } from "@/components/chat/Markdownish";
@@ -338,6 +338,16 @@ function RuntimeTimelineGroup({
   const { record, displayKind, approvalDecision, questionAnswers, exitPlanDecision } = item;
 
   if (!isRuntimeRecord(record)) return null;
+  if (displayKind === "run-retrying" && record.event.type === "run_retrying") {
+    return (
+      <RetryRuntimeNote
+        attempt={record.event.retryAttempt}
+        maxRetries={record.event.maxRetries}
+        reason={record.event.reason}
+        delayMs={record.event.delayMs}
+      />
+    );
+  }
   if (displayKind === "approval-request" && record.event.type === "approval_requested") {
     return (
       <ApprovalCard
@@ -800,7 +810,6 @@ const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
   expandedToolIds: Record<string, boolean>;
   onToggleTool: (toolId: string) => void;
 }) {
-  const threadId = useContext(AgentThreadIdContext);
   return (
     <div className="ml-6 flex flex-col gap-1 rounded-lg border border-border/55 bg-muted/12 p-1">
       {events.map((event) => {
@@ -810,23 +819,29 @@ const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
         const expanded = expandedToolIds[toolId] === true;
         return (
           <div key={toolId} className="overflow-hidden rounded-md">
-            <button
-              type="button"
-              className="flex w-full min-w-0 items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground transition hover:bg-accent/30 hover:text-foreground"
+            <div
+              role="button"
+              tabIndex={0}
+              className="flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground transition hover:bg-accent/30 hover:text-foreground"
               onClick={() => onToggleTool(toolId)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                onToggleTool(toolId);
+              }}
               title={expanded ? "折叠工具详情" : "展开工具详情"}
             >
-              <span className="inline-flex min-w-0 items-center gap-2">
+              <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
                 <ToolGlyph toolName={event.tool.name} className={`h-3.5 w-3.5 shrink-0 ${running ? "animate-pulse" : "opacity-70"}`} />
-                <span className="min-w-0 truncate">
-                  <ToolTitle toolName={event.tool.name} input={event.tool.input} threadId={threadId} isError={failed} />
+                <span className="min-w-0">
+                  <ToolTitle toolName={event.tool.name} input={event.tool.input} isError={failed} />
                 </span>
               </span>
               <span className={`inline-flex shrink-0 items-center gap-1.5 font-medium ${running ? "taskagent-sweep-text" : failed ? "text-destructive" : "text-muted-foreground/75"}`}>
                 {failed ? "失败" : running ? "运行中" : "完成"}
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
               </span>
-            </button>
+            </div>
             <TimelineItemsDrawer open={expanded}>
               <div className="px-1 pb-1">
                 <OrderedToolUseEntry event={event} collapsed={false} onToggleCollapsed={() => onToggleTool(toolId)} />

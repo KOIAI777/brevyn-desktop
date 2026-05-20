@@ -84,6 +84,9 @@ export const IPC_CHANNELS = {
   updaterDismissDownloaded: "brevyn:updater:dismiss-downloaded",
   updaterQuitAndInstall: "brevyn:updater:quit-and-install",
   appOpenExternal: "brevyn:app:open-external",
+  appRevealPath: "brevyn:app:reveal-path",
+  appOpenPathWith: "brevyn:app:open-path-with",
+  appOpenPathOptions: "brevyn:app:open-path-options",
   appOpenWorkspacePath: "brevyn:app:open-workspace-path",
   appPreviewWorkspacePath: "brevyn:app:preview-workspace-path",
 } as const;

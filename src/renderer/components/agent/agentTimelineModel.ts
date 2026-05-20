@@ -342,7 +342,7 @@ export function formatUnknown(value: unknown): string {
 }
 
 export function formatToolResultContent(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return cleanToolResultContent(value);
   if (Array.isArray(value)) {
     const parts = value.flatMap((item) => {
       const data = recordObject(item);
@@ -350,14 +350,14 @@ export function formatToolResultContent(value: unknown): string {
       if (typeof data.content === "string") return [data.content];
       return [formatUnknown(item)];
     });
-    return parts.join("\n");
+    return cleanToolResultContent(parts.join("\n"));
   }
   const data = recordObject(value);
   if (typeof data.stdout === "string" || typeof data.stderr === "string") {
-    return [data.stdout, data.stderr].filter((part) => typeof part === "string" && part.trim()).join("\n");
+    return cleanToolResultContent([data.stdout, data.stderr].filter((part) => typeof part === "string" && part.trim()).join("\n"));
   }
-  if (typeof data.text === "string") return data.text;
-  if (typeof data.content === "string") return data.content;
+  if (typeof data.text === "string") return cleanToolResultContent(data.text);
+  if (typeof data.content === "string") return cleanToolResultContent(data.content);
   return formatUnknown(value);
 }
 
@@ -372,8 +372,14 @@ function shortErrorSummary(value: string): string {
   const text = value.replace(/\s+/g, " ").trim();
   if (!text) return "未知错误";
   const quoted = text.match(/(?:Error|error):\s*([^".。]+)|([^".。]+(?:not found|does not exist|permission denied|denied|failed)[^".。]*)/i);
-  const summary = (quoted?.[1] || quoted?.[2] || text).trim();
-  return summary.length > 42 ? `${summary.slice(0, 39)}...` : summary;
+  return (quoted?.[1] || quoted?.[2] || text).trim();
+}
+
+function cleanToolResultContent(value: string): string {
+  return value
+    .replace(/<tool_use_error>/gi, "")
+    .replace(/<\/tool_use_error>/gi, "")
+    .trim();
 }
 
 export function toolTitle(toolName: string, input: unknown): string {

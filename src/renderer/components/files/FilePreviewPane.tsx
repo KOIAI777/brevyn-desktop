@@ -1,5 +1,5 @@
-import { Eye, ExternalLink, FileSearch, Maximize2, Minimize2 } from "lucide-react";
-import type { FilePreview } from "@/types/domain";
+import { ChevronRight, Eye, ExternalLink, FileSearch, FolderOpen, Maximize2, Minimize2 } from "lucide-react";
+import type { FilePreview, OpenPathOption } from "@/types/domain";
 import { useMemo, useState } from "react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -83,16 +83,7 @@ export function FilePreviewPane({
           <div className="truncate text-[10px] text-muted-foreground">{preview.path}</div>
         </div>
         <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{previewKindLabel(preview.kind)}</span>
-        {preview.fileUrl && !preview.id.startsWith("/") && (
-          <button
-            type="button"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-            onClick={() => void window.brevyn.files.open(preview.id)}
-            title="打开源文件"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </button>
-        )}
+        {preview.sourcePath && <OpenPreviewFileMenu preview={preview} />}
         {onToggleExpanded && (
           <button
             type="button"
@@ -182,6 +173,94 @@ export function FilePreviewPane({
       </div>
     </div>
   );
+}
+
+function OpenPreviewFileMenu({ preview }: { preview: FilePreview }) {
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<OpenPathOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const sourcePath = preview.sourcePath || "";
+
+  async function ensureOptions() {
+    if (!sourcePath || loading || options.length > 0) return;
+    setLoading(true);
+    try {
+      setOptions(await window.brevyn.app.openPathOptions(sourcePath));
+    } catch {
+      setOptions([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function showMenu() {
+    setOpen(true);
+    void ensureOptions();
+  }
+
+  function hideMenu() {
+    window.setTimeout(() => setOpen(false), 120);
+  }
+
+  async function revealInFinder() {
+    if (!sourcePath) return;
+    await window.brevyn.app.revealPath(sourcePath);
+    setOpen(false);
+  }
+
+  async function openWith(option: OpenPathOption) {
+    if (!sourcePath) return;
+    await window.brevyn.app.openPathWith({ path: sourcePath, optionId: option.id, appPath: option.appPath });
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative shrink-0" onMouseEnter={showMenu} onMouseLeave={hideMenu}>
+      <button
+        type="button"
+        className="flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        onClick={() => (open ? setOpen(false) : showMenu())}
+        title="打开方式"
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-8 z-50 w-56 overflow-hidden rounded-xl border bg-popover/98 p-1 text-[12px] text-popover-foreground shadow-xl ring-1 ring-black/5 backdrop-blur">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left font-medium transition hover:bg-accent"
+            onClick={() => void revealInFinder()}
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-blue-500" />
+            在 Finder 中打开
+          </button>
+          <div className="my-1 h-px bg-border/70" />
+          <div className="px-2.5 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">打开方式</div>
+          {loading && <div className="px-2.5 py-2 text-muted-foreground">正在读取本机应用...</div>}
+          {!loading && options.map((option) => (
+            <button
+              key={`${option.id}-${option.appPath || ""}`}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-accent"
+              onClick={() => void openWith(option)}
+            >
+              <OpenPathOptionIcon option={option} />
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.kind === "default" && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/70" />}
+            </button>
+          ))}
+          {!loading && options.length === 0 && <div className="px-2.5 py-2 text-muted-foreground">没有找到可用应用。</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpenPathOptionIcon({ option }: { option: OpenPathOption }) {
+  if (option.kind === "finder") return <FolderOpen className="h-3.5 w-3.5 text-blue-500" />;
+  if (option.kind === "terminal") return <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] bg-stone-800 text-[9px] font-bold text-white">›</span>;
+  if (option.kind === "default") return <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[4px] bg-muted text-[9px]">↗</span>;
+  return <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[4px] bg-blue-500/12 text-[9px] text-blue-500">A</span>;
 }
 
 function SpreadsheetPreview({

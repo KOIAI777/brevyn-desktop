@@ -160,6 +160,9 @@ const api: BrevynAPI = {
   },
   app: {
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, url),
+    revealPath: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.appRevealPath, path),
+    openPathWith: (input) => ipcRenderer.invoke(IPC_CHANNELS.appOpenPathWith, input),
+    openPathOptions: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenPathOptions, path),
     openWorkspacePath: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.appOpenWorkspacePath, input),
     previewWorkspacePath: (input: { threadId: string; path: string }) => ipcRenderer.invoke(IPC_CHANNELS.appPreviewWorkspacePath, input),
   },

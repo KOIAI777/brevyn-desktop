@@ -68,6 +68,8 @@ interface ActiveRun {
   terminalResultWritten: boolean;
   terminalLifecycleWritten: boolean;
   assistantErrorWritten: boolean;
+  compactCommand: boolean;
+  compactBoundaryWritten: boolean;
 }
 
 interface ResolvedThreadContext {
@@ -101,7 +103,10 @@ export class AgentOrchestrator {
     const abortController = new AbortController();
     const resumeSessionId = this.options.sessions.latestSdkSessionId(context.thread);
     const attachments = input.attachments || [];
-    const promptForAgent = languageDirectedPrompt(promptWithAttachments(input.prompt, attachments), input.prompt);
+    const compactCommand = isCompactPrompt(input.prompt);
+    const promptForAgent = compactCommand
+      ? "/compact"
+      : languageDirectedPrompt(promptWithAttachments(input.prompt, attachments), input.prompt);
     this.activeRuns.set(context.thread.id, {
       runId,
       threadId: context.thread.id,
@@ -115,6 +120,8 @@ export class AgentOrchestrator {
       terminalResultWritten: false,
       terminalLifecycleWritten: false,
       assistantErrorWritten: false,
+      compactCommand,
+      compactBoundaryWritten: false,
     });
 
     try {
@@ -133,17 +140,21 @@ export class AgentOrchestrator {
           createdAt: now(),
         });
       }
-      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments, input.uuid));
+      if (compactCommand) {
+        this.appendAndEmitSdkMessage(context.thread, compactingSdkMessage());
+      } else {
+        this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments, input.uuid));
+      }
     } catch (error) {
       this.activeRuns.delete(context.thread.id);
       throw error;
     }
 
-    void this.executeRun(context, runId, promptForAgent, resumeSessionId);
+    void this.executeRun(context, runId, promptForAgent, resumeSessionId, compactCommand);
     return { runId };
   }
 
-  private async executeRun(context: ResolvedThreadContext, runId: string, prompt: string, resumeSessionId?: string): Promise<void> {
+  private async executeRun(context: ResolvedThreadContext, runId: string, prompt: string, resumeSessionId?: string, slashCommand = false): Promise<void> {
     try {
       const active = this.activeRuns.get(context.thread.id);
       if (!active) return;
@@ -179,57 +190,136 @@ export class AgentOrchestrator {
           context,
         }),
       };
-      const stream = this.options.sdk.query({
-        prompt,
-        sessionKey: context.thread.id,
-        cwd: context.cwd,
-        model: provider.selectedModel,
-        env,
-        systemPrompt,
-        resumeSessionId,
-        abortController: active.abortController,
-        mcpServers,
-        permissionMode: active.planMode ? "plan" : active.permissionMode === "full_access" ? "bypassPermissions" : "default",
-        planModeInstructions: active.planMode ? PLAN_MODE_INSTRUCTIONS : undefined,
-        betas: sdkBetasForModel(provider.selectedModel),
-        canUseTool: this.createCanUseTool(context, runId),
-        onQuery: (query) => {
-          active.query = query;
-        },
-      });
-      for await (const message of stream) {
-        const current = this.activeRuns.get(context.thread.id);
-        if (message.type === "result" && current?.ignoreNextResult) {
-          current.ignoreNextResult = false;
-          current.suppressUntilInterruptResult = false;
-          continue;
+      let completed = false;
+      let retryReason = "";
+      for (let attempt = 1; attempt <= AGENT_RUN_MAX_RETRIES + 1; attempt += 1) {
+        if (attempt > 1) {
+          const delayMs = retryDelayMs(attempt - 1);
+          this.appendAndEmitRuntimeEvent(context.thread, {
+            type: "run_retrying",
+            runId,
+            threadId: context.thread.id,
+            retryAttempt: attempt - 1,
+            maxRetries: AGENT_RUN_MAX_RETRIES,
+            reason: retryReason || "Agent request failed.",
+            delayMs,
+            createdAt: now(),
+          });
+          await delay(delayMs, active.abortController.signal);
+          if (active.abortController.signal.aborted) break;
         }
-        if (current?.suppressUntilInterruptResult && message.type !== "result") {
-          continue;
-        }
-        if (message.type === "result" && isContinuableSdkResult(message)) continue;
-        if (shouldPersistSdkMessage(message)) {
-          if (message.type === "result" && current && lifecycleForResult(message) === "failed") {
-            const resultError = sdkResultErrorMessage(message);
-            if (resultError) this.writeAssistantError(current, resultError);
-          }
-          this.appendAndEmitSdkMessage(context.thread, withCreatedAt(message));
-          if (message.type === "assistant" && sdkAssistantErrorMessage(message)) {
-            if (current) current.assistantErrorWritten = true;
-          }
-          if (message.type === "result") {
-            if (current) {
-              current.terminalResultWritten = true;
-              this.writeTerminalLifecycle(current, lifecycleForResult(message), String((message as { result?: unknown }).result || ""));
+
+        const attemptAbort = createAttemptAbortController(active.abortController.signal, AGENT_RUN_ATTEMPT_TIMEOUT_MS);
+        let retryCurrentAttempt = "";
+        try {
+          const stream = this.options.sdk.query({
+            prompt,
+            slashCommand,
+            sessionKey: context.thread.id,
+            cwd: context.cwd,
+            model: provider.selectedModel,
+            env,
+            systemPrompt,
+            resumeSessionId,
+            abortController: attemptAbort.controller,
+            mcpServers,
+            permissionMode: active.planMode ? "plan" : active.permissionMode === "full_access" ? "bypassPermissions" : "default",
+            planModeInstructions: active.planMode ? PLAN_MODE_INSTRUCTIONS : undefined,
+            betas: sdkBetasForModel(provider.selectedModel),
+            canUseTool: this.createCanUseTool(context, runId),
+            onQuery: (query) => {
+              active.query = query;
+            },
+          });
+          for await (const message of stream) {
+            const current = this.activeRuns.get(context.thread.id);
+            if (message.type === "result" && current?.ignoreNextResult) {
+              current.ignoreNextResult = false;
+              current.suppressUntilInterruptResult = false;
+              continue;
+            }
+            if (current?.suppressUntilInterruptResult && message.type !== "result") {
+              continue;
+            }
+            if (message.type === "result" && isContinuableSdkResult(message)) continue;
+
+            const assistantError = message.type === "assistant" ? sdkAssistantErrorMessage(message) : undefined;
+            if (assistantError && attempt <= AGENT_RUN_MAX_RETRIES && isRetryableAgentRunError(assistantError)) {
+              retryCurrentAttempt = assistantError;
+              active.query?.close();
+              break;
+            }
+            const resultError = message.type === "result" && lifecycleForResult(message) === "failed"
+              ? sdkResultErrorMessage(message)
+              : undefined;
+            if (resultError && attempt <= AGENT_RUN_MAX_RETRIES && isRetryableAgentRunError(resultError)) {
+              retryCurrentAttempt = resultError;
+              active.query?.close();
+              break;
+            }
+
+            if (shouldPersistSdkMessage(message)) {
+              if (current && isCompactBoundaryMessage(message)) current.compactBoundaryWritten = true;
+              if (message.type === "result" && current && lifecycleForResult(message) === "failed") {
+                if (resultError) this.writeAssistantError(current, resultError);
+              }
+              this.appendAndEmitSdkMessage(context.thread, withCreatedAt(message));
+              if (message.type === "assistant" && assistantError) {
+                if (current) current.assistantErrorWritten = true;
+              }
+              if (message.type === "result") {
+                if (current) {
+                  if (current.compactCommand && lifecycleForResult(message) === "completed" && !current.compactBoundaryWritten) {
+                    this.appendAndEmitSdkMessage(context.thread, compactBoundarySdkMessage());
+                    current.compactBoundaryWritten = true;
+                  }
+                  current.terminalResultWritten = true;
+                  this.writeTerminalLifecycle(current, lifecycleForResult(message), String((message as { result?: unknown }).result || ""));
+                }
+              }
+            } else if (shouldEmitLiveSdkMessage(message)) {
+              this.options.eventBus.emit({ kind: "sdk_message", threadId: context.thread.id, message });
             }
           }
-        } else if (shouldEmitLiveSdkMessage(message)) {
-          this.options.eventBus.emit({ kind: "sdk_message", threadId: context.thread.id, message });
+          if (retryCurrentAttempt) {
+            retryReason = retryCurrentAttempt;
+            continue;
+          }
+          if (active.abortController.signal.aborted) {
+            this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", "Agent run stopped.");
+            this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", "Agent run stopped.");
+          }
+          completed = true;
+          break;
+        } catch (error) {
+          const message = attemptAbort.timedOut()
+            ? `Agent request timed out after ${Math.round(AGENT_RUN_ATTEMPT_TIMEOUT_MS / 1000)}s.`
+            : errorMessage(error);
+          if (!active.abortController.signal.aborted && attempt <= AGENT_RUN_MAX_RETRIES && isRetryableAgentRunError(message)) {
+            retryReason = message;
+            active.query?.close();
+            continue;
+          }
+          if (!active.abortController.signal.aborted && retryReason && isRetryableAgentRunError(message)) {
+            retryReason = message;
+            active.query?.close();
+            break;
+          }
+          throw new Error(message);
+        } finally {
+          attemptAbort.dispose();
+          if (active.query) active.query = undefined;
         }
       }
-      if (active.abortController.signal.aborted) {
-        this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", "Agent run stopped.");
-        this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", "Agent run stopped.");
+      if (!completed && !active.terminalLifecycleWritten) {
+        const message = active.abortController.signal.aborted
+          ? "Agent run stopped."
+          : retryReason
+            ? `重试 ${AGENT_RUN_MAX_RETRIES} 次后仍然失败: ${retryReason}`
+            : "Agent run failed.";
+        if (!active.stoppedByUser) this.writeAssistantError(active, message);
+        this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", message);
+        this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", message);
       }
     } catch (error) {
       const active = this.activeRuns.get(context.thread.id);
@@ -545,6 +635,10 @@ const PLAN_MODE_INSTRUCTIONS = [
   "When the user explicitly approves execution, call ExitPlanMode with allowedPrompts that describe the action categories you need, then continue only after approval.",
 ].join("\n");
 
+const AGENT_RUN_MAX_RETRIES = 5;
+const AGENT_RUN_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
+const AGENT_RETRY_MAX_DELAY_MS = 10_000;
+
 function permissionInstructions(active: ActiveRun): string {
   if (active.planMode) {
     return [
@@ -581,6 +675,10 @@ function languageDirectedPrompt(prompt: string, userPrompt: string): string {
   ].join("\n\n");
 }
 
+function isCompactPrompt(prompt: string): boolean {
+  return prompt.trim() === "/compact";
+}
+
 function supports1MContext(modelId: string): boolean {
   const normalized = modelId.toLowerCase();
   if (normalized.includes("haiku")) return false;
@@ -600,6 +698,82 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Unknown agent error");
 }
 
+function retryDelayMs(attempt: number): number {
+  const base = Math.min(1000 * (2 ** Math.max(0, attempt - 1)), AGENT_RETRY_MAX_DELAY_MS);
+  const jitter = base * (Math.random() * 0.4 - 0.2);
+  return Math.max(0, Math.round(base + jitter));
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (ms <= 0 || signal.aborted) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      resolve();
+    }, { once: true });
+  });
+}
+
+function createAttemptAbortController(parentSignal: AbortSignal, timeoutMs: number): {
+  controller: AbortController;
+  dispose: () => void;
+  timedOut: () => boolean;
+} {
+  const controller = new AbortController();
+  let timeoutReached = false;
+  const abortFromParent = () => controller.abort(parentSignal.reason);
+  if (parentSignal.aborted) abortFromParent();
+  else parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  const timeout = setTimeout(() => {
+    timeoutReached = true;
+    controller.abort(new Error(`Agent request timed out after ${Math.round(timeoutMs / 1000)}s.`));
+  }, timeoutMs);
+  return {
+    controller,
+    dispose: () => {
+      clearTimeout(timeout);
+      parentSignal.removeEventListener("abort", abortFromParent);
+    },
+    timedOut: () => timeoutReached,
+  };
+}
+
+function isRetryableAgentRunError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  if (!normalized.trim()) return false;
+  if (PROMPT_TOO_LONG_PATTERNS.some((pattern) => normalized.includes(pattern))) return false;
+  return [
+    "timeout",
+    "timed out",
+    "aborterror",
+    "429",
+    "rate limit",
+    "rate_limited",
+    "too many requests",
+    "500",
+    "502",
+    "503",
+    "504",
+    "overloaded",
+    "service unavailable",
+    "provider_error",
+    "service_error",
+    "network",
+    "fetch failed",
+    "connection",
+    "econnreset",
+    "etimedout",
+    "socket hang up",
+    "terminated",
+    "context_management",
+    "no conversation found",
+  ].some((pattern) => normalized.includes(pattern));
+}
+
 function userSdkMessage(content: string, attachments: AgentAttachment[] = [], uuid = entityId("msg")): SDKMessage {
   return {
     type: "user",
@@ -610,6 +784,26 @@ function userSdkMessage(content: string, attachments: AgentAttachment[] = [], uu
     ...(attachments.length > 0 ? { _attachments: attachments } : {}),
     parent_tool_use_id: null,
     uuid,
+    session_id: "",
+    _createdAt: Date.now(),
+  } as unknown as SDKMessage;
+}
+
+function compactingSdkMessage(): SDKMessage {
+  return {
+    type: "system",
+    subtype: "compacting",
+    uuid: entityId("compact"),
+    session_id: "",
+    _createdAt: Date.now(),
+  } as unknown as SDKMessage;
+}
+
+function compactBoundarySdkMessage(): SDKMessage {
+  return {
+    type: "system",
+    subtype: "compact_boundary",
+    uuid: entityId("compact"),
     session_id: "",
     _createdAt: Date.now(),
   } as unknown as SDKMessage;
@@ -720,6 +914,10 @@ function shouldPersistSdkMessage(message: SDKMessage): boolean {
   if (message.type === "stream_event") return false;
   if (message.type === "assistant" || message.type === "result") return true;
   if (message.type === "user") return userMessageHasToolResult(message);
+  return message.type === "system" && message.subtype === "compact_boundary";
+}
+
+function isCompactBoundaryMessage(message: SDKMessage): boolean {
   return message.type === "system" && message.subtype === "compact_boundary";
 }
 

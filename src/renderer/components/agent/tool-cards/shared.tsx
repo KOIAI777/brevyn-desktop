@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 
 export function CompactProcessCard({
@@ -16,19 +16,27 @@ export function CompactProcessCard({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onToggleCollapsed?.();
+  }
+
   return (
-    <button
-      type="button"
-      className="inline-flex max-w-full items-center gap-2 rounded-md px-0.5 py-1 text-left text-[11px] text-muted-foreground transition hover:text-foreground"
+    <div
+      role="button"
+      tabIndex={0}
+      className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-md px-0.5 py-1 text-left text-[11px] text-muted-foreground transition hover:text-foreground"
       onClick={onToggleCollapsed}
+      onKeyDown={handleKeyDown}
     >
-      <span className="min-w-0 truncate font-medium">{title}</span>
+      <span className="min-w-0 font-medium">{title}</span>
       <span className={`inline-flex min-w-0 shrink-0 items-center gap-1.5 text-muted-foreground/80 ${running ? "taskagent-sweep-text" : ""}`}>
         {isError ? <X className="h-3.5 w-3.5" /> : !running ? <Check className="h-3.5 w-3.5" /> : null}
-        <span className="truncate">{status}</span>
+        <span className="whitespace-normal break-words">{status}</span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`} />
       </span>
-    </button>
+    </div>
   );
 }
 

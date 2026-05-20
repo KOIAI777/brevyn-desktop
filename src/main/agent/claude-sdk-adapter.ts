@@ -9,6 +9,7 @@ export type ClaudeSdkRuntime = typeof ClaudeAgentSdk;
 
 export interface ClaudeSdkRunInput {
   prompt: string;
+  slashCommand?: boolean;
   sessionKey?: string;
   cwd: string;
   model: string;
@@ -47,17 +48,19 @@ export class ClaudeSdkAdapter {
   async *query(input: ClaudeSdkRunInput): AsyncIterable<SDKMessage> {
     const sdk = await this.loadSdk();
     const sessionKey = input.sessionKey;
-    const channel = createMessageChannel(input.abortController.signal);
-    channel.enqueue({
-      type: "user",
-      message: {
-        role: "user",
-        content: input.prompt,
-      },
-      parent_tool_use_id: null,
-    } as SDKUserMessage);
+    const channel = input.slashCommand ? null : createMessageChannel(input.abortController.signal);
+    if (channel) {
+      channel.enqueue({
+        type: "user",
+        message: {
+          role: "user",
+          content: input.prompt,
+        },
+        parent_tool_use_id: null,
+      } as SDKUserMessage);
+    }
     const query = sdk.query({
-      prompt: channel.generator,
+      prompt: input.slashCommand ? input.prompt : channel!.generator,
       options: {
         abortController: input.abortController,
         cwd: input.cwd,
@@ -105,11 +108,11 @@ export class ClaudeSdkAdapter {
     input.onQuery?.(query);
     if (sessionKey) {
       this.activeQueries.set(sessionKey, query);
-      this.activeChannels.set(sessionKey, channel);
+      if (channel) this.activeChannels.set(sessionKey, channel);
     }
     try {
       for await (const message of query) {
-        if (message.type === "result" && !shouldKeepChannelOpen(message) && !channel.consumeKeepOpenOnResult()) {
+        if (channel && message.type === "result" && !shouldKeepChannelOpen(message) && !channel.consumeKeepOpenOnResult()) {
           channel.close();
         }
         yield message;
@@ -119,7 +122,7 @@ export class ClaudeSdkAdapter {
         this.activeQueries.delete(sessionKey);
         this.activeChannels.delete(sessionKey);
       }
-      channel.close();
+      channel?.close();
     }
   }
 

@@ -202,6 +202,7 @@ export class FileService {
       id: input.id,
       title: input.title,
       path: input.displayPath,
+      sourcePath: input.sourcePath,
       kind: input.kind,
       fileUrl,
       metadata: input.metadata,

@@ -1,8 +1,8 @@
 import { useContext } from "react";
 import { FileText, FolderOpen, Globe, HelpCircle, ListTodo, MessageCircleQuestion, Pencil, Search, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare } from "lucide-react";
 import { ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
-import { FilePathChip } from "@/components/chat/FilePathChip";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
+import { FilePathChip } from "@/components/chat/FilePathChip";
 import type { ToolResultBlock, ToolUseBlock } from "@/components/agent/agentTimelineModel";
 import {
   formatDiffStats,
@@ -28,7 +28,6 @@ export function ToolUseCard({
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }) {
-  const threadId = useContext(AgentThreadIdContext);
   return (
     <BaseToolUseCard
       block={block}
@@ -41,7 +40,7 @@ export function ToolUseCard({
       stringValue={stringValue}
       toolResultSummary={toolResultSummary}
       toolTitle={toolTitle}
-      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
+      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} isError={options?.isError} />}
       truncatePreview={truncatePreview}
       singleLine={singleLine}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
@@ -49,7 +48,8 @@ export function ToolUseCard({
   );
 }
 
-export function ToolTitle({ toolName, input, threadId, isError = false }: { toolName: string; input: unknown; threadId?: string; isError?: boolean }) {
+export function ToolTitle({ toolName, input, isError = false }: { toolName: string; input: unknown; isError?: boolean }) {
+  const threadId = useContext(AgentThreadIdContext);
   const data = recordObject(input);
   const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
   const diff = toolDiffStats(toolName, input);
@@ -58,15 +58,9 @@ export function ToolTitle({ toolName, input, threadId, isError = false }: { tool
   if (path && (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
     const action = toolName === "Read" ? "读取" : "编辑";
     return (
-      <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+      <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
         <span className="shrink-0">{action}</span>
-        <span
-          className="min-w-0"
-          onClick={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <FilePathChip filePath={path} threadId={threadId} />
-        </span>
+        <FilePathChip filePath={path} threadId={threadId} />
         {diffLabel && <DiffStatsText value={diffLabel} />}
       </span>
     );

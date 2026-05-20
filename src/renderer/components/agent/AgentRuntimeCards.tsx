@@ -1,8 +1,7 @@
-import { useContext, useState } from "react";
+import { useState } from "react";
 import { Check, Loader2, MessageCircleQuestion, Send, ShieldAlert, X } from "lucide-react";
 import type { AgentApprovalRequest, AgentAskUserRequest, AgentExitPlanRequest } from "@/types/domain";
 import { ToolInputPreview } from "@/components/agent/AgentToolCards";
-import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ToolGlyph, ToolTitle } from "@/components/agent/AgentToolRenderers";
 import {
   answerKey,
@@ -30,7 +29,6 @@ export function ApprovalCard({
   onReject: (requestId: string) => Promise<void>;
 }) {
   const [pending, setPending] = useState<"allow" | "deny" | null>(null);
-  const threadId = useContext(AgentThreadIdContext);
   const resolved = Boolean(decision);
 
   async function resolveApproval(next: "allow" | "deny") {
@@ -74,7 +72,7 @@ export function ApprovalCard({
               stringValue={stringValue}
               toolResultSummary={toolResultSummary}
               toolTitle={toolTitle}
-              renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} threadId={threadId} isError={options?.isError} />}
+              renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} isError={options?.isError} />}
               truncatePreview={truncatePreview}
               singleLine={singleLine}
               renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}

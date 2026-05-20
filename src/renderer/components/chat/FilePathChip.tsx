@@ -84,7 +84,6 @@ export function FilePathPreviewProvider({
 export function FilePathChip({ filePath, threadId }: { filePath: string; threadId?: string }) {
   const normalizedPath = filePath.trim();
   const filename = fileName(filePath);
-  const displayName = compactMiddleFileName(filename);
   const isDirectory = isDirectoryPath(normalizedPath);
   const onPreviewFilePath = useFilePathPreviewHandler();
 
@@ -105,12 +104,18 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
     <button
       type="button"
       disabled={!threadId && !onPreviewFilePath}
-      onClick={() => void handleClick()}
-      className="not-prose inline-flex max-w-full items-center gap-1 rounded-md border border-stone-300/55 bg-[#f8f3e8]/65 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-stone-700 align-baseline shadow-[0_1px_0_rgba(120,113,108,0.08)] transition hover:border-stone-400/65 hover:bg-[#f2eadb]/75 hover:text-stone-900 disabled:cursor-default disabled:hover:border-stone-300/55 disabled:hover:bg-[#f8f3e8]/65"
+      onClick={(event) => {
+        event.stopPropagation();
+        void handleClick();
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+      className="not-prose inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-stone-300/55 bg-[#f8f3e8]/65 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-stone-700 align-baseline shadow-[0_1px_0_rgba(120,113,108,0.08)] transition hover:border-stone-400/65 hover:bg-[#f2eadb]/75 hover:text-stone-900 disabled:cursor-default disabled:hover:border-stone-300/55 disabled:hover:bg-[#f8f3e8]/65"
       title={filePath}
     >
-      <FileTypeIcon name={filename} isDirectory={isDirectory} size={14} />
-      <span className="max-w-[22rem] truncate">{displayName}</span>
+      <span className="shrink-0">
+        <FileTypeIcon name={filename} isDirectory={isDirectory} size={14} />
+      </span>
+      <span className="min-w-0 max-w-full whitespace-normal break-all text-left">{filename}</span>
     </button>
   );
 }
@@ -148,18 +153,6 @@ function extensionName(filePath: string): string {
   const dotIndex = name.lastIndexOf(".");
   if (dotIndex <= 0 || dotIndex === name.length - 1) return "";
   return name.slice(dotIndex + 1).toLowerCase();
-}
-
-function compactMiddleFileName(value: string): string {
-  const maxLength = 38;
-  if (value.length <= maxLength) return value;
-  const dotIndex = value.lastIndexOf(".");
-  const extension = dotIndex > 0 ? value.slice(dotIndex) : "";
-  const basename = extension ? value.slice(0, dotIndex) : value;
-  const headLength = Math.max(10, Math.floor((maxLength - extension.length - 3) * 0.48));
-  const tailLength = Math.max(8, maxLength - extension.length - 3 - headLength);
-  if (basename.length <= headLength + tailLength + 3) return value;
-  return `${basename.slice(0, headLength)}...${basename.slice(-tailLength)}${extension}`;
 }
 
 function isDirectoryPath(value: string): boolean {

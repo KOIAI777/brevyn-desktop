@@ -109,6 +109,7 @@ export type AgentTimelineDisplayKind =
   | "user-message"
   | "prompt-too-long"
   | "provider-error"
+  | "run-retrying"
   | "assistant-final";
 
 export interface UseAgentTimelinePanelStateArgs {
@@ -1134,6 +1135,7 @@ function timelineItemDisplay(
   if (isStreamEventRecord(record)) return { kind: "hidden" };
 
   if (isRuntimeRecord(record)) {
+    if (record.event.type === "run_retrying") return { kind: "run-retrying" };
     if (record.event.type === "approval_requested") {
       return state.approvalDecision
         ? { kind: "hidden", approvalDecision: state.approvalDecision }
@@ -1188,6 +1190,7 @@ function runSummaryForUserIndex(records: AgentTimelineRecord[], userIndex: numbe
   const result = resultForUserIndex(records, userIndex);
   const runStart = latestRunStart(records, userIndex);
   const lifecycle = latestRunLifecycle(records, userIndex);
+  const retry = latestRunRetry(records, userIndex);
   const latestBounds = latestTurnBounds(records);
   const isLatestTurn = latestBounds?.userIndex === userIndex;
   const startMs = recordCreatedAtMs(user) ?? nowMs;
@@ -1201,6 +1204,9 @@ function runSummaryForUserIndex(records: AgentTimelineRecord[], userIndex: numbe
   const status = lifecycle?.status ?? statusFromResultSubtype(resultSubtype, running);
   const detail = normalizedRunDetail(lifecycle?.detail ?? resultDetail(result.record));
   if (status === "running") {
+    if (retry) {
+      return { runId, label: retryRunLabel(retry, nowMs), running: true, status, permissionMode, detail: retry.reason };
+    }
     const showProcessed = elapsedMs >= 1000 && eventsSinceStart(records, userIndex);
     return { runId, label: showProcessed ? `已处理 ${duration}` : "Thinking", running: true, status, permissionMode };
   }
@@ -1294,6 +1300,31 @@ function latestRunLifecycle(records: AgentTimelineRecord[], userIndex: number): 
     if (record.event.type === "run_interrupted") return { status: "interrupted", detail: record.event.reason, createdAtMs: recordCreatedAtMs(record) };
   }
   return null;
+}
+
+function latestRunRetry(records: AgentTimelineRecord[], userIndex: number): { retryAttempt: number; maxRetries: number; reason: string; delayMs: number; createdAtMs: number } | null {
+  const runStart = latestRunStart(records, userIndex);
+  if (!runStart) return null;
+  const endIndex = nextUserInputIndex(records, userIndex) ?? records.length;
+  let latest: { retryAttempt: number; maxRetries: number; reason: string; delayMs: number; createdAtMs: number } | null = null;
+  for (let index = userIndex + 1; index < endIndex; index += 1) {
+    const record = records[index];
+    if (!record || !isRuntimeRecord(record) || record.event.type !== "run_retrying" || record.event.runId !== runStart.runId) continue;
+    latest = {
+      retryAttempt: record.event.retryAttempt,
+      maxRetries: record.event.maxRetries,
+      reason: record.event.reason,
+      delayMs: record.event.delayMs,
+      createdAtMs: recordCreatedAtMs(record) ?? Date.now(),
+    };
+  }
+  return latest;
+}
+
+function retryRunLabel(retry: { retryAttempt: number; maxRetries: number; delayMs: number; createdAtMs: number }, nowMs: number): string {
+  const remainingMs = Math.max(0, retry.createdAtMs + retry.delayMs - nowMs);
+  const suffix = remainingMs > 0 ? ` · ${Math.ceil(remainingMs / 1000)}s 后` : "";
+  return `正在重试 ${retry.retryAttempt}/${retry.maxRetries}${suffix}`;
 }
 
 function statusFromResultSubtype(subtype: string, running: boolean): RunSummary["status"] {

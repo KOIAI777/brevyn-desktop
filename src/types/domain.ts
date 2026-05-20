@@ -248,6 +248,7 @@ export interface FilePreview {
   id: string;
   title: string;
   path: string;
+  sourcePath?: string;
   kind: WorkspaceFileKind;
   mimeType?: string;
   fileUrl?: string;
@@ -257,6 +258,13 @@ export interface FilePreview {
   pages?: string[];
   sheets?: SpreadsheetPreviewSheet[];
   metadata?: Record<string, string | number | boolean>;
+}
+
+export interface OpenPathOption {
+  id: string;
+  label: string;
+  kind: "default" | "finder" | "terminal" | "application";
+  appPath?: string;
 }
 
 export interface SpreadsheetPreviewSheet {
@@ -820,6 +828,7 @@ export interface AgentApprovalRequest {
 
 export type BrevynAgentRuntimeEvent =
   | { type: "run_started"; runId: string; threadId: string; permissionMode?: AgentPermissionMode; createdAt: string }
+  | { type: "run_retrying"; runId: string; threadId: string; retryAttempt: number; maxRetries: number; reason: string; delayMs: number; createdAt: string }
   | { type: "run_completed"; runId: string; threadId: string; resultSubtype?: string; createdAt: string }
   | { type: "run_stopped"; runId: string; threadId: string; reason?: string; createdAt: string }
   | { type: "run_failed"; runId: string; threadId: string; error: string; createdAt: string }
@@ -1019,6 +1028,9 @@ export interface BrevynAPI {
   };
   app: {
     openExternal: (url: string) => Promise<void>;
+    revealPath: (path: string) => Promise<void>;
+    openPathWith: (input: { path: string; optionId: string; appPath?: string }) => Promise<void>;
+    openPathOptions: (path: string) => Promise<OpenPathOption[]>;
     openWorkspacePath: (input: { threadId: string; path: string }) => Promise<void>;
     previewWorkspacePath: (input: { threadId: string; path: string }) => Promise<FilePreview | null>;
   };
