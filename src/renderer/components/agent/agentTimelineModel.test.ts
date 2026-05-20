@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { assistantText, groupIntoTurns, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
-import { buildTimelineViewGroups, type AgentTimelineViewItem } from "./useAgentTimelineState";
+import { buildTimelineViewGroups, buildTimelineViewItems, type AgentTimelineViewItem } from "./useAgentTimelineState";
 import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
 
 (globalThis as unknown as { window: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (id: number) => void } }).window = {
@@ -450,6 +450,27 @@ assert.deepEqual(
     .map((group) => group.assistantMessages.map((message) => assistantText(message)).join(" ")),
   ["Before compact.", "After compact."],
 );
+
+const compactStatusRecords: AgentTimelineRecord[] = [
+  userText("/compact", "user_compact_status"),
+  systemCompact("compacting", "system_compacting_status"),
+  result("result_compact_status"),
+  systemCompact("compact_boundary", "system_compact_complete_status"),
+];
+const compactStatusItems = buildTimelineViewItems(compactStatusRecords, {
+  forceProcessOpen: false,
+  ownerUserIndexByRecordIndex: compactStatusRecords.map(() => 0),
+  processCollapsedByKey: {},
+  resolvedApprovals: new Map(),
+  resolvedExitPlans: new Map(),
+  resolvedQuestions: new Map(),
+  runSummary: null,
+  runSummaryByUserIndex: new Map(),
+});
+const compactStatusGroups = buildTimelineViewGroups(compactStatusRecords, compactStatusItems, { activeModelId: "deepseek-v4-pro" });
+assert.deepEqual(compactStatusGroups.map((group) => group.type), ["system"]);
+assert.equal(compactStatusGroups[0]?.type === "system" ? compactStatusGroups[0].item.displayKind : "", "compact-complete");
+assert.equal(compactStatusGroups[0]?.key, "system-compact-0");
 
 const thinkingOnlyStreamRecords: AgentTimelineRecord[] = [
   userText("Think first.", "user_thinking_stream_only"),

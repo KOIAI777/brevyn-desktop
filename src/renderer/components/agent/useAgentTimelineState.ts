@@ -39,7 +39,7 @@ export {
   type AgentTimelineViewGroup,
   type AgentTimelineViewItem,
 } from "@/components/agent/agentTimelineViewTypes";
-export { buildTimelineViewGroups } from "@/components/agent/agentTimelineViewModel";
+export { buildTimelineViewGroups, buildTimelineViewItems } from "@/components/agent/agentTimelineViewModel";
 export { autoCompactThresholdPercent, shouldAutoCompactContext } from "@/components/agent/agentTimelineContextUsage";
 
 export interface AgentTimelinePanelState {

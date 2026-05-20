@@ -137,7 +137,35 @@ export function buildTimelineViewGroups(
     if (group.type === "assistant-turn") return Boolean(group.processItem) || group.items.some((item) => item.displayKind !== "hidden");
     return group.item.displayKind !== "hidden";
   });
-  return appendRunningProcessViewGroup(filtered, items, records, options);
+  return appendRunningProcessViewGroup(collapseCompactSystemGroups(filtered), items, records, options);
+}
+
+function collapseCompactSystemGroups(groups: AgentTimelineViewGroup[]): AgentTimelineViewGroup[] {
+  const collapsed: AgentTimelineViewGroup[] = [];
+  let compactGroupIndex = 0;
+
+  for (const group of groups) {
+    if (!isCompactSystemGroup(group)) {
+      collapsed.push(group);
+      continue;
+    }
+
+    const previous = collapsed.at(-1);
+    if (isCompactSystemGroup(previous)) {
+      collapsed[collapsed.length - 1] = { ...group, key: previous.key };
+      continue;
+    }
+
+    collapsed.push({ ...group, key: `system-compact-${compactGroupIndex}` });
+    compactGroupIndex += 1;
+  }
+
+  return collapsed;
+}
+
+function isCompactSystemGroup(group: AgentTimelineViewGroup | undefined): group is Extract<AgentTimelineViewGroup, { type: "system" }> {
+  return group?.type === "system"
+    && (group.item.displayKind === "compact-compacting" || group.item.displayKind === "compact-complete");
 }
 
 function assistantTurnViewItems(
