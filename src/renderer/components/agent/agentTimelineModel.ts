@@ -1,21 +1,21 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentAskUserRequest, AgentExitPlanRequest, AgentPermissionMode, BrevynAgentTimelineRecord } from "@/types/domain";
 import { recordCreatedAtMs, timelineRecordIdentity, timelineRecordRenderKey } from "@/lib/agent-timeline-identity";
+import { recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
 export { timelineRecordIdentity } from "@/lib/agent-timeline-identity";
-
-export interface ToolUseBlock {
-  type: "tool_use";
-  id: string;
-  name: string;
-  input: unknown;
-}
-
-export interface ToolResultBlock {
-  type: "tool_result";
-  toolUseId: string;
-  content: unknown;
-  isError: boolean;
-}
+export {
+  formatDiffStats,
+  formatToolResultContent,
+  formatUnknown,
+  getToolDiffStats as toolDiffStats,
+  getToolResultSummary as toolResultSummary,
+  getToolTitle as toolTitle,
+  recordObject,
+  stringValue,
+  type ToolDiffStats,
+  type ToolResultBlock,
+  type ToolUseBlock,
+} from "@/components/agent/tool-cards/toolModel";
 
 export interface WebCitationLink {
   title: string;
@@ -290,14 +290,20 @@ function webCitationLinkFromCitation(citation: unknown): WebCitationLink | undef
 export function toolResultBlocks(record: SDKMessage): ToolResultBlock[] {
   const content = messageContent(record);
   if (!Array.isArray(content)) return [];
+  const rawResult = (record as { toolUseResult?: unknown; tool_use_result?: unknown }).toolUseResult
+    ?? (record as { tool_use_result?: unknown }).tool_use_result;
   return content.flatMap((block) => {
     const item = recordObject(block);
     if (item.type !== "tool_result") return [];
+    const resultContent = item.content ?? item;
     return [{
       type: "tool_result" as const,
       toolUseId: stringValue(item.tool_use_id, "tool"),
-      content: item.content ?? item,
+      content: resultContent,
       isError: item.is_error === true,
+      contentText: typeof resultContent === "string" ? resultContent : undefined,
+      rawResult,
+      toolUseResult: rawResult,
     }];
   });
 }
@@ -322,147 +328,6 @@ export function messageContent(record: SDKMessage): unknown {
 
 export function messageContentEnvelope(record: SDKMessage): Record<string, unknown> {
   return recordObject((record as { message?: unknown }).message);
-}
-
-export function recordObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-export function stringValue(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.trim() ? value : fallback;
-}
-
-export function formatUnknown(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-export function formatToolResultContent(value: unknown): string {
-  if (typeof value === "string") return cleanToolResultContent(value);
-  if (Array.isArray(value)) {
-    const parts = value.flatMap((item) => {
-      const data = recordObject(item);
-      if (typeof data.text === "string") return [data.text];
-      if (typeof data.content === "string") return [data.content];
-      return [formatUnknown(item)];
-    });
-    return cleanToolResultContent(parts.join("\n"));
-  }
-  const data = recordObject(value);
-  if (typeof data.stdout === "string" || typeof data.stderr === "string") {
-    return cleanToolResultContent([data.stdout, data.stderr].filter((part) => typeof part === "string" && part.trim()).join("\n"));
-  }
-  if (typeof data.text === "string") return cleanToolResultContent(data.text);
-  if (typeof data.content === "string") return cleanToolResultContent(data.content);
-  return formatUnknown(value);
-}
-
-export function toolResultSummary(tool: ToolResultBlock): string {
-  if (tool.isError) return `失败 · ${shortErrorSummary(formatToolResultContent(tool.content))}`;
-  const content = formatToolResultContent(tool.content);
-  const lines = content.split("\n").filter((line) => line.trim().length > 0);
-  return lines.length > 1 ? `${lines.length} lines` : "成功";
-}
-
-function shortErrorSummary(value: string): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (!text) return "未知错误";
-  const quoted = text.match(/(?:Error|error):\s*([^".。]+)|([^".。]+(?:not found|does not exist|permission denied|denied|failed)[^".。]*)/i);
-  return (quoted?.[1] || quoted?.[2] || text).trim();
-}
-
-function cleanToolResultContent(value: string): string {
-  return value
-    .replace(/<tool_use_error>/gi, "")
-    .replace(/<\/tool_use_error>/gi, "")
-    .trim();
-}
-
-export function toolTitle(toolName: string, input: unknown): string {
-  const data = recordObject(input);
-  const diff = toolDiffStats(toolName, input);
-  const diffSuffix = diff ? formatDiffStats(diff) : "";
-  if (toolName === "Read") return `Read · ${stringValue(data.file_path ?? data.path, "file")}`;
-  if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") return `编辑 · ${stringValue(data.file_path ?? data.path, "file")}${diffSuffix ? ` ${diffSuffix}` : ""}`;
-  if (toolName === "Bash") return `Bash · ${singleLine(stringValue(data.command, "command"))}`;
-  if (toolName === "Grep") return `Grep · ${singleLine(stringValue(data.pattern, "pattern"))}`;
-  if (toolName === "Glob") return `Glob · ${singleLine(stringValue(data.pattern, "pattern"))}`;
-  if (toolName === "WebFetch") return `WebFetch · ${stringValue(data.url, "URL")}`;
-  const webSearchQuery = webSearchQueryFromInput(data);
-  if (toolName === "WebSearch") return data.hosted === true
-    ? `WebSearch · hosted${webSearchQuery ? ` · ${singleLine(webSearchQuery)}` : ""}`
-    : `WebSearch · ${singleLine(webSearchQuery || "query")}`;
-  if (toolName === "TodoWrite") return "Update todo list";
-  if (toolName === "mcp__brevyn__load_skill") return `加载技能 · ${skillNameFromId(stringValue(data.skillId, "skill"))}`;
-  if (toolName === "mcp__brevyn__read_skill_resource") return `读取技能资源 · ${singleLine(stringValue(data.relativePath, "resource"))}`;
-  if (toolName === "mcp__brevyn__rag_search") return `检索课程材料 · ${singleLine(stringValue(data.query, "query"))}`;
-  if (toolName.startsWith("mcp__brevyn__")) return `Brevyn · ${toolName.replace("mcp__brevyn__", "")}`;
-  return `Tool · ${toolName}`;
-}
-
-function webSearchQueryFromInput(input: Record<string, unknown>): string {
-  const direct = stringValue(input.query, "");
-  if (direct) return direct;
-  const queries = Array.isArray(input.queries) ? input.queries : [];
-  for (const query of queries) {
-    if (typeof query === "string" && query.trim()) return query.trim();
-    const object = recordObject(query);
-    const value = stringValue(object.query ?? object.search_query ?? object.text, "");
-    if (value) return value;
-  }
-  return "";
-}
-
-function skillNameFromId(skillId: string): string {
-  return skillId.replace(/^file:/, "").split(/[-_]/g).filter(Boolean).map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ") || skillId;
-}
-
-export interface ToolDiffStats {
-  additions: number;
-  deletions: number;
-}
-
-export function toolDiffStats(toolName: string, input: unknown): ToolDiffStats | null {
-  const data = recordObject(input);
-  if (toolName === "Write") {
-    const content = data.content;
-    if (typeof content !== "string") return null;
-    return { additions: countLines(content), deletions: 0 };
-  }
-  if (toolName === "Edit") {
-    const oldString = data.old_string;
-    const newString = data.new_string;
-    if (typeof oldString !== "string" || typeof newString !== "string") return null;
-    return { additions: countLines(newString), deletions: countLines(oldString) };
-  }
-  if (toolName === "MultiEdit") {
-    const edits = Array.isArray(data.edits) ? data.edits : [];
-    let additions = 0;
-    let deletions = 0;
-    for (const edit of edits) {
-      const item = recordObject(edit);
-      if (typeof item.new_string === "string") additions += countLines(item.new_string);
-      if (typeof item.old_string === "string") deletions += countLines(item.old_string);
-    }
-    return additions > 0 || deletions > 0 ? { additions, deletions } : null;
-  }
-  return null;
-}
-
-export function formatDiffStats(diff: ToolDiffStats): string {
-  const parts: string[] = [];
-  if (diff.additions > 0) parts.push(`+${diff.additions}`);
-  if (diff.deletions > 0) parts.push(`-${diff.deletions}`);
-  return parts.join(" ");
-}
-
-function countLines(value: string): number {
-  if (!value) return 0;
-  return value.split("\n").length;
 }
 
 export function exitPlanSummary(request: AgentExitPlanRequest): string {

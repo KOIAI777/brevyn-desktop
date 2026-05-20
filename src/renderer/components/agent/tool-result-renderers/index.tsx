@@ -1,72 +1,32 @@
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
-import { BashResultRenderer } from "@/components/agent/tool-result-renderers/bash-result";
-import { DefaultToolResultRenderer, DefaultToolUseRenderer } from "@/components/agent/tool-result-renderers/default-result";
-import { FileToolResultRenderer, FileToolUseRenderer, isFileTool } from "@/components/agent/tool-result-renderers/file-result";
-import { RagSearchResultRenderer } from "@/components/agent/tool-result-renderers/rag-search-result";
-import { isSkillTool, SkillResultRenderer } from "@/components/agent/tool-result-renderers/skill-result";
-import { isWebTool, WebResultRenderer } from "@/components/agent/tool-result-renderers/web-result";
+import { BashResultDetails } from "@/components/agent/tool-result-renderers/bash-result";
+import { BrevynDataResultDetails, isBrevynDataTool } from "@/components/agent/tool-result-renderers/brevyn-data-result";
+import { DefaultToolDetails } from "@/components/agent/tool-result-renderers/default-result";
+import { FileToolDetails, isFileTool } from "@/components/agent/tool-result-renderers/file-result";
+import { RagSearchResultDetails } from "@/components/agent/tool-result-renderers/rag-search-result";
+import { ReadResultDetails } from "@/components/agent/tool-result-renderers/read-result";
+import { isSearchTool, SearchResultDetails } from "@/components/agent/tool-result-renderers/search-result";
+import { isSkillTool, SkillResultDetails } from "@/components/agent/tool-result-renderers/skill-result";
+import { isTodoTool, TodoResultDetails } from "@/components/agent/tool-result-renderers/todo-result";
+import { isWebTool, WebResultDetails } from "@/components/agent/tool-result-renderers/web-result";
 
-export function renderToolUse({
+export function renderToolDetails({
   toolUse,
   result,
-  collapsed,
-  onToggleCollapsed,
   helpers,
 }: {
   toolUse: ToolUseBlock;
   result?: ToolResultBlock;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
   helpers: ToolCardHelpers;
 }) {
-  if (toolUse.name === "mcp__brevyn__rag_search") {
-    return <RagSearchResultRenderer toolUse={toolUse} result={result} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (isSkillTool(toolUse.name)) {
-    return <SkillResultRenderer toolUse={toolUse} result={result} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (isWebTool(toolUse.name)) {
-    return <WebResultRenderer toolUse={toolUse} result={result} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (toolUse.name === "Bash") {
-    return <BashResultRenderer toolUse={toolUse} result={result} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (isFileTool(toolUse.name)) {
-    return <FileToolUseRenderer toolUse={toolUse} result={result} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  return <DefaultToolUseRenderer toolUse={toolUse} result={result} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-}
-
-export function renderToolResult({
-  tool,
-  toolUse,
-  collapsed,
-  onToggleCollapsed,
-  helpers,
-}: {
-  tool: ToolResultBlock;
-  toolUse?: ToolUseBlock;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
-  helpers: ToolCardHelpers;
-}) {
-  if (!toolUse) {
-    return <DefaultToolResultRenderer tool={tool} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (toolUse.name === "mcp__brevyn__rag_search") {
-    return <RagSearchResultRenderer toolUse={toolUse} result={tool} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (isSkillTool(toolUse.name)) {
-    return <SkillResultRenderer toolUse={toolUse} result={tool} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (isWebTool(toolUse.name)) {
-    return <WebResultRenderer toolUse={toolUse} result={tool} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (toolUse.name === "Bash") {
-    return <BashResultRenderer toolUse={toolUse} result={tool} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  if (isFileTool(toolUse.name)) {
-    return <FileToolResultRenderer tool={tool} toolUse={toolUse} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
-  }
-  return <DefaultToolResultRenderer tool={tool} toolUse={toolUse} collapsed={collapsed} onToggleCollapsed={onToggleCollapsed} {...helpers} />;
+  if (toolUse.name === "Bash") return <BashResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (toolUse.name === "Read") return <ReadResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isFileTool(toolUse.name)) return <FileToolDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (toolUse.name === "mcp__brevyn__rag_search") return <RagSearchResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isBrevynDataTool(toolUse.name)) return <BrevynDataResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isSkillTool(toolUse.name)) return <SkillResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isTodoTool(toolUse.name)) return <TodoResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isSearchTool(toolUse.name)) return <SearchResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isWebTool(toolUse.name)) return <WebResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  return <DefaultToolDetails toolUse={toolUse} result={result} {...helpers} />;
 }

@@ -1,5 +1,6 @@
 import type { ToolCardHelpers } from "./types";
 import { PreviewBlock, PreviewPill } from "./shared";
+import { formatUnknown, getToolDiffHunks, getToolDiffStats, recordObject, stringValue, type DiffRow } from "@/components/agent/tool-cards/toolModel";
 
 export function ToolInputPreview({
   toolName,
@@ -11,12 +12,12 @@ export function ToolInputPreview({
   input: unknown;
   compact?: boolean;
 } & ToolCardHelpers) {
-  const data = helpers.recordObject(input);
-  const path = helpers.stringValue(data.file_path ?? data.path, "");
-  const command = helpers.stringValue(data.command, "");
-  const url = helpers.stringValue(data.url, "");
-  const query = helpers.stringValue(data.query, "");
-  const pattern = helpers.stringValue(data.pattern, "");
+  const data = recordObject(input);
+  const path = stringValue(data.file_path ?? data.path, "");
+  const command = stringValue(data.command, "");
+  const url = stringValue(data.url, "");
+  const query = stringValue(data.query, "");
+  const pattern = stringValue(data.pattern, "");
   const content = data.content ?? data.new_string ?? data.new_text ?? data.edits ?? data.todos ?? input;
 
   if (toolName === "Bash" && command) {
@@ -26,7 +27,7 @@ export function ToolInputPreview({
   }
 
   if ((toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") && path) {
-    const diff = diffStats(toolName, data);
+    const diff = getToolDiffStats(toolName, data);
     return (
       <div className="mt-2">
         <div className="flex min-w-0 items-center justify-between gap-3 rounded-t-xl border border-b-0 border-border/70 bg-muted/35 px-3 py-2 text-xs">
@@ -35,7 +36,7 @@ export function ToolInputPreview({
           </span>
           {diff && <DiffStatsText additions={diff.additions} deletions={diff.deletions} />}
         </div>
-        <EditDiffPreview toolName={toolName} input={data} fallback={helpers.formatUnknown(content)} truncatePreview={helpers.truncatePreview} />
+        <EditDiffPreview toolName={toolName} input={data} fallback={formatUnknown(content)} truncatePreview={helpers.truncatePreview} />
       </div>
     );
   }
@@ -57,13 +58,7 @@ export function ToolInputPreview({
     return <PreviewPill label="Query" value={query} />;
   }
 
-  return <PreviewBlock label="Input" value={helpers.formatUnknown(input)} compact={compact} truncatePreview={helpers.truncatePreview} />;
-}
-
-interface DiffRow {
-  type: "added" | "removed" | "context";
-  lineNumber: number;
-  text: string;
+  return <PreviewBlock label="Input" value={formatUnknown(input)} compact={compact} truncatePreview={helpers.truncatePreview} />;
 }
 
 function DiffStatsText({ additions, deletions }: { additions: number; deletions: number }) {
@@ -86,7 +81,7 @@ function EditDiffPreview({
   fallback: string;
   truncatePreview: (value: string) => string;
 }) {
-  const hunks = diffHunks(toolName, input);
+  const hunks = getToolDiffHunks(toolName, input);
   if (hunks.length === 0) {
     return <PreviewBlock label={toolName === "Write" ? "Content" : "Change"} value={fallback} compact truncatePreview={truncatePreview} />;
   }
@@ -127,71 +122,7 @@ function DiffLine({ row }: { row: DiffRow }) {
   );
 }
 
-function diffHunks(toolName: string, input: Record<string, unknown>): Array<{ id: string; rows: DiffRow[] }> {
-  if (toolName === "Write") {
-    const content = typeof input.content === "string" ? input.content : "";
-    return content ? [{ id: "write", rows: rowsFromText(content, "added", 1) }] : [];
-  }
-  if (toolName === "Edit") {
-    const rows = editRows(input);
-    return rows.length > 0 ? [{ id: "edit", rows }] : [];
-  }
-  if (toolName === "MultiEdit") {
-    const edits = Array.isArray(input.edits) ? input.edits : [];
-    return edits
-      .map((edit, index) => ({ id: `edit-${index}`, rows: editRows(recordObject(edit)) }))
-      .filter((hunk) => hunk.rows.length > 0);
-  }
-  return [];
-}
-
-function diffStats(toolName: string, input: Record<string, unknown>): { additions: number; deletions: number } | null {
-  const hunks = diffHunks(toolName, input);
-  if (hunks.length === 0) return null;
-  let additions = 0;
-  let deletions = 0;
-  for (const hunk of hunks) {
-    additions += hunk.rows.filter((row) => row.type === "added").length;
-    deletions += hunk.rows.filter((row) => row.type === "removed").length;
-  }
-  return additions > 0 || deletions > 0 ? { additions, deletions } : null;
-}
-
 function fileName(path: string): string {
   const normalized = path.trim().replace(/\\/g, "/");
   return normalized.split("/").filter(Boolean).at(-1) || path;
-}
-
-function editRows(input: Record<string, unknown>): DiffRow[] {
-  const oldString = typeof input.old_string === "string" ? input.old_string : "";
-  const newString = typeof input.new_string === "string" ? input.new_string : "";
-  const startLine = numericValue(input.line_number ?? input.start_line ?? input.startLine) ?? 1;
-  return [
-    ...rowsFromText(oldString, "removed", startLine),
-    ...rowsFromText(newString, "added", startLine),
-  ];
-}
-
-function rowsFromText(value: string, type: DiffRow["type"], startLine: number): DiffRow[] {
-  if (!value) return [];
-  const lines = value.split("\n");
-  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-  return lines.map((line, index) => ({
-    type,
-    lineNumber: startLine + index,
-    text: line,
-  }));
-}
-
-function numericValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(1, Math.floor(value));
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.max(1, Math.floor(parsed));
-  }
-  return null;
-}
-
-function recordObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

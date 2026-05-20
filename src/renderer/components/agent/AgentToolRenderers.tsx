@@ -4,18 +4,14 @@ import { ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCard
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { FilePathChip } from "@/components/chat/FilePathChip";
 import type { ToolResultBlock, ToolUseBlock } from "@/components/agent/agentTimelineModel";
+import { truncatePreview } from "@/components/agent/agentTimelineModel";
 import {
   formatDiffStats,
-  formatToolResultContent,
-  formatUnknown,
+  getToolDiffStats,
+  getToolTitle,
   recordObject,
-  singleLine,
   stringValue,
-  toolDiffStats,
-  toolResultSummary,
-  toolTitle,
-  truncatePreview,
-} from "@/components/agent/agentTimelineModel";
+} from "@/components/agent/tool-cards/toolModel";
 
 export function ToolUseCard({
   block,
@@ -34,15 +30,7 @@ export function ToolUseCard({
       result={result}
       collapsed={collapsed}
       onToggleCollapsed={onToggleCollapsed}
-      formatToolResultContent={formatToolResultContent}
-      formatUnknown={formatUnknown}
-      recordObject={recordObject}
-      stringValue={stringValue}
-      toolResultSummary={toolResultSummary}
-      toolTitle={toolTitle}
-      renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} isError={options?.isError} />}
       truncatePreview={truncatePreview}
-      singleLine={singleLine}
       renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
     />
   );
@@ -52,21 +40,24 @@ export function ToolTitle({ toolName, input, isError = false }: { toolName: stri
   const threadId = useContext(AgentThreadIdContext);
   const data = recordObject(input);
   const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
-  const diff = toolDiffStats(toolName, input);
+  const diff = getToolDiffStats(toolName, input);
   const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
 
-  if (path && (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
-    const action = toolName === "Read" ? "读取" : "编辑";
+  if (toolName === "Read") {
+    return <span>读取</span>;
+  }
+
+  if (path && (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
     return (
       <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
-        <span className="shrink-0">{action}</span>
+        <span className="shrink-0">编辑</span>
         <FilePathChip filePath={path} threadId={threadId} />
         {diffLabel && <DiffStatsText value={diffLabel} />}
       </span>
     );
   }
 
-  return <span>{toolTitle(toolName, input)}</span>;
+  return <span>{getToolTitle(toolName, input)}</span>;
 }
 
 export function DiffStatsText({ value }: { value: string }) {

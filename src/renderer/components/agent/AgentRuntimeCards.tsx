@@ -6,16 +6,10 @@ import { ToolGlyph, ToolTitle } from "@/components/agent/AgentToolRenderers";
 import {
   answerKey,
   defaultQuestionAnswers,
-  formatToolResultContent,
-  formatUnknown,
   nextQuestionAnswer,
-  recordObject,
-  singleLine,
-  stringValue,
-  toolResultSummary,
-  toolTitle,
   truncatePreview,
 } from "@/components/agent/agentTimelineModel";
+import { getToolTitle } from "@/components/agent/tool-cards/toolModel";
 
 export function ApprovalCard({
   request,
@@ -51,7 +45,7 @@ export function ApprovalCard({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">
-            {request.title || request.displayName || toolTitle(request.toolName, request.input)}
+            {request.title || request.displayName || getToolTitle(request.toolName, request.input)}
           </p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {request.description || "Brevyn needs your approval before running this tool."}
@@ -66,15 +60,7 @@ export function ApprovalCard({
             <ToolInputPreview
               toolName={request.toolName}
               input={request.input}
-              formatToolResultContent={formatToolResultContent}
-              formatUnknown={formatUnknown}
-              recordObject={recordObject}
-              stringValue={stringValue}
-              toolResultSummary={toolResultSummary}
-              toolTitle={toolTitle}
-              renderToolTitle={(toolName, input, options) => <ToolTitle toolName={toolName} input={input} isError={options?.isError} />}
               truncatePreview={truncatePreview}
-              singleLine={singleLine}
               renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
             />
           </div>

@@ -1,48 +1,26 @@
-import { GenericToolResultCard, GenericToolUseCard } from "@/components/agent/tool-cards/GenericToolCard";
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
+import { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
+import { ToolCodeBlock, ToolDetailsShell } from "@/components/agent/tool-cards/shared";
+import { getToolResultText } from "@/components/agent/tool-cards/toolModel";
 
-export function DefaultToolUseRenderer({
+export function DefaultToolDetails({
   toolUse,
   result,
-  collapsed,
-  onToggleCollapsed,
   ...helpers
 }: {
   toolUse: ToolUseBlock;
   result?: ToolResultBlock;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
 } & ToolCardHelpers) {
   return (
-    <GenericToolUseCard
-      block={toolUse}
-      result={result}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
-      {...helpers}
-    />
-  );
-}
-
-export function DefaultToolResultRenderer({
-  tool,
-  toolUse,
-  collapsed,
-  onToggleCollapsed,
-  ...helpers
-}: {
-  tool: ToolResultBlock;
-  toolUse?: ToolUseBlock;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
-} & ToolCardHelpers) {
-  return (
-    <GenericToolResultCard
-      tool={tool}
-      toolUse={toolUse}
-      collapsed={collapsed}
-      onToggleCollapsed={onToggleCollapsed}
-      {...helpers}
-    />
+    <>
+      <ToolInputPreview toolName={toolUse.name} input={toolUse.input} compact {...helpers} />
+      {result && (
+        <ToolDetailsShell className="mt-2">
+          <ToolCodeBlock maxHeight="max-h-44" className="text-[11px] leading-5">
+            {getToolResultText(result)}
+          </ToolCodeBlock>
+        </ToolDetailsShell>
+      )}
+    </>
   );
 }
