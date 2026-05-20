@@ -265,6 +265,7 @@ export interface OpenPathOption {
   label: string;
   kind: "default" | "finder" | "terminal" | "application";
   appPath?: string;
+  iconDataUrl?: string;
 }
 
 export interface SpreadsheetPreviewSheet {
@@ -715,7 +716,7 @@ export interface ProviderTestResult {
   message: string;
 }
 
-export type AgentPermissionMode = "review" | "full_access";
+export type AgentPermissionMode = "auto" | "bypassPermissions" | "plan";
 
 export interface AgentAttachment {
   id: string;
@@ -740,7 +741,6 @@ export interface AgentRunInput {
   threadId: string;
   prompt: string;
   uuid?: string;
-  mode?: "execute" | "plan";
   permissionMode?: AgentPermissionMode;
   providerId?: string;
   modelId?: string;

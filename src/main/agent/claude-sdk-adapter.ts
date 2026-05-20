@@ -22,6 +22,7 @@ export interface ClaudeSdkRunInput {
   onQuery?: (query: Query) => void;
   permissionMode?: PermissionMode;
   planModeInstructions?: string;
+  allowDangerouslySkipPermissions?: boolean;
   betas?: SdkBeta[];
 }
 
@@ -78,7 +79,7 @@ export class ClaudeSdkAdapter {
         // assistant text progressively. The orchestrator emits them without
         // persisting, so JSONL timelines stay compact on replay.
         includePartialMessages: true,
-        tools: ["Read", "Glob", "Grep", "TodoRead", "TodoWrite", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "Write", "Edit", "MultiEdit", "Bash", "WebFetch", "WebSearch"],
+        tools: ["Read", "Glob", "Grep", "TodoRead", "TodoWrite", "TaskCreate", "TaskGet", "TaskUpdate", "TaskList", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "Write", "Edit", "MultiEdit", "Bash", "WebFetch", "WebSearch"],
         allowedTools: [
           "Read",
           "Glob",
@@ -87,6 +88,10 @@ export class ClaudeSdkAdapter {
           "WebSearch",
           "TodoRead",
           "TodoWrite",
+          "TaskCreate",
+          "TaskGet",
+          "TaskUpdate",
+          "TaskList",
           "mcp__brevyn__load_skill",
           "mcp__brevyn__read_skill_resource",
           "mcp__brevyn__course_structure",
@@ -96,6 +101,7 @@ export class ClaudeSdkAdapter {
         ],
         disallowedTools: ["NotebookEdit", "Task"],
         permissionMode: input.permissionMode || "default",
+        ...(input.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {}),
         ...(input.planModeInstructions ? { planModeInstructions: input.planModeInstructions } : {}),
         ...(input.betas && input.betas.length > 0 ? { betas: input.betas } : {}),
         canUseTool: input.canUseTool || safeToolPolicy,
@@ -223,6 +229,10 @@ const SAFE_TOOLS = new Set([
   "TodoRead",
   "TodoWrite",
   "TaskOutput",
+  "TaskCreate",
+  "TaskGet",
+  "TaskUpdate",
+  "TaskList",
   "mcp__brevyn__load_skill",
   "mcp__brevyn__read_skill_resource",
   "mcp__brevyn__course_structure",

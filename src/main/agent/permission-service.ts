@@ -24,7 +24,7 @@ export class PermissionService {
         return deny("Agent run was stopped.", options.toolUseID);
       }
 
-      if (input.mode === "full_access" && !isAlwaysReviewTool(toolName, toolInput)) {
+      if (input.mode === "bypassPermissions") {
         return {
           behavior: "allow",
           updatedInput: toolInput,
@@ -110,6 +110,10 @@ const SAFE_TOOLS = new Set([
   "TodoRead",
   "TodoWrite",
   "TaskOutput",
+  "TaskCreate",
+  "TaskGet",
+  "TaskUpdate",
+  "TaskList",
   "mcp__brevyn__load_skill",
   "mcp__brevyn__read_skill_resource",
   "mcp__brevyn__course_structure",
@@ -177,10 +181,6 @@ function isAutoAllowedTool(toolName: string, toolInput: Record<string, unknown>)
   return false;
 }
 
-function isAlwaysReviewTool(toolName: string, toolInput: Record<string, unknown>): boolean {
-  return toolName === "Bash" && riskLevelForTool(toolName, toolInput) === "dangerous";
-}
-
 function isSafeBashCommand(command: string): boolean {
   const trimmed = command.trim();
   if (!trimmed) return false;
@@ -214,13 +214,13 @@ function riskLevelForTool(toolName: string, toolInput: Record<string, unknown>):
 function titleForTool(toolName: string, toolInput: Record<string, unknown>, fallback?: string): string {
   if (toolName === "Bash") {
     return riskLevelForTool(toolName, toolInput) === "dangerous"
-      ? "Review dangerous shell command"
-      : "Review shell command";
+      ? "确认高风险命令"
+      : "确认命令";
   }
-  if (toolName === "Write") return "Review file creation";
-  if (toolName === "Edit" || toolName === "MultiEdit") return "Review file edit";
-  if (toolName === "NotebookEdit") return "Review notebook edit";
-  return fallback || `Review ${toolName}`;
+  if (toolName === "Write") return "确认文件创建";
+  if (toolName === "Edit" || toolName === "MultiEdit") return "确认文件编辑";
+  if (toolName === "NotebookEdit") return "确认 Notebook 编辑";
+  return fallback || `确认 ${toolName}`;
 }
 
 function descriptionForTool(toolName: string, toolInput: Record<string, unknown>, fallback?: string): string {

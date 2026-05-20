@@ -109,6 +109,7 @@ export type AgentTimelineDisplayKind =
   | "user-message"
   | "prompt-too-long"
   | "provider-error"
+  | "permission-denied"
   | "run-retrying"
   | "assistant-final";
 
@@ -118,7 +119,7 @@ export interface UseAgentTimelinePanelStateArgs {
   running: boolean;
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
 }
 
 export function useAgentTimelineState({
@@ -243,7 +244,7 @@ export function useAgentTimelineState({
     if (effectiveRunning || effectiveCompacting) return;
     setCompactInFlightAfterCount(records.length);
     try {
-      await onRun("/compact", "execute", "review", undefined, activeProviderSelection);
+      await onRun("/compact", "auto", undefined, activeProviderSelection);
     } catch (compactError) {
       setCompactInFlightAfterCount(null);
       console.error("[AgentThreadPanel] Failed to compact context:", compactError);
@@ -1179,6 +1180,7 @@ function timelineItemDisplay(
     const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
     if (subtype === "compacting") return { kind: "compact-compacting" };
     if (subtype === "compact_boundary") return { kind: "compact-complete" };
+    if (subtype === "permission_denied") return { kind: "permission-denied" };
   }
 
   return { kind: "hidden" };

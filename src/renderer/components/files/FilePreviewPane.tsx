@@ -1,6 +1,6 @@
-import { ChevronRight, Eye, ExternalLink, FileSearch, FolderOpen, Maximize2, Minimize2 } from "lucide-react";
+import { Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Presentation, Table2, Type } from "lucide-react";
 import type { FilePreview, OpenPathOption } from "@/types/domain";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "./FileTypeIcon";
 
@@ -101,7 +101,7 @@ export function FilePreviewPane({
 
         {preview.kind === "markdown" && preview.content && (
           <div className="rounded-lg border bg-background px-3 py-3 text-[12px] leading-6 text-foreground">
-            <Markdownish content={preview.content} />
+            <Markdownish content={preview.content} preserveSoftBreaks />
           </div>
         )}
 
@@ -179,7 +179,14 @@ function OpenPreviewFileMenu({ preview }: { preview: FilePreview }) {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<OpenPathOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
   const sourcePath = preview.sourcePath || "";
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   async function ensureOptions() {
     if (!sourcePath || loading || options.length > 0) return;
@@ -194,38 +201,54 @@ function OpenPreviewFileMenu({ preview }: { preview: FilePreview }) {
   }
 
   function showMenu() {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     setOpen(true);
     void ensureOptions();
   }
 
-  function hideMenu() {
-    window.setTimeout(() => setOpen(false), 120);
+  function hideMenuSoon() {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, 360);
+  }
+
+  function closeMenu() {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setOpen(false);
   }
 
   async function revealInFinder() {
     if (!sourcePath) return;
     await window.brevyn.app.revealPath(sourcePath);
-    setOpen(false);
+    closeMenu();
   }
 
   async function openWith(option: OpenPathOption) {
     if (!sourcePath) return;
     await window.brevyn.app.openPathWith({ path: sourcePath, optionId: option.id, appPath: option.appPath });
-    setOpen(false);
+    closeMenu();
   }
 
   return (
-    <div className="relative shrink-0" onMouseEnter={showMenu} onMouseLeave={hideMenu}>
+    <div className="relative shrink-0" onMouseEnter={showMenu} onMouseLeave={hideMenuSoon} onFocus={showMenu} onBlur={hideMenuSoon}>
       <button
         type="button"
         className="flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-        onClick={() => (open ? setOpen(false) : showMenu())}
+        onClick={() => (open ? closeMenu() : showMenu())}
         title="打开方式"
       >
         <ExternalLink className="h-3.5 w-3.5" />
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-50 w-56 overflow-hidden rounded-xl border bg-popover/98 p-1 text-[12px] text-popover-foreground shadow-xl ring-1 ring-black/5 backdrop-blur">
+        <div className="absolute right-0 top-7 z-50 w-56 overflow-hidden rounded-xl border bg-popover/98 p-1 text-[12px] text-popover-foreground shadow-xl ring-1 ring-black/5 backdrop-blur" onMouseEnter={showMenu} onMouseLeave={hideMenuSoon}>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left font-medium transition hover:bg-accent"
@@ -246,7 +269,6 @@ function OpenPreviewFileMenu({ preview }: { preview: FilePreview }) {
             >
               <OpenPathOptionIcon option={option} />
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              {option.kind === "default" && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/70" />}
             </button>
           ))}
           {!loading && options.length === 0 && <div className="px-2.5 py-2 text-muted-foreground">没有找到可用应用。</div>}
@@ -257,10 +279,16 @@ function OpenPreviewFileMenu({ preview }: { preview: FilePreview }) {
 }
 
 function OpenPathOptionIcon({ option }: { option: OpenPathOption }) {
-  if (option.kind === "finder") return <FolderOpen className="h-3.5 w-3.5 text-blue-500" />;
-  if (option.kind === "terminal") return <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] bg-stone-800 text-[9px] font-bold text-white">›</span>;
-  if (option.kind === "default") return <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[4px] bg-muted text-[9px]">↗</span>;
-  return <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[4px] bg-blue-500/12 text-[9px] text-blue-500">A</span>;
+  if (option.iconDataUrl) {
+    return <img className="h-4 w-4 rounded-[4px]" src={option.iconDataUrl} alt="" aria-hidden="true" />;
+  }
+  const label = option.label.toLowerCase();
+  if (label.includes("cursor") || label.includes("code") || label.includes("xcode")) return <Code2 className="h-3.5 w-3.5 text-sky-500" />;
+  if (label.includes("preview")) return <ImageIcon className="h-3.5 w-3.5 text-blue-500" />;
+  if (label.includes("powerpoint") || label.includes("keynote")) return <Presentation className="h-3.5 w-3.5 text-orange-500" />;
+  if (label.includes("excel") || label.includes("numbers")) return <Table2 className="h-3.5 w-3.5 text-emerald-600" />;
+  if (label.includes("word") || label.includes("pages")) return <Type className="h-3.5 w-3.5 text-blue-600" />;
+  return <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
 function SpreadsheetPreview({

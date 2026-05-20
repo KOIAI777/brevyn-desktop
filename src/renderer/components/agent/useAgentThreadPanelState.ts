@@ -15,7 +15,6 @@ export interface AgentThreadPanelState {
   timelineBottomInset: number;
   isFollowingOutput: boolean;
   nowMs: number;
-  planMode: boolean;
   permissionMode: AgentPermissionMode;
   timelineRecords: AgentTimelineRecord[];
   timelineGroups: ReturnType<typeof useAgentTimelineState>["timelineGroups"];
@@ -27,7 +26,6 @@ export interface AgentThreadPanelState {
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
   autoCompactThresholdPercent: number;
-  setPlanMode: (value: boolean | ((current: boolean) => boolean)) => void;
   setPermissionMode: (mode: AgentPermissionMode) => void;
   handleCompact: () => Promise<void>;
   queueMessage: (message: QueuedAgentMessage) => void;
@@ -45,7 +43,7 @@ interface UseAgentThreadPanelStateArgs {
   error?: string;
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
 }
 
 export function useAgentThreadPanelState({

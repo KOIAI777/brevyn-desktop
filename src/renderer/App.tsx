@@ -1,6 +1,6 @@
 import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
 import { useRef } from "react";
-import type { AgentAttachment } from "@/types/domain";
+import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { CourseFilesUploadDialog } from "@/components/files/CourseFilesUploadDialog";
@@ -53,8 +53,8 @@ function App() {
   fileStateRef.current = fileState;
   agentSessionRef.current = agentSession;
 
-  async function runAgent(prompt: string, mode: "execute" | "plan" = "execute", permissionMode: "review" | "full_access" = "review", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }): Promise<void> {
-    await agentSession.run(prompt, mode, permissionMode, attachments, providerSelection);
+  async function runAgent(prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }): Promise<void> {
+    await agentSession.run(prompt, permissionMode, attachments, providerSelection);
   }
 
   async function stopAgent(): Promise<void> {

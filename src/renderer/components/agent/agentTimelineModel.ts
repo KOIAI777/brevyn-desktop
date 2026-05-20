@@ -140,7 +140,7 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
 
     if (message.type === "system") {
       const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
-      if (subtype === "compact_boundary" || subtype === "compacting") {
+      if (subtype === "compact_boundary" || subtype === "compacting" || subtype === "permission_denied") {
         flushTurn();
         groups.push({ type: "system", record: message, index });
       } else if (currentTurn) {
@@ -389,7 +389,7 @@ export function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentT
 function isHiddenSystemRecord(record: BrevynAgentTimelineRecord): boolean {
   if (isRuntimeRecord(record) || (record as SDKMessage).type !== "system") return false;
   const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
-  return subtype !== "compacting" && subtype !== "compact_boundary";
+  return subtype !== "compacting" && subtype !== "compact_boundary" && subtype !== "permission_denied";
 }
 
 export function streamTextDelta(record: BrevynAgentTimelineRecord): string {

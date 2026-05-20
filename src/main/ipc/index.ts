@@ -11,8 +11,12 @@ import { registerTimetableIpc } from "./timetable-ipc";
 import { registerUpdaterIpc } from "./updater-ipc";
 import { registerVisionIpc } from "./vision-ipc";
 import { registerWorkspaceIpc } from "./workspace-ipc";
+import { createOpenWithService } from "../services/open-with-service";
 
 export function registerIpcHandlers(ctx: IpcContext): void {
+  if (!ctx.openWithService) {
+    ctx.openWithService = createOpenWithService();
+  }
   registerWorkspaceIpc(ctx);
   registerFilesIpc(ctx);
   registerIndexingIpc(ctx);

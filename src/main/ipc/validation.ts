@@ -5,6 +5,7 @@ import type {
   AgentAskUserResponseInput,
   AgentApprovalInput,
   AgentExitPlanResponseInput,
+  AgentPermissionMode,
   AgentQueueMessageInput,
   AgentRunInput,
   CourseIconKey,
@@ -202,12 +203,16 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
     threadId: requireString(input.threadId, "Thread id"),
     prompt: requireString(input.prompt, "Prompt"),
     uuid: optionalString(input.uuid),
-    mode: input.mode === "plan" ? "plan" : "execute",
-    permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
+    permissionMode: normalizeAgentPermissionMode(input.permissionMode),
     providerId: optionalString(input.providerId),
     modelId: optionalString(input.modelId),
     attachments: normalizeAgentAttachments(input.attachments),
   };
+}
+
+function normalizeAgentPermissionMode(value: unknown): AgentPermissionMode {
+  if (value === "bypassPermissions" || value === "plan" || value === "auto") return value;
+  return "auto";
 }
 
 export function normalizeAgentQueueMessageInput(value: unknown): AgentQueueMessageInput {

@@ -100,8 +100,7 @@ export function useAgentSessionController({
 
   const run = useCallback(async (
     prompt: string,
-    mode: "execute" | "plan" = "execute",
-    permissionMode: AgentPermissionMode = "review",
+    permissionMode: AgentPermissionMode = "auto",
     attachments?: AgentAttachment[],
     providerSelection?: AgentProviderSelection,
   ): Promise<void> => {
@@ -119,7 +118,6 @@ export function useAgentSessionController({
         threadId,
         prompt,
         uuid: userMessageId,
-        mode,
         permissionMode,
         attachments,
         providerId: providerSelection?.providerId,

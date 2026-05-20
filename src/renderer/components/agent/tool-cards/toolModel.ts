@@ -28,6 +28,16 @@ export interface WebSearchLink {
   url: string;
 }
 
+export interface AgentTaskSummary {
+  id: string;
+  subject: string;
+  description?: string;
+  status?: string;
+  owner?: string;
+  blocks?: string[];
+  blockedBy?: string[];
+}
+
 export interface ToolDiffStats {
   additions: number;
   deletions: number;
@@ -99,6 +109,7 @@ export function getToolSuccessSummary(toolUse: ToolUseBlock, result?: ToolResult
   if (toolUse.name === "Glob" || toolUse.name === "Grep") return `${countResultRows(getToolResultText(result))} 条结果`;
   if (toolUse.name === "WebSearch") return `${webSearchResultCount(result)} 个结果`;
   if (toolUse.name === "TodoRead" || toolUse.name === "TodoWrite") return todoStatus(toolUse, result);
+  if (isTaskTool(toolUse.name)) return taskStatus(toolUse.name, result);
   return getToolResultSummary(result);
 }
 
@@ -110,6 +121,9 @@ export function getToolTarget(toolName: string, input: unknown): string {
   if (toolName === "WebFetch") return stringValue(data.url, "URL");
   if (toolName === "WebSearch") return singleLine(webSearchQueryFromInput(data) || "query");
   if (toolName === "TodoRead" || toolName === "TodoWrite") return "";
+  if (toolName === "TaskCreate") return singleLine(stringValue(data.subject, "task"));
+  if (toolName === "TaskGet" || toolName === "TaskUpdate") return singleLine(stringValue(data.subject ?? data.taskId, "task"));
+  if (toolName === "TaskList") return "";
   if (toolName === "mcp__brevyn__load_skill") return skillNameFromId(stringValue(data.skillId, "skill"));
   if (toolName === "mcp__brevyn__read_skill_resource") return singleLine(stringValue(data.relativePath, "resource"));
   if (toolName === "mcp__brevyn__rag_search") return singleLine(stringValue(data.query, "query"));
@@ -194,6 +208,32 @@ export function getReadFileResult(result?: ToolResultBlock): ReadFileResult | nu
   };
 }
 
+export function isTaskTool(toolName: string): boolean {
+  return toolName === "TaskCreate" || toolName === "TaskGet" || toolName === "TaskUpdate" || toolName === "TaskList";
+}
+
+export function getTaskFromResult(result?: ToolResultBlock): AgentTaskSummary | null {
+  const parsed = recordObject(getParsedToolResult(result));
+  const task = recordObject(parsed.task);
+  if (!task.id && !task.subject) return null;
+  return taskSummary(task);
+}
+
+export function getTasksFromResult(result?: ToolResultBlock): AgentTaskSummary[] {
+  const parsed = recordObject(getParsedToolResult(result));
+  const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+  return tasks.map((task) => taskSummary(recordObject(task))).filter((task) => task.id || task.subject);
+}
+
+export function taskStatusLabel(status: string | undefined): string {
+  if (status === "in_progress" || status === "running") return "进行中";
+  if (status === "completed") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "killed" || status === "stopped") return "已停止";
+  if (status === "deleted") return "已删除";
+  return "待处理";
+}
+
 export function formatToolResultContent(value: unknown): string {
   if (typeof value === "string") return cleanToolResultContent(value);
   if (Array.isArray(value)) {
@@ -246,6 +286,10 @@ function getToolDescriptor(toolName: string): { neutral: string; running: string
   if (toolName === "WebSearch") return { neutral: "搜索网络", running: "正在搜索网络", done: "已搜索网络", failed: "网络搜索失败" };
   if (toolName === "TodoRead") return { neutral: "读取任务", running: "正在读取任务", done: "已读取任务", failed: "任务读取失败" };
   if (toolName === "TodoWrite") return { neutral: "更新任务", running: "正在更新任务", done: "已更新任务", failed: "任务更新失败" };
+  if (toolName === "TaskCreate") return { neutral: "创建任务", running: "正在创建任务", done: "已创建任务", failed: "任务创建失败" };
+  if (toolName === "TaskGet") return { neutral: "读取任务", running: "正在读取任务", done: "已读取任务", failed: "任务读取失败" };
+  if (toolName === "TaskUpdate") return { neutral: "更新任务", running: "正在更新任务", done: "已更新任务", failed: "任务更新失败" };
+  if (toolName === "TaskList") return { neutral: "读取任务列表", running: "正在读取任务列表", done: "已读取任务列表", failed: "任务列表读取失败" };
   if (toolName === "mcp__brevyn__load_skill") return { neutral: "加载技能", running: "正在加载技能", done: "已加载技能", failed: "技能加载失败" };
   if (toolName === "mcp__brevyn__read_skill_resource") return { neutral: "读取技能资源", running: "正在读取技能资源", done: "已读取技能资源", failed: "技能资源读取失败" };
   if (toolName === "mcp__brevyn__course_structure") return { neutral: "读取课程结构", running: "正在读取课程结构", done: "已读取课程结构", failed: "课程结构读取失败" };
@@ -345,6 +389,44 @@ function todoStatus(toolUse: ToolUseBlock, result: ToolResultBlock): string {
 function todoItems(value: unknown): Array<{ status: string }> {
   const items = Array.isArray(value) ? value : [];
   return items.map((item) => ({ status: stringValue(recordObject(item).status, "pending") }));
+}
+
+function taskStatus(toolName: string, result: ToolResultBlock): string {
+  if (toolName === "TaskCreate") {
+    const task = getTaskFromResult(result);
+    return task?.subject ? task.subject : "已创建";
+  }
+  if (toolName === "TaskGet") {
+    const task = getTaskFromResult(result);
+    return task ? `${taskStatusLabel(task.status)} · ${task.subject || task.id}` : "未找到任务";
+  }
+  if (toolName === "TaskUpdate") {
+    const parsed = recordObject(getParsedToolResult(result));
+    const fields = Array.isArray(parsed.updatedFields) ? parsed.updatedFields.length : 0;
+    const change = recordObject(parsed.statusChange);
+    const status = stringValue(change.to, "");
+    if (status) return `${taskStatusLabel(status)} · ${fields} 项更新`;
+    return fields > 0 ? `${fields} 项更新` : stringValue(parsed.error, "已更新");
+  }
+  const tasks = getTasksFromResult(result);
+  const completed = tasks.filter((task) => task.status === "completed").length;
+  return `${tasks.length} 个任务${tasks.length > 0 ? ` · ${completed} 完成` : ""}`;
+}
+
+function taskSummary(task: Record<string, unknown>): AgentTaskSummary {
+  return {
+    id: stringValue(task.id, ""),
+    subject: stringValue(task.subject ?? task.title, ""),
+    description: stringValue(task.description, "") || undefined,
+    status: stringValue(task.status, "") || undefined,
+    owner: stringValue(task.owner, "") || undefined,
+    blocks: stringArray(task.blocks),
+    blockedBy: stringArray(task.blockedBy ?? task.blocked_by),
+  };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.flatMap((item) => typeof item === "string" && item.trim() ? [item] : []) : [];
 }
 
 function safeJsonParse(value: string): unknown {

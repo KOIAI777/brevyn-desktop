@@ -7,6 +7,7 @@ import { RagSearchResultDetails } from "@/components/agent/tool-result-renderers
 import { ReadResultDetails } from "@/components/agent/tool-result-renderers/read-result";
 import { isSearchTool, SearchResultDetails } from "@/components/agent/tool-result-renderers/search-result";
 import { isSkillTool, SkillResultDetails } from "@/components/agent/tool-result-renderers/skill-result";
+import { isTaskTool, TaskResultDetails } from "@/components/agent/tool-result-renderers/task-result";
 import { isTodoTool, TodoResultDetails } from "@/components/agent/tool-result-renderers/todo-result";
 import { isWebTool, WebResultDetails } from "@/components/agent/tool-result-renderers/web-result";
 
@@ -25,6 +26,7 @@ export function renderToolDetails({
   if (toolUse.name === "mcp__brevyn__rag_search") return <RagSearchResultDetails toolUse={toolUse} result={result} {...helpers} />;
   if (isBrevynDataTool(toolUse.name)) return <BrevynDataResultDetails toolUse={toolUse} result={result} {...helpers} />;
   if (isSkillTool(toolUse.name)) return <SkillResultDetails toolUse={toolUse} result={result} {...helpers} />;
+  if (isTaskTool(toolUse.name)) return <TaskResultDetails toolUse={toolUse} result={result} {...helpers} />;
   if (isTodoTool(toolUse.name)) return <TodoResultDetails toolUse={toolUse} result={result} {...helpers} />;
   if (isSearchTool(toolUse.name)) return <SearchResultDetails toolUse={toolUse} result={result} {...helpers} />;
   if (isWebTool(toolUse.name)) return <WebResultDetails toolUse={toolUse} result={result} {...helpers} />;

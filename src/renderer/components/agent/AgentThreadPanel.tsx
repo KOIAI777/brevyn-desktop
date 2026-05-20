@@ -1,6 +1,6 @@
 import { memo, useContext, useEffect, useRef, useState, type ReactNode, type TransitionEvent } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { Check, ChevronDown, Copy, ListTodo, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
 import { AgentComposer } from "@/components/agent/AgentComposer";
@@ -26,7 +26,7 @@ interface AgentThreadPanelProps {
   loading: boolean;
   running: boolean;
   error?: string;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -65,7 +65,6 @@ export function AgentThreadPanel({
     composerDockRef,
     timelineBottomInset,
     isFollowingOutput,
-    planMode,
     permissionMode,
     timelineRecords,
     timelineGroups,
@@ -76,7 +75,6 @@ export function AgentThreadPanel({
     queuedMessages,
     sendingQueuedMessageIds,
     autoCompactThresholdPercent,
-    setPlanMode,
     setPermissionMode,
     handleCompact,
     queueMessage,
@@ -152,7 +150,6 @@ export function AgentThreadPanel({
         queuedMessages={queuedMessages}
         sendingQueuedMessageIds={sendingQueuedMessageIds}
         running={effectiveRunning}
-        planMode={planMode}
         permissionMode={permissionMode}
         contextUsage={contextUsage}
         autoCompactThresholdPercent={autoCompactThresholdPercent}
@@ -160,7 +157,6 @@ export function AgentThreadPanel({
         threadId={thread.id}
         agentProviders={agentProviders}
         activeProviderId={activeProviderId}
-        onSetPlanMode={setPlanMode}
         onSetPermissionMode={setPermissionMode}
         onRun={onRun}
         onQueueMessage={queueMessage}
@@ -319,7 +315,36 @@ function UserTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
 function SystemTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
   if (item.displayKind === "compact-compacting") return <CompactContextNote state="compacting" />;
   if (item.displayKind === "compact-complete") return <CompactContextNote state="complete" />;
+  if (item.displayKind === "permission-denied") return <PermissionDeniedNotice record={item.record as SDKMessage} />;
   return null;
+}
+
+function PermissionDeniedNotice({ record }: { record: SDKMessage }) {
+  const data = record as unknown as {
+    tool_name?: unknown;
+    message?: unknown;
+    decision_reason?: unknown;
+    decision_reason_type?: unknown;
+  };
+  const toolName = typeof data.tool_name === "string" && data.tool_name.trim() ? data.tool_name.trim() : "工具";
+  const message = typeof data.message === "string" && data.message.trim() ? data.message.trim() : "SDK 自动审批拒绝了这个操作。";
+  const reason = typeof data.decision_reason === "string" && data.decision_reason.trim() ? data.decision_reason.trim() : "";
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50/72 p-4 text-xs text-amber-950 shadow-sm ring-1 ring-white/45">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-background text-amber-700">
+          <ShieldAlert className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">自动审批已拒绝操作</p>
+          <p className="mt-1 leading-5 text-muted-foreground">工具：{toolName}</p>
+          <p className="mt-1 break-words leading-5">{message}</p>
+          {reason && <p className="mt-1 break-words leading-5 text-muted-foreground">说明：{reason}</p>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function RuntimeTimelineGroup({

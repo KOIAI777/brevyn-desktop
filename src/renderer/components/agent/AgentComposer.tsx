@@ -1,6 +1,6 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent, Ref } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, Plus, Send, Square } from "lucide-react";
+import { Plus, Send, Square } from "lucide-react";
 import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, WorkspaceFileNode } from "@/types/domain";
 import type { AgentTodoItem, ContextUsage } from "@/components/agent/agentTimelineModel";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
@@ -28,7 +28,6 @@ interface AgentComposerProps {
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
   running: boolean;
-  planMode: boolean;
   permissionMode: AgentPermissionMode;
   contextUsage: ContextUsage | null;
   autoCompactThresholdPercent: number;
@@ -37,9 +36,8 @@ interface AgentComposerProps {
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
   files: WorkspaceFileNode[];
-  onSetPlanMode: (value: boolean | ((current: boolean) => boolean)) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
   onSendQueuedMessage: (messageId: string) => void;
   onDeleteQueuedMessage: (messageId: string) => void;
@@ -54,7 +52,6 @@ export function AgentComposer({
   queuedMessages,
   sendingQueuedMessageIds,
   running,
-  planMode,
   permissionMode,
   contextUsage,
   autoCompactThresholdPercent,
@@ -63,7 +60,6 @@ export function AgentComposer({
   agentProviders,
   activeProviderId,
   files,
-  onSetPlanMode,
   onSetPermissionMode,
   onRun,
   onQueueMessage,
@@ -108,8 +104,7 @@ export function AgentComposer({
       onQueueMessage({
         id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         prompt,
-        mode: planMode ? "plan" : "execute",
-        permissionMode: planMode ? "review" : permissionMode,
+        permissionMode,
         providerSelection: parseProviderModelValue(activeProviderId),
         createdAt: Date.now(),
       });
@@ -124,7 +119,7 @@ export function AgentComposer({
     setMentionQuery(null);
     const attachments = clearAttachments();
     try {
-      await onRun(prompt || "请查看附件。", planMode ? "plan" : "execute", planMode ? "review" : permissionMode, attachments, parseProviderModelValue(activeProviderId));
+      await onRun(prompt || "请查看附件。", permissionMode, attachments, parseProviderModelValue(activeProviderId));
     } catch (error) {
       restoreAttachments(attachments);
       console.error("[AgentComposer] Failed to start agent run:", error);
@@ -223,20 +218,6 @@ export function AgentComposer({
               >
                 <Plus className="h-4.5 w-4.5" />
               </button>
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => onSetPlanMode((current) => !current)}
-                className={`inline-flex h-7 min-w-[58px] items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                  planMode
-                    ? "border-blue-200 bg-blue-50/85 text-blue-800 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]"
-                    : "border-border/70 bg-background/55 text-muted-foreground hover:bg-accent hover:text-foreground"
-                }`}
-                title={planMode ? "Exit plan mode" : "Plan mode"}
-              >
-                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Plan</span>
-              </button>
             </div>
 
             <div className="flex min-w-0 shrink-0 items-center gap-1.5">
@@ -249,7 +230,6 @@ export function AgentComposer({
               />
               <AgentProviderPicker
                 running={running}
-                planMode={planMode}
                 permissionMode={permissionMode}
                 agentProviders={agentProviders}
                 activeProviderId={activeProviderId}

@@ -572,7 +572,7 @@ function embeddingMeta(provider: ModelProviderConfig, vectors: number[][]): Embe
 
 async function tableHasRequiredSchema(table: Table): Promise<boolean> {
   const schema = await table.schema();
-  const fieldNames = new Set(schema.fields.map((field) => field.name));
+  const fieldNames = new Set(schema.fields.map((field: { name: string }) => field.name));
   return REQUIRED_RAG_FIELDS.every((field) => fieldNames.has(field));
 }
 

@@ -52,7 +52,7 @@ export function ApprovalCard({
           </p>
           {dangerous && (
             <p className="mt-1 text-[11px] font-medium text-red-700">
-              This command looks destructive or high-impact. Review it carefully before allowing.
+              这个命令看起来有破坏性或影响较大，允许前请再确认一次。
             </p>
           )}
           <div className="mt-3 rounded-xl border bg-background/80 p-2">
@@ -241,9 +241,9 @@ export function ExitPlanCard({
           <ShieldAlert className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">Plan ready for review</p>
+          <p className="text-sm font-semibold text-foreground">计划已准备好</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Brevyn finished planning. Approve to leave plan mode and continue execution, or send feedback to revise the plan.
+            Brevyn 已完成计划。批准后将切回自动审批继续执行，或发送反馈让它继续修改计划。
           </p>
           {request.allowedPrompts.length > 0 && (
             <div className="mt-3 rounded-xl border bg-background/82 p-3">
@@ -282,7 +282,7 @@ export function ExitPlanCard({
                   onClick={() => void resolvePlan("approve")}
                 >
                   {pending === "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                  {pending === "approve" ? "Approving" : "Approve plan"}
+                  {pending === "approve" ? "正在批准" : "批准并自动审批执行"}
                 </button>
                 <button
                   type="button"
@@ -291,7 +291,7 @@ export function ExitPlanCard({
                   onClick={() => void resolvePlan("deny")}
                 >
                   {pending === "deny" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-                  {pending === "deny" ? "Sending" : "Revise"}
+                  {pending === "deny" ? "正在发送" : "继续修改计划"}
                 </button>
               </>
             )}

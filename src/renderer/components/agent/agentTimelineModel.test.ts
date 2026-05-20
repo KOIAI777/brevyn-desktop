@@ -88,6 +88,20 @@ function systemCompact(subtype: "compacting" | "compact_boundary", uuid: string)
   } as unknown as SDKMessage;
 }
 
+function systemPermissionDenied(uuid: string): SDKMessage {
+  return {
+    type: "system",
+    subtype: "permission_denied",
+    tool_name: "Bash",
+    tool_use_id: "tool_denied",
+    message: "Permission denied.",
+    decision_reason: "The command looked risky.",
+    session_id: "session_fixture",
+    uuid,
+    _createdAt: 3,
+  } as unknown as SDKMessage;
+}
+
 function streamEvent(delta: unknown, uuid: string, index?: number): SDKMessage {
   return {
     type: "stream_event",
@@ -269,8 +283,8 @@ assert.equal(fragmentedThinkingItems[0]?.assistantContent, "I should inspect the
 
 assert.equal(recordKey(records[0]!, 0), recordKey(records[0]!, 99));
 assert.equal(
-  timelineRecordIdentity({ kind: "runtime", event: { type: "run_started", threadId: "thread_fixture", runId: "run_fixture", permissionMode: "review", createdAt: "2026-05-16T00:00:00.000Z" } } as AgentTimelineRecord),
-  timelineRecordIdentity({ kind: "runtime", event: { type: "run_started", threadId: "thread_fixture", runId: "run_fixture", permissionMode: "review", createdAt: "2026-05-16T00:00:00.000Z" } } as AgentTimelineRecord),
+  timelineRecordIdentity({ kind: "runtime", event: { type: "run_started", threadId: "thread_fixture", runId: "run_fixture", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" } } as AgentTimelineRecord),
+  timelineRecordIdentity({ kind: "runtime", event: { type: "run_started", threadId: "thread_fixture", runId: "run_fixture", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" } } as AgentTimelineRecord),
 );
 
 const duplicateThinkingRecords: AgentTimelineRecord[] = [
@@ -548,6 +562,15 @@ const promptSuggestion = {
 const promptSuggestionRecords = normalizeTimelineRecords([userText("Hi.", "user_prompt_suggestion")], [promptSuggestion], false);
 assert.equal(promptSuggestionRecords.some((record) => (record as SDKMessage).type === "prompt_suggestion"), false);
 
+const permissionDeniedRecords = normalizeTimelineRecords(
+  [userText("Run a risky command.", "user_permission_denied"), systemPermissionDenied("permission_denied_1")],
+  [],
+  false,
+);
+assert.equal(permissionDeniedRecords.some((record) => (record as SDKMessage & { subtype?: unknown }).subtype === "permission_denied"), true);
+const permissionDeniedGroups = groupIntoTurns(permissionDeniedRecords);
+assert.equal(permissionDeniedGroups.some((group) => group.type === "system"), true);
+
 clearAllAgentLiveRecords();
 assert.equal(appendAgentLiveMessage("thread_live", promptSuggestion), false);
 assert.equal(getAgentLiveRecords("thread_live").length, 0);
@@ -576,7 +599,7 @@ assert.equal(getAgentLiveRecords("thread_stream_block_index").length, 2);
 clearAllAgentLiveRecords();
 assert.equal(appendAgentLiveMessage("thread_live", userText("Keep optimistic user visible.", "live_user_before_run_started")), true);
 flushAgentLiveRecords("thread_live");
-appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_live", runId: "run_live", permissionMode: "review", createdAt: "2026-05-16T00:00:00.000Z" });
+appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_live", runId: "run_live", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" });
 assert.equal(getAgentLiveRunning("thread_live"), true);
 assert.equal((getAgentLiveRecords("thread_live")[0] as SDKMessage | undefined)?.uuid, "live_user_before_run_started");
 appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_live", runId: "run_live", resultSubtype: "success", createdAt: "2026-05-16T00:00:01.000Z" });

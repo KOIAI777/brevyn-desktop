@@ -58,7 +58,6 @@ interface ActiveRun {
   query?: Query;
   context: ResolvedThreadContext;
   stoppedByUser: boolean;
-  planMode: boolean;
   permissionMode: AgentPermissionMode;
   providerId?: string;
   modelId?: string;
@@ -113,8 +112,7 @@ export class AgentOrchestrator {
       abortController,
       context,
       stoppedByUser: false,
-      planMode: input.mode === "plan",
-      permissionMode: input.permissionMode === "full_access" ? "full_access" : "review",
+      permissionMode: input.permissionMode || "auto",
       providerId: input.providerId,
       modelId: input.modelId,
       terminalResultWritten: false,
@@ -129,10 +127,10 @@ export class AgentOrchestrator {
         type: "run_started",
         runId,
         threadId: context.thread.id,
-        permissionMode: input.mode === "plan" ? "review" : input.permissionMode === "full_access" ? "full_access" : "review",
+        permissionMode: input.permissionMode || "auto",
         createdAt: now(),
       });
-      if (input.mode === "plan") {
+      if (input.permissionMode === "plan") {
         this.appendAndEmitRuntimeEvent(context.thread, {
           type: "plan_mode_entered",
           runId,
@@ -223,8 +221,9 @@ export class AgentOrchestrator {
             resumeSessionId,
             abortController: attemptAbort.controller,
             mcpServers,
-            permissionMode: active.planMode ? "plan" : active.permissionMode === "full_access" ? "bypassPermissions" : "default",
-            planModeInstructions: active.planMode ? PLAN_MODE_INSTRUCTIONS : undefined,
+            permissionMode: active.permissionMode,
+            allowDangerouslySkipPermissions: active.permissionMode === "bypassPermissions",
+            planModeInstructions: active.permissionMode === "plan" ? PLAN_MODE_INSTRUCTIONS : undefined,
             betas: sdkBetasForModel(provider.selectedModel),
             canUseTool: this.createCanUseTool(context, runId),
             onQuery: (query) => {
@@ -370,7 +369,7 @@ export class AgentOrchestrator {
     const permissionCanUseTool = this.options.permissions.createCanUseTool({
       threadId: context.thread.id,
       runId,
-      mode: this.activeRuns.get(context.thread.id)?.permissionMode || "review",
+      mode: this.activeRuns.get(context.thread.id)?.permissionMode || "auto",
       onRequest: (request) => {
         this.appendAndEmitRuntimeEvent(context.thread, {
           type: "approval_requested",
@@ -507,6 +506,12 @@ export class AgentOrchestrator {
     const runId = active?.runId || entityId("run");
     const resolved = this.options.exitPlans.resolve(input);
     if (resolved) {
+      if (active && input.decision === "approve") {
+        active.permissionMode = "auto";
+        void active.query?.setPermissionMode("auto").catch((error) => {
+          console.warn("[AgentOrchestrator] Failed to switch SDK permission mode after plan approval:", error);
+        });
+      }
       this.appendAndEmitRuntimeEvent(context.thread, {
         type: "exit_plan_resolved",
         runId,
@@ -640,22 +645,22 @@ const AGENT_RUN_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
 const AGENT_RETRY_MAX_DELAY_MS = 10_000;
 
 function permissionInstructions(active: ActiveRun): string {
-  if (active.planMode) {
+  if (active.permissionMode === "plan") {
     return [
       "Permission mode for this run: Plan Mode.",
       "Do not edit files, run destructive commands, or make lasting changes while planning.",
     ].join("\n");
   }
-  if (active.permissionMode === "full_access") {
+  if (active.permissionMode === "bypassPermissions") {
     return [
-      "Permission mode for this run: Full Access.",
-      "The user has allowed Brevyn to edit files and run commands without per-tool review for this run.",
+      "Permission mode for this run: Full Auto.",
+      "The user has allowed Brevyn to edit files and run commands without per-tool confirmation for this run.",
       "Still act carefully: inspect before editing, avoid destructive commands unless explicitly requested, and summarize changes after execution.",
     ].join("\n");
   }
   return [
-    "Permission mode for this run: Review.",
-    "Read-only tools may run automatically. File writes, edits, destructive actions, and risky shell commands require user approval.",
+    "Permission mode for this run: Auto Approval.",
+    "Use the Claude Agent SDK auto permission classifier. If an operation is denied, explain the reason clearly and suggest a safer next step.",
   ].join("\n");
 }
 
@@ -914,7 +919,7 @@ function shouldPersistSdkMessage(message: SDKMessage): boolean {
   if (message.type === "stream_event") return false;
   if (message.type === "assistant" || message.type === "result") return true;
   if (message.type === "user") return userMessageHasToolResult(message);
-  return message.type === "system" && message.subtype === "compact_boundary";
+  return message.type === "system" && (message.subtype === "compact_boundary" || message.subtype === "permission_denied");
 }
 
 function isCompactBoundaryMessage(message: SDKMessage): boolean {

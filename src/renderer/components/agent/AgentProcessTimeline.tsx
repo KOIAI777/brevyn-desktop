@@ -52,12 +52,8 @@ export function ProcessTimelinePanel({
           <span className="transition-opacity duration-300">{summary.label}</span>
         )}
         {summary.permissionMode && !isThinkingOnly && (
-          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
-            summary.permissionMode === "full_access"
-              ? "border-amber-200 bg-amber-50 text-amber-800"
-              : "border-border bg-background/70 text-muted-foreground"
-          }`}>
-            {summary.permissionMode === "full_access" ? "Full Access" : "Review"}
+          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${permissionModeBadgeClass(summary.permissionMode)}`}>
+            {permissionModeLabel(summary.permissionMode)}
           </span>
         )}
         {collapsible && <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />}
@@ -68,4 +64,16 @@ export function ProcessTimelinePanel({
       <div className="mt-1 h-px w-full bg-gradient-to-r from-border/70 via-border/25 to-transparent" />
     </div>
   );
+}
+
+function permissionModeLabel(mode: AgentPermissionMode): string {
+  if (mode === "bypassPermissions") return "完全自动";
+  if (mode === "plan") return "计划模式";
+  return "自动审批";
+}
+
+function permissionModeBadgeClass(mode: AgentPermissionMode): string {
+  if (mode === "bypassPermissions") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (mode === "plan") return "border-slate-200 bg-slate-50 text-slate-700";
+  return "border-border bg-background/70 text-muted-foreground";
 }

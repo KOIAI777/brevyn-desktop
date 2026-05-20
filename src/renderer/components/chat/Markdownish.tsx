@@ -5,7 +5,15 @@ import { FilePathChip, isFilePathLike } from "./FilePathChip";
 
 const remarkPlugins = [remarkGfm];
 
-export const Markdownish = memo(function Markdownish({ content, threadId }: { content: string; threadId?: string }) {
+export const Markdownish = memo(function Markdownish({
+  content,
+  threadId,
+  preserveSoftBreaks = false,
+}: {
+  content: string;
+  threadId?: string;
+  preserveSoftBreaks?: boolean;
+}) {
   const components = useMemo(() => ({
     h1: ({ children, ...props }: ComponentProps<"h1">) => (
       <h2 className="mb-2 mt-4 text-base font-semibold tracking-tight first:mt-0" {...props}>
@@ -23,7 +31,7 @@ export const Markdownish = memo(function Markdownish({ content, threadId }: { co
       </h4>
     ),
     p: ({ children, ...props }: ComponentProps<"p">) => (
-      <p className="my-2 leading-6 first:mt-0 last:mb-0" {...props}>
+      <p className={`my-2 leading-6 first:mt-0 last:mb-0 ${preserveSoftBreaks ? "whitespace-pre-wrap" : ""}`} {...props}>
         {children}
       </p>
     ),
@@ -104,7 +112,7 @@ export const Markdownish = memo(function Markdownish({ content, threadId }: { co
         {children}
       </td>
     ),
-  }), [threadId]);
+  }), [preserveSoftBreaks, threadId]);
 
   return (
     <div className="markdownish break-words text-sm leading-6">

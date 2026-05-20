@@ -80,7 +80,7 @@ export function ToolGlyph({ toolName, className }: { toolName: string; className
   if (toolName === "Grep") return <Search className={className} />;
   if (toolName === "Write") return <FileText className={className} />;
   if (toolName === "Edit" || toolName === "MultiEdit") return <Pencil className={className} />;
-  if (toolName === "TodoWrite" || toolName === "TodoRead") return <ListTodo className={className} />;
+  if (toolName === "TodoWrite" || toolName === "TodoRead" || toolName === "TaskCreate" || toolName === "TaskGet" || toolName === "TaskUpdate" || toolName === "TaskList") return <ListTodo className={className} />;
   if (toolName === "mcp__brevyn__load_skill") return <Sparkles className={className} />;
   if (toolName === "mcp__brevyn__read_skill_resource") return <FileText className={className} />;
   if (toolName === "mcp__brevyn__rag_search") return <Search className={className} />;

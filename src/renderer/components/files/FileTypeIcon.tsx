@@ -24,6 +24,8 @@ export const FileTypeIcon = memo(function FileTypeIcon({
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
+        lineHeight: 0,
+        verticalAlign: "middle",
       }}
     >
       {isDirectory ? (

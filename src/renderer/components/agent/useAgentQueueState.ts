@@ -17,7 +17,7 @@ export function useAgentQueueState({
 }: {
   threadId: string;
   effectiveRunning: boolean;
-  onRun: (prompt: string, mode?: "execute" | "plan", permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
 }): AgentQueueState {
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
   const [queuedMessagesByThread, setQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});
@@ -87,7 +87,7 @@ export function useAgentQueueState({
       return;
     }
     try {
-      await onRun(message.prompt, message.mode, message.permissionMode, undefined, message.providerSelection);
+      await onRun(message.prompt, message.permissionMode, undefined, message.providerSelection);
       removeQueuedMessage(messageId);
     } catch (error) {
       console.error("[AgentThreadPanel] Failed to start queued message:", error);
