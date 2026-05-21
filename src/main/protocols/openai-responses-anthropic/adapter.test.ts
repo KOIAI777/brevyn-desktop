@@ -3,7 +3,7 @@ import {
   anthropicToOpenAiResponses,
   buildAnthropicUsageFromResponses,
   openAiResponsesToAnthropic,
-} from "./openai-responses-anthropic-adapter";
+} from "./index";
 
 const simple = anthropicToOpenAiResponses({
   model: "gpt-5.5",
@@ -146,6 +146,79 @@ assert.deepEqual(withHostedWebSearch.tools, [
   },
 ]);
 assert.deepEqual(withHostedWebSearch.tool_choice, { type: "web_search" });
+assert.deepEqual(withHostedWebSearch.include, ["web_search_call.action.sources"]);
+
+const toolBoundary = anthropicToOpenAiResponses({
+  model: "gpt-5.5",
+  messages: [{ role: "user", content: "Use tools" }],
+  tools: [
+    { name: "Read", input_schema: { type: "object" } },
+    { name: "Glob", input_schema: { type: "object" } },
+    { name: "Grep", input_schema: { type: "object" } },
+    { name: "Bash", input_schema: { type: "object" } },
+    { name: "Edit", input_schema: { type: "object" } },
+    { name: "Write", input_schema: { type: "object" } },
+    { name: "MultiEdit", input_schema: { type: "object" } },
+    { name: "TodoRead", input_schema: { type: "object" } },
+    { name: "TodoWrite", input_schema: { type: "object" } },
+    { name: "AskUserQuestion", input_schema: { type: "object" } },
+    { name: "EnterPlanMode", input_schema: { type: "object" } },
+    { name: "ExitPlanMode", input_schema: { type: "object" } },
+    { name: "mcp__brevyn__course_search", input_schema: { type: "object" } },
+  ],
+});
+
+assert.deepEqual((toolBoundary.tools as Array<{ type: string; name?: string }>).map((tool) => tool.type), Array(13).fill("function"));
+assert.deepEqual((toolBoundary.tools as Array<{ name?: string }>).map((tool) => tool.name), [
+  "Read",
+  "Glob",
+  "Grep",
+  "Bash",
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "TodoRead",
+  "TodoWrite",
+  "AskUserQuestion",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "mcp__brevyn__course_search",
+]);
+
+assert.deepEqual(anthropicToOpenAiResponses({
+  messages: [{ role: "user", content: "x" }],
+  tool_choice: { type: "auto" },
+}).tool_choice, "auto");
+assert.deepEqual(anthropicToOpenAiResponses({
+  messages: [{ role: "user", content: "x" }],
+  tool_choice: { type: "none" },
+}).tool_choice, "none");
+assert.deepEqual(anthropicToOpenAiResponses({
+  messages: [{ role: "user", content: "x" }],
+  tool_choice: { type: "any" },
+}).tool_choice, "required");
+assert.deepEqual(anthropicToOpenAiResponses({
+  messages: [{ role: "user", content: "x" }],
+  tool_choice: { type: "tool", name: "TaskCreate" },
+}).tool_choice, { type: "function", name: "TaskCreate" });
+
+const taskTools = anthropicToOpenAiResponses({
+  model: "gpt-5.5",
+  messages: [{ role: "user", content: "Manage tasks" }],
+  tools: [
+    { name: "TaskCreate", description: "Create task", input_schema: { type: "object" } },
+    { name: "TaskUpdate", description: "Update task", input_schema: { type: "object" } },
+    { name: "TaskGet", description: "Get task", input_schema: { type: "object" } },
+    { name: "TaskList", description: "List tasks", input_schema: { type: "object" } },
+  ],
+});
+
+assert.deepEqual(taskTools.tools, [
+  { type: "function", name: "TaskCreate", description: "Create task", parameters: { type: "object" } },
+  { type: "function", name: "TaskUpdate", description: "Update task", parameters: { type: "object" } },
+  { type: "function", name: "TaskGet", description: "Get task", parameters: { type: "object" } },
+  { type: "function", name: "TaskList", description: "List tasks", parameters: { type: "object" } },
+]);
 
 const anthropic = openAiResponsesToAnthropic({
   id: "resp_1",
@@ -234,7 +307,11 @@ const hostedSearchAnthropic = openAiResponsesToAnthropic({
       type: "web_search_call",
       id: "ws_1",
       status: "completed",
-      action: { queries: [{ query: "AI news today" }] },
+      action: {
+        type: "search",
+        queries: [{ query: "AI news today" }],
+        sources: [{ url: "https://example.com/news", title: "News" }],
+      },
     },
     {
       type: "message",
@@ -252,13 +329,64 @@ assert.deepEqual(hostedSearchAnthropic.content, [
       hosted: true,
       status: "completed",
       providerStatus: "completed",
+      actionType: "search",
       query: "AI news today",
       queries: ["AI news today"],
+      sources: [{ url: "https://example.com/news", title: "News" }],
     },
   },
   { type: "text", text: "Found news." },
 ]);
 assert.equal(hostedSearchAnthropic.stop_reason, "end_turn");
+
+const hostedOpenPageAnthropic = openAiResponsesToAnthropic({
+  id: "resp_open_page",
+  model: "gpt-5.5",
+  status: "completed",
+  output: [{
+    type: "web_search_call",
+    id: "ws_open",
+    action: { type: "open_page", url: "https://example.com/article" },
+  }],
+});
+
+assert.deepEqual(hostedOpenPageAnthropic.content, [{
+  type: "server_tool_use",
+  id: "ws_open",
+  name: "WebSearch",
+  input: {
+    hosted: true,
+    status: "completed",
+    actionType: "open_page",
+    url: "https://example.com/article",
+  },
+}]);
+
+const hostedFindAnthropic = openAiResponsesToAnthropic({
+  id: "resp_find_page",
+  model: "gpt-5.5",
+  status: "completed",
+  output: [{
+    type: "web_search_call",
+    id: "ws_find",
+    status: "searching",
+    action: { type: "find_in_page", url: "https://example.com/article", pattern: "needle" },
+  }],
+});
+
+assert.deepEqual(hostedFindAnthropic.content, [{
+  type: "server_tool_use",
+  id: "ws_find",
+  name: "WebSearch",
+  input: {
+    hosted: true,
+    status: "searching",
+    providerStatus: "searching",
+    actionType: "find_in_page",
+    url: "https://example.com/article",
+    pattern: "needle",
+  },
+}]);
 
 assert.deepEqual(buildAnthropicUsageFromResponses({
   input_tokens: 11,
@@ -298,5 +426,55 @@ assert.throws(() => openAiResponsesToAnthropic({
   status: "failed",
   error: { code: "bad_request", message: "Hosted tool is unavailable" },
 }), /Hosted tool is unavailable/);
+
+const taskCreateAnthropic = openAiResponsesToAnthropic({
+  id: "resp_task_create",
+  model: "gpt-5.5",
+  status: "completed",
+  output: [{
+    type: "function_call",
+    id: "fc_task",
+    call_id: "call_task_create",
+    name: "TaskCreate",
+    arguments: "{\"taskId\":\"task_1\",\"title\":\"Read project\",\"status\":\"running\"}",
+  }],
+});
+
+assert.deepEqual(taskCreateAnthropic.content, [{
+  type: "tool_use",
+  id: "call_task_create",
+  name: "TaskCreate",
+  input: { taskId: "task_1", title: "Read project", status: "running" },
+}]);
+
+const taskRoundTrip = anthropicToOpenAiResponses({
+  model: "gpt-5.5",
+  messages: [
+    { role: "assistant", content: taskCreateAnthropic.content },
+    {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "call_task_create",
+        content: { taskId: "task_1", title: "Read project", status: "completed" },
+      }],
+    },
+  ],
+  tools: [{ name: "TaskCreate", input_schema: { type: "object" } }],
+});
+
+assert.deepEqual(taskRoundTrip.input, [
+  {
+    type: "function_call",
+    call_id: "call_task_create",
+    name: "TaskCreate",
+    arguments: "{\"status\":\"running\",\"taskId\":\"task_1\",\"title\":\"Read project\"}",
+  },
+  {
+    type: "function_call_output",
+    call_id: "call_task_create",
+    output: "{\"status\":\"completed\",\"taskId\":\"task_1\",\"title\":\"Read project\"}",
+  },
+]);
 
 console.log("openai-responses-anthropic-adapter tests passed");

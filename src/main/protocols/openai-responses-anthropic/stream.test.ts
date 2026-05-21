@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { OpenAiResponsesToAnthropicSseTransformer, openAiResponsesSseToAnthropicSse } from "./openai-responses-anthropic-stream";
-import { parseSseEvents } from "./sse";
+import { OpenAiResponsesToAnthropicSseTransformer, openAiResponsesSseToAnthropicSse } from "./index";
+import { parseSseEvents } from "../sse";
 
 function event(name: string, data: unknown): string {
   return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -100,11 +100,34 @@ const doneOnlyArg = doneOnlyToolEvents.find((item) => {
 }) as { delta?: { partial_json?: string } } | undefined;
 assert.equal(doneOnlyArg?.delta?.partial_json, "{\"file_path\":\"/tmp/a.md\",\"content\":\"hello\"}");
 
+const outputItemDoneToolEvents = convertedEvents([
+  event("response.created", { type: "response.created", response: { id: "resp_output_done_tool", model: "gpt-5.5" } }),
+  event("response.output_item.added", { type: "response.output_item.added", output_index: 0, item: { id: "fc_output_done", type: "function_call", call_id: "call_output_done", name: "Edit" } }),
+  event("response.output_item.done", {
+    type: "response.output_item.done",
+    output_index: 0,
+    item: {
+      id: "fc_output_done",
+      type: "function_call",
+      call_id: "call_output_done",
+      name: "Edit",
+      arguments: "{\"file_path\":\"/tmp/a.md\",\"old_string\":\"a\",\"new_string\":\"b\"}",
+    },
+  }),
+  event("response.completed", { type: "response.completed", response: { status: "completed" } }),
+].join(""));
+
+const outputDoneArg = outputItemDoneToolEvents.find((item) => {
+  const object = item as { type?: string; delta?: { type?: string; partial_json?: string } };
+  return object.type === "content_block_delta" && object.delta?.type === "input_json_delta";
+}) as { delta?: { partial_json?: string } } | undefined;
+assert.equal(outputDoneArg?.delta?.partial_json, "{\"file_path\":\"/tmp/a.md\",\"old_string\":\"a\",\"new_string\":\"b\"}");
+
 const hostedSearchEvents = convertedEvents([
   event("response.created", { type: "response.created", response: { id: "resp_search", model: "gpt-5.5" } }),
   event("response.output_item.added", {
     type: "response.output_item.added",
-    item: { id: "ws_1", type: "web_search_call", status: "in_progress", action: { queries: [{ query: "AI news today" }] } },
+    item: { id: "ws_1", type: "web_search_call", status: "in_progress", action: { type: "search", queries: [{ query: "AI news today" }] } },
   }),
   event("response.web_search_call.searching", {
     type: "response.web_search_call.searching",
@@ -114,7 +137,11 @@ const hostedSearchEvents = convertedEvents([
   event("response.web_search_call.completed", {
     type: "response.web_search_call.completed",
     item_id: "ws_1",
-    action: { query: "AI news today" },
+    action: {
+      type: "search",
+      query: "AI news today",
+      sources: [{ url: "https://example.com/news", title: "News" }],
+    },
   }),
   event("response.output_text.delta", { type: "response.output_text.delta", delta: "Found news." }),
   event("response.completed", { type: "response.completed", response: { status: "completed" } }),
@@ -132,7 +159,26 @@ const hostedCompleted = hostedSearchEvents.find((item) => {
   return object.type === "content_block_delta" && object.delta?.type === "input_json_delta";
 }) as { delta?: { partial_json?: string } } | undefined;
 assert.match(hostedCompleted?.delta?.partial_json || "", /completed/);
+assert.match(hostedCompleted?.delta?.partial_json || "", /example\.com\/news/);
 assert.equal(hostedSearchEvents.some((item) => (item as { delta?: { text?: string } }).delta?.text === "Found news."), true);
+
+const callIdOnlyToolEvents = convertedEvents([
+  event("response.created", { type: "response.created", response: { id: "resp_call_id", model: "gpt-5.5" } }),
+  event("response.output_item.added", { type: "response.output_item.added", output_index: 1, item: { type: "function_call", call_id: "call_only", name: "Bash" } }),
+  event("response.function_call_arguments.delta", { type: "response.function_call_arguments.delta", call_id: "call_only", delta: "{\"command\":\"pwd\"}" }),
+  event("response.function_call_arguments.done", { type: "response.function_call_arguments.done", call_id: "call_only" }),
+  event("response.completed", { type: "response.completed", response: { status: "completed" } }),
+].join(""));
+
+const callOnlyToolStart = callIdOnlyToolEvents.find((item) => {
+  const object = item as { type?: string; content_block?: { type?: string } };
+  return object.type === "content_block_start" && object.content_block?.type === "tool_use";
+}) as { index?: number } | undefined;
+const callOnlyArg = callIdOnlyToolEvents.find((item) => {
+  const object = item as { type?: string; delta?: { type?: string } };
+  return object.type === "content_block_delta" && object.delta?.type === "input_json_delta";
+}) as { index?: number } | undefined;
+assert.equal(callOnlyArg?.index, callOnlyToolStart?.index);
 
 const hostedSearchCitationEvents = convertedEvents([
   event("response.created", { type: "response.created", response: { id: "resp_search_cited", model: "gpt-5.5" } }),

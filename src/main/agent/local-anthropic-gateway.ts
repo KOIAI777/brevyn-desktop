@@ -3,10 +3,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { ModelProviderConfig } from "../../types/domain";
 import {
   anthropicToOpenAiResponses,
+  httpErrorMessage,
+  OpenAiResponsesToAnthropicSseTransformer,
   openAiResponsesToAnthropic,
   type AnthropicMessagesRequest,
-} from "../protocols/openai-responses-anthropic-adapter";
-import { OpenAiResponsesToAnthropicSseTransformer, openAiResponsesSseToAnthropicSse } from "../protocols/openai-responses-anthropic-stream";
+  openAiResponsesSseToAnthropicSse,
+} from "../protocols/openai-responses-anthropic";
 import { normalizeBaseUrl } from "../providers/url-utils";
 
 export interface LocalAnthropicGatewaySession {
@@ -142,7 +144,7 @@ export class LocalAnthropicGateway {
           type: "error",
           error: {
             type: "api_error",
-            message: upstreamText || `OpenAI Responses provider failed with HTTP ${upstreamResponse.status}.`,
+            message: httpErrorMessage(upstreamResponse.status, upstreamText),
           },
         });
         return;

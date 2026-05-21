@@ -1,5 +1,7 @@
-import { buildAnthropicUsageFromResponses, mapResponsesStopReason, sanitizeAnthropicToolUseInput } from "./openai-responses-anthropic-adapter";
-import { formatSseEvent, parseSseBlock } from "./sse";
+import { buildAnthropicUsageFromResponses, mapResponsesStopReason, responseErrorMessage, responseObject } from "./errors";
+import { sanitizeAnthropicToolUseInput } from "./tool-mapper";
+import { hostedWebSearchInput } from "./web-search-mapper";
+import { formatSseEvent, parseSseBlock } from "../sse";
 
 interface StreamState {
   messageId?: string;
@@ -12,13 +14,13 @@ interface StreamState {
   currentTextIndex?: number;
   fallbackOpenIndex?: number;
   toolIndexByItemId: Map<string, number>;
+  toolIndexByCallId: Map<string, number>;
   toolNameByIndex: Map<number, string>;
   toolArgsByIndex: Map<number, string>;
   toolArgsStreamedByIndex: Set<number>;
   hostedToolIndexByItemId: Map<string, number>;
   hostedToolInputByIndex: Map<number, Record<string, unknown>>;
   emittedCitationKeys: Set<string>;
-  lastToolIndex?: number;
 }
 
 export function openAiResponsesSseToAnthropicSse(input: string): string {
@@ -34,6 +36,7 @@ export class OpenAiResponsesToAnthropicSseTransformer {
     openIndices: new Set(),
     indexByKey: new Map(),
     toolIndexByItemId: new Map(),
+    toolIndexByCallId: new Map(),
     toolNameByIndex: new Map(),
     toolArgsByIndex: new Map(),
     toolArgsStreamedByIndex: new Set(),
@@ -161,9 +164,10 @@ function handleResponsesEvent(eventName: string, data: unknown, state: StreamSta
       const index = resolveToolIndexFromAdded(object, item, state);
       const itemId = stringOf(item.id) || stringOf(object.item_id);
       if (itemId) state.toolIndexByItemId.set(itemId, index);
+      const callId = stringOf(item.call_id);
+      if (callId) state.toolIndexByCallId.set(callId, index);
       state.toolNameByIndex.set(index, stringOf(item.name));
-      state.toolArgsByIndex.set(index, "");
-      state.lastToolIndex = index;
+      if (!state.toolArgsByIndex.has(index)) state.toolArgsByIndex.set(index, "");
 
       if (!state.openIndices.has(index)) {
         output.push(formatSseEvent("content_block_start", {
@@ -212,6 +216,8 @@ function handleResponsesEvent(eventName: string, data: unknown, state: StreamSta
       if (!delta) break;
       emitMessageStart(state, output);
       const index = resolveToolIndexFromEvent(object, state) ?? state.nextContentIndex++;
+      const eventName = stringOf(object.name);
+      if (eventName && !state.toolNameByIndex.has(index)) state.toolNameByIndex.set(index, eventName);
       if (!state.openIndices.has(index)) {
         output.push(formatSseEvent("content_block_start", {
           type: "content_block_start",
@@ -225,7 +231,7 @@ function handleResponsesEvent(eventName: string, data: unknown, state: StreamSta
         state.openIndices.add(index);
       }
 
-      const name = state.toolNameByIndex.get(index) || "";
+      const name = state.toolNameByIndex.get(index) || eventName;
       state.toolArgsByIndex.set(index, `${state.toolArgsByIndex.get(index) || ""}${delta}`);
       if (name === "Read") {
         break;
@@ -257,9 +263,24 @@ function handleResponsesEvent(eventName: string, data: unknown, state: StreamSta
       }
       closeBlock(index, state, output);
       if (stringOf(object.item_id)) state.toolIndexByItemId.delete(stringOf(object.item_id));
+      if (stringOf(object.call_id)) state.toolIndexByCallId.delete(stringOf(object.call_id));
       state.toolNameByIndex.delete(index);
       state.toolArgsByIndex.delete(index);
       state.toolArgsStreamedByIndex.delete(index);
+      break;
+    }
+
+    case "response.content_part.done": {
+      emitCitationDeltasFromObject(object, state, output);
+      const index = indexForContentKey(object, state);
+      if (index !== undefined) closeBlock(index, state, output);
+      if (state.currentTextIndex === index) state.currentTextIndex = undefined;
+      if (state.fallbackOpenIndex === index) state.fallbackOpenIndex = undefined;
+      break;
+    }
+
+    case "response.output_item.done": {
+      handleOutputItemDone(object, state, output);
       break;
     }
 
@@ -474,43 +495,44 @@ function resolveContentIndex(object: Record<string, unknown>, state: StreamState
 }
 
 function resolveToolIndexFromAdded(object: Record<string, unknown>, item: Record<string, unknown>, state: StreamState): number {
-  const key = stringOf(item.id) ? `tool:${stringOf(item.id)}` : stringOf(object.item_id) ? `tool:${stringOf(object.item_id)}` : stringOf(object.output_index) ? `tool:out:${stringOf(object.output_index)}` : "";
-  if (key) {
-    const existing = state.indexByKey.get(key);
-    if (existing !== undefined) return existing;
-    const assigned = state.nextContentIndex++;
-    state.indexByKey.set(key, assigned);
-    return assigned;
-  }
+  const key = toolItemKey(object, item);
+  if (key) return assignIndexForKey(key, state);
   return state.nextContentIndex++;
 }
 
 function resolveToolIndexFromEvent(object: Record<string, unknown>, state: StreamState, create = true): number | undefined {
   const itemId = stringOf(object.item_id);
   if (itemId && state.toolIndexByItemId.has(itemId)) return state.toolIndexByItemId.get(itemId);
-  const key = itemId ? `tool:${itemId}` : stringOf(object.output_index) ? `tool:out:${stringOf(object.output_index)}` : "";
+
+  const callId = stringOf(object.call_id);
+  if (callId && state.toolIndexByCallId.has(callId)) return state.toolIndexByCallId.get(callId);
+
+  const key = itemId ? `tool:${itemId}` : outputIndexKey("tool", object);
   if (key && state.indexByKey.has(key)) return state.indexByKey.get(key);
-  if (state.lastToolIndex !== undefined) return state.lastToolIndex;
+
   if (!create) return undefined;
-  return state.nextContentIndex++;
+
+  const assigned = state.nextContentIndex++;
+  if (itemId) {
+    state.indexByKey.set(`tool:${itemId}`, assigned);
+    state.toolIndexByItemId.set(itemId, assigned);
+  } else if (key) {
+    state.indexByKey.set(key, assigned);
+  }
+  if (callId) state.toolIndexByCallId.set(callId, assigned);
+  return assigned;
 }
 
 function resolveHostedToolIndexFromAdded(object: Record<string, unknown>, item: Record<string, unknown>, state: StreamState): number {
-  const key = stringOf(item.id) ? `hosted:${stringOf(item.id)}` : stringOf(object.item_id) ? `hosted:${stringOf(object.item_id)}` : stringOf(object.output_index) ? `hosted:out:${stringOf(object.output_index)}` : "";
-  if (key) {
-    const existing = state.indexByKey.get(key);
-    if (existing !== undefined) return existing;
-    const assigned = state.nextContentIndex++;
-    state.indexByKey.set(key, assigned);
-    return assigned;
-  }
+  const key = stringOf(item.id) ? `hosted:${stringOf(item.id)}` : stringOf(object.item_id) ? `hosted:${stringOf(object.item_id)}` : outputIndexKey("hosted", object);
+  if (key) return assignIndexForKey(key, state);
   return state.nextContentIndex++;
 }
 
 function resolveHostedToolIndexFromEvent(object: Record<string, unknown>, state: StreamState): number {
   const itemId = stringOf(object.item_id) || stringOf(object.id);
   if (itemId && state.hostedToolIndexByItemId.has(itemId)) return state.hostedToolIndexByItemId.get(itemId) as number;
-  const key = itemId ? `hosted:${itemId}` : stringOf(object.output_index) ? `hosted:out:${stringOf(object.output_index)}` : "";
+  const key = itemId ? `hosted:${itemId}` : outputIndexKey("hosted", object);
   if (key && state.indexByKey.has(key)) return state.indexByKey.get(key) as number;
   const assigned = state.nextContentIndex++;
   if (itemId) {
@@ -518,6 +540,85 @@ function resolveHostedToolIndexFromEvent(object: Record<string, unknown>, state:
     state.indexByKey.set(`hosted:${itemId}`, assigned);
   }
   return assigned;
+}
+
+function handleOutputItemDone(object: Record<string, unknown>, state: StreamState, output: string[]): void {
+  const item = recordOf(object.item);
+  const itemType = stringOf(item.type);
+  const itemId = stringOf(item.id) || stringOf(object.item_id);
+  const outputIndex = numberStringOf(object.output_index);
+
+  if (itemType === "function_call") {
+    const index = resolveToolIndexFromEvent({
+      ...object,
+      item_id: itemId || object.item_id,
+      call_id: stringOf(item.call_id) || object.call_id,
+      output_index: object.output_index,
+    }, state, false);
+    if (index !== undefined && state.openIndices.has(index)) {
+      const name = state.toolNameByIndex.get(index) || stringOf(item.name);
+      const raw = stringOf(item.arguments) || state.toolArgsByIndex.get(index) || "";
+      if (raw && !state.toolArgsStreamedByIndex.has(index)) {
+        const sanitized = sanitizeToolArgsJson(name, raw);
+        if (sanitized) {
+          output.push(formatSseEvent("content_block_delta", {
+            type: "content_block_delta",
+            index,
+            delta: { type: "input_json_delta", partial_json: sanitized },
+          }));
+        }
+      }
+      closeBlock(index, state, output);
+    }
+    cleanupToolIndex(index, itemId, stringOf(item.call_id), state);
+    return;
+  }
+
+  if (itemType === "web_search_call") {
+    const index = itemId && state.hostedToolIndexByItemId.has(itemId)
+      ? state.hostedToolIndexByItemId.get(itemId)
+      : outputIndex
+        ? state.indexByKey.get(`hosted:out:${outputIndex}`)
+        : undefined;
+    if (index !== undefined && state.openIndices.has(index)) closeBlock(index, state, output);
+    return;
+  }
+
+  for (const [key, index] of state.indexByKey.entries()) {
+    if (itemId && key.startsWith(`part:${itemId}:`)) {
+      closeBlock(index, state, output);
+      continue;
+    }
+    if (outputIndex && key.startsWith(`part:out:${outputIndex}:`)) {
+      closeBlock(index, state, output);
+    }
+  }
+}
+
+function cleanupToolIndex(index: number | undefined, itemId: string, callId: string, state: StreamState): void {
+  if (itemId) state.toolIndexByItemId.delete(itemId);
+  if (callId) state.toolIndexByCallId.delete(callId);
+  if (index === undefined) return;
+  state.toolNameByIndex.delete(index);
+  state.toolArgsByIndex.delete(index);
+  state.toolArgsStreamedByIndex.delete(index);
+}
+
+function assignIndexForKey(key: string, state: StreamState): number {
+  const existing = state.indexByKey.get(key);
+  if (existing !== undefined) return existing;
+  const assigned = state.nextContentIndex++;
+  state.indexByKey.set(key, assigned);
+  return assigned;
+}
+
+function toolItemKey(object: Record<string, unknown>, item: Record<string, unknown>): string {
+  return stringOf(item.id) ? `tool:${stringOf(item.id)}` : stringOf(object.item_id) ? `tool:${stringOf(object.item_id)}` : outputIndexKey("tool", object);
+}
+
+function outputIndexKey(prefix: string, object: Record<string, unknown>): string {
+  const outputIndex = numberStringOf(object.output_index);
+  return outputIndex ? `${prefix}:out:${outputIndex}` : "";
 }
 
 function indexForContentKey(object: Record<string, unknown>, state: StreamState): number | undefined {
@@ -532,51 +633,6 @@ function contentPartKey(object: Record<string, unknown>): string {
   if (itemId && contentIndex) return `part:${itemId}:${contentIndex}`;
   if (outputIndex && contentIndex) return `part:out:${outputIndex}:${contentIndex}`;
   return "";
-}
-
-function responseObject(object: Record<string, unknown>): Record<string, unknown> {
-  return recordOf(object.response) || object;
-}
-
-function responseErrorMessage(object: Record<string, unknown>): string {
-  const response = responseObject(object);
-  const error = recordOf(response.error) || recordOf(object.error);
-  return stringOf(error.message) || stringOf(error.code) || stringOf(response.status_details) || "OpenAI Responses request failed.";
-}
-
-function hostedWebSearchInput(item: Record<string, unknown>, status: string): Record<string, unknown> {
-  const action = recordOf(item.action);
-  const queries = webSearchQueries(item);
-  const query = stringOf(item.query) || stringOf(action.query) || stringOf(item.search_query) || stringOf(action.search_query) || queries[0] || "";
-  const result: Record<string, unknown> = {
-    hosted: true,
-    status,
-  };
-  if (query) result.query = query;
-  if (queries.length > 0) result.queries = queries;
-  const itemStatus = stringOf(item.status);
-  if (itemStatus) result.providerStatus = itemStatus;
-  return result;
-}
-
-function webSearchQueries(item: Record<string, unknown>): string[] {
-  const action = recordOf(item.action);
-  const sources = [
-    item.queries,
-    action.queries,
-    item.search_queries,
-    action.search_queries,
-  ];
-  return sources.flatMap((source) => {
-    const values = arrayOf(source);
-    if (!values) return [];
-    return values.flatMap((value) => {
-      if (typeof value === "string") return value.trim() ? [value.trim()] : [];
-      const object = recordOf(value);
-      const query = stringOf(object.query) || stringOf(object.search_query) || stringOf(object.text);
-      return query.trim() ? [query.trim()] : [];
-    });
-  });
 }
 
 function annotationsFromObject(object: Record<string, unknown>): Record<string, unknown>[] {

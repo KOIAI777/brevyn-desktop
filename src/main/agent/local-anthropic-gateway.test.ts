@@ -20,7 +20,10 @@ async function main(): Promise<void> {
       capturedAuth = String((init?.headers as Record<string, string>).authorization || "");
       capturedBody = JSON.parse(String(init?.body || "{}"));
 
-      const body = capturedBody as { stream?: boolean };
+      const body = capturedBody as { input?: unknown; stream?: boolean };
+      if (JSON.stringify(body.input || "").includes("Fail upstream")) {
+        return new Response("provider raw error", { status: 429 });
+      }
       if (body.stream) {
         return new Response([
           "event: response.created\n",
@@ -109,6 +112,21 @@ async function main(): Promise<void> {
     assert.match(streamText, /"type":"text_delta"/);
     assert.match(streamText, /"text":"Hi"/);
     assert.match(streamText, /event: message_stop/);
+
+    const errorResponse = await fetch(`${baseUrl}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": registration.token,
+      },
+      body: JSON.stringify({
+        model: "gpt-test",
+        messages: [{ role: "user", content: "Fail upstream" }],
+      }),
+    });
+    assert.equal(errorResponse.status, 429);
+    const errorPayload = await errorResponse.json();
+    assert.equal(errorPayload.error.message, "provider raw error");
 
     gateway.unregisterSession(registration.token);
     const unauthorized = await fetch(`${baseUrl}/messages`, {
