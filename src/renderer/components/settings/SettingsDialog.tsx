@@ -941,7 +941,7 @@ export function SettingsDialog({
             </div>
           </aside>
 
-          <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto brevyn-scrollbar")}>
+          <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {activePage === "general" ? (
               <GeneralSettingsPage />
             ) : activePage === "providers" ? (
@@ -1507,7 +1507,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Agent" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
-          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
+          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
             {chatProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1544,7 +1544,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
 
-          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
+          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
             {embeddingProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1605,7 +1605,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Vision" onClick={onNewVisionProvider} disabled={visionBusy} />
           </div>
 
-          <div className="max-h-[230px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
+          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
             {visionProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -3271,7 +3271,7 @@ function ProviderProfileRow({
   const enabledModels = provider.models.filter((model) => model.enabled !== false);
   const displayName = providerDisplayName(provider);
   return (
-    <div className={cx("group flex items-center gap-2 rounded-lg border p-2 transition", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
+    <div className={cx("group flex min-h-[62px] items-center gap-2 rounded-lg border p-2 transition-colors", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="block truncate text-xs font-semibold" title={provider.name}>{displayName}</span>
         <span className="mt-0.5 block truncate text-[10px]">
@@ -3283,7 +3283,7 @@ function ProviderProfileRow({
         </span>
       </button>
       <div className="ml-auto flex items-center gap-1.5">
-        <div className="flex max-w-0 items-center gap-1 overflow-hidden opacity-0 transition-all duration-150 group-hover:max-w-[72px] group-hover:opacity-100 group-focus-within:max-w-[72px] group-focus-within:opacity-100">
+        <div className="flex w-[72px] shrink-0 items-center justify-end gap-1">
           <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label={`编辑 ${displayName}`} onClick={onEdit} disabled={actionsDisabled} />
           <IconActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label={`删除 ${displayName}`} onClick={onDelete} disabled={actionsDisabled} danger />
         </div>
@@ -3431,7 +3431,7 @@ function ModelPicker({ purpose, models, selectedModel, onPick }: { purpose: Prov
               key={model.id}
               type="button"
               className={cx(
-                "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left text-[11px] transition",
+                "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left text-[11px] transition-colors",
                 selected
                   ? "border-foreground/25 bg-foreground text-background shadow-sm"
                   : "border-border/55 bg-background text-muted-foreground hover:border-border/80 hover:text-foreground",
@@ -3556,7 +3556,7 @@ function ModelTransferRow({
 }) {
   const contextWindowValue = model.contextWindowTokens ? model.contextWindowTokens.toLocaleString() : "";
   return (
-    <div className={cx("grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
+    <div className={cx("grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
       <button type="button" className="min-w-0 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium text-foreground">{model.name}</span>
