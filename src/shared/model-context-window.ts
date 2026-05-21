@@ -51,6 +51,8 @@ export function inferContextWindowTokens(modelId: string): number | undefined {
   ) return 1_000_000;
   if (normalized.includes("claude") || normalized.includes("haiku")) return 200_000;
 
+  if (normalized.includes("gpt-5.4")) return 1_000_000;
+  if (normalized.includes("gpt-5.5")) return 258_000;
   if (
     normalized.includes("gpt-5")
     || normalized.includes("gpt-4.1")

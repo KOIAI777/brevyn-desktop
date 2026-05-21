@@ -45,6 +45,7 @@ import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Markdownish } from "@/components/chat/Markdownish";
 import brevynMarkUrl from "@/assets/brevyn-marginal-mark.svg";
+import { withInferredContextWindow } from "../../../shared/model-context-window";
 import {
   AGENT_PROVIDER_PRESETS,
   DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
@@ -670,11 +671,7 @@ export function SettingsDialog({
     try {
       const fetchedModels = await window.brevyn.providers.models(draft);
       setModels(fetchedModels);
-      setDraft((current) => ({
-        ...current,
-        models: fetchedModels,
-        selectedModel: selectedEnabledModel(current.selectedModel, fetchedModels),
-      }));
+      setDraft((current) => mergeFetchedDraftModels(current, fetchedModels));
       setStatusLine("已获取可用模型。");
     } catch (error) {
       setStatusLine(`获取聊天模型失败：${providerFetchErrorMessage(error)}`);
@@ -715,11 +712,7 @@ export function SettingsDialog({
     try {
       const fetchedModels = await window.brevyn.providers.models(visionDraft);
       setVisionModels(fetchedModels);
-      setVisionDraft((current) => ({
-        ...current,
-        models: fetchedModels,
-        selectedModel: selectedEnabledModel(current.selectedModel, fetchedModels),
-      }));
+      setVisionDraft((current) => mergeFetchedDraftModels(current, fetchedModels));
       setVisionStatusLine("已获取视觉模型。");
     } catch (error) {
       setVisionModels([]);
@@ -1315,6 +1308,8 @@ function ProviderSettingsPage({
               selectedModel={draft.selectedModel}
               onToggle={(model) => onDraftChange(toggleDraftModel(draft, model.id))}
               onMakeDefault={(model) => onDraftChange({ ...draft, selectedModel: model.id })}
+              onUpdateModel={(model) => onDraftChange(updateDraftModel(draft, model))}
+              onRemoveModel={(model) => onDraftChange(removeDraftModel(draft, model.id))}
             />
           )}
 
@@ -1480,6 +1475,8 @@ function ProviderSettingsPage({
               selectedModel={visionDraft.selectedModel}
               onToggle={(model) => onVisionDraftChange(toggleDraftModel(visionDraft, model.id))}
               onMakeDefault={(model) => onVisionDraftChange({ ...visionDraft, selectedModel: model.id })}
+              onUpdateModel={(model) => onVisionDraftChange(updateDraftModel(visionDraft, model))}
+              onRemoveModel={(model) => onVisionDraftChange(removeDraftModel(visionDraft, model.id))}
             />
           )}
 
@@ -3447,6 +3444,11 @@ function ModelPicker({ purpose, models, selectedModel, onPick }: { purpose: Prov
               <span className="min-w-0 flex-1">
                 <span className={cx("block truncate font-medium", selected ? "text-background" : "text-foreground")}>{model.name}</span>
                 <span className={cx("block truncate text-[10px]", selected ? "text-background/72" : "text-muted-foreground")}>{model.id}</span>
+                {model.contextWindowTokens && (
+                  <span className={cx("mt-0.5 block text-[10px]", selected ? "text-background/70" : "text-muted-foreground")}>
+                    {formatContextWindow(model.contextWindowTokens)} 上下文
+                  </span>
+                )}
               </span>
             </button>
           );
@@ -3464,6 +3466,8 @@ function AgentModelManager({
   selectedModel,
   onToggle,
   onMakeDefault,
+  onUpdateModel,
+  onRemoveModel,
 }: {
   title?: string;
   availableEmptyLabel?: string;
@@ -3472,6 +3476,8 @@ function AgentModelManager({
   selectedModel: string;
   onToggle: (model: ProviderModel) => void;
   onMakeDefault: (model: ProviderModel) => void;
+  onUpdateModel?: (model: ProviderModel) => void;
+  onRemoveModel?: (model: ProviderModel) => void;
 }) {
   const availableModels = models.filter((model) => model.enabled === false);
   const enabledModels = models.filter((model) => model.enabled !== false);
@@ -3490,6 +3496,8 @@ function AgentModelManager({
               icon={<Plus className="h-3.5 w-3.5" />}
               label="启用模型"
               onClick={() => onToggle(model)}
+              onUpdateModel={onUpdateModel}
+              onRemoveModel={onRemoveModel}
             />
           ))}
         </ModelColumn>
@@ -3505,6 +3513,8 @@ function AgentModelManager({
                 label="停用模型"
                 onClick={() => onToggle(model)}
                 onMakeDefault={() => onMakeDefault(model)}
+                onUpdateModel={onUpdateModel}
+                onRemoveModel={onRemoveModel}
               />
             );
           })}
@@ -3532,6 +3542,8 @@ function ModelTransferRow({
   label,
   onClick,
   onMakeDefault,
+  onUpdateModel,
+  onRemoveModel,
 }: {
   model: ProviderModel;
   selected?: boolean;
@@ -3539,15 +3551,53 @@ function ModelTransferRow({
   label: string;
   onClick: () => void;
   onMakeDefault?: () => void;
+  onUpdateModel?: (model: ProviderModel) => void;
+  onRemoveModel?: (model: ProviderModel) => void;
 }) {
+  const contextWindowValue = model.contextWindowTokens ? model.contextWindowTokens.toLocaleString() : "";
   return (
-    <div className={cx("flex min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>
+    <div className={cx("grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
+      <button type="button" className="min-w-0 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium text-foreground">{model.name}</span>
           {selected && <span className="shrink-0 rounded-full bg-foreground px-1.5 py-0.5 text-[9px] text-background">默认</span>}
         </span>
         <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{model.id}</span>
+        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+          {model.contextWindowTokens ? `${formatContextWindow(model.contextWindowTokens)} · ${contextWindowSourceLabel(model.contextWindowSource)}` : "上下文窗口未设置"}
+        </span>
+      </button>
+      <label className="min-w-0 text-[10px] text-muted-foreground">
+        <span className="sr-only">上下文窗口 token</span>
+        <input
+          className="h-7 w-full rounded-md border bg-background px-2 text-right text-[11px] text-foreground outline-none placeholder:text-muted-foreground/45 focus:border-foreground/35"
+          inputMode="numeric"
+          value={contextWindowValue}
+          placeholder="窗口"
+          title="上下文窗口 token"
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            const next = contextWindowFromInput(event.target.value);
+            onUpdateModel?.({
+              ...model,
+              contextWindowTokens: next,
+              contextWindowSource: next ? "user" : undefined,
+            });
+          }}
+        />
+      </label>
+      <button
+        type="button"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemoveModel?.(model);
+        }}
+        disabled={!onRemoveModel}
+        aria-label="删除模型"
+        title="删除模型"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
@@ -3675,17 +3725,65 @@ function toggleDraftModel(draft: ProviderDraftInput, modelId: string): ProviderD
   return { ...draft, models, selectedModel };
 }
 
+function updateDraftModel(draft: ProviderDraftInput, nextModel: ProviderModel): ProviderDraftInput {
+  const models = (draft.models || []).map((model) => (
+    model.id === nextModel.id ? { ...nextModel } : model
+  ));
+  return { ...draft, models };
+}
+
+function removeDraftModel(draft: ProviderDraftInput, modelId: string): ProviderDraftInput {
+  const models = (draft.models || []).filter((model) => model.id !== modelId);
+  return {
+    ...draft,
+    models,
+    selectedModel: selectedEnabledModel(draft.selectedModel === modelId ? "" : draft.selectedModel, models),
+  };
+}
+
 function addDraftModel(draft: ProviderDraftInput, modelId: string): ProviderDraftInput {
   const normalizedId = modelId.trim();
   if (!normalizedId) return draft;
   const existing = draft.models || [];
   const models = existing.some((model) => model.id === normalizedId)
     ? existing.map((model) => (model.id === normalizedId ? { ...model, enabled: true } : model))
-    : [...existing, { id: normalizedId, name: normalizedId, enabled: true }];
+    : [...existing, withInferredContextWindow({ id: normalizedId, name: normalizedId, enabled: true })];
   return {
     ...draft,
     models,
     selectedModel: selectedEnabledModel(draft.selectedModel, models) || normalizedId,
+  };
+}
+
+function mergeFetchedDraftModels(draft: ProviderDraftInput, fetchedModels: ProviderModel[]): ProviderDraftInput {
+  const merged = new Map<string, ProviderModel>();
+  for (const fetched of fetchedModels) {
+    const model = withInferredContextWindow({ ...fetched });
+    merged.set(model.id, model);
+  }
+
+  for (const existingModel of draft.models || []) {
+    const existing = withInferredContextWindow({ ...existingModel });
+    const fetched = merged.get(existing.id);
+    if (!fetched) {
+      merged.set(existing.id, existing);
+      continue;
+    }
+    const userContextWindow = existing.contextWindowSource === "user" && existing.contextWindowTokens;
+    merged.set(existing.id, {
+      ...fetched,
+      enabled: existing.enabled,
+      supportsVision: fetched.supportsVision || existing.supportsVision,
+      contextWindowTokens: userContextWindow ? existing.contextWindowTokens : fetched.contextWindowTokens ?? existing.contextWindowTokens,
+      contextWindowSource: userContextWindow ? "user" : fetched.contextWindowSource ?? existing.contextWindowSource,
+    });
+  }
+
+  const models = [...merged.values()];
+  return {
+    ...draft,
+    models,
+    selectedModel: selectedEnabledModel(draft.selectedModel, models),
   };
 }
 
@@ -3710,7 +3808,31 @@ function applyProviderPreset(draft: ProviderDraftInput, providerKind: ProviderKi
 function presetModels(providerKind: ProviderKind): ProviderModel[] {
   const preset = PROVIDER_PRESETS[providerKind];
   if (!("models" in preset)) return [];
-  return preset.models.map((model) => ({ ...model }));
+  return preset.models.map((model) => withInferredContextWindow({ ...model }));
+}
+
+function contextWindowFromInput(value: string): number | undefined {
+  const digits = value.replace(/[^\d]/g, "");
+  if (!digits) return undefined;
+  const numeric = Number.parseInt(digits, 10);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+}
+
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${trimNumber(tokens / 1_000_000)}M`;
+  if (tokens >= 1_000) return `${trimNumber(tokens / 1_000)}K`;
+  return tokens.toLocaleString();
+}
+
+function contextWindowSourceLabel(source: ProviderModel["contextWindowSource"]): string {
+  if (source === "user") return "手动";
+  if (source === "provider") return "服务商";
+  if (source === "inferred") return "估算";
+  return "配置";
+}
+
+function trimNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function providerKindLabel(providerKind: ProviderKind): string {

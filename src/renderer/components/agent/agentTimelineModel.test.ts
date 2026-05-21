@@ -656,7 +656,7 @@ const openAiProvider = {
   apiKeyMasked: "",
   authMode: "bearer",
   selectedModel: "gpt-5.5",
-  models: [{ id: "gpt-5.5", name: "GPT 5.5", enabled: true, contextWindowTokens: 200_000, contextWindowSource: "provider" }],
+  models: [{ id: "gpt-5.5", name: "GPT 5.5", enabled: true, contextWindowTokens: 258_000, contextWindowSource: "provider" }],
   enabled: true,
   autoCompactThresholdPercent: 80,
   createdAt: "2026-05-16T00:00:00.000Z",
@@ -690,7 +690,7 @@ const openAiUsageAssistant = {
     reasoningTokens: 450,
     totalTokens: 10_900,
     contextInputTokens: 10_000,
-    contextWindow: 200_000,
+    contextWindow: 258_000,
     contextWindowSource: "provider",
   },
 } as unknown as SDKMessage;
@@ -700,7 +700,7 @@ const mixedProviderUsage = latestContextUsage(
 );
 assert.equal(mixedProviderUsage?.providerId, "provider_openai");
 assert.equal(mixedProviderUsage?.modelId, "gpt-5.5");
-assert.equal(mixedProviderUsage?.contextWindow, 200_000);
+assert.equal(mixedProviderUsage?.contextWindow, 258_000);
 assert.equal(mixedProviderUsage?.reasoningTokens, 450);
 assert.equal(mixedProviderUsage?.contextInputTokens, 10_000);
 
@@ -725,7 +725,8 @@ assert.equal(resultUsage?.contextWindow, 1_000_000);
 
 const defaultUsage = defaultContextUsage("gpt-5.5", openAiProvider);
 assert.equal(defaultUsage?.source, "default");
-assert.equal(defaultUsage?.contextWindow, 200_000);
+assert.equal(defaultUsage?.contextWindow, 258_000);
+assert.equal(defaultContextUsage("gpt-5.4")?.contextWindow, 1_000_000);
 assert.equal(shouldAutoCompactContext({ inputTokens: 1_000, contextInputTokens: 1_000, contextWindowSource: "unknown" }, openAiProvider), false);
 
 console.log("agentTimelineModel fixture tests passed");

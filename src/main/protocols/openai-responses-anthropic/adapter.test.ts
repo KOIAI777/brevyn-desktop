@@ -275,7 +275,7 @@ assert.equal(anthropic._brevynUsage?.inputTokens, 10);
 assert.equal(anthropic._brevynUsage?.outputTokens, 20);
 assert.equal(anthropic._brevynUsage?.cacheReadTokens, 4);
 assert.equal(anthropic._brevynUsage?.totalTokens, 30);
-assert.equal(anthropic._brevynUsage?.contextWindow, 200_000);
+assert.equal(anthropic._brevynUsage?.contextWindow, 258_000);
 
 const citedAnthropic = openAiResponsesToAnthropic({
   id: "resp_cited",

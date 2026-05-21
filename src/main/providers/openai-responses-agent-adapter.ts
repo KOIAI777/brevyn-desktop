@@ -58,10 +58,12 @@ export class OpenAIResponsesAgentAdapter implements AgentProviderAdapter {
 }
 
 function apiBaseUrl(provider: ModelProviderConfig): string {
-  return (normalizeBaseUrl(provider.baseUrl) || "https://api.openai.com/v1")
+  const normalized = normalizeBaseUrl(provider.baseUrl) || "https://api.openai.com/v1";
+  const stripped = normalized
     .replace(/\/responses$/, "")
     .replace(/\/chat\/completions$/, "")
     .replace(/\/models$/, "");
+  return /\/v\d+(?:\/|$)/.test(stripped) ? stripped : `${stripped}/v1`;
 }
 
 function headers(apiKey: string): Record<string, string> {
