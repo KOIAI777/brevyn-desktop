@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Circle, Loader2, Minimize2 } from "lucide-react";
+import { Loader2, Minimize2 } from "lucide-react";
 import type { ContextUsage } from "@/components/agent/agentTimelineModel";
 
 export function ContextUsageButton({
@@ -83,9 +83,6 @@ export function ContextUsageButton({
   const warning = compactThreshold > 0 ? contextInputTokens / compactThreshold >= 0.8 : false;
   const percent = usage.contextWindow ? Math.round((contextInputTokens / usage.contextWindow) * 100) : undefined;
   const contextWindowLabel = usage.contextWindowSource === "inferred" ? "估算窗口" : usage.contextWindowSource === "unknown" ? "未知窗口" : "配置窗口";
-  const ringStyle = {
-    background: `conic-gradient(${warning ? "#d97706" : "#334155"} ${Math.round(ratio * 360)}deg, rgba(120,113,108,0.18) 0deg)`,
-  };
 
   return (
     <div className="relative">
@@ -102,9 +99,7 @@ export function ContextUsageButton({
         onFocus={showMenu}
         onBlur={hideMenuSoon}
       >
-        <span className="absolute inset-[5px] rounded-full" style={ringStyle} />
-        <span className="absolute inset-[8px] rounded-full bg-card" />
-        <Circle className="relative h-2 w-2 fill-current" />
+        <ContextUsageRing ratio={ratio} warning={warning} />
       </button>
       {open && createPortal(
         <div
@@ -115,7 +110,7 @@ export function ContextUsageButton({
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[12px] font-semibold text-foreground">本轮上下文用量</p>
+              <p className="text-[12px] font-semibold text-foreground">上下文用量</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {usage.contextWindow ? `${formatTokens(contextInputTokens)} / ${formatTokens(usage.contextWindow)} · ${contextWindowLabel}` : `${formatTokens(contextInputTokens)} used`}
               </p>
@@ -155,6 +150,47 @@ export function ContextUsageButton({
         document.body,
       )}
     </div>
+  );
+}
+
+function ContextUsageRing({ ratio, warning }: { ratio: number; warning: boolean }) {
+  const radius = 7;
+  const circumference = 2 * Math.PI * radius;
+  const clampedRatio = clampNumber(ratio, 0, 1);
+  const dashOffset = circumference * (1 - clampedRatio);
+
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 20 20"
+      className={`relative h-[18px] w-[18px] shrink-0 transition-colors ${warning ? "text-amber-600" : "text-slate-700"}`}
+      aria-hidden="true"
+    >
+      <circle
+        cx="10"
+        cy="10"
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.18"
+        strokeWidth="2"
+      />
+      <circle
+        cx="10"
+        cy="10"
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={dashOffset}
+        transform="rotate(-90 10 10)"
+        style={{ transition: "stroke-dashoffset 320ms ease-out" }}
+      />
+      <circle cx="10" cy="10" r="2" fill="currentColor" opacity="0.78" />
+    </svg>
   );
 }
 

@@ -723,6 +723,26 @@ assert.equal(resultUsage?.modelId, "claude-sonnet-4-6");
 assert.equal(resultUsage?.contextInputTokens, 35_000);
 assert.equal(resultUsage?.contextWindow, 1_000_000);
 
+const lowerResultUsage = {
+  ...result("result_lower_usage"),
+  _channelProviderId: "provider_claude",
+  _channelModelId: "claude-sonnet-4-6",
+  usage: {
+    input_tokens: 9_000,
+    output_tokens: 300,
+    cache_read_input_tokens: 1_000,
+    cache_creation_input_tokens: 0,
+  },
+} as unknown as SDKMessage;
+const stableUsage = latestContextUsage([claudeUsageAssistant, lowerResultUsage], { providers: [claudeProvider], activeProvider: claudeProvider });
+assert.equal(stableUsage?.contextInputTokens, 15_500);
+
+const compactedUsage = latestContextUsage(
+  [claudeUsageAssistant, systemCompact("compact_boundary", "usage_compact_boundary"), lowerResultUsage],
+  { providers: [claudeProvider], activeProvider: claudeProvider },
+);
+assert.equal(compactedUsage?.contextInputTokens, 10_000);
+
 const defaultUsage = defaultContextUsage("gpt-5.5", openAiProvider);
 assert.equal(defaultUsage?.source, "default");
 assert.equal(defaultUsage?.contextWindow, 258_000);

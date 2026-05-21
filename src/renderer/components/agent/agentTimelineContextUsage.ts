@@ -53,17 +53,35 @@ export function defaultContextUsage(model?: string, provider?: ModelProviderConf
 
 export function latestContextUsage(records: BrevynAgentTimelineRecord[], options: ContextUsageOptions = {}): ContextUsage | null {
   let latest: ContextUsage | null = null;
+  let stableContextInputTokens = 0;
+  let stableUsageKey = "";
   for (const record of records) {
     if (isRuntimeRecord(record)) continue;
     const message = record as SDKMessage;
+    if (message.type === "system" && stringValue((message as { subtype?: unknown }).subtype, "") === "compact_boundary") {
+      latest = null;
+      stableContextInputTokens = 0;
+      stableUsageKey = "";
+      continue;
+    }
     if (message.type === "assistant") {
       const usage = contextUsageFromAssistant(message, options);
-      if (usage) latest = usage;
+      if (usage) {
+        const stabilized = stabilizeContextInputTokens(usage, stableUsageKey, stableContextInputTokens);
+        stableUsageKey = stabilized.key;
+        stableContextInputTokens = stabilized.contextInputTokens;
+        latest = stabilized.usage;
+      }
       continue;
     }
     if (message.type === "result") {
       const usage = contextUsageFromResult(message, options);
-      if (usage) latest = usage;
+      if (usage) {
+        const stabilized = stabilizeContextInputTokens(usage, stableUsageKey, stableContextInputTokens);
+        stableUsageKey = stabilized.key;
+        stableContextInputTokens = stabilized.contextInputTokens;
+        latest = stabilized.usage;
+      }
     }
   }
   return latest && ((latest.contextInputTokens ?? latest.inputTokens) > 0 || latest.contextWindow) ? latest : null;
@@ -150,6 +168,35 @@ function providerForMessage(raw: Record<string, unknown>, modelId: string, optio
     if (provider) return provider;
   }
   return options.activeProvider;
+}
+
+function stabilizeContextInputTokens(
+  usage: ContextUsage,
+  previousKey: string,
+  previousContextInputTokens: number,
+): { usage: ContextUsage; key: string; contextInputTokens: number } {
+  const key = contextUsageStabilityKey(usage);
+  const currentContextInputTokens = positiveToken(usage.contextInputTokens) || usage.inputTokens;
+  const contextInputTokens = key === previousKey
+    ? Math.max(previousContextInputTokens, currentContextInputTokens)
+    : currentContextInputTokens;
+  return {
+    key,
+    contextInputTokens,
+    usage: {
+      ...usage,
+      contextInputTokens,
+    },
+  };
+}
+
+function contextUsageStabilityKey(usage: ContextUsage): string {
+  return [
+    usage.providerId || "",
+    usage.modelId || "",
+    usage.contextWindow || "",
+    usage.contextWindowSource || "",
+  ].join("|");
 }
 
 function positiveToken(value: unknown): number {

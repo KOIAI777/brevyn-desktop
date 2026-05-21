@@ -1,5 +1,5 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent, Ref } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Plus, Send, Square } from "lucide-react";
 import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, WorkspaceFileNode } from "@/types/domain";
 import type { AgentTodoItem, ContextUsage } from "@/components/agent/agentTimelineModel";
@@ -21,6 +21,19 @@ import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 
 const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
+const PROMPT_TEXTAREA_MIN_HEIGHT = 56;
+const PROMPT_TEXTAREA_MAX_HEIGHT = 240;
+
+function resizePromptTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(
+    Math.max(textarea.scrollHeight, PROMPT_TEXTAREA_MIN_HEIGHT),
+    PROMPT_TEXTAREA_MAX_HEIGHT,
+  );
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > PROMPT_TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
+}
 
 interface AgentComposerProps {
   dockRef: Ref<HTMLDivElement>;
@@ -72,6 +85,7 @@ export function AgentComposer({
   const [promptValue, setPromptValue] = useState("");
   const [mentionedFiles, setMentionedFiles] = useState<WorkspaceFileNode[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const {
     pendingAttachments,
     draggingFiles,
@@ -93,6 +107,10 @@ export function AgentComposer({
     setMentionedFiles([]);
     setMentionQuery(null);
   }, [threadId]);
+
+  useLayoutEffect(() => {
+    resizePromptTextarea(promptTextareaRef.current);
+  }, [promptValue, threadId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -183,14 +201,15 @@ export function AgentComposer({
             </div>
           )}
           <textarea
+            ref={promptTextareaRef}
             name="prompt"
-            rows={1}
+            rows={2}
             value={promptValue}
             onChange={handlePromptChange}
             onKeyDown={handlePromptKeyDown}
             onPaste={handlePaste}
             placeholder={running ? "输入补充消息，会加入排队列表..." : "Ask Brevyn about this thread..."}
-            className="max-h-32 min-h-11 w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+            className="min-h-14 max-h-[15rem] w-full resize-none overflow-y-hidden bg-transparent px-1 py-1 text-sm leading-6 text-foreground outline-none transition-[height] duration-150 ease-out placeholder:text-muted-foreground brevyn-scrollbar"
           />
           {mentionQuery !== null && mentionSuggestions.length > 0 && (
             <MentionSuggestions
