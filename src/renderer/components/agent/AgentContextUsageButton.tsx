@@ -76,12 +76,13 @@ export function ContextUsageButton({
   }
   if (!usage) return null;
 
-  const ratio = usage.contextWindow ? clampNumber(usage.inputTokens / usage.contextWindow, 0, 1) : 0;
+  const contextInputTokens = usage.contextInputTokens ?? usage.inputTokens;
+  const ratio = usage.contextWindow ? clampNumber(contextInputTokens / usage.contextWindow, 0, 1) : 0;
   const compactThresholdRatio = clampNumber(autoCompactThresholdPercent, 50, 95) / 100;
   const compactThreshold = usage.contextWindow ? usage.contextWindow * compactThresholdRatio : 0;
-  const warning = compactThreshold > 0 ? usage.inputTokens / compactThreshold >= 0.8 : false;
-  const percent = usage.contextWindow ? Math.round((usage.inputTokens / usage.contextWindow) * 100) : undefined;
-  const pureInput = Math.max(0, usage.inputTokens - (usage.cacheReadTokens || 0) - (usage.cacheCreationTokens || 0));
+  const warning = compactThreshold > 0 ? contextInputTokens / compactThreshold >= 0.8 : false;
+  const percent = usage.contextWindow ? Math.round((contextInputTokens / usage.contextWindow) * 100) : undefined;
+  const contextWindowLabel = usage.contextWindowSource === "inferred" ? "估算窗口" : usage.contextWindowSource === "unknown" ? "未知窗口" : "配置窗口";
   const ringStyle = {
     background: `conic-gradient(${warning ? "#d97706" : "#334155"} ${Math.round(ratio * 360)}deg, rgba(120,113,108,0.18) 0deg)`,
   };
@@ -116,7 +117,7 @@ export function ContextUsageButton({
             <div>
               <p className="text-[12px] font-semibold text-foreground">本轮上下文用量</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {usage.contextWindow ? `${formatTokens(usage.inputTokens)} / ${formatTokens(usage.contextWindow)}` : `${formatTokens(usage.inputTokens)} used`}
+                {usage.contextWindow ? `${formatTokens(contextInputTokens)} / ${formatTokens(usage.contextWindow)} · ${contextWindowLabel}` : `${formatTokens(contextInputTokens)} used`}
               </p>
             </div>
             {percent !== undefined && (
@@ -126,10 +127,13 @@ export function ContextUsageButton({
             )}
           </div>
           <div className="mt-3 grid gap-1.5">
-            <ContextUsageRow label="输入" value={pureInput} />
+            <ContextUsageTextRow label="模型" value={usage.modelId} />
+            <ContextUsageRow label="输入" value={usage.inputTokens} />
             <ContextUsageRow label="输出" value={usage.outputTokens} />
             <ContextUsageRow label="缓存读取" value={usage.cacheReadTokens} />
             <ContextUsageRow label="缓存写入" value={usage.cacheCreationTokens} />
+            <ContextUsageRow label="推理" value={usage.reasoningTokens} />
+            <ContextUsageRow label="总计" value={usage.totalTokens} />
           </div>
           <button
             type="button"
@@ -150,6 +154,16 @@ export function ContextUsageButton({
         </div>,
         document.body,
       )}
+    </div>
+  );
+}
+
+function ContextUsageTextRow({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 text-[11px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate font-medium text-foreground">{value}</span>
     </div>
   );
 }

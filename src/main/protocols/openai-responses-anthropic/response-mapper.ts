@@ -1,4 +1,4 @@
-import { buildAnthropicUsageFromResponses, mapResponsesStopReason, responseErrorMessage } from "./errors";
+import { buildAnthropicUsageFromResponses, buildBrevynUsageFromResponses, mapResponsesStopReason, responseErrorMessage } from "./errors";
 import { sanitizeAnthropicToolUseInput } from "./tool-mapper";
 import type { AnthropicMessagesResponse, AnthropicResponseContentBlock } from "./types";
 import { hostedWebSearchInput } from "./web-search-mapper";
@@ -70,6 +70,7 @@ export function openAiResponsesToAnthropic(body: unknown): AnthropicMessagesResp
     stop_reason: mapResponsesStopReason(stringOf(object.status), hasToolUse, stringOf(recordOf(object.incomplete_details).reason)),
     stop_sequence: null,
     usage: buildAnthropicUsageFromResponses(object.usage),
+    _brevynUsage: buildBrevynUsageFromResponses(object.usage, stringOf(object.model)),
   };
 }
 

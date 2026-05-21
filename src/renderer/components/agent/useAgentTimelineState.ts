@@ -94,7 +94,10 @@ export function useAgentTimelineState({
     [runSummary?.status, timelineRecords],
   );
   const todos = useMemo(() => latestTodoList(timelineRecords), [timelineRecords]);
-  const contextUsage = useMemo(() => latestContextUsage(records) ?? defaultContextUsage(activeModelId), [activeModelId, records]);
+  const contextUsage = useMemo(
+    () => latestContextUsage(records, { activeProvider, providers: agentProviders, activeModelId }) ?? defaultContextUsage(activeModelId, activeProvider),
+    [activeModelId, activeProvider, agentProviders, records],
+  );
   const compacting = useMemo(() => isCompactingContext(records), [records]);
   const effectiveCompacting = compacting || compactInFlight;
   const autoCompactThreshold = autoCompactThresholdPercent(activeProvider);

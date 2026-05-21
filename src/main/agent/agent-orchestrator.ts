@@ -14,6 +14,7 @@ import type {
   BrevynAgentRuntimeEvent,
   BrevynAgentSessionRecord,
   BrevynAgentTimelineRecord,
+  BrevynUsageMetadata,
   BrevynTask,
   Course,
   ModelProviderConfig,
@@ -34,6 +35,12 @@ import { ExitPlanService } from "./exit-plan-service";
 import { AgentGatewayService } from "./agent-gateway-service";
 import { PermissionService } from "./permission-service";
 import { PromptBuilder } from "./prompt-builder";
+import {
+  brevynUsageFromAnthropicUsage,
+  brevynUsageFromModelUsage,
+  mergeBrevynUsage,
+  recordOf,
+} from "../../shared/agent-usage";
 
 interface AgentOrchestratorOptions {
   rootDataDir: string;
@@ -102,6 +109,7 @@ export class AgentOrchestrator {
     const abortController = new AbortController();
     const resumeSessionId = this.options.sessions.latestSdkSessionId(context.thread);
     const attachments = input.attachments || [];
+    const selectedProvider = this.options.providers.agentProviderFor(input.providerId, input.modelId);
     const compactCommand = isCompactPrompt(input.prompt);
     const promptForAgent = compactCommand
       ? "/compact"
@@ -128,6 +136,9 @@ export class AgentOrchestrator {
         runId,
         threadId: context.thread.id,
         permissionMode: input.permissionMode || "auto",
+        providerId: selectedProvider?.id || input.providerId,
+        modelId: selectedProvider?.selectedModel || input.modelId,
+        providerProtocol: selectedProvider?.protocol === "openai_responses" ? "openai_responses" : selectedProvider?.protocol === "anthropic_messages" ? "anthropic_messages" : undefined,
         createdAt: now(),
       });
       if (input.permissionMode === "plan") {
@@ -548,9 +559,10 @@ export class AgentOrchestrator {
   }
 
   private appendAndEmitSdkMessage(thread: Thread, message: SDKMessage): void {
-    this.options.sessions.append(thread, message);
+    const normalized = this.withActiveRunUsageMetadata(thread.id, message);
+    this.options.sessions.append(thread, normalized);
     this.options.businessStore.recordThreadMessage(thread.id);
-    this.options.eventBus.emit({ kind: "sdk_message", threadId: thread.id, message });
+    this.options.eventBus.emit({ kind: "sdk_message", threadId: thread.id, message: normalized });
   }
 
   private appendAndEmitRuntimeEvent(thread: Thread, event: BrevynAgentRuntimeEvent): void {
@@ -600,6 +612,55 @@ export class AgentOrchestrator {
       error: message || "Agent run failed.",
       createdAt,
     });
+  }
+
+  private withActiveRunUsageMetadata(threadId: string, message: SDKMessage): SDKMessage {
+    const active = this.activeRuns.get(threadId);
+    const provider = active ? this.options.providers.agentProviderFor(active.providerId, active.modelId) : undefined;
+    if (!provider) return message;
+
+    const base = message as unknown as Record<string, unknown>;
+    const providerProtocol = provider.protocol === "openai_responses" ? "openai_responses" : "anthropic_messages";
+    const modelId = stringValue(recordOf(base.message).model) || stringValue(base._channelModelId) || provider.selectedModel;
+    const existingBrevynUsage = recordOf(base._brevynUsage);
+    let brevynUsage = Object.keys(existingBrevynUsage).length > 0 ? mergeBrevynUsage(existingBrevynUsage as unknown as BrevynUsageMetadata, {
+      providerProtocol,
+      providerId: provider.id,
+      modelId,
+      provider,
+    }) : undefined;
+
+    if (!brevynUsage && message.type === "assistant") {
+      brevynUsage = brevynUsageFromAnthropicUsage(recordOf(base.message).usage, {
+        providerProtocol,
+        providerId: provider.id,
+        modelId,
+        provider,
+      });
+    }
+
+    if (message.type === "result") {
+      const modelUsage = brevynUsageFromModelUsage(base.modelUsage, {
+        providerProtocol,
+        providerId: provider.id,
+        modelId,
+        provider,
+      });
+      brevynUsage = modelUsage || brevynUsage || brevynUsageFromAnthropicUsage(base.usage, {
+        providerProtocol,
+        providerId: provider.id,
+        modelId,
+        provider,
+      });
+    }
+
+    const next: Record<string, unknown> = {
+      ...base,
+      _channelProviderId: stringValue(base._channelProviderId) || provider.id,
+      _channelModelId: stringValue(base._channelModelId) || modelId,
+    };
+    if (brevynUsage) next._brevynUsage = brevynUsage;
+    return next as unknown as SDKMessage;
   }
 
   private resolveThreadContext(threadId: string): ResolvedThreadContext {
@@ -701,6 +762,10 @@ function now(): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Unknown agent error");
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function retryDelayMs(attempt: number): number {

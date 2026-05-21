@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   anthropicToOpenAiResponses,
   buildAnthropicUsageFromResponses,
+  buildBrevynUsageFromResponses,
   openAiResponsesToAnthropic,
 } from "./index";
 
@@ -247,7 +248,10 @@ const anthropic = openAiResponsesToAnthropic({
   },
 });
 
-assert.deepEqual(anthropic, {
+assert.deepEqual({
+  ...anthropic,
+  _brevynUsage: undefined,
+}, {
   id: "resp_1",
   type: "message",
   role: "assistant",
@@ -264,7 +268,14 @@ assert.deepEqual(anthropic, {
     output_tokens: 20,
     cache_read_input_tokens: 4,
   },
+  _brevynUsage: undefined,
 });
+assert.equal(anthropic._brevynUsage?.providerProtocol, "openai_responses");
+assert.equal(anthropic._brevynUsage?.inputTokens, 10);
+assert.equal(anthropic._brevynUsage?.outputTokens, 20);
+assert.equal(anthropic._brevynUsage?.cacheReadTokens, 4);
+assert.equal(anthropic._brevynUsage?.totalTokens, 30);
+assert.equal(anthropic._brevynUsage?.contextWindow, 200_000);
 
 const citedAnthropic = openAiResponsesToAnthropic({
   id: "resp_cited",
@@ -409,6 +420,19 @@ assert.deepEqual(buildAnthropicUsageFromResponses({
   output_tokens: 22,
   cache_read_input_tokens: 5,
 });
+
+const brevynResponsesUsage = buildBrevynUsageFromResponses({
+  input_tokens: 11,
+  output_tokens: 22,
+  total_tokens: 33,
+  input_tokens_details: { cached_tokens: 5 },
+  output_tokens_details: { reasoning_tokens: 7 },
+}, "gpt-5.5");
+assert.equal(brevynResponsesUsage?.inputTokens, 11);
+assert.equal(brevynResponsesUsage?.cacheReadTokens, 5);
+assert.equal(brevynResponsesUsage?.reasoningTokens, 7);
+assert.equal(brevynResponsesUsage?.totalTokens, 33);
+assert.equal(brevynResponsesUsage?.contextInputTokens, 11);
 
 const maxTokens = openAiResponsesToAnthropic({
   id: "resp_2",

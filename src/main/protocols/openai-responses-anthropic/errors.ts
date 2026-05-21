@@ -1,4 +1,6 @@
 import type { AnthropicMessagesResponse, AnthropicUsage } from "./types";
+import { brevynUsageFromResponsesUsage } from "../../../shared/agent-usage";
+import type { BrevynUsageMetadata } from "../../../types/domain";
 
 export function buildAnthropicUsageFromResponses(usage: unknown): AnthropicUsage {
   const object = recordOf(usage);
@@ -20,6 +22,13 @@ export function buildAnthropicUsageFromResponses(usage: unknown): AnthropicUsage
   if (cacheCreation !== undefined) result.cache_creation_input_tokens = cacheCreation;
 
   return result;
+}
+
+export function buildBrevynUsageFromResponses(usage: unknown, modelId?: string): BrevynUsageMetadata | undefined {
+  return brevynUsageFromResponsesUsage(usage, {
+    providerProtocol: "openai_responses",
+    modelId,
+  });
 }
 
 export function mapResponsesStopReason(

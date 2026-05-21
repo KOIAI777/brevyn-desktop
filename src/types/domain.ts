@@ -466,6 +466,8 @@ export interface ProviderModel {
   name: string;
   enabled: boolean;
   supportsVision?: boolean;
+  contextWindowTokens?: number;
+  contextWindowSource?: "provider" | "user" | "inferred";
 }
 
 export interface ProviderPreset {
@@ -718,6 +720,25 @@ export interface ProviderTestResult {
 
 export type AgentPermissionMode = "auto" | "bypassPermissions" | "plan";
 
+export type BrevynUsageProviderProtocol = "anthropic_messages" | "openai_responses";
+export type BrevynUsageContextWindowSource = "model_config" | "provider" | "user" | "inferred" | "unknown";
+
+export interface BrevynUsageMetadata {
+  providerProtocol: BrevynUsageProviderProtocol;
+  providerId?: string;
+  modelId?: string;
+  inputTokens: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+  contextInputTokens?: number;
+  contextWindow?: number;
+  contextWindowSource?: BrevynUsageContextWindowSource;
+  raw?: unknown;
+}
+
 export interface AgentAttachment {
   id: string;
   threadId: string;
@@ -827,7 +848,7 @@ export interface AgentApprovalRequest {
 }
 
 export type BrevynAgentRuntimeEvent =
-  | { type: "run_started"; runId: string; threadId: string; permissionMode?: AgentPermissionMode; createdAt: string }
+  | { type: "run_started"; runId: string; threadId: string; permissionMode?: AgentPermissionMode; providerId?: string; modelId?: string; providerProtocol?: AgentProtocol; createdAt: string }
   | { type: "run_retrying"; runId: string; threadId: string; retryAttempt: number; maxRetries: number; reason: string; delayMs: number; createdAt: string }
   | { type: "run_completed"; runId: string; threadId: string; resultSubtype?: string; createdAt: string }
   | { type: "run_stopped"; runId: string; threadId: string; reason?: string; createdAt: string }

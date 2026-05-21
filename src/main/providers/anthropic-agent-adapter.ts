@@ -1,4 +1,5 @@
 import type { AgentProviderKind, ModelProviderConfig, ProviderModel } from "../../types/domain";
+import { withInferredContextWindow } from "../../shared/model-context-window";
 import type { AgentProviderAdapter, ProviderHttpRequest } from "./types";
 import { normalizeAnthropicBaseUrlForSdk, normalizeAnthropicProviderBaseUrl } from "./url-utils";
 
@@ -89,5 +90,5 @@ function defaultTestModel(providerKind: AgentProviderKind): string {
 function providerModelFromId(id: string, displayName?: string): ProviderModel[] {
   const modelId = id.trim();
   if (!modelId) return [];
-  return [{ id: modelId, name: displayName || modelId, enabled: false }];
+  return [withInferredContextWindow({ id: modelId, name: displayName || modelId, enabled: false })];
 }

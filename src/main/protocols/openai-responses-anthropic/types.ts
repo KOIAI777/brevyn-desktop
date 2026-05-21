@@ -1,3 +1,5 @@
+import type { BrevynUsageMetadata } from "../../../types/domain";
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface AnthropicMessagesRequest {
@@ -44,6 +46,7 @@ export interface AnthropicMessagesResponse {
   stop_reason: "end_turn" | "tool_use" | "max_tokens" | null;
   stop_sequence: null;
   usage: AnthropicUsage;
+  _brevynUsage?: BrevynUsageMetadata;
 }
 
 export type AnthropicResponseContentBlock =

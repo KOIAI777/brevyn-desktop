@@ -43,15 +43,16 @@ export function useAgentAutoCompactState({
     const bounds = latestTurnBounds(records);
     if (!bounds || !bounds.result || isCompactCommandMessage(bounds.user)) return;
     const threshold = autoCompactThresholdPercent(activeProvider);
+    const contextInputTokens = contextUsage?.contextInputTokens ?? contextUsage?.inputTokens ?? 0;
     const key = [
       threadId,
       records.length,
-      contextUsage?.inputTokens ?? 0,
+      contextInputTokens,
       contextUsage?.contextWindow ?? 0,
       threshold,
     ].join(":");
     if (autoCompactKeyRef.current === key) return;
     autoCompactKeyRef.current = key;
     void handleCompact();
-  }, [activeProvider, contextUsage, effectiveCompacting, effectiveRunning, error, handleCompact, loading, queuedMessageCount, records.length, threadId]);
+  }, [activeProvider, contextUsage, effectiveCompacting, effectiveRunning, error, handleCompact, loading, queuedMessageCount, records, threadId]);
 }

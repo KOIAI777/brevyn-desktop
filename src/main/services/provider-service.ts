@@ -20,6 +20,7 @@ import {
   type ProviderTestResult,
   type VisionProviderKind,
 } from "../../types/domain";
+import { withInferredContextWindow } from "../../shared/model-context-window";
 import { getAgentProviderAdapter, getEmbeddingProviderAdapter, normalizeBaseUrl } from "../providers";
 import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
@@ -758,13 +759,15 @@ function normalizeProviderModels(models: unknown, selectedModel: string): Provid
           name: stringValue(item.name).trim() || id,
           enabled: item.enabled !== false,
           supportsVision: item.supportsVision === true,
+          contextWindowTokens: positiveInteger(item.contextWindowTokens),
+          contextWindowSource: normalizeContextWindowSource(item.contextWindowSource),
         }];
       })
     : [];
   const unique = new Map<string, ProviderModel>();
-  for (const model of normalized) unique.set(model.id, model);
+  for (const model of normalized) unique.set(model.id, withInferredContextWindow(model));
   if (selectedModel && !unique.has(selectedModel)) {
-    unique.set(selectedModel, { id: selectedModel, name: selectedModel, enabled: true });
+    unique.set(selectedModel, withInferredContextWindow({ id: selectedModel, name: selectedModel, enabled: true }));
   }
   return [...unique.values()];
 }
@@ -792,9 +795,11 @@ function fetchedAgentModelsAsAvailable(models: ProviderModel[]): ProviderModel[]
       name: stringValue(model.name).trim() || id,
       enabled: false,
       supportsVision: model.supportsVision === true,
+      contextWindowTokens: positiveInteger(model.contextWindowTokens),
+      contextWindowSource: normalizeContextWindowSource(model.contextWindowSource),
     });
   }
-  return [...unique.values()];
+  return [...unique.values()].map(withInferredContextWindow);
 }
 
 function mergeFetchedModelsAsAvailable(existingModels: ProviderModel[], fetchedModels: ProviderModel[], selectedModel: string): ProviderModel[] {
@@ -810,6 +815,8 @@ function mergeFetchedModelsAsAvailable(existingModels: ProviderModel[], fetchedM
       name: stringValue(model.name).trim() || id,
       enabled: false,
       supportsVision: model.supportsVision === true,
+      contextWindowTokens: positiveInteger(model.contextWindowTokens),
+      contextWindowSource: normalizeContextWindowSource(model.contextWindowSource),
     });
   }
   return [...merged.values()];
@@ -894,12 +901,21 @@ function visionOpenAiHeaders(provider: ModelProviderConfig, apiKey: string): Rec
 }
 
 function parseProviderModelList(payload: unknown): ProviderModel[] {
-  const data = payload && typeof payload === "object" ? (payload as { data?: Array<{ id?: string; display_name?: string; name?: string }> }).data : undefined;
+  const data = payload && typeof payload === "object"
+    ? (payload as { data?: Array<{ id?: string; display_name?: string; name?: string; context_window?: unknown; contextWindow?: unknown; context_length?: unknown; max_context_tokens?: unknown }> }).data
+    : undefined;
   return (data || [])
     .flatMap((item) => {
       const id = stringValue(item.id).trim();
       if (!id) return [];
-      return [{ id, name: stringValue(item.display_name || item.name) || id, enabled: false }];
+      const contextWindowTokens = positiveInteger(item.context_window ?? item.contextWindow ?? item.context_length ?? item.max_context_tokens);
+      return [withInferredContextWindow({
+        id,
+        name: stringValue(item.display_name || item.name) || id,
+        enabled: false,
+        contextWindowTokens,
+        contextWindowSource: contextWindowTokens ? "provider" : undefined,
+      })];
     })
     .sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -1039,6 +1055,15 @@ async function responseJson(response: Response): Promise<unknown | null> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : Number.parseFloat(stringValue(value));
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : undefined;
+}
+
+function normalizeContextWindowSource(value: unknown): ProviderModel["contextWindowSource"] {
+  return value === "provider" || value === "user" || value === "inferred" ? value : undefined;
 }
 
 function normalizeProviderDraftInput(input: unknown): ProviderDraftInput {

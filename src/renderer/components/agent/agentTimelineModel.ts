@@ -38,10 +38,17 @@ export interface RunSummary {
 
 export interface ContextUsage {
   inputTokens: number;
+  contextInputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
   contextWindow?: number;
+  contextWindowSource?: "model_config" | "provider" | "user" | "inferred" | "unknown";
+  modelId?: string;
+  providerId?: string;
+  source?: "assistant" | "result" | "default";
 }
 
 export type ProcessEvent =

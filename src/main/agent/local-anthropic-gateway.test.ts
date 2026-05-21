@@ -81,7 +81,10 @@ async function main(): Promise<void> {
     });
 
     const jsonPayload = await jsonResponse.json();
-    assert.deepEqual(jsonPayload, {
+    assert.deepEqual({
+      ...jsonPayload,
+      _brevynUsage: undefined,
+    }, {
       id: "resp_json",
       type: "message",
       role: "assistant",
@@ -90,7 +93,10 @@ async function main(): Promise<void> {
       stop_reason: "end_turn",
       stop_sequence: null,
       usage: { input_tokens: 5, output_tokens: 7 },
+      _brevynUsage: undefined,
     });
+    assert.equal(jsonPayload._brevynUsage?.inputTokens, 5);
+    assert.equal(jsonPayload._brevynUsage?.outputTokens, 7);
 
     const streamResponse = await fetch(`${baseUrl}/v1/messages`, {
       method: "POST",

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { ModelProviderConfig } from "@/types/domain";
 import { assistantText, groupIntoTurns, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
+import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
 import { buildTimelineViewGroups, buildTimelineViewItems, type AgentTimelineViewItem } from "./useAgentTimelineState";
 import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
 
@@ -625,5 +627,105 @@ assert.equal(getAgentLiveRunning("thread_live"), true);
 assert.equal((getAgentLiveRecords("thread_live")[0] as SDKMessage | undefined)?.uuid, "live_user_before_run_started");
 appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_live", runId: "run_live", resultSubtype: "success", createdAt: "2026-05-16T00:00:01.000Z" });
 assert.equal(getAgentLiveRunning("thread_live"), false);
+
+const claudeProvider = {
+  id: "provider_claude",
+  purpose: "agent",
+  providerKind: "anthropic",
+  adapterKind: "anthropic",
+  name: "Claude",
+  protocol: "anthropic_messages",
+  baseUrl: "https://api.anthropic.com",
+  apiKeyMasked: "",
+  authMode: "api_key",
+  selectedModel: "claude-sonnet-4-6",
+  models: [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", enabled: true, contextWindowTokens: 1_000_000, contextWindowSource: "provider" }],
+  enabled: true,
+  autoCompactThresholdPercent: 80,
+  createdAt: "2026-05-16T00:00:00.000Z",
+  updatedAt: "2026-05-16T00:00:00.000Z",
+} satisfies ModelProviderConfig;
+const openAiProvider = {
+  id: "provider_openai",
+  purpose: "agent",
+  providerKind: "openai-responses-agent",
+  adapterKind: "openai_responses",
+  name: "OpenAI Responses",
+  protocol: "openai_responses",
+  baseUrl: "https://api.openai.com/v1",
+  apiKeyMasked: "",
+  authMode: "bearer",
+  selectedModel: "gpt-5.5",
+  models: [{ id: "gpt-5.5", name: "GPT 5.5", enabled: true, contextWindowTokens: 200_000, contextWindowSource: "provider" }],
+  enabled: true,
+  autoCompactThresholdPercent: 80,
+  createdAt: "2026-05-16T00:00:00.000Z",
+  updatedAt: "2026-05-16T00:00:00.000Z",
+} satisfies ModelProviderConfig;
+const claudeUsageAssistant = {
+  ...assistant([{ type: "text", text: "Claude usage" }], "assistant_usage_claude"),
+  _channelProviderId: "provider_claude",
+  _channelModelId: "claude-sonnet-4-6",
+  message: {
+    role: "assistant",
+    model: "claude-sonnet-4-6",
+    content: [{ type: "text", text: "Claude usage" }],
+    usage: {
+      input_tokens: 12_000,
+      output_tokens: 800,
+      cache_read_input_tokens: 3_000,
+      cache_creation_input_tokens: 500,
+    },
+  },
+} as unknown as SDKMessage;
+const openAiUsageAssistant = {
+  ...assistant([{ type: "text", text: "OpenAI usage" }], "assistant_usage_openai"),
+  _brevynUsage: {
+    providerProtocol: "openai_responses",
+    providerId: "provider_openai",
+    modelId: "gpt-5.5",
+    inputTokens: 10_000,
+    outputTokens: 900,
+    cacheReadTokens: 2_000,
+    reasoningTokens: 450,
+    totalTokens: 10_900,
+    contextInputTokens: 10_000,
+    contextWindow: 200_000,
+    contextWindowSource: "provider",
+  },
+} as unknown as SDKMessage;
+const mixedProviderUsage = latestContextUsage(
+  [claudeUsageAssistant, openAiUsageAssistant],
+  { providers: [claudeProvider, openAiProvider], activeProvider: claudeProvider, activeModelId: "claude-sonnet-4-6" },
+);
+assert.equal(mixedProviderUsage?.providerId, "provider_openai");
+assert.equal(mixedProviderUsage?.modelId, "gpt-5.5");
+assert.equal(mixedProviderUsage?.contextWindow, 200_000);
+assert.equal(mixedProviderUsage?.reasoningTokens, 450);
+assert.equal(mixedProviderUsage?.contextInputTokens, 10_000);
+
+const modelUsageResult = {
+  ...result("result_model_usage"),
+  _channelProviderId: "provider_claude",
+  modelUsage: {
+    "claude-sonnet-4-6": {
+      inputTokens: 30_000,
+      outputTokens: 1_000,
+      cacheReadInputTokens: 5_000,
+      cacheCreationInputTokens: 0,
+      contextWindow: 1_000_000,
+    },
+  },
+} as unknown as SDKMessage;
+const resultUsage = latestContextUsage([modelUsageResult], { providers: [claudeProvider], activeProvider: claudeProvider });
+assert.equal(resultUsage?.source, "result");
+assert.equal(resultUsage?.modelId, "claude-sonnet-4-6");
+assert.equal(resultUsage?.contextInputTokens, 35_000);
+assert.equal(resultUsage?.contextWindow, 1_000_000);
+
+const defaultUsage = defaultContextUsage("gpt-5.5", openAiProvider);
+assert.equal(defaultUsage?.source, "default");
+assert.equal(defaultUsage?.contextWindow, 200_000);
+assert.equal(shouldAutoCompactContext({ inputTokens: 1_000, contextInputTokens: 1_000, contextWindowSource: "unknown" }, openAiProvider), false);
 
 console.log("agentTimelineModel fixture tests passed");

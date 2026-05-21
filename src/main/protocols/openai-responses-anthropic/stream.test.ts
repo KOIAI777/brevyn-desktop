@@ -31,6 +31,8 @@ assert.deepEqual(textEvents.map((item) => (item as { type?: string }).type), [
 assert.equal((textEvents[0] as { message: { id: string; model: string } }).message.id, "resp_text");
 assert.equal((textEvents[2] as { delta: { text: string } }).delta.text, "Hel");
 assert.equal((textEvents[5] as { usage: { output_tokens: number } }).usage.output_tokens, 2);
+assert.equal((textEvents[5] as { _brevynUsage?: { inputTokens?: number; outputTokens?: number } })._brevynUsage?.inputTokens, 3);
+assert.equal((textEvents[5] as { _brevynUsage?: { inputTokens?: number; outputTokens?: number } })._brevynUsage?.outputTokens, 2);
 
 const thinkingEvents = convertedEvents([
   event("response.created", { type: "response.created", response: { id: "resp_think", model: "o3" } }),

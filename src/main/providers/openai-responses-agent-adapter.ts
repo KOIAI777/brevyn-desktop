@@ -1,4 +1,5 @@
 import type { AgentProviderKind, ModelProviderConfig, ProviderModel } from "../../types/domain";
+import { withInferredContextWindow } from "../../shared/model-context-window";
 import type { AgentProviderAdapter, ProviderHttpRequest } from "./types";
 import { normalizeBaseUrl } from "./url-utils";
 
@@ -36,12 +37,21 @@ export class OpenAIResponsesAgentAdapter implements AgentProviderAdapter {
   }
 
   parseModelList(payload: unknown): ProviderModel[] {
-    const data = payload && typeof payload === "object" ? (payload as { data?: Array<{ id?: string; name?: string }> }).data : undefined;
+    const data = payload && typeof payload === "object"
+      ? (payload as { data?: Array<{ id?: string; name?: string; context_window?: unknown; contextWindow?: unknown; context_length?: unknown; max_context_tokens?: unknown }> }).data
+      : undefined;
     return (data || [])
       .flatMap((item) => {
         const id = (item.id || "").trim();
         if (!id) return [];
-        return [{ id, name: item.name || id, enabled: false }];
+        const contextWindowTokens = positiveInteger(item.context_window ?? item.contextWindow ?? item.context_length ?? item.max_context_tokens);
+        return [withInferredContextWindow({
+          id,
+          name: item.name || id,
+          enabled: false,
+          contextWindowTokens,
+          contextWindowSource: contextWindowTokens ? "provider" : undefined,
+        })];
       })
       .sort((a, b) => a.id.localeCompare(b.id));
   }
@@ -61,3 +71,7 @@ function headers(apiKey: string): Record<string, string> {
   };
 }
 
+function positiveInteger(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number.parseFloat(value) : Number.NaN;
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : undefined;
+}

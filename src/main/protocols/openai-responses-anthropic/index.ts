@@ -1,4 +1,4 @@
-export { buildAnthropicUsageFromResponses, httpErrorMessage, mapResponsesStopReason, responseErrorMessage } from "./errors";
+export { buildAnthropicUsageFromResponses, buildBrevynUsageFromResponses, httpErrorMessage, mapResponsesStopReason, responseErrorMessage } from "./errors";
 export { anthropicToOpenAiResponses } from "./request-mapper";
 export { openAiResponsesToAnthropic } from "./response-mapper";
 export { OpenAiResponsesToAnthropicSseTransformer, openAiResponsesSseToAnthropicSse } from "./stream-mapper";

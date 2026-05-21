@@ -1,4 +1,4 @@
-import { buildAnthropicUsageFromResponses, mapResponsesStopReason, responseErrorMessage, responseObject } from "./errors";
+import { buildAnthropicUsageFromResponses, buildBrevynUsageFromResponses, mapResponsesStopReason, responseErrorMessage, responseObject } from "./errors";
 import { sanitizeAnthropicToolUseInput } from "./tool-mapper";
 import { hostedWebSearchInput } from "./web-search-mapper";
 import { formatSseEvent, parseSseBlock } from "../sse";
@@ -337,6 +337,7 @@ function handleResponsesEvent(eventName: string, data: unknown, state: StreamSta
           stop_sequence: null,
         },
         usage: buildAnthropicUsageFromResponses(response.usage),
+        _brevynUsage: buildBrevynUsageFromResponses(response.usage, stringOf(response.model) || state.model),
       }));
       output.push(formatSseEvent("message_stop", { type: "message_stop" }));
       break;
@@ -357,6 +358,7 @@ function handleResponsesEvent(eventName: string, data: unknown, state: StreamSta
             stop_sequence: null,
           },
           usage: buildAnthropicUsageFromResponses(response.usage),
+          _brevynUsage: buildBrevynUsageFromResponses(response.usage, stringOf(response.model) || state.model),
         }));
         output.push(formatSseEvent("message_stop", { type: "message_stop" }));
       }
@@ -390,6 +392,7 @@ function emitMessageStart(state: StreamState, output: string[], usage?: unknown)
       role: "assistant",
       model: state.model || "",
       usage: buildAnthropicUsageFromResponses(usage),
+      _brevynUsage: buildBrevynUsageFromResponses(usage, state.model),
     },
   }));
   state.messageStarted = true;
