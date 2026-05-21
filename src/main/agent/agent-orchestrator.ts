@@ -183,7 +183,6 @@ export class AgentOrchestrator {
           task: context.task,
           thread: context.thread,
           cwd: context.cwd,
-          skills: this.options.skillFiles.listSkills(),
         }),
         permissionInstructions(active),
       ].join("\n\n");
@@ -194,7 +193,6 @@ export class AgentOrchestrator {
           sdk: sdkRuntime,
           rootDataDir: this.options.rootDataDir,
           businessStore: this.options.businessStore,
-          skillFiles: this.options.skillFiles,
           ragSearch: this.options.ragSearch,
           context,
         }),
@@ -236,6 +234,8 @@ export class AgentOrchestrator {
             allowDangerouslySkipPermissions: active.permissionMode === "bypassPermissions",
             planModeInstructions: active.permissionMode === "plan" ? PLAN_MODE_INSTRUCTIONS : undefined,
             betas: sdkBetasForModel(provider.selectedModel),
+            plugins: [{ type: "local", path: this.options.skillFiles.nativePluginRootPath() }],
+            skills: "all",
             canUseTool: this.createCanUseTool(context, runId),
             onQuery: (query) => {
               active.query = query;

@@ -124,8 +124,6 @@ export function getToolTarget(toolName: string, input: unknown): string {
   if (toolName === "TaskCreate") return singleLine(stringValue(data.subject, "task"));
   if (toolName === "TaskGet" || toolName === "TaskUpdate") return singleLine(stringValue(data.subject ?? data.taskId, "task"));
   if (toolName === "TaskList") return "";
-  if (toolName === "mcp__brevyn__load_skill") return skillNameFromId(stringValue(data.skillId, "skill"));
-  if (toolName === "mcp__brevyn__read_skill_resource") return singleLine(stringValue(data.relativePath, "resource"));
   if (toolName === "mcp__brevyn__rag_search") return singleLine(stringValue(data.query, "query"));
   return stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
 }
@@ -290,8 +288,6 @@ function getToolDescriptor(toolName: string): { neutral: string; running: string
   if (toolName === "TaskGet") return { neutral: "读取任务", running: "正在读取任务", done: "已读取任务", failed: "任务读取失败" };
   if (toolName === "TaskUpdate") return { neutral: "更新任务", running: "正在更新任务", done: "已更新任务", failed: "任务更新失败" };
   if (toolName === "TaskList") return { neutral: "读取任务列表", running: "正在读取任务列表", done: "已读取任务列表", failed: "任务列表读取失败" };
-  if (toolName === "mcp__brevyn__load_skill") return { neutral: "加载技能", running: "正在加载技能", done: "已加载技能", failed: "技能加载失败" };
-  if (toolName === "mcp__brevyn__read_skill_resource") return { neutral: "读取技能资源", running: "正在读取技能资源", done: "已读取技能资源", failed: "技能资源读取失败" };
   if (toolName === "mcp__brevyn__course_structure") return { neutral: "读取课程结构", running: "正在读取课程结构", done: "已读取课程结构", failed: "课程结构读取失败" };
   if (toolName === "mcp__brevyn__list_course_files") return { neutral: "读取课程文件", running: "正在读取课程文件", done: "已读取课程文件", failed: "课程文件读取失败" };
   if (toolName === "mcp__brevyn__get_file_record") return { neutral: "读取文件记录", running: "正在读取文件记录", done: "已读取文件记录", failed: "文件记录读取失败" };
@@ -311,10 +307,6 @@ function webSearchQueryFromInput(input: Record<string, unknown>): string {
     if (value) return value;
   }
   return "";
-}
-
-function skillNameFromId(skillId: string): string {
-  return skillId.replace(/^file:/, "").split(/[-_]/g).filter(Boolean).map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ") || skillId;
 }
 
 function editRows(input: Record<string, unknown>): DiffRow[] {

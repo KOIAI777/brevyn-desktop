@@ -101,6 +101,7 @@ export class LocalStore {
     for (const dir of bundledDefaultSkillDirs()) {
       this.skillFiles.syncDefaultSkillFolders(dir);
     }
+    this.skillFiles.ensureNativePluginManifest();
     this.ragIndex = new RagIndexService({
       dbPath: join(this.rootDataDir, "indexes", "rag"),
       resolveEmbeddingProvider: () => this.providers.embeddingProvider(),

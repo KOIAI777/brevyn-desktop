@@ -16,7 +16,6 @@ interface SkillFrontmatter {
 }
 
 const MAX_SKILL_CONTENT_BYTES = 10 * 1024 * 1024;
-const MAX_SKILL_RESOURCE_BYTES = 2 * 1024 * 1024;
 const MAX_SKILL_RESOURCES = 200;
 const SKILL_RESOURCE_DIRS: Array<{ dirname: string; kind: SkillResourceKind }> = [
   { dirname: "references", kind: "reference" },
@@ -33,9 +32,25 @@ const SKILL_RESOURCE_DIRS: Array<{ dirname: string; kind: SkillResourceKind }> =
 const ROOT_REFERENCE_FILE_EXTENSIONS = new Set([".md", ".markdown", ".txt"]);
 const ROOT_REFERENCE_FILE_SKIP = new Set(["SKILL.md", "README.md", "LICENSE", "LICENSE.txt", "license.txt"]);
 const DEFAULT_SKILL_SOURCE_FILE = ".brevyn-default-skill.json";
+const NATIVE_PLUGIN_MANIFEST = {
+  name: "brevyn-global-skills",
+  version: "1.0.0",
+};
 
 export class SkillFileStore {
   constructor(private readonly rootPath: string) {}
+
+  ensureNativePluginManifest(): void {
+    const pluginDir = join(this.rootPath, ".claude-plugin");
+    const manifestPath = join(pluginDir, "plugin.json");
+    mkdirSync(pluginDir, { recursive: true });
+    if (existsSync(manifestPath)) return;
+    writeFileSync(manifestPath, JSON.stringify(NATIVE_PLUGIN_MANIFEST, null, 2), "utf8");
+  }
+
+  nativePluginRootPath(): string {
+    return this.rootPath;
+  }
 
   ensureDefaultSkillTemplates(blueprints: SkillBlueprint[]): void {
     const templateDir = join(this.rootPath, "default-skills");
@@ -161,31 +176,6 @@ export class SkillFileStore {
 
   skillFolderPath(id: string): string | null {
     return this.resolveSkillDir(id)?.dir || null;
-  }
-
-  readSkillResource(id: string, relativePath: string): { resource: SkillResource; absolutePath: string; content: string } | null {
-    const resolved = this.resolveSkillDir(id);
-    if (!resolved) return null;
-    const normalized = normalizeRelativeResourcePath(relativePath);
-    if (!normalized) return null;
-    const absolutePath = resolveSkillChildFile(resolved.dir, normalized);
-    if (!absolutePath || !existsSync(absolutePath)) return null;
-    const stats = statSync(absolutePath);
-    if (!stats.isFile()) return null;
-    if (stats.size > MAX_SKILL_RESOURCE_BYTES) {
-      throw new Error(`Skill resource is too large to read directly. Maximum size is ${formatMaxSkillResourceSize()} (${normalized}).`);
-    }
-    return {
-      resource: {
-        kind: resourceKindForRelativePath(normalized),
-        name: basename(absolutePath),
-        relativePath: normalized,
-        size: stats.size,
-        sizeLabel: formatBytes(stats.size),
-      },
-      absolutePath,
-      content: readFileSync(absolutePath, "utf8"),
-    };
   }
 
   private scanDir(dir: string, enabled: boolean): SkillItem[] {
@@ -407,26 +397,6 @@ function resolveSkillChildDir(baseDir: string, slug: string): string | null {
   return null;
 }
 
-function resolveSkillChildFile(baseDir: string, relativePath: string): string | null {
-  const base = resolve(baseDir);
-  const target = resolve(base, relativePath);
-  if (target === base || target.startsWith(`${base}${sep}`)) return target;
-  return null;
-}
-
-function normalizeRelativeResourcePath(value: string): string | null {
-  const normalized = value.split("\\").join("/").replace(/^\/+/, "").trim();
-  if (!normalized || normalized === "." || normalized.includes("\0")) return null;
-  if (normalized.split("/").some((part) => !part || part === "." || part === "..")) return null;
-  return normalized;
-}
-
-function resourceKindForRelativePath(relativePath: string): SkillResourceKind {
-  const topLevel = relativePath.split("/")[0];
-  const matched = SKILL_RESOURCE_DIRS.find((entry) => entry.dirname === topLevel);
-  return matched?.kind || "reference";
-}
-
 function titleFromSlug(slug: string): string {
   return slug
     .split(/[-_]/g)
@@ -475,10 +445,6 @@ function assertSkillContentNotBlank(content: string): void {
 
 function formatMaxSkillSize(): string {
   return "10 MB";
-}
-
-function formatMaxSkillResourceSize(): string {
-  return "2 MB";
 }
 
 function syncDefaultSkillFolder(sourceDir: string, targetDir: string, slug: string, targetKind: "template" | "workspace"): void {

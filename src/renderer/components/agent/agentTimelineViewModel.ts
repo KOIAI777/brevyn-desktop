@@ -588,7 +588,6 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
     exploredCount: 0,
     searches: 0,
     commands: 0,
-    skills: 0,
     others: 0,
     failed: 0,
   };
@@ -625,11 +624,6 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
       continue;
     }
 
-    if (toolName === "mcp__brevyn__load_skill" || toolName === "mcp__brevyn__read_skill_resource") {
-      stats.skills += 1;
-      continue;
-    }
-
     stats.others += 1;
   }
 
@@ -639,7 +633,6 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
   if (exploredTotal > 0) parts.push(`已探索 ${exploredTotal} 个文件`);
   if (stats.searches > 0) parts.push(`已搜索 ${stats.searches} 次`);
   if (stats.commands > 0) parts.push(`已运行 ${stats.commands} 条命令`);
-  if (stats.skills > 0) parts.push(`已加载 ${stats.skills} 个技能`);
   if (stats.others > 0) parts.push(`已使用 ${stats.others} 个工具`);
   if (stats.failed > 0) parts.push(`${stats.failed} 个失败`);
 
@@ -681,7 +674,6 @@ function toolEventHasTarget(event: Extract<ProcessEvent, { kind: "tool_use" }>):
   if (toolName === "WebSearch") return Boolean(webSearchLabel(input).trim() && webSearchLabel(input) !== "网页");
   if (toolName === "WebFetch") return Boolean(stringValue(input.url, "").trim());
   if (toolName === "mcp__brevyn__rag_search") return Boolean(stringValue(input.query, "").trim());
-  if (toolName === "mcp__brevyn__load_skill") return Boolean(stringValue(input.skillId, "").trim());
   return true;
 }
 
@@ -702,8 +694,6 @@ function runningToolLabel(event: Extract<ProcessEvent, { kind: "tool_use" }>): s
   if (toolName === "WebSearch") return `正在搜索 ${webSearchLabel(input)}`;
   if (toolName === "WebFetch") return `正在打开 ${stringValue(input.url, "网页")}`;
   if (toolName === "mcp__brevyn__rag_search") return `正在检索 ${stringValue(input.query, "课程材料")}`;
-  if (toolName === "mcp__brevyn__load_skill") return `正在加载技能 ${stringValue(input.skillId, "skill")}`;
-  if (toolName === "mcp__brevyn__read_skill_resource") return "正在读取技能资源";
   return `正在调用 ${toolName}`;
 }
 

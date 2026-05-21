@@ -1,4 +1,4 @@
-import type { CanUseTool, McpServerConfig, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, McpServerConfig, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta, SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
 import type * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -24,6 +24,8 @@ export interface ClaudeSdkRunInput {
   planModeInstructions?: string;
   allowDangerouslySkipPermissions?: boolean;
   betas?: SdkBeta[];
+  plugins?: SdkPluginConfig[];
+  skills?: "all" | string[];
 }
 
 interface MessageChannel {
@@ -92,8 +94,6 @@ export class ClaudeSdkAdapter {
           "TaskGet",
           "TaskUpdate",
           "TaskList",
-          "mcp__brevyn__load_skill",
-          "mcp__brevyn__read_skill_resource",
           "mcp__brevyn__course_structure",
           "mcp__brevyn__list_course_files",
           "mcp__brevyn__get_file_record",
@@ -104,6 +104,8 @@ export class ClaudeSdkAdapter {
         ...(input.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {}),
         ...(input.planModeInstructions ? { planModeInstructions: input.planModeInstructions } : {}),
         ...(input.betas && input.betas.length > 0 ? { betas: input.betas } : {}),
+        ...(input.plugins && input.plugins.length > 0 ? { plugins: input.plugins } : {}),
+        ...(input.skills ? { skills: input.skills } : {}),
         canUseTool: input.canUseTool || safeToolPolicy,
         ...(input.mcpServers && Object.keys(input.mcpServers).length > 0 ? { mcpServers: input.mcpServers } : {}),
         stderr: (data: string) => {
@@ -233,8 +235,6 @@ const SAFE_TOOLS = new Set([
   "TaskGet",
   "TaskUpdate",
   "TaskList",
-  "mcp__brevyn__load_skill",
-  "mcp__brevyn__read_skill_resource",
   "mcp__brevyn__course_structure",
   "mcp__brevyn__list_course_files",
   "mcp__brevyn__get_file_record",

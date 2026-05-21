@@ -1,5 +1,4 @@
-import type { BrevynTask, Course, SemesterWorkspace, SkillItem, Thread } from "../../types/domain";
-import { formatSkillRegistryPrompt } from "../skills/skill-registry";
+import type { BrevynTask, Course, SemesterWorkspace, Thread } from "../../types/domain";
 
 export interface AgentPromptContext {
   semester: SemesterWorkspace;
@@ -7,7 +6,6 @@ export interface AgentPromptContext {
   task: BrevynTask | null;
   thread: Thread;
   cwd: string;
-  skills: SkillItem[];
 }
 
 export class PromptBuilder {
@@ -53,7 +51,7 @@ export class PromptBuilder {
       "- Use Glob to discover files, Grep to search contents, and Read to inspect specific files. Prefer these dedicated tools over Bash for file inspection.",
       "- Use AskUserQuestion when a meaningful choice would change the plan, scope, or interpretation. Ask concise questions with 2-3 useful options rather than stopping the run in plain text.",
       "- TodoWrite is allowed for tracking multi-step work. Keep todos short and update them as the run progresses.",
-      "- Skills are listed as a lightweight registry. When a user task matches an enabled skill, call load_skill with that skill id before applying its detailed workflow. If the loaded skill references bundled files, call read_skill_resource for the exact resource you need instead of reading every resource.",
+      "- Enabled Skills are loaded through the Claude SDK native Skills system from Brevyn's global skills directory. When a user task matches a skill description, use that native Skill workflow directly.",
       "- Read-only Bash commands may run automatically, but writes, deletes, shell redirection, command chaining, and dangerous commands require user approval.",
       "- Write/Edit/MultiEdit always represent file changes and require approval. Before editing, inspect the target file and keep changes minimal.",
       "- If a tool is denied, continue safely with what you know or ask the user for a safer path.",
@@ -71,21 +69,6 @@ export class PromptBuilder {
       "- When you used files, summarize what you inspected and what each file contributed.",
     ];
 
-    const enabledSkills = context.skills.filter((skill) => skill.enabled);
-    if (enabledSkills.length) {
-      lines.push(
-        "",
-        "## Enabled Skills",
-        "These are available skill profiles. Use load_skill(skillId) to inspect the full SKILL.md before relying on a skill-specific workflow. Use read_skill_resource(skillId, relativePath) for specific bundled references or scripts.",
-        truncateSkillPrompt(formatSkillRegistryPrompt(enabledSkills)),
-      );
-    }
-
     return lines.join("\n");
   }
-}
-
-function truncateSkillPrompt(prompt: string): string {
-  const maxLength = 12000;
-  return prompt.length <= maxLength ? prompt : `${prompt.slice(0, maxLength)}\n[Skills truncated to keep the run prompt bounded.]`;
 }
