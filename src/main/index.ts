@@ -102,7 +102,7 @@ function resolveAppIconPath(): string | undefined {
     join(process.cwd(), "src", "renderer", "assets"),
   ];
   const platformNames = process.platform === "darwin"
-    ? ["icon.icns", "icon.png"]
+    ? ["icon.png"]
     : process.platform === "win32"
       ? ["icon.ico", "icon.png"]
       : ["icon.png"];

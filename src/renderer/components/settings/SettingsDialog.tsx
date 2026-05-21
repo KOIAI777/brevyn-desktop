@@ -44,7 +44,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Markdownish } from "@/components/chat/Markdownish";
-import brevynMarkUrl from "@/assets/brevyn-marginal-mark.svg";
+import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { withInferredContextWindow } from "../../../shared/model-context-window";
 import {
   AGENT_PROVIDER_PRESETS,
@@ -3046,7 +3046,7 @@ function AboutUpdateSettingsPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <img src={brevynMarkUrl} alt="" className="h-7 w-7 rounded-md" />
+              <img src={brevynAppIconUrl} alt="" className="h-8 w-8 rounded-lg" />
               Brevyn
             </div>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">

@@ -2,7 +2,7 @@ import { memo, useContext, useEffect, useRef, useState, type ReactNode, type Tra
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
-import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
+import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { AgentComposer } from "@/components/agent/AgentComposer";
 import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RetryRuntimeNote, UserMessageBubble } from "@/components/agent/AgentMessageParts";
 import { ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
@@ -202,8 +202,8 @@ function EmptyThreadWelcome({ thread }: { thread: Thread }) {
   const welcome = homeWelcomeCopy(thread);
   return (
     <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center text-center">
-      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border bg-background shadow-sm">
-        <img src={brevynLogoUrl} alt="Brevyn" className="h-full w-full object-cover" />
+      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-[1.35rem] bg-background shadow-sm ring-1 ring-border/35">
+        <img src={brevynAppIconUrl} alt="Brevyn" className="h-full w-full object-cover" />
       </div>
       <p className="mt-4 text-sm font-semibold text-foreground">{welcome.greeting}</p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{welcome.dateLabel}</p>

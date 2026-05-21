@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type Poin
 import { createPortal } from "react-dom";
 import { Archive, CalendarDays, ChevronRight, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask } from "@/types/domain";
-import brevynLogoUrl from "@/assets/brevyn-marginal-mark.svg";
+import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { cx } from "@/lib/cn";
 import { formatRelative } from "@/lib/workspace-files";
 import { CourseIcon } from "@/components/courses/CourseIcon";
@@ -133,8 +133,8 @@ export function WorkspaceSidebar({
       </button>
       <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-3 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-white/70 bg-background shadow-sm">
-            <img src={brevynLogoUrl} alt="" className="h-full w-full object-cover p-1.5" />
+          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-xl bg-background shadow-sm ring-1 ring-border/35">
+            <img src={brevynAppIconUrl} alt="" className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">Koi</div>
