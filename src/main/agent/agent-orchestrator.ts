@@ -41,6 +41,7 @@ import {
   mergeBrevynUsage,
   recordOf,
 } from "../../shared/agent-usage";
+import { isOneMillionContextModel } from "../../shared/model-context-window";
 
 interface AgentOrchestratorOptions {
   rootDataDir: string;
@@ -101,9 +102,8 @@ export class AgentOrchestrator {
 
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     const context = this.resolveThreadContext(input.threadId);
-    if (this.activeRuns.has(context.thread.id)) {
-      throw new Error("An agent run is already active for this thread.");
-    }
+    const existingRun = this.activeRuns.get(context.thread.id);
+    if (existingRun) return { runId: existingRun.runId };
 
     const runId = entityId("run");
     const abortController = new AbortController();
@@ -202,7 +202,7 @@ export class AgentOrchestrator {
       for (let attempt = 1; attempt <= AGENT_RUN_MAX_RETRIES + 1; attempt += 1) {
         if (attempt > 1) {
           const delayMs = retryDelayMs(attempt - 1);
-          this.appendAndEmitRuntimeEvent(context.thread, {
+          this.emitRuntimeEventOnly({
             type: "run_retrying",
             runId,
             threadId: context.thread.id,
@@ -214,6 +214,7 @@ export class AgentOrchestrator {
           });
           await delay(delayMs, active.abortController.signal);
           if (active.abortController.signal.aborted) break;
+          this.emitRetryCleared(active);
         }
 
         const attemptAbort = createAttemptAbortController(active.abortController.signal, AGENT_RUN_ATTEMPT_TIMEOUT_MS);
@@ -328,6 +329,7 @@ export class AgentOrchestrator {
             ? `重试 ${AGENT_RUN_MAX_RETRIES} 次后仍然失败: ${retryReason}`
             : "Agent run failed.";
         if (!active.stoppedByUser) this.writeAssistantError(active, message);
+        this.emitRetryCleared(active);
         this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", message);
         this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", message);
       }
@@ -345,6 +347,7 @@ export class AgentOrchestrator {
       }
     } finally {
       const active = this.activeRuns.get(context.thread.id);
+      if (active?.runId !== runId) return;
       if (active?.gatewayToken) {
         this.options.gateway?.unregisterSession(active.gatewayToken);
         active.gatewayToken = undefined;
@@ -570,6 +573,19 @@ export class AgentOrchestrator {
     this.options.eventBus.emit({ kind: "brevyn_event", event });
   }
 
+  private emitRuntimeEventOnly(event: BrevynAgentRuntimeEvent): void {
+    this.options.eventBus.emit({ kind: "brevyn_event", event });
+  }
+
+  private emitRetryCleared(active: ActiveRun): void {
+    this.emitRuntimeEventOnly({
+      type: "run_retry_cleared",
+      runId: active.runId,
+      threadId: active.threadId,
+      createdAt: now(),
+    });
+  }
+
   private writeTerminalResult(active: ActiveRun, subtype: string, message: string): void {
     if (active.terminalResultWritten) return;
     active.terminalResultWritten = true;
@@ -586,6 +602,7 @@ export class AgentOrchestrator {
     if (active.terminalLifecycleWritten) return;
     active.terminalLifecycleWritten = true;
     const createdAt = now();
+    this.emitRetryCleared(active);
     if (status === "completed") {
       this.appendAndEmitRuntimeEvent(active.context.thread, {
         type: "run_completed",
@@ -746,14 +763,7 @@ function isCompactPrompt(prompt: string): boolean {
 }
 
 function supports1MContext(modelId: string): boolean {
-  const normalized = modelId.toLowerCase();
-  if (normalized.includes("haiku")) return false;
-  if (normalized.includes("claude")) {
-    if (normalized.includes("sonnet-4")) return true;
-    if (normalized.includes("opus-4-6") || normalized.includes("opus-4-7")) return true;
-    return false;
-  }
-  return normalized.includes("deepseek-v4");
+  return isOneMillionContextModel(modelId);
 }
 
 function now(): string {

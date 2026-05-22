@@ -40,7 +40,7 @@ export function RetryRuntimeNote({
       <div className="inline-flex max-w-2xl items-center gap-2 rounded-full border border-amber-200 bg-amber-50/78 px-3 py-1.5 text-[11px] text-amber-900 shadow-sm ring-1 ring-white/55 backdrop-blur-xl">
         <RotateCw className="h-3.5 w-3.5 shrink-0 animate-spin" />
         <span className="font-semibold">正在重试 {attempt}/{maxRetries}</span>
-        {waitSeconds > 0 && <span className="text-amber-900/70">{waitSeconds}s 后继续</span>}
+        {waitSeconds > 0 && <span className="text-amber-900/70">{waitSeconds}s 后重连</span>}
         {reason.trim() && <span className="max-w-md truncate text-amber-900/62">· {reason.trim()}</span>}
       </div>
     </div>

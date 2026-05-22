@@ -176,7 +176,7 @@ function latestRunRetry(records: AgentTimelineRecord[], userIndex: number): { re
 
 function retryRunLabel(retry: { retryAttempt: number; maxRetries: number; delayMs: number; createdAtMs: number }, nowMs: number): string {
   const remainingMs = Math.max(0, retry.createdAtMs + retry.delayMs - nowMs);
-  const suffix = remainingMs > 0 ? ` · ${Math.ceil(remainingMs / 1000)}s 后` : "";
+  const suffix = remainingMs > 0 ? ` · ${Math.ceil(remainingMs / 1000)}s 后重连` : "";
   return `正在重试 ${retry.retryAttempt}/${retry.maxRetries}${suffix}`;
 }
 

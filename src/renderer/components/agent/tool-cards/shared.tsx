@@ -67,9 +67,13 @@ export function DeferredToolDetails({
   defer?: boolean;
   children: ReactNode;
 }) {
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useState(() => !collapsed && !defer);
 
   useEffect(() => {
+    if (!defer) {
+      setMounted(!collapsed);
+      return;
+    }
     if (collapsed) {
       setMounted(false);
       return;
@@ -88,6 +92,10 @@ export function DeferredToolDetails({
       if (secondFrame) window.cancelAnimationFrame(secondFrame);
     };
   }, [collapsed, defer]);
+
+  if (!defer && !collapsed) {
+    return <div className="tool-details-content-in [contain:layout_paint_style]">{children}</div>;
+  }
 
   if (!mounted) {
     return (

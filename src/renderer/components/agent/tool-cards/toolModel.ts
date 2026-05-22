@@ -186,6 +186,37 @@ export function getParsedToolResult(result?: ToolResultBlock): unknown {
   }
 }
 
+export function getToolSearchLinks(result?: ToolResultBlock): WebSearchLink[] {
+  const structured = linksFromStructuredContent(getParsedToolResult(result) ?? result?.content);
+  if (structured.length > 0) return structured;
+  const output = getToolResultText(result);
+  const match = output.match(/Links:\s*(\[[\s\S]*?\])(?:\n|$)/);
+  if (!match) return [];
+  try {
+    const raw = JSON.parse(match[1]) as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw.flatMap((item) => {
+      const data = recordObject(item);
+      const url = stringValue(data.url, "");
+      if (!url) return [];
+      return [{ title: stringValue(data.title, url), url }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function linksFromStructuredContent(content: unknown): WebSearchLink[] {
+  const data = recordObject(content);
+  const links = Array.isArray(data.links) ? data.links : [];
+  return links.flatMap((item) => {
+    const link = recordObject(item);
+    const url = stringValue(link.url, "");
+    if (!url) return [];
+    return [{ title: stringValue(link.title, url), url }];
+  });
+}
+
 export function getToolResultText(result?: ToolResultBlock): string {
   if (!result) return "";
   if (typeof result.contentText === "string") return cleanToolResultContent(result.contentText);

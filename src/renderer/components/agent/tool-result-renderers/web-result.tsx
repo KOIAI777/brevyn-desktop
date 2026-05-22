@@ -1,6 +1,6 @@
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
 import { ToolDetailsShell } from "@/components/agent/tool-cards/shared";
-import { getParsedToolResult, getToolResultText, recordObject, stringValue, type WebSearchLink } from "@/components/agent/tool-cards/toolModel";
+import { getToolResultText, getToolSearchLinks, recordObject, stringValue, type WebSearchLink } from "@/components/agent/tool-cards/toolModel";
 
 export function isWebTool(toolName: string): boolean {
   return toolName === "WebSearch" || toolName === "WebFetch";
@@ -18,7 +18,7 @@ export function WebResultDetails({
   const hosted = data.hosted === true;
   const target = isSearch ? webSearchQueryFromInput(data) || stringValue(data.query, "query") : stringValue(data.url, "URL");
   const output = result ? getToolResultText(result) : "";
-  const links = isSearch ? parseWebSearchLinks(result, output) : [];
+  const links = isSearch ? getToolSearchLinks(result) : [];
   return isSearch ? (
     <WebSearchSummary query={target} links={links} result={result} output={output} hosted={hosted} />
   ) : (
@@ -105,36 +105,6 @@ function webSearchQueryFromInput(data: Record<string, unknown>): string {
     if (value) return value;
   }
   return "";
-}
-
-function parseWebSearchLinks(result: ToolResultBlock | undefined, output: string): WebSearchLink[] {
-  const structured = linksFromStructuredContent(getParsedToolResult(result) ?? result?.content);
-  if (structured.length > 0) return structured;
-  const match = output.match(/Links:\s*(\[[\s\S]*?\])(?:\n|$)/);
-  if (!match) return [];
-  try {
-    const raw = JSON.parse(match[1]) as unknown;
-    if (!Array.isArray(raw)) return [];
-    return raw.flatMap((item) => {
-      const data = recordObject(item);
-      const url = stringValue(data.url, "");
-      if (!url) return [];
-      return [{ title: stringValue(data.title, url), url }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function linksFromStructuredContent(content: unknown): WebSearchLink[] {
-  const data = recordObject(content);
-  const links = Array.isArray(data.links) ? data.links : [];
-  return links.flatMap((item) => {
-    const link = recordObject(item);
-    const url = stringValue(link.url, "");
-    if (!url) return [];
-    return [{ title: stringValue(link.title, url), url }];
-  });
 }
 
 function resultCountFromText(output: string): number {

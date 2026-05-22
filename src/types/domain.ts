@@ -850,6 +850,7 @@ export interface AgentApprovalRequest {
 export type BrevynAgentRuntimeEvent =
   | { type: "run_started"; runId: string; threadId: string; permissionMode?: AgentPermissionMode; providerId?: string; modelId?: string; providerProtocol?: AgentProtocol; createdAt: string }
   | { type: "run_retrying"; runId: string; threadId: string; retryAttempt: number; maxRetries: number; reason: string; delayMs: number; createdAt: string }
+  | { type: "run_retry_cleared"; runId: string; threadId: string; createdAt: string }
   | { type: "run_completed"; runId: string; threadId: string; resultSubtype?: string; createdAt: string }
   | { type: "run_stopped"; runId: string; threadId: string; reason?: string; createdAt: string }
   | { type: "run_failed"; runId: string; threadId: string; error: string; createdAt: string }

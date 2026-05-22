@@ -215,11 +215,11 @@ function readRequestBody(request: IncomingMessage): Promise<string> {
 }
 
 async function writeConvertedSseStream(response: ServerResponse, body: ReadableStream<Uint8Array>): Promise<void> {
-  response.writeHead(200, {
+  if (!safeWriteHead(response, 200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache",
     "connection": "keep-alive",
-  });
+  })) return;
 
   const transformer = new OpenAiResponsesToAnthropicSseTransformer();
   const reader = body.getReader();
@@ -233,9 +233,11 @@ async function writeConvertedSseStream(response: ServerResponse, body: ReadableS
     }
     const tail = transformer.flush();
     if (tail) response.write(tail);
+  } catch (error) {
+    writeSseError(response, errorMessage(error));
   } finally {
     reader.releaseLock();
-    response.end();
+    safeEnd(response);
   }
 }
 
@@ -251,11 +253,40 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
 }
 
 function writeText(response: ServerResponse, statusCode: number, payload: string, contentType: string): void {
-  response.writeHead(statusCode, {
+  if (!safeWriteHead(response, statusCode, {
     "content-type": contentType,
     "cache-control": "no-cache",
-  });
+  })) {
+    safeEnd(response);
+    return;
+  }
+  safeEnd(response, payload);
+}
+
+function safeWriteHead(response: ServerResponse, statusCode: number, headers: Record<string, string>): boolean {
+  if (response.destroyed || response.writableEnded || response.headersSent) return false;
+  response.writeHead(statusCode, headers);
+  return true;
+}
+
+function safeEnd(response: ServerResponse, payload?: string): void {
+  if (response.destroyed || response.writableEnded) return;
   response.end(payload);
+}
+
+function writeSseError(response: ServerResponse, message: string): void {
+  if (response.destroyed || response.writableEnded) return;
+  try {
+    response.write(`event: error\ndata: ${JSON.stringify({
+      type: "error",
+      error: {
+        type: "api_error",
+        message,
+      },
+    })}\n\n`);
+  } catch {
+    response.destroy();
+  }
 }
 
 function errorMessage(error: unknown): string {

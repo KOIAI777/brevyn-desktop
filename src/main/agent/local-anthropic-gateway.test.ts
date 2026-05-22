@@ -25,6 +25,20 @@ async function main(): Promise<void> {
         return new Response("provider raw error", { status: 429 });
       }
       if (body.stream) {
+        if (JSON.stringify(body.input || "").includes("Broken stream")) {
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode([
+                "event: response.created\n",
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_broken\",\"model\":\"gpt-test\"}}\n\n",
+              ].join("")));
+              controller.error(new Error("provider stream exploded"));
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
         return new Response([
           "event: response.created\n",
           "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream\",\"model\":\"gpt-test\"}}\n\n",
@@ -118,6 +132,24 @@ async function main(): Promise<void> {
     assert.match(streamText, /"type":"text_delta"/);
     assert.match(streamText, /"text":"Hi"/);
     assert.match(streamText, /event: message_stop/);
+
+    const brokenStreamResponse = await fetch(`${baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${registration.token}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-test",
+        stream: true,
+        messages: [{ role: "user", content: "Broken stream" }],
+      }),
+    });
+
+    assert.equal(brokenStreamResponse.status, 200);
+    const brokenStreamText = await brokenStreamResponse.text();
+    assert.match(brokenStreamText, /event: error/);
+    assert.match(brokenStreamText, /provider stream exploded/);
 
     const errorResponse = await fetch(`${baseUrl}/messages`, {
       method: "POST",

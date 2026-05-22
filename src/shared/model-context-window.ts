@@ -13,14 +13,13 @@ export function resolveModelContextWindow(input: {
   const modelId = normalizeModelId(input.modelId || input.model?.id || input.provider?.selectedModel || "");
   const configuredModel = input.model || modelFromProvider(input.provider, modelId);
   const configuredWindow = positiveInteger(configuredModel?.contextWindowTokens);
-  if (configuredWindow) {
+  const inferred = inferContextWindowTokens(modelId);
+  if (configuredWindow && configuredModel?.contextWindowSource !== "inferred") {
     return {
       contextWindow: configuredWindow,
       contextWindowSource: configuredModel?.contextWindowSource || "model_config",
     };
   }
-
-  const inferred = inferContextWindowTokens(modelId);
   if (inferred) {
     return {
       contextWindow: inferred,
@@ -32,7 +31,8 @@ export function resolveModelContextWindow(input: {
 }
 
 export function withInferredContextWindow(model: ProviderModel): ProviderModel {
-  if (positiveInteger(model.contextWindowTokens)) return { ...model };
+  const existing = positiveInteger(model.contextWindowTokens);
+  if (existing && model.contextWindowSource !== "inferred") return { ...model };
   const inferred = inferContextWindowTokens(model.id || model.name);
   return inferred
     ? { ...model, contextWindowTokens: inferred, contextWindowSource: "inferred" }
@@ -44,11 +44,7 @@ export function inferContextWindowTokens(modelId: string): number | undefined {
   if (!normalized) return undefined;
 
   if (normalized.includes("deepseek-v4")) return 1_000_000;
-  if (
-    normalized.includes("claude-sonnet-4")
-    || normalized.includes("claude-opus-4-6")
-    || normalized.includes("claude-opus-4-7")
-  ) return 1_000_000;
+  if (isClaudeOneMillionModel(normalized)) return 1_000_000;
   if (normalized.includes("claude") || normalized.includes("haiku")) return 200_000;
 
   if (normalized.includes("gpt-5.4")) return 1_000_000;
@@ -63,6 +59,17 @@ export function inferContextWindowTokens(modelId: string): number | undefined {
 
   if (normalized.includes("kimi")) return 200_000;
   return undefined;
+}
+
+export function isOneMillionContextModel(modelId: string): boolean {
+  const normalized = normalizeModelId(modelId);
+  return normalized.includes("deepseek-v4") || isClaudeOneMillionModel(normalized);
+}
+
+function isClaudeOneMillionModel(normalized: string): boolean {
+  if (!normalized.includes("claude") || normalized.includes("haiku")) return false;
+  if (normalized.includes("[1m]") || normalized.includes("1m")) return true;
+  return /claude-(?:sonnet|opus)-4(?:[.-]\d+)?(?:[-.\w[\]]*)?$/.test(normalized);
 }
 
 function modelFromProvider(

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { ModelProviderConfig } from "@/types/domain";
+import type { BrevynAgentRuntimeEvent, ModelProviderConfig } from "@/types/domain";
 import { assistantText, groupIntoTurns, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
 import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
+import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
 import { buildTimelineViewGroups, buildTimelineViewItems, type AgentTimelineViewItem } from "./useAgentTimelineState";
 import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
 
@@ -628,6 +629,26 @@ assert.equal((getAgentLiveRecords("thread_live")[0] as SDKMessage | undefined)?.
 appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_live", runId: "run_live", resultSubtype: "success", createdAt: "2026-05-16T00:00:01.000Z" });
 assert.equal(getAgentLiveRunning("thread_live"), false);
 
+clearAllAgentLiveRecords();
+appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_retry", runId: "run_retry", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" });
+appendAgentRuntimeEvent({ type: "run_retrying", threadId: "thread_retry", runId: "run_retry", retryAttempt: 1, maxRetries: 5, reason: "timeout", delayMs: 100, createdAt: "2026-05-16T00:00:01.000Z" });
+flushAgentLiveRecords("thread_retry");
+assert.equal(getAgentLiveRecords("thread_retry").filter(isRuntimeRetryingEvent).length, 1);
+appendAgentRuntimeEvent({ type: "run_retrying", threadId: "thread_retry", runId: "run_retry", retryAttempt: 2, maxRetries: 5, reason: "timeout again", delayMs: 100, createdAt: "2026-05-16T00:00:02.000Z" });
+flushAgentLiveRecords("thread_retry");
+assert.deepEqual(
+  getAgentLiveRecords("thread_retry")
+    .filter(isRuntimeRetryingEvent)
+    .map((record) => record.event.retryAttempt),
+  [2],
+);
+appendAgentRuntimeEvent({ type: "run_retry_cleared", threadId: "thread_retry", runId: "run_retry", createdAt: "2026-05-16T00:00:03.000Z" });
+assert.equal(getAgentLiveRecords("thread_retry").some(isRuntimeRetryingEvent), false);
+appendAgentRuntimeEvent({ type: "run_retrying", threadId: "thread_retry", runId: "run_retry", retryAttempt: 3, maxRetries: 5, reason: "timeout final", delayMs: 100, createdAt: "2026-05-16T00:00:04.000Z" });
+flushAgentLiveRecords("thread_retry");
+appendAgentRuntimeEvent({ type: "run_failed", threadId: "thread_retry", runId: "run_retry", error: "failed", createdAt: "2026-05-16T00:00:05.000Z" });
+assert.equal(getAgentLiveRecords("thread_retry").some(isRuntimeRetryingEvent), false);
+
 const claudeProvider = {
   id: "provider_claude",
   purpose: "agent",
@@ -747,6 +768,34 @@ const defaultUsage = defaultContextUsage("gpt-5.5", openAiProvider);
 assert.equal(defaultUsage?.source, "default");
 assert.equal(defaultUsage?.contextWindow, 258_000);
 assert.equal(defaultContextUsage("gpt-5.4")?.contextWindow, 1_000_000);
+assert.equal(defaultContextUsage("claude-opus-4.7")?.contextWindow, 1_000_000);
+assert.equal(defaultContextUsage("claude-opus-4-20250514")?.contextWindow, 1_000_000);
+assert.equal(defaultContextUsage("claude-opus-4-7[1m]")?.contextWindow, 1_000_000);
+assert.equal(inferContextWindowTokens("claude-haiku-4-20250514"), 200_000);
+assert.deepEqual(
+  withInferredContextWindow({
+    id: "claude-opus-4.7",
+    name: "Claude Opus 4.7",
+    enabled: true,
+    contextWindowTokens: 200_000,
+    contextWindowSource: "inferred",
+  }),
+  {
+    id: "claude-opus-4.7",
+    name: "Claude Opus 4.7",
+    enabled: true,
+    contextWindowTokens: 1_000_000,
+    contextWindowSource: "inferred",
+  },
+);
 assert.equal(shouldAutoCompactContext({ inputTokens: 1_000, contextInputTokens: 1_000, contextWindowSource: "unknown" }, openAiProvider), false);
 
 console.log("agentTimelineModel fixture tests passed");
+
+type RuntimeRetryingRecord = Extract<AgentTimelineRecord, { kind: "runtime" }> & {
+  event: Extract<BrevynAgentRuntimeEvent, { type: "run_retrying" }>;
+};
+
+function isRuntimeRetryingEvent(record: AgentTimelineRecord): record is RuntimeRetryingRecord {
+  return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "runtime" && record.event.type === "run_retrying");
+}

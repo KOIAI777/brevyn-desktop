@@ -36,8 +36,16 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
   if (event.type === "run_started") {
     setAgentLiveRunning(threadId, true);
   }
+  if (event.type === "run_retrying") {
+    removeLiveRetryRecord(threadId, event.runId, { silent: true });
+  }
+  if (event.type === "run_retry_cleared") {
+    removeLiveRetryRecord(threadId, event.runId);
+    return threadId;
+  }
   appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
   if (isTerminalRuntimeEvent(event)) {
+    removeLiveRetryRecord(threadId, "runId" in event ? event.runId : undefined, { silent: true });
     setAgentLiveRunning(threadId, false);
     flushAgentLiveRecords(threadId);
   }
@@ -171,6 +179,30 @@ function appendUniqueRecords(current: BrevynAgentTimelineRecord[], pending: Brev
     changed = true;
   }
   return changed ? next : current;
+}
+
+function removeLiveRetryRecord(threadId: string, runId?: string, options?: { silent?: boolean }): void {
+  const pending = pendingRecordsByThread.get(threadId) || EMPTY_RECORDS;
+  if (pending.length > 0) {
+    const nextPending = pending.filter((record) => !isRetryRecord(record, runId));
+    if (nextPending.length === 0) pendingRecordsByThread.delete(threadId);
+    else if (nextPending.length !== pending.length) pendingRecordsByThread.set(threadId, nextPending);
+  }
+
+  const current = liveRecordsByThread.get(threadId) || EMPTY_RECORDS;
+  if (current.length === 0) return;
+  const nextRecords = current.filter((record) => !isRetryRecord(record, runId));
+  if (nextRecords.length === current.length) return;
+  const next = new Map(liveRecordsByThread);
+  if (nextRecords.length === 0) next.delete(threadId);
+  else next.set(threadId, nextRecords);
+  liveRecordsByThread = next;
+  if (!options?.silent) emitAgentLiveRecordsChanged();
+}
+
+function isRetryRecord(record: BrevynAgentTimelineRecord, runId?: string): boolean {
+  if (!isRuntimeLiveRecord(record) || record.event.type !== "run_retrying") return false;
+  return !runId || record.event.runId === runId;
 }
 
 function liveRecordKey(record: BrevynAgentTimelineRecord): string {

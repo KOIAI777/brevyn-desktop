@@ -36,6 +36,8 @@ export function useAgentSessionController({
   const mountedRef = useRef(true);
   const activeThreadIdRef = useRef(activeThreadId);
   const agentLoadRequestRef = useRef(0);
+  const runningRef = useRef(false);
+  const runInFlightByThreadRef = useRef<Set<string>>(new Set());
   const selectedAgentModelRef = useRef("");
   const pendingWriteToolPathsRef = useRef<Map<string, string>>(new Map());
   const onThreadHasMessagesRef = useRef(onThreadHasMessages);
@@ -63,6 +65,7 @@ export function useAgentSessionController({
       if (!mountedRef.current || agentLoadRequestRef.current !== requestId || activeThreadIdRef.current !== threadId) return false;
       setRecords(nextRecords);
       const openRun = hasOpenAgentRun(nextRecords);
+      runningRef.current = openRun;
       setRunning(openRun);
       setAgentLiveRunning(threadId, openRun);
       if (!openRun) {
@@ -73,6 +76,7 @@ export function useAgentSessionController({
       if (mountedRef.current && agentLoadRequestRef.current === requestId) {
         setError(errorMessage(loadError, "Failed to load agent timeline."));
         setRecords([]);
+        runningRef.current = false;
         setRunning(false);
       }
       return false;
@@ -106,7 +110,10 @@ export function useAgentSessionController({
   ): Promise<void> => {
     const threadId = activeThreadIdRef.current;
     if (!threadId) return;
+    if (runningRef.current || runInFlightByThreadRef.current.has(threadId)) return;
     setError("");
+    runningRef.current = true;
+    runInFlightByThreadRef.current.add(threadId);
     setRunning(true);
     setAgentLiveRunning(threadId, true);
     const userMessageId = createUserMessageId();
@@ -124,11 +131,15 @@ export function useAgentSessionController({
         modelId: providerSelection?.modelId,
       });
     } catch (runError) {
+      runningRef.current = false;
+      runInFlightByThreadRef.current.delete(threadId);
       setRunning(false);
       setAgentLiveRunning(threadId, false);
       const message = errorMessage(runError, "Failed to start agent run.");
       setError(message);
       throw new Error(message);
+    } finally {
+      runInFlightByThreadRef.current.delete(threadId);
     }
   }, []);
 
@@ -137,6 +148,7 @@ export function useAgentSessionController({
     if (!threadId) return;
     try {
       await window.brevyn.agent.stop(threadId);
+      runningRef.current = false;
       setRunning(false);
     } catch (stopError) {
       setError(errorMessage(stopError, "Failed to stop agent run."));
@@ -187,6 +199,7 @@ export function useAgentSessionController({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      runInFlightByThreadRef.current.clear();
       clearAllAgentLiveRecords();
     };
   }, []);
@@ -213,6 +226,8 @@ export function useAgentSessionController({
         if (event.message.type === "result" && eventThreadId === activeThreadIdRef.current) {
           void loadMessages(eventThreadId).finally(() => {
             if (!mountedRef.current || activeThreadIdRef.current !== eventThreadId) return;
+            runInFlightByThreadRef.current.delete(eventThreadId);
+            runningRef.current = false;
             setRunning(false);
             setAgentLiveRunning(eventThreadId, false);
           });
@@ -227,9 +242,13 @@ export function useAgentSessionController({
       appendAgentRuntimeEvent(event.event);
       if (eventThreadId !== activeThreadIdRef.current) return;
       if (event.event.type === "run_started") {
+        runInFlightByThreadRef.current.delete(eventThreadId);
+        runningRef.current = true;
         setRunning(true);
         setError("");
       } else if (isTerminalRunEvent(event.event.type)) {
+        runInFlightByThreadRef.current.delete(eventThreadId);
+        runningRef.current = false;
         setRunning(false);
         setAgentLiveRunning(eventThreadId, false);
         flushAgentLiveRecords(eventThreadId);
@@ -244,6 +263,7 @@ export function useAgentSessionController({
       agentLoadRequestRef.current += 1;
       setRecords([]);
       setLoading(false);
+      runningRef.current = false;
       setRunning(false);
       setError("");
       return;
