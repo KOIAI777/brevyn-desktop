@@ -17,6 +17,8 @@ import {
   setAgentLiveRunning,
 } from "@/lib/agent-live-store";
 
+const AGENT_MODEL_STORAGE_PREFIX = "brevyn.agent.modelSelection.";
+
 interface UseAgentSessionControllerArgs {
   activeThreadId: string;
   onThreadHasMessages: (threadId: string) => void;
@@ -39,6 +41,7 @@ export function useAgentSessionController({
   const runningRef = useRef(false);
   const runInFlightByThreadRef = useRef<Set<string>>(new Set());
   const selectedAgentModelRef = useRef("");
+  const runModelSelectionByThreadRef = useRef<Map<string, string>>(new Map());
   const pendingWriteToolPathsRef = useRef<Map<string, string>>(new Map());
   const onThreadHasMessagesRef = useRef(onThreadHasMessages);
   const onWriteToolCompletedRef = useRef(onWriteToolCompleted);
@@ -91,15 +94,18 @@ export function useAgentSessionController({
       if (!mountedRef.current) return;
       const agents = providerList.filter((provider) => provider.purpose === "agent");
       setProviders(agents);
-      setSelectedModel((current) => validAgentModelSelection(agents, current));
+      const storedSelection = readStoredAgentModelSelection(activeThreadIdRef.current);
+      setSelectedModel((current) => validAgentModelSelection(agents, storedSelection || current));
     } catch {
       if (mountedRef.current) setProviders([]);
     }
   }, []);
 
-  const selectProvider = useCallback((providerSelection: string) => {
+  const selectProvider = useCallback(async (providerSelection: string) => {
     setError("");
-    setSelectedModel((current) => validAgentModelSelection(providers, providerSelection || current));
+    const nextSelection = validAgentModelSelection(providers, providerSelection || selectedAgentModelRef.current);
+    setSelectedModel(nextSelection);
+    writeStoredAgentModelSelection(activeThreadIdRef.current, nextSelection);
   }, [providers]);
 
   const run = useCallback(async (
@@ -117,6 +123,8 @@ export function useAgentSessionController({
     runInFlightByThreadRef.current.add(threadId);
     setRunning(true);
     setAgentLiveRunning(threadId, true);
+    const runSelection = agentModelSelectionFromProviderSelection(providerSelection) || selectedAgentModelRef.current;
+    if (runSelection) runModelSelectionByThreadRef.current.set(threadId, runSelection);
     const userMessageId = createUserMessageId();
     appendAgentLiveMessage(threadId, liveUserMessage(prompt, attachments, userMessageId));
     flushAgentLiveRecords(threadId);
@@ -212,7 +220,7 @@ export function useAgentSessionController({
       if (!eventThreadId) return;
 
       if (event.kind === "sdk_message") {
-        const appended = appendAgentLiveMessage(eventThreadId, event.message, { modelId: modelIdFromSelection(selectedAgentModelRef.current) });
+        const appended = appendAgentLiveMessage(eventThreadId, event.message, { modelId: modelIdFromSelection(runModelSelectionByThreadRef.current.get(eventThreadId) || selectedAgentModelRef.current) });
         if (event.message.type === "result") {
           flushAgentLiveRecords(eventThreadId);
         }
@@ -241,6 +249,13 @@ export function useAgentSessionController({
         return;
       }
 
+      if (event.event.type === "run_started") {
+        const runSelection = agentModelSelectionFromProviderSelection({ providerId: event.event.providerId, modelId: event.event.modelId });
+        if (runSelection) runModelSelectionByThreadRef.current.set(eventThreadId, runSelection);
+      } else if (isTerminalRunEvent(event.event.type)) {
+        runModelSelectionByThreadRef.current.delete(eventThreadId);
+      }
+
       appendAgentRuntimeEvent(event.event);
       if (eventThreadId !== activeThreadIdRef.current) return;
       if (event.event.type === "run_started") {
@@ -259,6 +274,14 @@ export function useAgentSessionController({
     });
     return unsubscribe;
   }, [loadMessages]);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      setSelectedModel("");
+      return;
+    }
+    setSelectedModel(validAgentModelSelection(providers, readStoredAgentModelSelection(activeThreadId)));
+  }, [activeThreadId, providers]);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -361,9 +384,32 @@ function agentModelSelectionValue(providerId: string, modelId: string): string {
   return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
 }
 
+function agentModelSelectionFromProviderSelection(selection?: AgentProviderSelection): string {
+  if (!selection?.providerId || !selection.modelId) return "";
+  return agentModelSelectionValue(selection.providerId, selection.modelId);
+}
+
 function modelIdFromSelection(value: string): string | undefined {
   const [, modelId] = value.split("::");
   return modelId ? decodeURIComponent(modelId) : undefined;
+}
+
+function readStoredAgentModelSelection(threadId: string): string {
+  if (!threadId) return "";
+  try {
+    return window.localStorage.getItem(`${AGENT_MODEL_STORAGE_PREFIX}${threadId}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredAgentModelSelection(threadId: string, selection: string): void {
+  if (!threadId || !selection) return;
+  try {
+    window.localStorage.setItem(`${AGENT_MODEL_STORAGE_PREFIX}${threadId}`, selection);
+  } catch {
+    // Model selection is a UI preference; provider defaults remain the fallback.
+  }
 }
 
 function createUserMessageId(): string {
