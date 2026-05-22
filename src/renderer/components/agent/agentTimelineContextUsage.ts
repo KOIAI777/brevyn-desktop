@@ -11,6 +11,7 @@ import {
   brevynUsageFromAnthropicUsage,
   brevynUsageFromModelUsage,
   mergeBrevynUsage,
+  mergeModelUsageContextWindow,
   recordOf,
 } from "../../../shared/agent-usage";
 import { resolveModelContextWindow } from "../../../shared/model-context-window";
@@ -122,10 +123,11 @@ function contextUsageFromResult(message: SDKMessage, options: ContextUsageOption
   const provider = providerForMessage(raw, modelId, options);
   const providerProtocol = provider?.protocol === "openai_responses" ? "openai_responses" : "anthropic_messages";
   const explicitUsage = explicitBrevynUsage(raw);
+  const source = { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider } as const;
   const usage = explicitUsage
-    ? mergeBrevynUsage(explicitUsage, { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider })
-    : brevynUsageFromModelUsage(raw.modelUsage, { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider })
-      || brevynUsageFromAnthropicUsage(raw.usage, { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider });
+    ? mergeBrevynUsage(explicitUsage, source)
+    : mergeModelUsageContextWindow(brevynUsageFromAnthropicUsage(raw.usage, source), raw.modelUsage, source)
+      || brevynUsageFromModelUsage(raw.modelUsage, source);
   return usage ? contextUsageFromBrevynUsage(usage, "result", provider) : null;
 }
 

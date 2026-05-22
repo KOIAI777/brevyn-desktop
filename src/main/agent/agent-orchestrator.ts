@@ -38,6 +38,7 @@ import { PromptBuilder } from "./prompt-builder";
 import {
   brevynUsageFromAnthropicUsage,
   brevynUsageFromModelUsage,
+  mergeModelUsageContextWindow,
   mergeBrevynUsage,
   recordOf,
 } from "../../shared/agent-usage";
@@ -657,18 +658,15 @@ export class AgentOrchestrator {
     }
 
     if (message.type === "result") {
-      const modelUsage = brevynUsageFromModelUsage(base.modelUsage, {
+      const source = {
         providerProtocol,
         providerId: provider.id,
         modelId,
         provider,
-      });
-      brevynUsage = modelUsage || brevynUsage || brevynUsageFromAnthropicUsage(base.usage, {
-        providerProtocol,
-        providerId: provider.id,
-        modelId,
-        provider,
-      });
+      } as const;
+      const resultUsage = brevynUsageFromAnthropicUsage(base.usage, source);
+      brevynUsage = mergeModelUsageContextWindow(resultUsage || brevynUsage, base.modelUsage, source)
+        || brevynUsageFromModelUsage(base.modelUsage, source);
     }
 
     const next: Record<string, unknown> = {

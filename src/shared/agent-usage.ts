@@ -73,6 +73,21 @@ export function mergeBrevynUsage(
   }, source);
 }
 
+export function mergeModelUsageContextWindow(
+  usage: BrevynUsageMetadata | undefined,
+  modelUsage: unknown,
+  source: BrevynUsageSource,
+): BrevynUsageMetadata | undefined {
+  if (!usage) return undefined;
+  const modelWindow = brevynUsageFromModelUsage(modelUsage, source);
+  if (!modelWindow?.contextWindow) return usage;
+  return {
+    ...usage,
+    contextWindow: modelWindow.contextWindow,
+    contextWindowSource: modelWindow.contextWindowSource,
+  };
+}
+
 export function brevynUsageFromModelUsage(modelUsage: unknown, source: BrevynUsageSource): BrevynUsageMetadata | undefined {
   const object = recordOf(modelUsage);
   let selected: BrevynUsageMetadata | undefined;

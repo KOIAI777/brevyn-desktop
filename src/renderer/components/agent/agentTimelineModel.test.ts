@@ -725,6 +725,14 @@ assert.equal(mixedProviderUsage?.contextWindow, 258_000);
 assert.equal(mixedProviderUsage?.reasoningTokens, 450);
 assert.equal(mixedProviderUsage?.contextInputTokens, 10_000);
 
+const liveAssistantUsage = latestContextUsage(
+  [userText("Live token update", "user_live_usage"), claudeUsageAssistant],
+  { providers: [claudeProvider], activeProvider: claudeProvider, activeModelId: "claude-sonnet-4-6" },
+);
+assert.equal(liveAssistantUsage?.source, "assistant");
+assert.equal(liveAssistantUsage?.contextInputTokens, 15_500);
+assert.equal(liveAssistantUsage?.contextWindow, 1_000_000);
+
 const modelUsageResult = {
   ...result("result_model_usage"),
   _channelProviderId: "provider_claude",
@@ -743,6 +751,30 @@ assert.equal(resultUsage?.source, "result");
 assert.equal(resultUsage?.modelId, "claude-sonnet-4-6");
 assert.equal(resultUsage?.contextInputTokens, 35_000);
 assert.equal(resultUsage?.contextWindow, 1_000_000);
+
+const resultWithLargeModelUsage = {
+  ...result("result_usage_preferred_over_model_usage"),
+  _channelProviderId: "provider_claude",
+  _channelModelId: "claude-sonnet-4-6",
+  usage: {
+    input_tokens: 8_000,
+    output_tokens: 200,
+    cache_read_input_tokens: 2_000,
+    cache_creation_input_tokens: 0,
+  },
+  modelUsage: {
+    "claude-sonnet-4-6": {
+      inputTokens: 80_000,
+      outputTokens: 2_000,
+      cacheReadInputTokens: 20_000,
+      cacheCreationInputTokens: 0,
+      contextWindow: 1_000_000,
+    },
+  },
+} as unknown as SDKMessage;
+const preferredResultUsage = latestContextUsage([resultWithLargeModelUsage], { providers: [claudeProvider], activeProvider: claudeProvider });
+assert.equal(preferredResultUsage?.contextInputTokens, 10_000);
+assert.equal(preferredResultUsage?.contextWindow, 1_000_000);
 
 const lowerResultUsage = {
   ...result("result_lower_usage"),
