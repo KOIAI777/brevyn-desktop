@@ -1,0 +1,105 @@
+import type { ModelProviderConfig, ProviderKind } from "@/types/domain";
+import defaultLogo from "@/assets/brevyn-app-icon.png";
+import alibabaCloudLogo from "@/assets/models/alibabacloud.svg";
+import anthropicLogo from "@/assets/models/anthropic.svg";
+import byteDanceLogo from "@/assets/models/bytedance.svg";
+import deepSeekLogo from "@/assets/models/deepseek.svg";
+import googleLogo from "@/assets/models/google.svg";
+import googleCloudLogo from "@/assets/models/googlecloud.svg";
+import googleGeminiLogo from "@/assets/models/googlegemini.svg";
+import miniMaxLogo from "@/assets/models/minimax.svg";
+import moonshotLogo from "@/assets/models/moonshotai.svg";
+import openAiLogo from "@/assets/models/openai.svg";
+import qwenLogo from "@/assets/models/qwen.svg";
+
+type ProviderLike = Pick<ModelProviderConfig, "providerKind" | "baseUrl" | "selectedModel">;
+
+const MODEL_LOGO_RULES: Array<[RegExp, string]> = [
+  [/gpt|o1|o3|o4|openai/i, openAiLogo],
+  [/claude|anthropic/i, anthropicLogo],
+  [/deepseek/i, deepSeekLogo],
+  [/qwen|qwq|qvq|wan-|dashscope/i, qwenLogo],
+  [/kimi|moonshot/i, moonshotLogo],
+  [/gemini|gemma|google/i, googleGeminiLogo],
+  [/doubao|bytedance|byte[-_ ]?dance|volc|seed/i, byteDanceLogo],
+  [/minimax/i, miniMaxLogo],
+  [/embedding/i, openAiLogo],
+];
+
+const BASE_URL_LOGO_RULES: Array<[RegExp, string]> = [
+  [/dashscope|aliyuncs|alibaba|bailian/i, qwenLogo],
+  [/moonshot|kimi/i, moonshotLogo],
+  [/deepseek/i, deepSeekLogo],
+  [/anthropic/i, anthropicLogo],
+  [/openai/i, openAiLogo],
+  [/googleapis|generativelanguage|google/i, googleGeminiLogo],
+  [/volces|volcengine|bytedance|doubao/i, byteDanceLogo],
+  [/minimax/i, miniMaxLogo],
+];
+
+const PROVIDER_KIND_LOGOS: Partial<Record<ProviderKind, string>> = {
+  anthropic: anthropicLogo,
+  deepseek: deepSeekLogo,
+  "bailian-anthropic": qwenLogo,
+  "kimi-api": moonshotLogo,
+  "kimi-coding": moonshotLogo,
+  "custom-anthropic": anthropicLogo,
+  "openai-responses-agent": openAiLogo,
+  openai: openAiLogo,
+  qwen: qwenLogo,
+  doubao: byteDanceLogo,
+  minimax: miniMaxLogo,
+  "custom-openai": openAiLogo,
+  "vision-bailian-openai": qwenLogo,
+  "vision-custom-openai": openAiLogo,
+  "vision-custom-anthropic": anthropicLogo,
+  "vision-openai-responses": openAiLogo,
+  "vision-custom-openai-responses": openAiLogo,
+};
+
+export function getModelLogo(modelId: string, providerKind?: ProviderKind): string {
+  const byModel = getModelLogoById(modelId);
+  if (byModel) return byModel;
+  if (providerKind) return getProviderKindLogo(providerKind);
+  return defaultLogo;
+}
+
+export function getModelLogoById(modelId: string): string | undefined {
+  return logoFromRules(modelId, MODEL_LOGO_RULES);
+}
+
+export function getProviderKindLogo(providerKind: ProviderKind): string {
+  return PROVIDER_KIND_LOGOS[providerKind] || defaultLogo;
+}
+
+export function getProviderProfileLogo(provider: ProviderLike): string {
+  const byModel = logoFromRules(provider.selectedModel, MODEL_LOGO_RULES);
+  if (byModel) return byModel;
+  const byUrl = logoFromRules(provider.baseUrl, BASE_URL_LOGO_RULES);
+  if (byUrl) return byUrl;
+  return getProviderKindLogo(provider.providerKind);
+}
+
+export function getProviderBaseUrlLogo(baseUrl: string, providerKind?: ProviderKind): string {
+  return logoFromRules(baseUrl, BASE_URL_LOGO_RULES) || (providerKind ? getProviderKindLogo(providerKind) : defaultLogo);
+}
+
+function logoFromRules(value: string | undefined, rules: Array<[RegExp, string]>): string | undefined {
+  if (!value) return undefined;
+  return rules.find(([rule]) => rule.test(value))?.[1];
+}
+
+export {
+  defaultLogo,
+  alibabaCloudLogo,
+  anthropicLogo,
+  byteDanceLogo,
+  deepSeekLogo,
+  googleLogo,
+  googleCloudLogo,
+  googleGeminiLogo,
+  miniMaxLogo,
+  moonshotLogo,
+  openAiLogo,
+  qwenLogo,
+};

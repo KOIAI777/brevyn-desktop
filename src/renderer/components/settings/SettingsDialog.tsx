@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   Archive,
   BookOpen,
-  Bot,
   CalendarDays,
   Check,
   ChevronDown,
@@ -45,6 +44,7 @@ import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Markdownish } from "@/components/chat/Markdownish";
 import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
+import { getModelLogoById, getProviderBaseUrlLogo, getProviderKindLogo, getProviderProfileLogo } from "@/lib/model-provider-logo";
 import { withInferredContextWindow } from "../../../shared/model-context-window";
 import {
   AGENT_PROVIDER_PRESETS,
@@ -1304,6 +1304,8 @@ function ProviderSettingsPage({
 
           {(draft.models?.length ?? 0) > 0 && (
             <AgentModelManager
+              providerKind={draft.providerKind}
+              baseUrl={draft.baseUrl}
               models={draft.models ?? []}
               selectedModel={draft.selectedModel}
               onToggle={(model) => onDraftChange(toggleDraftModel(draft, model.id))}
@@ -1376,7 +1378,8 @@ function ProviderSettingsPage({
 
           {embeddingModels.length > 0 && (
             <ModelPicker
-              purpose="embedding"
+              providerKind={embeddingDraft.providerKind}
+              baseUrl={embeddingDraft.baseUrl}
               selectedModel={embeddingDraft.selectedModel}
               models={embeddingModels}
               onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id, models: embeddingModels })}
@@ -1469,6 +1472,8 @@ function ProviderSettingsPage({
           {(visionDraft.models?.length ?? 0) > 0 && (
             <AgentModelManager
               title="视觉模型"
+              providerKind={visionDraft.providerKind}
+              baseUrl={visionDraft.baseUrl}
               availableEmptyLabel="已获取的视觉模型都已启用。"
               enabledEmptyLabel="至少启用一个模型用于识别。"
               models={visionDraft.models ?? []}
@@ -3270,8 +3275,10 @@ function ProviderProfileRow({
   const actionsDisabled = Boolean(toggleDisabled);
   const enabledModels = provider.models.filter((model) => model.enabled !== false);
   const displayName = providerDisplayName(provider);
+  const logo = getProviderProfileLogo(provider);
   return (
     <div className={cx("group flex min-h-[62px] items-center gap-2 rounded-lg border p-2 transition-colors", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
+      <img src={logo} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="block truncate text-xs font-semibold" title={provider.name}>{displayName}</span>
         <span className="mt-0.5 block truncate text-[10px]">
@@ -3389,13 +3396,29 @@ function ProviderKindField({
       <span>服务商</span>
       <DropdownSelect
         value={value}
-        options={options.map((kind) => ({ value: kind, label: providerKindLabel(kind) }))}
+        options={options.map((kind) => ({
+          value: kind,
+          label: providerKindLabel(kind),
+          icon: <ProviderLogo src={getProviderKindLogo(kind)} />,
+        }))}
         placeholder="选择服务商"
         ariaLabel="选择服务商类型"
         onChange={(next) => onChange(next as ProviderKind)}
+        renderValue={(option) => (
+          option ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {option.icon}
+              <span className="truncate">{option.label}</span>
+            </span>
+          ) : "选择服务商"
+        )}
       />
     </label>
   );
+}
+
+function ProviderLogo({ src }: { src: string }) {
+  return <img src={src} alt="" className="h-4 w-4 shrink-0 rounded-[0.28rem] object-contain" />;
 }
 
 function TogglePill({ enabled, onClick, labelOn = "已启用", labelOff = "已停用", disabled }: { enabled: boolean; onClick: () => void; labelOn?: string; labelOff?: string; disabled?: boolean }) {
@@ -3415,8 +3438,21 @@ function TogglePill({ enabled, onClick, labelOn = "已启用", labelOff = "已�
   );
 }
 
-function ModelPicker({ purpose, models, selectedModel, onPick }: { purpose: ProviderPurpose; models: ProviderModel[]; selectedModel: string; onPick: (model: ProviderModel) => void }) {
+function ModelPicker({
+  providerKind,
+  baseUrl,
+  models,
+  selectedModel,
+  onPick,
+}: {
+  providerKind: ProviderKind;
+  baseUrl: string;
+  models: ProviderModel[];
+  selectedModel: string;
+  onPick: (model: ProviderModel) => void;
+}) {
   if (models.length === 0) return null;
+  const fallbackLogo = getProviderBaseUrlLogo(baseUrl, providerKind);
   return (
     <div className="mt-3 rounded-md border bg-card p-2">
       <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -3438,8 +3474,13 @@ function ModelPicker({ purpose, models, selectedModel, onPick }: { purpose: Prov
               )}
               onClick={() => onPick(model)}
             >
-              <span className={cx("flex h-7 w-7 shrink-0 items-center justify-center rounded-md", selected ? "bg-background/16 text-background" : "bg-muted text-foreground")}>
-                {selected ? <Check className="h-3.5 w-3.5" /> : purpose === "embedding" ? <Database className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+              <span className={cx("relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", selected ? "border-background/20 bg-background/16" : "border-border/55 bg-background")}>
+                <img src={getModelLogoById(model.id) || fallbackLogo} alt="" className="h-4.5 w-4.5 object-contain" />
+                {selected && (
+                  <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-background text-foreground shadow-sm">
+                    <Check className="h-2.5 w-2.5" />
+                  </span>
+                )}
               </span>
               <span className="min-w-0 flex-1">
                 <span className={cx("block truncate font-medium", selected ? "text-background" : "text-foreground")}>{model.name}</span>
@@ -3460,6 +3501,8 @@ function ModelPicker({ purpose, models, selectedModel, onPick }: { purpose: Prov
 
 function AgentModelManager({
   title = "聊天模型",
+  providerKind,
+  baseUrl,
   availableEmptyLabel = "已获取的模型都已启用。",
   enabledEmptyLabel = "至少启用一个模型用于聊天。",
   models,
@@ -3470,6 +3513,8 @@ function AgentModelManager({
   onRemoveModel,
 }: {
   title?: string;
+  providerKind: ProviderKind;
+  baseUrl: string;
   availableEmptyLabel?: string;
   enabledEmptyLabel?: string;
   models: ProviderModel[];
@@ -3493,6 +3538,8 @@ function AgentModelManager({
             <ModelTransferRow
               key={model.id}
               model={model}
+              providerKind={providerKind}
+              baseUrl={baseUrl}
               icon={<Plus className="h-3.5 w-3.5" />}
               label="启用模型"
               onClick={() => onToggle(model)}
@@ -3508,6 +3555,8 @@ function AgentModelManager({
               <ModelTransferRow
                 key={model.id}
                 model={model}
+                providerKind={providerKind}
+                baseUrl={baseUrl}
                 selected={selected}
                 icon={<Minus className="h-3.5 w-3.5" />}
                 label="停用模型"
@@ -3537,6 +3586,8 @@ function ModelColumn({ title, emptyLabel, empty, children }: { title: string; em
 
 function ModelTransferRow({
   model,
+  providerKind,
+  baseUrl,
   selected,
   icon,
   label,
@@ -3546,6 +3597,8 @@ function ModelTransferRow({
   onRemoveModel,
 }: {
   model: ProviderModel;
+  providerKind: ProviderKind;
+  baseUrl: string;
   selected?: boolean;
   icon: ReactNode;
   label: string;
@@ -3555,8 +3608,12 @@ function ModelTransferRow({
   onRemoveModel?: (model: ProviderModel) => void;
 }) {
   const contextWindowValue = model.contextWindowTokens ? model.contextWindowTokens.toLocaleString() : "";
+  const logo = getModelLogoById(model.id) || getProviderBaseUrlLogo(baseUrl, providerKind);
   return (
-    <div className={cx("grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
+    <div className={cx("grid min-w-0 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">
+        <img src={logo} alt="" className="h-5 w-5 object-contain" />
+      </span>
       <button type="button" className="min-w-0 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium text-foreground">{model.name}</span>

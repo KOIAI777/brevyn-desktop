@@ -1,6 +1,7 @@
 import type { AgentPermissionMode, ModelProviderConfig } from "@/types/domain";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { AgentPermissionModeButton } from "@/components/agent/AgentPermissionModeButton";
+import { getModelLogoById, getProviderBaseUrlLogo } from "@/lib/model-provider-logo";
 
 export function AgentProviderPicker({
   running,
@@ -29,6 +30,7 @@ export function AgentProviderPicker({
         value: providerModelValue(provider.id, model.id),
         label: model.name || model.id,
         detail: provider.name,
+        icon: <ModelLogo src={getModelLogoById(model.id) || getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind)} label={model.name || model.id} />,
       }));
     });
 
@@ -46,9 +48,21 @@ export function AgentProviderPicker({
         buttonClassName="h-7 rounded-full border border-border/70 bg-background/55 px-2 text-[11px] font-semibold shadow-sm backdrop-blur"
         menuClassName="bg-card/95 backdrop-blur-xl"
         menuMinWidth={172}
+        renderValue={(option) => (
+          option ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {option.icon}
+              <span className="truncate">{option.label}</span>
+            </span>
+          ) : "Select model"
+        )}
       />
     </>
   );
+}
+
+function ModelLogo({ src, label }: { src: string; label: string }) {
+  return <img src={src} alt="" title={label} className="h-4 w-4 shrink-0 rounded-[0.28rem] object-contain" />;
 }
 
 export function providerModelValue(providerId: string, modelId: string): string {
