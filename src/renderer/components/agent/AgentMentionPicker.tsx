@@ -1,32 +1,11 @@
 import { X } from "lucide-react";
-import type { WorkspaceFileKind, WorkspaceFileNode } from "@/types/domain";
+import type { SkillItem, WorkspaceFileKind, WorkspaceFileNode } from "@/types/domain";
 
-export function MentionSuggestions({
-  files,
-  onSelect,
-}: {
-  files: WorkspaceFileNode[];
-  onSelect: (file: WorkspaceFileNode) => void;
-}) {
-  return (
-    <div className="mt-2 max-h-52 overflow-y-auto rounded-2xl border border-white/55 bg-card/95 p-1.5 shadow-[0_16px_44px_rgba(64,55,38,0.16)] ring-1 ring-border/35 backdrop-blur-2xl brevyn-scrollbar">
-      {files.map((file) => (
-        <button
-          key={file.id}
-          type="button"
-          className="flex w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-left text-xs transition hover:bg-accent/70"
-          onClick={() => onSelect(file)}
-        >
-          <FileKindBadge kind={file.kind} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-semibold text-foreground">{file.name}</span>
-            <span className="block truncate text-[11px] text-muted-foreground">{file.path}</span>
-          </span>
-          {file.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground">{file.sizeLabel}</span>}
-        </button>
-      ))}
-    </div>
-  );
+export interface MentionedSkill {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
 }
 
 export function MentionedFileChips({
@@ -77,30 +56,47 @@ export function flattenMentionableFiles(files: WorkspaceFileNode[]): WorkspaceFi
   return result.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function filterMentionSuggestions(files: WorkspaceFileNode[], query: string | null): WorkspaceFileNode[] {
-  if (query === null) return [];
-  const normalized = query.trim().toLowerCase();
-  const filtered = normalized
-    ? files.filter((file) => `${file.name} ${file.path}`.toLowerCase().includes(normalized))
-    : files;
-  return filtered.slice(0, 8);
+export function flattenMentionableSkills(skills: SkillItem[]): MentionedSkill[] {
+  return skills
+    .filter((skill) => skill.enabled)
+    .map((skill) => {
+      const slug = skill.slug || skill.id.replace(/^file:/, "");
+      return {
+        id: skill.id,
+        slug,
+        name: skill.name || slug,
+        description: skill.description || "Skill",
+      };
+    })
+    .filter((skill) => skill.slug)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function currentMentionQuery(value: string): string | null {
-  const match = value.match(/(?:^|\s)@([^\s@]*)$/);
-  return match ? match[1] || "" : null;
-}
-
-export function replaceCurrentMention(value: string, label: string): string {
-  return value.replace(/(^|\s)@([^\s@]*)$/, (_match, prefix: string) => `${prefix}@${label} `);
-}
-
-export function buildPromptWithMentions(prompt: string, files: WorkspaceFileNode[]): string {
-  if (files.length === 0) return prompt;
+export function buildPromptWithMentions(prompt: string, files: WorkspaceFileNode[], skills: MentionedSkill[] = []): string {
+  const cleanPrompt = stripSkillMentionTokens(prompt, skills);
+  if (files.length === 0) return cleanPrompt;
   const refs = files
     .map((file) => `- ${file.name}: ${file.sourcePath || file.path}`)
     .join("\n");
-  return `<attached_files>\n${refs}\n</attached_files>\n\n${prompt}`;
+  return `<attached_files>\n${refs}\n</attached_files>\n\n${cleanPrompt}`;
+}
+
+export function skillSlugsForPrompt(skills: MentionedSkill[]): string[] {
+  return [...new Set(skills.map((skill) => skill.slug).filter(Boolean))];
+}
+
+function stripSkillMentionTokens(prompt: string, skills: MentionedSkill[]): string {
+  if (skills.length === 0) return prompt;
+  let next = prompt;
+  for (const skill of skills) {
+    const escaped = escapeRegExp(skill.slug);
+    next = next.replace(new RegExp(`(^|\\s)/(?:skill:)?${escaped}(?=\\s|$)`, "g"), "$1");
+  }
+  return next.replace(/[ \t]{2,}/g, " ").trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function fileKindLabel(kind: WorkspaceFileKind): string {

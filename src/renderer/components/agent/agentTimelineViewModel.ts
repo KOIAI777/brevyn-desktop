@@ -588,6 +588,7 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
     exploredCount: 0,
     searches: 0,
     commands: 0,
+    skills: 0,
     others: 0,
     failed: 0,
   };
@@ -624,6 +625,11 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
       continue;
     }
 
+    if (toolName === "Skill") {
+      stats.skills += 1;
+      continue;
+    }
+
     stats.others += 1;
   }
 
@@ -633,6 +639,7 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
   if (exploredTotal > 0) parts.push(`已探索 ${exploredTotal} 个文件`);
   if (stats.searches > 0) parts.push(`已搜索 ${stats.searches} 次`);
   if (stats.commands > 0) parts.push(`已运行 ${stats.commands} 条命令`);
+  if (stats.skills > 0) parts.push(`已使用 ${stats.skills} 个技能`);
   if (stats.others > 0) parts.push(`已使用 ${stats.others} 个工具`);
   if (stats.failed > 0) parts.push(`${stats.failed} 个失败`);
 
@@ -645,7 +652,9 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
           ? "WebSearch"
           : stats.commands > 0
             ? "Bash"
-            : events[0]?.tool.name || "Tool",
+            : stats.skills > 0
+              ? "Skill"
+              : events[0]?.tool.name || "Tool",
     parts: parts.length > 0 ? parts : [`已使用 ${events.length} 个工具`],
     running: false,
   };
@@ -694,6 +703,7 @@ function runningToolLabel(event: Extract<ProcessEvent, { kind: "tool_use" }>): s
   if (toolName === "WebSearch") return `正在搜索 ${webSearchLabel(input)}`;
   if (toolName === "WebFetch") return `正在打开 ${stringValue(input.url, "网页")}`;
   if (toolName === "mcp__brevyn__rag_search") return `正在检索 ${stringValue(input.query, "课程材料")}`;
+  if (toolName === "Skill") return `正在使用技能 ${stringValue(input.skill ?? input.name ?? input.skillName, "skill")}`;
   return `正在调用 ${toolName}`;
 }
 

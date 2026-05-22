@@ -43,7 +43,7 @@ interface UseAgentThreadPanelStateArgs {
   error?: string;
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
-  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
 }
 
 export function useAgentThreadPanelState({

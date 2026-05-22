@@ -60,7 +60,7 @@ export function useAgentAttachmentsState({ threadId, running }: { threadId: stri
     return attachments;
   }
 
-  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+  function handlePaste(event: ClipboardEvent<HTMLElement>) {
     const files = Array.from(event.clipboardData.files || []);
     if (files.length === 0) return;
     event.preventDefault();

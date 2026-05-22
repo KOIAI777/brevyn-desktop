@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useRef, useState, type ReactNode, type TransitionEvent } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide-react";
-import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type Thread, type WorkspaceFileNode } from "../../../types/domain";
+import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { AgentComposer } from "@/components/agent/AgentComposer";
 import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RetryRuntimeNote, UserMessageBubble } from "@/components/agent/AgentMessageParts";
@@ -26,7 +26,7 @@ interface AgentThreadPanelProps {
   loading: boolean;
   running: boolean;
   error?: string;
-  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -36,6 +36,7 @@ interface AgentThreadPanelProps {
   activeProviderId: string;
   onSelectProvider: (providerId: string) => Promise<void>;
   files: WorkspaceFileNode[];
+  skills: SkillItem[];
   onPreviewFilePath?: (filePath: string) => void | Promise<void>;
 }
 
@@ -57,6 +58,7 @@ export function AgentThreadPanel({
   activeProviderId,
   onSelectProvider,
   files,
+  skills,
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
   const {
@@ -166,6 +168,7 @@ export function AgentThreadPanel({
         onCompact={() => void handleCompact()}
         onSelectProvider={onSelectProvider}
         files={files}
+        skills={skills}
       />
     </section>
     </FilePathPreviewProvider>

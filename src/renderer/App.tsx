@@ -53,8 +53,8 @@ function App() {
   fileStateRef.current = fileState;
   agentSessionRef.current = agentSession;
 
-  async function runAgent(prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }): Promise<void> {
-    await agentSession.run(prompt, permissionMode, attachments, providerSelection);
+  async function runAgent(prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<void> {
+    await agentSession.run(prompt, permissionMode, attachments, providerSelection, mentionedSkills);
   }
 
   async function stopAgent(): Promise<void> {
@@ -160,6 +160,7 @@ function App() {
                   activeProviderId={agentSession.selectedProviderId}
                   onSelectProvider={selectAgentProvider}
                   files={fileState.fileTree}
+                  skills={workspace.skills}
                   onPreviewFilePath={fileState.previewWorkspacePath}
                 />
               ) : (

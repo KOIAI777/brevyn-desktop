@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { FileText, FolderOpen, Globe, HelpCircle, ListTodo, MessageCircleQuestion, Pencil, Search, ShieldAlert, ShieldCheck, TerminalSquare } from "lucide-react";
+import { FileText, FolderOpen, Globe, HelpCircle, ListTodo, MessageCircleQuestion, Pencil, Search, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare } from "lucide-react";
 import { ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { FilePathChip } from "@/components/chat/FilePathChip";
@@ -83,6 +83,7 @@ export function ToolGlyph({ toolName, className }: { toolName: string; className
   if (toolName === "TodoWrite" || toolName === "TodoRead" || toolName === "TaskCreate" || toolName === "TaskGet" || toolName === "TaskUpdate" || toolName === "TaskList") return <ListTodo className={className} />;
   if (toolName === "mcp__brevyn__rag_search") return <Search className={className} />;
   if (toolName === "WebFetch" || toolName === "WebSearch") return <Globe className={className} />;
+  if (toolName === "Skill") return <Sparkles className={className} />;
   if (toolName === "AskUserQuestion") return <MessageCircleQuestion className={className} />;
   if (toolName === "EnterPlanMode" || toolName === "ExitPlanMode") return <ShieldAlert className={className} />;
   if (toolName.startsWith("mcp__brevyn__")) return <ShieldCheck className={className} />;

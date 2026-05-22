@@ -766,6 +766,7 @@ export interface AgentRunInput {
   providerId?: string;
   modelId?: string;
   attachments?: AgentAttachment[];
+  mentionedSkills?: string[];
 }
 
 export interface AgentQueueMessageInput {
@@ -773,6 +774,7 @@ export interface AgentQueueMessageInput {
   prompt: string;
   uuid?: string;
   interrupt?: boolean;
+  mentionedSkills?: string[];
 }
 
 export interface AgentApprovalInput {

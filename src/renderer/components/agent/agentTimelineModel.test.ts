@@ -269,6 +269,23 @@ assert.deepEqual(
 );
 assert.equal(consecutiveToolItems[3]?.assistantContent, "I inspected the workspace.");
 
+const skillToolRecords: AgentTimelineRecord[] = [
+  userText("Use the PDF skill.", "user_skill_tool"),
+  assistant([
+    { type: "tool_use", id: "tool_skill_pdf", name: "Skill", input: { skill: "brevyn-global-skills:pdf" } },
+    { type: "tool_use", id: "tool_skill_bash", name: "Bash", input: { command: "python3 extract.py" } },
+    { type: "text", text: "PDF extracted." },
+  ], "assistant_skill_tool"),
+  toolResult("tool_skill_pdf", "Launching skill: brevyn-global-skills:pdf", "tool_skill_pdf_result"),
+  toolResult("tool_skill_bash", "extracted text", "tool_skill_bash_result"),
+  result("result_skill_tool"),
+];
+const skillToolGroups = buildTimelineViewGroups(skillToolRecords, skillToolRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+const skillToolTurn = skillToolGroups[1]?.type === "assistant-turn" ? skillToolGroups[1] : undefined;
+assert.deepEqual(skillToolTurn?.entries.map((entry) => entry.type), ["tool-group", "item"]);
+assert.equal(skillToolTurn?.entries[0]?.type === "tool-group" ? skillToolTurn.entries[0].summary.parts.join(" ") : "", "已运行 1 条命令 已使用 1 个技能");
+assert.equal(skillToolTurn?.entries[0]?.type === "tool-group" ? skillToolTurn.entries[0].summary.iconToolName : "", "Bash");
+
 const fragmentedThinkingRecords: AgentTimelineRecord[] = [
   userText("Inspect workspace.", "user_fragmented_thinking"),
   streamEvent({ type: "thinking_delta", thinking: "I " }, "thinking_fragment_1"),

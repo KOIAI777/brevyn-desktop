@@ -112,9 +112,10 @@ export class AgentOrchestrator {
     const attachments = input.attachments || [];
     const selectedProvider = this.options.providers.agentProviderFor(input.providerId, input.modelId);
     const compactCommand = isCompactPrompt(input.prompt);
+    const agentPrompt = promptWithMentionedSkills(input.prompt, input.mentionedSkills, this.options.skillFiles.listSkills());
     const promptForAgent = compactCommand
       ? "/compact"
-      : languageDirectedPrompt(promptWithAttachments(input.prompt, attachments), input.prompt);
+      : languageDirectedPrompt(promptWithAttachments(agentPrompt, attachments), input.prompt);
     this.activeRuns.set(context.thread.id, {
       runId,
       threadId: context.thread.id,
@@ -472,7 +473,12 @@ export class AgentOrchestrator {
     }
     try {
       this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, [], uuid));
-      await this.options.sdk.queueMessage(context.thread.id, input.prompt, uuid, input.interrupt ?? true);
+      await this.options.sdk.queueMessage(
+        context.thread.id,
+        promptWithMentionedSkills(input.prompt, input.mentionedSkills, this.options.skillFiles.listSkills()),
+        uuid,
+        input.interrupt ?? true,
+      );
     } catch (error) {
       if (input.interrupt !== false) {
         active.ignoreNextResult = false;
@@ -893,6 +899,26 @@ function promptWithAttachments(prompt: string, attachments: AgentAttachment[]): 
     .map((attachment) => `- ${attachment.name}: ${attachment.path}`)
     .join("\n");
   return `<attached_files>\n${refs}\n</attached_files>\n\n${prompt}`;
+}
+
+function promptWithMentionedSkills(prompt: string, mentionedSkills: string[] | undefined, skills: Array<{ slug?: string; name: string; enabled: boolean }>): string {
+  const slugs = [...new Set((mentionedSkills || []).map((slug) => slug.trim()).filter(Boolean))];
+  if (slugs.length === 0) return prompt;
+  const enabledBySlug = new Map(skills.filter((skill) => skill.enabled && skill.slug).map((skill) => [skill.slug!, skill]));
+  const lines = slugs.flatMap((slug) => {
+    const skill = enabledBySlug.get(slug);
+    if (!skill) return [];
+    return [`- Skill: brevyn-global-skills:${slug}（${skill.name}，请立即调用此 Skill）`];
+  });
+  if (lines.length === 0) return prompt;
+  return [
+    "<mentioned_tools>",
+    "用户在消息中明确引用了以下 Skill，请在本次回复中主动调用：",
+    ...lines,
+    "</mentioned_tools>",
+    "",
+    prompt,
+  ].join("\n");
 }
 
 function assistantErrorSdkMessage(message: string, errorCode?: string): SDKMessage {

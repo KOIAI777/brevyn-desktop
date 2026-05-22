@@ -114,6 +114,7 @@ const SAFE_TOOLS = new Set([
   "TaskGet",
   "TaskUpdate",
   "TaskList",
+  "Skill",
   "mcp__brevyn__course_structure",
   "mcp__brevyn__list_course_files",
   "mcp__brevyn__get_file_record",

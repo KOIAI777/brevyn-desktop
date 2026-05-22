@@ -207,6 +207,7 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
     providerId: optionalString(input.providerId),
     modelId: optionalString(input.modelId),
     attachments: normalizeAgentAttachments(input.attachments),
+    mentionedSkills: normalizeStringArray(input.mentionedSkills),
   };
 }
 
@@ -222,6 +223,7 @@ export function normalizeAgentQueueMessageInput(value: unknown): AgentQueueMessa
     prompt: requireString(input.prompt, "Prompt"),
     uuid: optionalString(input.uuid),
     interrupt: input.interrupt === undefined ? undefined : Boolean(input.interrupt),
+    mentionedSkills: normalizeStringArray(input.mentionedSkills),
   };
 }
 

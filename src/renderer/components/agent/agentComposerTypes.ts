@@ -5,5 +5,6 @@ export interface QueuedAgentMessage {
   prompt: string;
   permissionMode: AgentPermissionMode;
   providerSelection: { providerId?: string; modelId?: string };
+  mentionedSkills?: string[];
   createdAt: number;
 }

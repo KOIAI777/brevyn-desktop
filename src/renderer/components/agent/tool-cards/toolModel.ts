@@ -120,6 +120,7 @@ export function getToolTarget(toolName: string, input: unknown): string {
   if (toolName === "Glob") return singleLine(stringValue(data.pattern, "pattern"));
   if (toolName === "WebFetch") return stringValue(data.url, "URL");
   if (toolName === "WebSearch") return singleLine(webSearchQueryFromInput(data) || "query");
+  if (toolName === "Skill") return singleLine(stringValue(data.skill ?? data.name ?? data.skillName, "skill"));
   if (toolName === "TodoRead" || toolName === "TodoWrite") return "";
   if (toolName === "TaskCreate") return singleLine(stringValue(data.subject, "task"));
   if (toolName === "TaskGet" || toolName === "TaskUpdate") return singleLine(stringValue(data.subject ?? data.taskId, "task"));
@@ -313,6 +314,7 @@ function getToolDescriptor(toolName: string): { neutral: string; running: string
   if (toolName === "Glob") return { neutral: "查找文件", running: "正在查找文件", done: "已查找文件", failed: "查找失败" };
   if (toolName === "WebFetch") return { neutral: "读取网页", running: "正在读取网页", done: "已读取网页", failed: "网页读取失败" };
   if (toolName === "WebSearch") return { neutral: "搜索网络", running: "正在搜索网络", done: "已搜索网络", failed: "网络搜索失败" };
+  if (toolName === "Skill") return { neutral: "使用技能", running: "正在使用技能", done: "已使用技能", failed: "技能调用失败" };
   if (toolName === "TodoRead") return { neutral: "读取任务", running: "正在读取任务", done: "已读取任务", failed: "任务读取失败" };
   if (toolName === "TodoWrite") return { neutral: "更新任务", running: "正在更新任务", done: "已更新任务", failed: "任务更新失败" };
   if (toolName === "TaskCreate") return { neutral: "创建任务", running: "正在创建任务", done: "已创建任务", failed: "任务创建失败" };

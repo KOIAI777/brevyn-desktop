@@ -1,39 +1,26 @@
-import type { ChangeEvent, FormEvent, KeyboardEvent, Ref } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, Ref } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Send, Square } from "lucide-react";
-import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, WorkspaceFileNode } from "@/types/domain";
+import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, SkillItem, WorkspaceFileNode } from "@/types/domain";
 import type { AgentTodoItem, ContextUsage } from "@/components/agent/agentTimelineModel";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import { AttachmentChip } from "@/components/agent/AgentAttachmentChips";
 import { ContextUsageButton } from "@/components/agent/AgentContextUsageButton";
 import {
   buildPromptWithMentions,
-  currentMentionQuery,
-  filterMentionSuggestions,
   flattenMentionableFiles,
+  flattenMentionableSkills,
   MentionedFileChips,
-  MentionSuggestions,
-  replaceCurrentMention,
+  skillSlugsForPrompt,
+  type MentionedSkill,
 } from "@/components/agent/AgentMentionPicker";
+import { AgentRichPromptInput } from "@/components/agent/AgentRichPromptInput";
 import { AgentProviderPicker, parseProviderModelValue } from "@/components/agent/AgentProviderPicker";
 import { QueuedMessageDock } from "@/components/agent/AgentQueuedMessageDock";
 import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 
 const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
-const PROMPT_TEXTAREA_MIN_HEIGHT = 56;
-const PROMPT_TEXTAREA_MAX_HEIGHT = 240;
-
-function resizePromptTextarea(textarea: HTMLTextAreaElement | null) {
-  if (!textarea) return;
-  textarea.style.height = "auto";
-  const nextHeight = Math.min(
-    Math.max(textarea.scrollHeight, PROMPT_TEXTAREA_MIN_HEIGHT),
-    PROMPT_TEXTAREA_MAX_HEIGHT,
-  );
-  textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = textarea.scrollHeight > PROMPT_TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
-}
 
 interface AgentComposerProps {
   dockRef: Ref<HTMLDivElement>;
@@ -49,8 +36,9 @@ interface AgentComposerProps {
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
   files: WorkspaceFileNode[];
+  skills: SkillItem[];
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
-  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }) => Promise<void>;
+  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
   onSendQueuedMessage: (messageId: string) => void;
   onDeleteQueuedMessage: (messageId: string) => void;
@@ -73,6 +61,7 @@ export function AgentComposer({
   agentProviders,
   activeProviderId,
   files,
+  skills,
   onSetPermissionMode,
   onRun,
   onQueueMessage,
@@ -84,8 +73,8 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const [promptValue, setPromptValue] = useState("");
   const [mentionedFiles, setMentionedFiles] = useState<WorkspaceFileNode[]>([]);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionedSkills, setMentionedSkills] = useState<MentionedSkill[]>([]);
+  const formRef = useRef<HTMLFormElement>(null);
   const {
     pendingAttachments,
     draggingFiles,
@@ -98,66 +87,59 @@ export function AgentComposer({
     handleDrop,
   } = useAgentAttachmentsState({ threadId, running });
   const mentionableFiles = useMemo(() => flattenMentionableFiles(files), [files]);
-  const mentionSuggestions = useMemo(() => filterMentionSuggestions(mentionableFiles, mentionQuery), [mentionableFiles, mentionQuery]);
+  const mentionableSkills = useMemo(() => flattenMentionableSkills(skills), [skills]);
   const promptText = promptValue.trim();
-  const canSubmit = Boolean(promptText || pendingAttachments.length > 0);
+  const hasMentionedSkills = mentionedSkills.length > 0;
+  const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills);
 
   useEffect(() => {
     setPromptValue("");
     setMentionedFiles([]);
-    setMentionQuery(null);
+    setMentionedSkills([]);
   }, [threadId]);
-
-  useLayoutEffect(() => {
-    resizePromptTextarea(promptTextareaRef.current);
-  }, [promptValue, threadId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const prompt = buildPromptWithMentions(promptText, mentionedFiles);
-    if (!prompt && pendingAttachments.length === 0) return;
+    const effectiveMentionedSkills = skillMentionsFromPrompt(promptText, mentionableSkills);
+    const mentionedSkillSlugs = skillSlugsForPrompt(effectiveMentionedSkills);
+    const prompt = buildPromptWithMentions(promptText, mentionedFiles, effectiveMentionedSkills);
+    if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0) return;
 
     if (running) {
-      if (!prompt || pendingAttachments.length > 0) return;
+      if ((!prompt && mentionedSkillSlugs.length === 0) || pendingAttachments.length > 0) return;
       onQueueMessage({
         id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        prompt,
+        prompt: prompt || "请使用已选择的 Skill。",
         permissionMode,
         providerSelection: parseProviderModelValue(activeProviderId),
+        mentionedSkills: mentionedSkillSlugs,
         createdAt: Date.now(),
       });
       setPromptValue("");
       setMentionedFiles([]);
-      setMentionQuery(null);
+      setMentionedSkills([]);
       return;
     }
 
     setPromptValue("");
     setMentionedFiles([]);
-    setMentionQuery(null);
+    setMentionedSkills([]);
     const attachments = clearAttachments();
     try {
-      await onRun(prompt || "请查看附件。", permissionMode, attachments, parseProviderModelValue(activeProviderId));
+      await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, attachments, parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
     } catch (error) {
       restoreAttachments(attachments);
       console.error("[AgentComposer] Failed to start agent run:", error);
     }
   }
 
-  function handlePromptChange(event: ChangeEvent<HTMLTextAreaElement>) {
-    const value = event.target.value;
+  function handlePromptChange(value: string) {
     setPromptValue(value);
-    setMentionQuery(currentMentionQuery(value));
-  }
-
-  function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
+    setMentionedSkills(skillMentionsFromPrompt(value, mentionableSkills));
   }
 
   return (
-    <form className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-8 pt-8 [background:linear-gradient(180deg,rgba(247,244,236,0),rgba(247,244,236,0.82))]" onSubmit={handleSubmit}>
+    <form ref={formRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-8 pt-8 [background:linear-gradient(180deg,rgba(247,244,236,0),rgba(247,244,236,0.82))]" onSubmit={handleSubmit}>
       <div ref={dockRef} className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
         {queuedMessages.length > 0 && (
@@ -169,13 +151,13 @@ export function AgentComposer({
             onDelete={onDeleteQueuedMessage}
             onEdit={(message) => {
               onDeleteQueuedMessage(message.id);
-              setPromptValue(message.prompt);
-              setMentionQuery(null);
+              setPromptValue(promptWithSkillTokens(message.prompt, message.mentionedSkills));
+              setMentionedSkills(skillMentionsFromSlugs(message.mentionedSkills, mentionableSkills));
             }}
           />
         )}
         <div
-          className={`pointer-events-auto w-full min-w-0 rounded-2xl border p-3 shadow-[0_18px_52px_rgba(64,55,38,0.18)] ring-1 backdrop-blur-2xl transition ${
+          className={`pointer-events-auto relative w-full min-w-0 rounded-2xl border p-3 shadow-[0_18px_52px_rgba(64,55,38,0.18)] ring-1 backdrop-blur-2xl transition ${
             draggingFiles
               ? "border-sky-200 bg-sky-50/72 ring-sky-100"
               : "border-white/55 bg-card/70 ring-border/45"
@@ -200,27 +182,16 @@ export function AgentComposer({
               ))}
             </div>
           )}
-          <textarea
-            ref={promptTextareaRef}
-            name="prompt"
-            rows={2}
+          <AgentRichPromptInput
             value={promptValue}
-            onChange={handlePromptChange}
-            onKeyDown={handlePromptKeyDown}
-            onPaste={handlePaste}
+            skills={mentionableSkills}
+            files={mentionableFiles}
             placeholder={running ? "输入补充消息，会加入排队列表..." : "Ask Brevyn about this thread..."}
-            className="min-h-14 max-h-[15rem] w-full resize-none overflow-y-hidden bg-transparent px-1 py-1 text-sm leading-6 text-foreground outline-none transition-[height] duration-150 ease-out placeholder:text-muted-foreground brevyn-scrollbar"
+            onChange={handlePromptChange}
+            onSubmit={() => formRef.current?.requestSubmit()}
+            onPaste={handlePaste}
+            onMentionFile={(file) => setMentionedFiles((current) => current.some((item) => item.id === file.id) ? current : [...current, file])}
           />
-          {mentionQuery !== null && mentionSuggestions.length > 0 && (
-            <MentionSuggestions
-              files={mentionSuggestions}
-              onSelect={(file) => {
-                setMentionedFiles((current) => current.some((item) => item.id === file.id) ? current : [...current, file]);
-                setPromptValue((current) => replaceCurrentMention(current, file.name));
-                setMentionQuery(null);
-              }}
-            />
-          )}
           <MentionedFileChips
             files={mentionedFiles}
             onRemove={(fileId) => setMentionedFiles((current) => current.filter((item) => item.id !== fileId))}
@@ -291,4 +262,27 @@ export function AgentComposer({
       </div>
     </form>
   );
+}
+
+function skillMentionsFromSlugs(slugs: string[] | undefined, skills: MentionedSkill[]): MentionedSkill[] {
+  if (!slugs?.length) return [];
+  const bySlug = new Map(skills.map((skill) => [skill.slug, skill]));
+  return slugs.flatMap((slug) => {
+    const skill = bySlug.get(slug);
+    return skill ? [skill] : [];
+  });
+}
+
+function skillMentionsFromPrompt(prompt: string, skills: MentionedSkill[]): MentionedSkill[] {
+  const slugs = [
+    ...prompt.matchAll(/(?:^|\s)\/skill:([^\s/]+)(?=\s|$)/g),
+    ...prompt.matchAll(/(?:^|\s)\/([^:\s/]+)(?=\s|$)/g),
+  ].map((match) => match[1]).filter(Boolean);
+  return skillMentionsFromSlugs(slugs, skills);
+}
+
+function promptWithSkillTokens(prompt: string, slugs: string[] | undefined): string {
+  if (!slugs?.length) return prompt;
+  const prefix = slugs.map((slug) => `/${slug}`).join(" ");
+  return [prefix, prompt].filter(Boolean).join(" ");
 }

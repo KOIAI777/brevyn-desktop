@@ -107,6 +107,7 @@ export function useAgentSessionController({
     permissionMode: AgentPermissionMode = "auto",
     attachments?: AgentAttachment[],
     providerSelection?: AgentProviderSelection,
+    mentionedSkills?: string[],
   ): Promise<void> => {
     const threadId = activeThreadIdRef.current;
     if (!threadId) return;
@@ -129,6 +130,7 @@ export function useAgentSessionController({
         attachments,
         providerId: providerSelection?.providerId,
         modelId: providerSelection?.modelId,
+        mentionedSkills,
       });
     } catch (runError) {
       runningRef.current = false;
