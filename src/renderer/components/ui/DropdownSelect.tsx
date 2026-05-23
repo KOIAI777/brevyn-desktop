@@ -1,6 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "@/lib/cn";
 
 export interface DropdownOption {
@@ -21,7 +21,10 @@ export function DropdownSelect({
   className,
   buttonClassName,
   menuClassName,
+  style,
   menuMinWidth = 220,
+  menuMaxVisibleItems = 6,
+  menuItemHeight = 44,
   renderValue,
 }: {
   value: string;
@@ -33,7 +36,10 @@ export function DropdownSelect({
   className?: string;
   buttonClassName?: string;
   menuClassName?: string;
+  style?: CSSProperties;
   menuMinWidth?: number;
+  menuMaxVisibleItems?: number;
+  menuItemHeight?: number;
   renderValue?: (option: DropdownOption | undefined) => ReactNode;
 }) {
   const id = useId();
@@ -53,7 +59,8 @@ export function DropdownSelect({
     const menuWidth = Math.max(rect.width, menuMinWidth);
     const width = Math.min(Math.max(menuWidth, rect.width), window.innerWidth - 24);
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - 12 - width));
-    const estimatedHeight = Math.min(288, Math.max(44, options.length * 44 + 8));
+    const menuMaxHeight = menuMaxVisibleItems * menuItemHeight + 8;
+    const estimatedHeight = Math.min(menuMaxHeight, Math.max(menuItemHeight, options.length * menuItemHeight + 8));
     const menuHeight = menuRef.current?.getBoundingClientRect().height || estimatedHeight;
     const belowTop = rect.bottom + 6;
     const belowSpace = window.innerHeight - 12 - belowTop;
@@ -68,7 +75,7 @@ export function DropdownSelect({
       }
       return { top, left, width };
     });
-  }, [menuMinWidth, options.length]);
+  }, [menuItemHeight, menuMaxVisibleItems, menuMinWidth, options.length]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -161,7 +168,7 @@ export function DropdownSelect({
   }
 
   return (
-    <div className={cx("relative", className)}>
+    <div className={cx("relative", className)} style={style}>
       <button
         ref={buttonRef}
         id={id}
@@ -202,12 +209,12 @@ export function DropdownSelect({
             role="listbox"
             aria-labelledby={id}
             className={cx(
-              "fixed z-[70] max-h-72 overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80",
+              "fixed z-[70] overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80",
               menuClassName,
             )}
-            style={{ top: position.top, left: position.left, width: position.width }}
+            style={{ top: position.top, left: position.left, width: position.width, maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}
           >
-            <div className="max-h-72 overflow-y-auto p-1 brevyn-scrollbar">
+            <div className="overflow-y-auto p-1 brevyn-scrollbar" style={{ maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}>
               {options.length === 0 ? (
                 <div className="rounded-md px-3 py-2 text-[11px] text-muted-foreground">No options</div>
               ) : (
@@ -227,6 +234,7 @@ export function DropdownSelect({
                         highlighted && "ring-1 ring-foreground/10",
                         option.disabled && "cursor-not-allowed opacity-45",
                       )}
+                      style={{ minHeight: menuItemHeight }}
                       onMouseEnter={() => setHighlightedIndex(index)}
                       onClick={() => choose(index)}
                     >

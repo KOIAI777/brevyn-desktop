@@ -33,6 +33,7 @@ export function AgentProviderPicker({
         icon: <ModelLogo src={getModelLogoById(model.id) || getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind)} label={model.name || model.id} />,
       }));
     });
+  const menuWidth = modelMenuWidth(providerOptions.map((option) => option.label));
 
   return (
     <>
@@ -44,10 +45,13 @@ export function AgentProviderPicker({
         placeholder="Select model"
         ariaLabel="Select agent model"
         disabled={providerOptions.length === 0}
-        className="w-[132px] shrink-0 sm:w-[156px]"
+        className="inline-block shrink-0"
+        style={{ width: "fit-content", minWidth: 132, maxWidth: "min(44vw, 280px)" }}
         buttonClassName="h-7 rounded-full border border-border/70 bg-background/55 px-2 text-[11px] font-semibold shadow-sm backdrop-blur"
         menuClassName="bg-card/95 backdrop-blur-xl"
-        menuMinWidth={172}
+        menuMinWidth={menuWidth}
+        menuItemHeight={64}
+        menuMaxVisibleItems={5}
         renderValue={(option) => (
           option ? (
             <span className="flex min-w-0 items-center gap-1.5">
@@ -59,6 +63,11 @@ export function AgentProviderPicker({
       />
     </>
   );
+}
+
+function modelMenuWidth(labels: string[]): number {
+  const longestLabelLength = labels.reduce((longest, label) => Math.max(longest, label.trim().length), 0);
+  return Math.min(320, Math.max(228, Math.round(longestLabelLength * 7.4 + 88)));
 }
 
 function ModelLogo({ src, label }: { src: string; label: string }) {
