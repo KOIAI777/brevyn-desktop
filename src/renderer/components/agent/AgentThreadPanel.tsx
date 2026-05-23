@@ -467,7 +467,7 @@ function AssistantTurnTimelineGroup({
     <div className="group/assistant-turn flex min-w-0 flex-col gap-3">
       {(processItem || entries.length > 0) && (
         <div className="flex min-w-0 flex-col">
-          <AssistantTurnHeader model={model} createdAt={createdAt} summary={summary} agentProviders={agentProviders} />
+          <AssistantTurnHeader model={model} agentProviders={agentProviders} />
           {processItem && (
             <AttachedProcess item={processItem} onToggle={() => onToggleItemProcess(processItem)} />
           )}
@@ -494,20 +494,16 @@ function AssistantTurnTimelineGroup({
           })}
         </div>
       )}
-      <AssistantTurnCopyAction items={items} />
+      <AssistantTurnCopyAction items={items} summary={summary} createdAt={createdAt} />
     </div>
   );
 }
 
 function AssistantTurnHeader({
   model,
-  createdAt,
-  summary,
   agentProviders,
 }: {
   model?: string;
-  createdAt?: number;
-  summary: RunSummary | null;
   agentProviders: ModelProviderConfig[];
 }) {
   const modelId = (model || "").trim();
@@ -516,8 +512,6 @@ function AssistantTurnHeader({
   const providerModel = provider?.models.find((candidate) => candidate.id === modelId);
   const modelLabel = providerModel?.name || modelId;
   const logo = getModelLogoById(modelId) || (provider ? getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind) : brevynAppIconUrl);
-  const runtimeLabel = assistantRuntimeLabel(summary);
-  const timeLabel = createdAt ? formatHeaderTime(createdAt) : "";
 
   return (
     <div className="mb-1 flex min-w-0 items-center gap-2 px-1 text-[11px] text-muted-foreground">
@@ -525,19 +519,8 @@ function AssistantTurnHeader({
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <span className="truncate text-[12px] font-semibold text-foreground/70" title={modelLabel}>{modelLabel}</span>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground/55">
-        {runtimeLabel && <span>{runtimeLabel}</span>}
-        {runtimeLabel && timeLabel && <span>·</span>}
-        {timeLabel && <span>{timeLabel}</span>}
-      </div>
     </div>
   );
-}
-
-function assistantRuntimeLabel(summary: RunSummary | null): string {
-  const label = summary?.label.trim() || "";
-  if (!label || label === "Thinking") return summary?.running ? "运行中" : "";
-  return label;
 }
 
 function formatHeaderTime(timestampMs: number): string {
@@ -760,9 +743,19 @@ function AssistantTurnEntry({
   return null;
 }
 
-function AssistantTurnCopyAction({ items }: { items: AgentTimelineViewItem[] }) {
+function AssistantTurnCopyAction({
+  items,
+  summary,
+  createdAt,
+}: {
+  items: AgentTimelineViewItem[];
+  summary: RunSummary | null;
+  createdAt?: number;
+}) {
   const [copied, setCopied] = useState(false);
   const running = items.some((item) => item.processSummary?.running);
+  const durationLabel = assistantDurationLabel(summary);
+  const timeLabel = createdAt ? formatHeaderTime(createdAt) : "";
   const content = items
     .filter((item) => item.displayKind === "assistant-final")
     .map((item) => item.assistantContent || "")
@@ -783,11 +776,14 @@ function AssistantTurnCopyAction({ items }: { items: AgentTimelineViewItem[] }) 
   }
 
   return (
-    <div className="-mt-1 flex justify-start px-1">
+    <div className="-mt-1 flex items-center justify-start gap-1.5 px-1 text-[11px] text-muted-foreground/55 opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100">
+      {durationLabel && <span className="select-none">{durationLabel}</span>}
+      {durationLabel && timeLabel && <span className="select-none text-muted-foreground/35">·</span>}
+      {timeLabel && <span className="select-none">{timeLabel}</span>}
       <button
         type="button"
         onClick={() => void handleCopy()}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/55 opacity-0 transition hover:bg-accent/65 hover:text-foreground hover:opacity-100 focus-visible:bg-accent focus-visible:text-foreground focus-visible:opacity-100 focus-visible:outline-none group-hover/assistant-turn:opacity-100"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/65 transition hover:bg-accent/65 hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none"
         aria-label={copied ? "Message copied" : "Copy assistant response"}
         title={copied ? "已复制" : "复制"}
       >
@@ -795,6 +791,12 @@ function AssistantTurnCopyAction({ items }: { items: AgentTimelineViewItem[] }) 
       </button>
     </div>
   );
+}
+
+function assistantDurationLabel(summary: RunSummary | null): string {
+  const label = summary?.label.trim() || "";
+  const match = label.match(/(\d+m\s+\d+s|\d+s)/);
+  return match?.[1] || "";
 }
 
 const OrderedToolUseEntry = memo(function OrderedToolUseEntry({
