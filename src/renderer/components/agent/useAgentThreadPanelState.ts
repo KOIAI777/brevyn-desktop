@@ -69,6 +69,7 @@ export function useAgentThreadPanelState({
   const queueState = useAgentQueueState({
     threadId: thread.id,
     effectiveRunning: timelineState.effectiveRunning,
+    runSummary: timelineState.runSummary,
     onRun,
   });
 

@@ -3,7 +3,6 @@ import { FileSearch, FileText, FolderOpen, FolderTree, Globe, HelpCircle, ListTo
 import { ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { FilePathChip } from "@/components/chat/FilePathChip";
-import type { ToolResultBlock, ToolUseBlock } from "@/components/agent/agentTimelineModel";
 import { truncatePreview } from "@/components/agent/agentTimelineModel";
 import {
   formatDiffStats,
@@ -11,6 +10,8 @@ import {
   getToolTitle,
   recordObject,
   stringValue,
+  type ToolResultBlock,
+  type ToolUseBlock,
 } from "@/components/agent/tool-cards/toolModel";
 
 export function ToolUseCard({

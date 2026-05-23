@@ -10,13 +10,13 @@ import {
   recordKey,
   streamThinkingDelta,
   streamTextDelta,
-  stringValue,
   thinkingTextForMessage,
   toolResultBlocks,
   userText,
   type AgentTimelineRecord,
   type RunSummary,
 } from "@/components/agent/agentTimelineModel";
+import { stringValue } from "@/components/agent/tool-cards/toolModel";
 
 export function processStateKey(summary: RunSummary | null, userIndex: number | undefined, records: AgentTimelineRecord[], recordIndex: number): string {
   if (summary?.runId) return `run-${summary.runId}`;

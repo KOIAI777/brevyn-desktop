@@ -16,12 +16,18 @@ export function QueuedMessageDock({
   onDelete: (messageId: string) => void;
   onEdit: (message: QueuedAgentMessage) => void;
 }) {
+  const helperText = running
+    ? "待确认；当前轮正常完成后会自动作为下一轮发送"
+    : "待发送；将作为新一轮运行";
+  const sendTitle = running ? "立即追加到当前运行" : "立即发送";
+  const sendingLabel = running ? "追加中" : "发送中";
+
   return (
     <div className="pointer-events-auto w-full rounded-2xl border border-white/55 bg-card/78 px-3 py-2 shadow-[0_10px_28px_rgba(64,55,38,0.10)] ring-1 ring-border/30 backdrop-blur-2xl">
       <div className="mb-1.5 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-foreground">Queued messages</p>
-          <p className="text-[10px] text-muted-foreground">{running ? "点击发送会打断当前输出并继续" : "可直接发送或继续编辑"}</p>
+          <p className="text-[11px] font-semibold text-foreground">待确认消息</p>
+          <p className="text-[10px] text-muted-foreground">{helperText}</p>
         </div>
         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{messages.length}</span>
       </div>
@@ -39,14 +45,14 @@ export function QueuedMessageDock({
               <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
                 {message.prompt}
               </span>
-              {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">发送中</span>}
+              {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{sendingLabel}</span>}
               <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => onSend(message.id)}
                   disabled={sending}
-                  title={running ? "发送并打断当前输出" : "立即发送"}
+                  title={sendTitle}
                   aria-label="Send queued message"
                 >
                   <Send className="h-3.5 w-3.5" />

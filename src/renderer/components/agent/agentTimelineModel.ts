@@ -3,19 +3,6 @@ import type { AgentAskUserRequest, AgentExitPlanRequest, AgentPermissionMode, Br
 import { recordCreatedAtMs, timelineRecordIdentity, timelineRecordRenderKey } from "@/lib/agent-timeline-identity";
 import { recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
 export { timelineRecordIdentity } from "@/lib/agent-timeline-identity";
-export {
-  formatDiffStats,
-  formatToolResultContent,
-  formatUnknown,
-  getToolDiffStats as toolDiffStats,
-  getToolResultSummary as toolResultSummary,
-  getToolTitle as toolTitle,
-  recordObject,
-  stringValue,
-  type ToolDiffStats,
-  type ToolResultBlock,
-  type ToolUseBlock,
-} from "@/components/agent/tool-cards/toolModel";
 
 export interface WebCitationLink {
   title: string;

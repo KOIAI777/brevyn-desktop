@@ -17,9 +17,9 @@ import {
 import { resolveModelContextWindow } from "../../../shared/model-context-window";
 import {
   isRuntimeRecord,
-  stringValue,
   type ContextUsage,
 } from "@/components/agent/agentTimelineModel";
+import { stringValue } from "@/components/agent/tool-cards/toolModel";
 
 export interface ContextUsageOptions {
   activeProvider?: ModelProviderConfig;

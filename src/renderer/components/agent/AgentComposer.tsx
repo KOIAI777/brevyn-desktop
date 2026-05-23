@@ -186,7 +186,7 @@ export function AgentComposer({
             value={promptValue}
             skills={mentionableSkills}
             files={mentionableFiles}
-            placeholder={running ? "输入补充消息，会加入排队列表..." : "Ask Brevyn about this thread..."}
+            placeholder={running ? "输入补充消息，先加入待确认..." : "Ask Brevyn about this thread..."}
             onChange={handlePromptChange}
             onSubmit={() => formRef.current?.requestSubmit()}
             onPaste={handlePaste}
@@ -232,7 +232,7 @@ export function AgentComposer({
                     type="submit"
                     className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
                     aria-label="Queue message"
-                    title={pendingAttachments.length > 0 ? "运行中暂不支持排队附件" : "加入排队"}
+                    title={pendingAttachments.length > 0 ? "运行中暂不支持待确认附件" : "加入待确认"}
                     disabled={pendingAttachments.length > 0}
                   >
                     <Send className="h-4 w-4" />

@@ -380,8 +380,19 @@ function createMentionSuggestion<T>({
         if (!popup) return;
         const rect = clientRect?.();
         if (!rect) return;
-        popup.style.left = `${rect.left}px`;
-        popup.style.top = `${rect.top - popup.offsetHeight - 8}px`;
+        const popupRect = popup.getBoundingClientRect();
+        const width = popupRect.width || 280;
+        const height = popupRect.height || 240;
+        const margin = 8;
+        const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+        const aboveTop = rect.top - height - margin;
+        const belowTop = rect.bottom + margin;
+        const hasAboveRoom = aboveTop >= margin;
+        const top = hasAboveRoom
+          ? aboveTop
+          : Math.min(Math.max(belowTop, margin), window.innerHeight - height - margin);
+        popup.style.left = `${left}px`;
+        popup.style.top = `${top}px`;
       };
 
       return {

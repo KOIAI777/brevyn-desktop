@@ -13,22 +13,19 @@ import {
   messageContent,
   questionAnswers,
   recordKey,
-  recordObject,
   streamTextDeltaBlock,
   streamThinkingDeltaBlock,
   streamToolInputDelta,
   streamToolUseStart,
-  stringValue,
   toolResultBlocks,
   type AgentTimelineRecord,
   type ProcessEvent,
   type RunSummary,
-  type ToolResultBlock,
-  type ToolUseBlock,
   type WebCitationLink,
 } from "@/components/agent/agentTimelineModel";
 import { parsePartialToolInput } from "@/components/agent/agentTimelinePartialInput";
 import { processStateKey } from "@/components/agent/agentTimelineRunState";
+import { recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
 import type {
   AgentTimelineDisplayKind,
   AgentTimelineToolGroupSummary,

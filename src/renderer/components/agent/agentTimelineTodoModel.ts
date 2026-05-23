@@ -3,16 +3,15 @@ import {
   assistantBlocks,
   isRuntimeRecord,
   isStreamEventRecord,
-  recordObject,
   streamToolInputDelta,
   streamToolUseStart,
-  stringValue,
   toolResultBlocks,
   userText,
   type AgentTimelineRecord,
   type AgentTodoItem,
 } from "@/components/agent/agentTimelineModel";
 import { parsePartialToolInput } from "@/components/agent/agentTimelinePartialInput";
+import { recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
 
 export function latestTodoList(records: AgentTimelineRecord[]): AgentTodoItem[] {
   let latest: AgentTodoItem[] = [];
