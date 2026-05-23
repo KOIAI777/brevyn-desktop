@@ -22,7 +22,7 @@ export interface AgentTimelineViewItem {
 
 export type AgentTimelineViewGroup =
   | { type: "user"; key: string; item: AgentTimelineViewItem }
-  | { type: "assistant-turn"; key: string; items: AgentTimelineViewItem[]; entries: AgentTimelineTurnEntry[]; collapsedVisibleEntryKeys: string[]; processItem?: AgentTimelineViewItem }
+  | { type: "assistant-turn"; key: string; items: AgentTimelineViewItem[]; entries: AgentTimelineTurnEntry[]; collapsedVisibleEntryKeys: string[]; processItem?: AgentTimelineViewItem; model?: string; createdAt?: number }
   | { type: "system"; key: string; item: AgentTimelineViewItem }
   | { type: "runtime"; key: string; item: AgentTimelineViewItem };
 

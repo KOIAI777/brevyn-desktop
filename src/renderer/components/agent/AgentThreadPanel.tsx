@@ -19,6 +19,7 @@ import type { AgentTimelineTurnEntry, AgentTimelineViewItem } from "@/components
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
 import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
+import { getModelLogoById, getProviderBaseUrlLogo } from "@/lib/model-provider-logo";
 
 interface AgentThreadPanelProps {
   thread: Thread;
@@ -117,6 +118,7 @@ export function AgentThreadPanel({
                 >
                   <AgentTimelineGroup
                     group={group}
+                    agentProviders={agentProviders}
                     onToggleItemProcess={(item) => toggleProcessCollapsed(item.processKey, item.defaultCollapsed, item.processLockedOpen)}
                     onApprove={onApprove}
                     onReject={onReject}
@@ -257,6 +259,7 @@ function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string;
 
 function AgentTimelineGroup({
   group,
+  agentProviders,
   onToggleItemProcess,
   onApprove,
   onReject,
@@ -265,6 +268,7 @@ function AgentTimelineGroup({
   onCompact,
 }: {
   group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
+  agentProviders: ModelProviderConfig[];
   onToggleItemProcess: (item: AgentTimelineViewItem) => void;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -298,6 +302,9 @@ function AgentTimelineGroup({
       entries={group.entries}
       collapsedVisibleEntryKeys={group.collapsedVisibleEntryKeys}
       processItem={group.processItem}
+      model={group.model}
+      createdAt={group.createdAt}
+      agentProviders={agentProviders}
       onToggleItemProcess={onToggleItemProcess}
       onApprove={onApprove}
       onReject={onReject}
@@ -430,6 +437,9 @@ function AssistantTurnTimelineGroup({
   entries,
   collapsedVisibleEntryKeys,
   processItem,
+  model,
+  createdAt,
+  agentProviders,
   onToggleItemProcess,
   onApprove,
   onReject,
@@ -441,6 +451,9 @@ function AssistantTurnTimelineGroup({
   entries: AgentTimelineTurnEntry[];
   collapsedVisibleEntryKeys: string[];
   processItem?: AgentTimelineViewItem;
+  model?: string;
+  createdAt?: number;
+  agentProviders: ModelProviderConfig[];
   onToggleItemProcess: (item: AgentTimelineViewItem) => void;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -450,10 +463,12 @@ function AssistantTurnTimelineGroup({
 }) {
   const showTimelineItems = processItem?.processExpanded ?? true;
   const stableBodyTextKeys = new Set(collapsedVisibleEntryKeys);
+  const summary = processItem?.processSummary ?? [...items].reverse().find((item) => item.processSummary)?.processSummary ?? null;
   return (
     <div className="group/assistant-turn flex min-w-0 flex-col gap-3">
       {(processItem || entries.length > 0) && (
         <div className="flex min-w-0 flex-col">
+          <AssistantTurnHeader model={model} createdAt={createdAt} summary={summary} agentProviders={agentProviders} />
           {processItem && (
             <AttachedProcess item={processItem} onToggle={() => onToggleItemProcess(processItem)} />
           )}
@@ -483,6 +498,50 @@ function AssistantTurnTimelineGroup({
       <AssistantTurnCopyAction items={items} />
     </div>
   );
+}
+
+function AssistantTurnHeader({
+  model,
+  createdAt,
+  summary,
+  agentProviders,
+}: {
+  model?: string;
+  createdAt?: number;
+  summary: RunSummary | null;
+  agentProviders: ModelProviderConfig[];
+}) {
+  const modelId = (model || "").trim();
+  const provider = modelId ? agentProviders.find((item) => item.models.some((candidate) => candidate.id === modelId)) : undefined;
+  const providerModel = provider?.models.find((candidate) => candidate.id === modelId);
+  const modelLabel = providerModel?.name || modelId || "Brevyn Agent";
+  const logo = getModelLogoById(modelId) || (provider ? getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind) : brevynAppIconUrl);
+  const runtimeLabel = assistantRuntimeLabel(summary);
+  const timeLabel = createdAt ? formatHeaderTime(createdAt) : "";
+
+  return (
+    <div className="mb-1 flex min-w-0 items-center gap-2 px-1 text-[11px] text-muted-foreground">
+      <img src={logo} alt="" className="h-7 w-7 shrink-0 rounded-[0.45rem] object-contain shadow-sm ring-1 ring-border/55" />
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="truncate text-[12px] font-semibold text-foreground/70" title={modelLabel}>{modelLabel}</span>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground/55">
+        {runtimeLabel && <span>{runtimeLabel}</span>}
+        {runtimeLabel && timeLabel && <span>·</span>}
+        {timeLabel && <span>{timeLabel}</span>}
+      </div>
+    </div>
+  );
+}
+
+function assistantRuntimeLabel(summary: RunSummary | null): string {
+  const label = summary?.label.trim() || "";
+  if (!label || label === "Thinking") return summary?.running ? "运行中" : "";
+  return label;
+}
+
+function formatHeaderTime(timestampMs: number): string {
+  return new Date(timestampMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function AssistantTurnRenderEntryView({

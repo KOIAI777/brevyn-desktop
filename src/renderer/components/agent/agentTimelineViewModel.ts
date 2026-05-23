@@ -123,6 +123,8 @@ export function buildTimelineViewGroups(
         entries,
         collapsedVisibleEntryKeys: collapsedAssistantTextKeys(entries),
         processItem,
+        model: group.model,
+        createdAt: group.createdAt,
       });
       continue;
     }

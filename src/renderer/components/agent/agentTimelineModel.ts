@@ -131,14 +131,17 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
 
     if (message.type === "assistant") {
       if ((message as { isReplay?: unknown }).isReplay === true) return;
+      const messageModel = stringValue(recordObject(messageContentEnvelope(message)).model ?? (message as { _channelModelId?: unknown })._channelModelId, "");
       if (!currentTurn) {
         currentTurn = !seenUserInput ? leadingTurn ?? emptyAssistantTurn(sessionModelId) : emptyAssistantTurn(sessionModelId);
         if (!seenUserInput) leadingTurn = currentTurn;
-        currentTurn.model = currentTurn.model || stringValue(recordObject(messageContentEnvelope(message)).model ?? (message as { _channelModelId?: unknown })._channelModelId, sessionModelId || "");
+        currentTurn.model = currentTurn.model || messageModel || sessionModelId || "";
         currentTurn.createdAt = currentTurn.createdAt ?? recordCreatedAtMs(message);
         currentTurn.assistantMessages.push(message);
         currentTurn.turnRecords.push({ record: message, index });
       } else {
+        currentTurn.model = currentTurn.model || messageModel || sessionModelId || "";
+        currentTurn.createdAt = currentTurn.createdAt ?? recordCreatedAtMs(message);
         currentTurn.assistantMessages.push(message);
         currentTurn.turnRecords.push({ record: message, index });
       }
