@@ -115,7 +115,7 @@ export class AgentOrchestrator {
     const agentPrompt = promptWithMentionedSkills(input.prompt, input.mentionedSkills, this.options.skillFiles.listSkills());
     const promptForAgent = compactCommand
       ? "/compact"
-      : languageDirectedPrompt(promptWithAttachments(agentPrompt, attachments), input.prompt);
+      : promptWithAttachments(agentPrompt, attachments);
     this.activeRuns.set(context.thread.id, {
       runId,
       threadId: context.thread.id,
@@ -178,7 +178,7 @@ export class AgentOrchestrator {
         throw new Error(`Agent provider "${provider.name}" is missing an API key.`);
       }
 
-      const systemPrompt = [
+      const systemPromptAppend = [
         this.options.promptBuilder.buildSystemPrompt({
           semester: context.semester,
           course: context.course,
@@ -188,6 +188,11 @@ export class AgentOrchestrator {
         }),
         permissionInstructions(active),
       ].join("\n\n");
+      const systemPrompt = {
+        type: "preset" as const,
+        preset: "claude_code" as const,
+        append: systemPromptAppend,
+      };
       const env = await this.buildSdkEnvForProvider(provider, apiKey, active);
       const sdkRuntime = await this.options.sdk.loadSdk();
       const mcpServers = {
@@ -239,6 +244,7 @@ export class AgentOrchestrator {
             betas: sdkBetasForModel(provider.selectedModel),
             plugins: [{ type: "local", path: this.options.skillFiles.nativePluginRootPath() }],
             skills: "all",
+            toolAliases: brevynMcpToolAliases(),
             canUseTool: this.createCanUseTool(context, runId),
             onQuery: (query) => {
               active.query = query;
@@ -754,20 +760,29 @@ function sdkBetasForModel(modelId: string): SdkBeta[] {
   return supports1MContext(modelId) ? ["context-1m-2025-08-07"] : [];
 }
 
-function languageDirectedPrompt(prompt: string, userPrompt: string): string {
-  const language = /[\u3400-\u9fff]/.test(userPrompt) ? "Chinese" : "the same language as the user";
-  return [
-    `<brevyn_language_instruction>Use ${language} for visible thinking, progress narration, tool-use narration, and the final answer in this run.</brevyn_language_instruction>`,
-    prompt,
-  ].join("\n\n");
-}
-
 function isCompactPrompt(prompt: string): boolean {
   return prompt.trim() === "/compact";
 }
 
 function supports1MContext(modelId: string): boolean {
   return isOneMillionContextModel(modelId);
+}
+
+function brevynMcpToolAliases(): Record<string, string> {
+  return {
+    course_structure: "mcp__brevyn__course_structure",
+    list_course_files: "mcp__brevyn__list_course_files",
+    get_file_record: "mcp__brevyn__get_file_record",
+    rag_search: "mcp__brevyn__rag_search",
+    mcpBrevyncourseStructure: "mcp__brevyn__course_structure",
+    mcpBrevynCourseStructure: "mcp__brevyn__course_structure",
+    mcpBrevynlistCourseFiles: "mcp__brevyn__list_course_files",
+    mcpBrevynListCourseFiles: "mcp__brevyn__list_course_files",
+    mcpBrevyngetFileRecord: "mcp__brevyn__get_file_record",
+    mcpBrevynGetFileRecord: "mcp__brevyn__get_file_record",
+    mcpBrevynragSearch: "mcp__brevyn__rag_search",
+    mcpBrevynRagSearch: "mcp__brevyn__rag_search",
+  };
 }
 
 function now(): string {
@@ -908,14 +923,14 @@ function promptWithMentionedSkills(prompt: string, mentionedSkills: string[] | u
   const lines = slugs.flatMap((slug) => {
     const skill = enabledBySlug.get(slug);
     if (!skill) return [];
-    return [`- Skill: brevyn-global-skills:${slug}（${skill.name}，请立即调用此 Skill）`];
+    return [`- brevyn-global-skills:${slug}: ${skill.name}`];
   });
   if (lines.length === 0) return prompt;
   return [
-    "<mentioned_tools>",
-    "用户在消息中明确引用了以下 Skill，请在本次回复中主动调用：",
+    "<mentioned_skills>",
+    "The user explicitly selected these native Claude Skills for this run. Treat the selection as task context; when the request matches a selected Skill, follow that Skill workflow without announcing skill loading.",
     ...lines,
-    "</mentioned_tools>",
+    "</mentioned_skills>",
     "",
     prompt,
   ].join("\n");

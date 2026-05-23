@@ -600,7 +600,7 @@ function TimelineItemsDrawer({ open, insetTop = false, children }: { open: boole
         ref={contentRef}
         className={`${
           visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
-        } ${insetTop ? "pt-3" : ""} flex min-w-0 flex-col gap-3 transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform`}
+        } ${insetTop ? "pt-2" : ""} flex min-w-0 flex-col gap-2 transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform`}
       >
         {children}
       </div>
@@ -764,10 +764,10 @@ const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { e
   const { collapsed, expandedToolIds, toggleCollapsed, toggleTool } = useToolGroupDisclosure(entry.key, entry.summary.running);
 
   return (
-    <div className="px-1 py-0.5">
+    <div className="px-1 py-0">
       <button
         type="button"
-        className="inline-flex max-w-full items-center gap-2 rounded-md px-0.5 py-1 text-left text-[13px] font-semibold text-muted-foreground/80 transition hover:text-foreground"
+        className="inline-flex max-w-full items-center gap-2 rounded-md px-0.5 py-0.5 text-left text-[13px] font-semibold text-muted-foreground/80 transition hover:text-foreground"
         onClick={toggleCollapsed}
         title={collapsed ? "展开工具详情" : "折叠工具详情"}
       >
@@ -783,7 +783,7 @@ const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { e
         {entry.summary.running ? (
           <RunningToolGroupDetails events={entry.toolEvents} expandedToolIds={expandedToolIds} onToggleTool={toggleTool} />
         ) : (
-          <div className="ml-6 flex flex-col gap-1.5">
+          <div className="ml-6 flex flex-col gap-1">
             {entry.toolEvents.map((event) => (
               <OrderedToolUseEntry key={event.tool.id || event.id} event={event} collapsed={expandedToolIds[event.tool.id || event.id] !== true} onToggleCollapsed={() => toggleTool(event.tool.id || event.id)} />
             ))}

@@ -54,7 +54,7 @@ export function ToolUseCard({
       />
       {!failed && expandable && (
         <div className={`${effectiveCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out`}>
-          <div className="min-h-0 overflow-hidden px-1 py-1">
+          <div className="min-h-0 overflow-hidden px-1 py-0.5">
             <DeferredToolDetails collapsed={effectiveCollapsed} defer={!running}>
               {renderToolDetails({ toolUse: block, result, helpers })}
             </DeferredToolDetails>
@@ -122,7 +122,7 @@ function ToolCardHeader({
   return (
     <button
       type="button"
-      className={`inline-flex max-w-full flex-wrap items-center gap-2 rounded-md px-0.5 py-1 text-left text-[11px] text-muted-foreground transition ${expandable ? "hover:text-foreground" : "cursor-default"}`}
+      className={`inline-flex max-w-full flex-wrap items-center gap-2 rounded-md px-0.5 py-0.5 text-left text-[11px] text-muted-foreground transition ${expandable ? "hover:text-foreground" : "cursor-default"}`}
       onClick={expandable ? onToggleCollapsed : undefined}
       aria-expanded={expandable ? !collapsed : undefined}
     >

@@ -1,4 +1,4 @@
-import type { CanUseTool, McpServerConfig, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta, SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, McpServerConfig, Options as ClaudeSdkOptions, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta, SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
 import type * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -14,7 +14,7 @@ export interface ClaudeSdkRunInput {
   cwd: string;
   model: string;
   env: Record<string, string>;
-  systemPrompt: string;
+  systemPrompt: ClaudeSdkOptions["systemPrompt"];
   resumeSessionId?: string;
   abortController: AbortController;
   canUseTool?: CanUseTool;
@@ -26,6 +26,7 @@ export interface ClaudeSdkRunInput {
   betas?: SdkBeta[];
   plugins?: SdkPluginConfig[];
   skills?: "all" | string[];
+  toolAliases?: Record<string, string>;
 }
 
 interface MessageChannel {
@@ -62,9 +63,7 @@ export class ClaudeSdkAdapter {
         parent_tool_use_id: null,
       } as SDKUserMessage);
     }
-    const query = sdk.query({
-      prompt: input.slashCommand ? input.prompt : channel!.generator,
-      options: {
+    const options: ClaudeSdkOptions & { toolUseConcurrency?: number } = {
         abortController: input.abortController,
         cwd: input.cwd,
         model: input.model,
@@ -106,12 +105,17 @@ export class ClaudeSdkAdapter {
         ...(input.betas && input.betas.length > 0 ? { betas: input.betas } : {}),
         ...(input.plugins && input.plugins.length > 0 ? { plugins: input.plugins } : {}),
         ...(input.skills ? { skills: input.skills } : {}),
+        ...(input.toolAliases && Object.keys(input.toolAliases).length > 0 ? { toolAliases: input.toolAliases } : {}),
+        toolUseConcurrency: 1,
         canUseTool: input.canUseTool || safeToolPolicy,
         ...(input.mcpServers && Object.keys(input.mcpServers).length > 0 ? { mcpServers: input.mcpServers } : {}),
         stderr: (data: string) => {
           if (data.trim()) console.warn("[claude-agent-sdk]", data.trimEnd());
         },
-      },
+    };
+    const query = sdk.query({
+      prompt: input.slashCommand ? input.prompt : channel!.generator,
+      options,
     });
     input.onQuery?.(query);
     if (sessionKey) {

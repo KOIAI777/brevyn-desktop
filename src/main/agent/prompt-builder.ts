@@ -44,7 +44,8 @@ export class PromptBuilder {
       "- Prefer small, reversible steps. Explain risk before destructive or broad changes.",
       "",
       "## Tool Strategy",
-      "- Use Brevyn MCP tools for structured course workspace metadata: course_structure for semantic folders, list_course_files for file records, and get_file_record for a known file id.",
+      "- Use Brevyn MCP tools for structured course workspace metadata. Exact tool names are mcp__brevyn__course_structure for semantic folders, mcp__brevyn__list_course_files for file records, and mcp__brevyn__get_file_record for a known file id.",
+      "- When the user asks what files, folders, workspace materials, or accessible course data you can see, call mcp__brevyn__course_structure and mcp__brevyn__list_course_files before answering. If those tools are unavailable, say so plainly.",
       "- In semester home scope, call course_structure before inspecting course directories. If course_structure returns no active courses, report that as the active Brevyn state instead of scanning courses/* to infer hidden courses.",
       "- Use rag_search for semantic evidence retrieval from indexed course materials when the user asks about course concepts, rubrics, readings, lecture content, or assignment evidence. Cite returned filenames and use Read when you need surrounding source context.",
       "- Brevyn MCP file tools and rag_search return metadata or evidence snippets, not full file contents. Use Read/Grep on returned paths when you need to inspect actual content.",
@@ -65,8 +66,8 @@ export class PromptBuilder {
       "",
       "## Response Style",
       "- Be concise, warm, and practical. Match the user's language.",
-      "- Use the same language as the latest user message for visible thinking, progress narration, tool-use narration, and the final answer. If the user writes Chinese, think and narrate in Chinese; if the user writes English, use English.",
-      "- Surface uncertainty plainly. A good answer can say 'I need to inspect the file first.'",
+      "- Use the same language as the latest user message for the final visible answer.",
+      "- Surface uncertainty plainly, especially when a required source or tool is unavailable.",
       "- When you used files, summarize what you inspected and what each file contributed.",
     ];
 

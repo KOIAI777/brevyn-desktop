@@ -874,7 +874,7 @@ export function SettingsDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6">
       {providerConfirmDialog}
       {providerToast && (
         <div className="pointer-events-none absolute top-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-lg ring-1 ring-border/60">
@@ -941,7 +941,7 @@ export function SettingsDialog({
             </div>
           </aside>
 
-          <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar")}>
+          <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {activePage === "general" ? (
               <GeneralSettingsPage />
             ) : activePage === "providers" ? (
@@ -1512,7 +1512,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Agent" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
-          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
+          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar">
             {chatProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1549,7 +1549,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
 
-          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
+          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar">
             {embeddingProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1610,7 +1610,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Vision" onClick={onNewVisionProvider} disabled={visionBusy} />
           </div>
 
-          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [backface-visibility:hidden] [contain:layout_paint] [scrollbar-gutter:stable] brevyn-scrollbar">
+          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar">
             {visionProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}

@@ -55,7 +55,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
         {
           courseId: z.string().optional().describe("Optional course id in the current semester. Omit to use the current agent scope."),
         },
-        async (args) => jsonToolResult(courseStructure(options, args.courseId)),
+        async (args) => brevynToolResult(courseStructure(options, args.courseId)),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
       sdk.tool(
@@ -67,7 +67,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
           taskId: z.string().optional().describe("Optional task id filter. In a task workspace, omitted filters default to the current task."),
           limit: z.number().int().min(1).max(200).optional().describe("Maximum records to return. Defaults to 80, max 200."),
         },
-        async (args) => jsonToolResult(listCourseFiles(options, args)),
+        async (args) => brevynToolResult(listCourseFiles(options, args)),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
       sdk.tool(
@@ -76,7 +76,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
         {
           fileId: z.string().min(1).describe("Brevyn workspace file id returned by list_course_files."),
         },
-        async (args) => jsonToolResult(getFileRecord(options, args.fileId)),
+        async (args) => brevynToolResult(getFileRecord(options, args.fileId)),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
       sdk.tool(
@@ -89,7 +89,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
           sectionKind: SECTION_SCHEMA.optional().describe("Optional semantic section filter: course_shared, lecture, or task."),
           limit: z.number().int().min(1).max(12).optional().describe("Maximum evidence chunks to return. Defaults to 6, max 12."),
         },
-        async (args) => jsonToolResult(await ragSearch(options, args)),
+        async (args) => brevynToolResult(await ragSearch(options, args)),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
     ],
@@ -137,18 +137,13 @@ function courseStructure(options: BrevynMcpServerOptions, requestedCourseId?: st
       root("lecture", join(courseDir, "Lecture"), "Lecture notes, slides, and class materials."),
       root("task_root", join(courseDir, "Task"), "Container for task workspaces."),
     ],
-    tasks: tasks.map((task) => {
-      const taskPath = taskWorkspaceDirForTask(courseDir, task);
-      return {
-        ...compactTask(task),
-        path: taskPath,
-        buckets: TASK_FILE_BUCKETS.map((bucket) => ({
-          bucket,
-          label: taskBucketLabel(bucket),
-          path: join(taskPath, taskBucketLabel(bucket)),
-        })),
-      };
-    }),
+    tasks: tasks.map((task) => ({
+      ...compactTask(task),
+      path: taskWorkspaceDirForTask(courseDir, task),
+    })),
+    currentTaskBuckets: context.task && context.task.courseId === course.id
+      ? taskBuckets(courseDir, context.task)
+      : [],
   };
 }
 
@@ -295,6 +290,15 @@ function compactTask(task: BrevynTask) {
   };
 }
 
+function taskBuckets(courseDir: string, task: BrevynTask) {
+  const taskPath = taskWorkspaceDirForTask(courseDir, task);
+  return TASK_FILE_BUCKETS.map((bucket) => ({
+    bucket,
+    label: taskBucketLabel(bucket),
+    path: join(taskPath, taskBucketLabel(bucket)),
+  }));
+}
+
 function compactFile(file: WorkspaceFileNode) {
   const readPath = file.sourcePath && existsSync(file.sourcePath) ? file.sourcePath : undefined;
   return {
@@ -332,9 +336,103 @@ function root(purpose: string, path: string, description: string) {
   return { purpose, path, description, exists: existsSync(path) };
 }
 
-function jsonToolResult(value: unknown) {
+function brevynToolResult(value: unknown) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+    content: [{ type: "text" as const, text: summarizeToolResultForModel(value) }],
     structuredContent: value as Record<string, unknown>,
   };
+}
+
+function summarizeToolResultForModel(value: unknown): string {
+  const data = recordOf(value);
+  const scope = stringValue(data.scope, "");
+  if (scope === "semester_home" || scope === "course" || scope === "task") return summarizeCourseStructure(data);
+  if (Array.isArray(data.files)) return summarizeCourseFiles(data);
+  if (data.file) return summarizeFileRecord(data);
+  if (Array.isArray(data.results)) return summarizeRagResults(data);
+  return JSON.stringify(value);
+}
+
+function summarizeCourseStructure(data: Record<string, unknown>): string {
+  const lines = ["Brevyn course structure:"];
+  const semester = recordOf(data.semester);
+  const course = recordOf(data.course);
+  const currentTask = recordOf(data.currentTask);
+  lines.push(`- Scope: ${stringValue(data.scope, "unknown")}`);
+  lines.push(`- CWD: ${stringValue(data.cwd, "")}`);
+  const semesterLabel = [stringValue(semester.term, ""), stringValue(semester.folderName, "")].filter(Boolean).join(" / ");
+  if (semesterLabel) lines.push(`- Semester: ${semesterLabel}`);
+  const courseLabel = [stringValue(course.name, ""), stringValue(course.code, "")].filter(Boolean).join(" / ");
+  if (courseLabel) lines.push(`- Course: ${courseLabel}`);
+  const taskTitle = stringValue(currentTask.title, "");
+  if (taskTitle) lines.push(`- Current task: ${taskTitle}`);
+  const roots = arrayOfRecords(data.roots);
+  if (roots.length > 0) {
+    lines.push("- Roots:");
+    for (const item of roots) {
+      lines.push(`  - ${stringValue(item.purpose, "root")}: ${stringValue(item.path, "")}`);
+    }
+  }
+  const courses = arrayOfRecords(data.courses);
+  if (courses.length > 0) {
+    lines.push(`- Active courses (${courses.length}): ${courses.map((item) => stringValue(item.name, "course")).join(", ")}`);
+  }
+  const tasks = arrayOfRecords(data.tasks);
+  if (tasks.length > 0) {
+    lines.push(`- Tasks (${tasks.length}): ${tasks.map((item) => stringValue(item.title, "task")).join(", ")}`);
+  }
+  return lines.join("\n");
+}
+
+function summarizeCourseFiles(data: Record<string, unknown>): string {
+  const files = arrayOfRecords(data.files);
+  const totalMatched = typeof data.totalMatched === "number" ? data.totalMatched : files.length;
+  const lines = [
+    `Brevyn file records: ${files.length}/${totalMatched} matched${data.truncated ? " (truncated)" : ""}.`,
+  ];
+  for (const file of files.slice(0, 80)) {
+    const name = stringValue(file.name, "file");
+    const section = stringValue(file.sectionKind, "unknown");
+    const path = stringValue(file.readPath ?? file.path, "");
+    lines.push(`- ${name} [${section}]${path ? `: ${path}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+function summarizeFileRecord(data: Record<string, unknown>): string {
+  const file = recordOf(data.file);
+  return [
+    "Brevyn file record:",
+    `- Name: ${stringValue(file.name, "file")}`,
+    `- Section: ${stringValue(file.sectionKind, "unknown")}`,
+    `- Path: ${stringValue(file.readPath ?? file.path, "")}`,
+  ].join("\n");
+}
+
+function summarizeRagResults(data: Record<string, unknown>): string {
+  const results = arrayOfRecords(data.results);
+  const lines = [`Brevyn RAG results: ${results.length}`];
+  for (const result of results) {
+    const file = stringValue(result.fileName ?? result.path, "source");
+    const text = stringValue(result.text, "").replace(/\s+/g, " ").trim();
+    lines.push(`- ${file}: ${text}`);
+  }
+  return lines.join("\n");
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function arrayOfRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.flatMap((item) => {
+    const record = recordOf(item);
+    return Object.keys(record).length > 0 ? [record] : [];
+  }) : [];
+}
+
+function stringValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
 }
