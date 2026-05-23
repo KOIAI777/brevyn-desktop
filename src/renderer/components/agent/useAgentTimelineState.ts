@@ -132,10 +132,9 @@ export function useAgentTimelineState({
       effectiveRunning,
       forceProcessOpen,
       runSummary,
-      activeModelId,
       processCollapsedByKey,
     }),
-    [activeModelId, effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineItems, timelineRecords],
+    [effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineItems, timelineRecords],
   );
 
   useEffect(() => {

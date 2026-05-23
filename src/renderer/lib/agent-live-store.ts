@@ -67,12 +67,19 @@ export function flushAgentLiveRecords(threadId?: string): void {
   emitAgentLiveRecordsChanged();
 }
 
-export function clearAgentLiveRecords(threadId: string): void {
+export function clearAgentLiveRecords(threadId: string, options?: { preserveStoppedRuns?: boolean }): void {
   if (!threadId) return;
+  const pending = pendingRecordsByThread.get(threadId) || EMPTY_RECORDS;
   pendingRecordsByThread.delete(threadId);
-  if (!liveRecordsByThread.has(threadId)) return;
+  const current = liveRecordsByThread.get(threadId) || EMPTY_RECORDS;
+  const merged = options?.preserveStoppedRuns && pending.length > 0
+    ? appendUniqueRecords(current, pending)
+    : current;
+  const preserved = options?.preserveStoppedRuns ? stoppedRunLiveRecords(merged) : EMPTY_RECORDS;
+  if (!liveRecordsByThread.has(threadId) && preserved.length === 0) return;
   const next = new Map(liveRecordsByThread);
-  next.delete(threadId);
+  if (preserved.length > 0) next.set(threadId, preserved);
+  else next.delete(threadId);
   liveRecordsByThread = next;
   emitAgentLiveRecordsChanged();
 }
@@ -181,6 +188,41 @@ function appendUniqueRecords(current: BrevynAgentTimelineRecord[], pending: Brev
   return changed ? next : current;
 }
 
+function stoppedRunLiveRecords(records: BrevynAgentTimelineRecord[]): BrevynAgentTimelineRecord[] {
+  const preserved: BrevynAgentTimelineRecord[] = [];
+  let runRecords: BrevynAgentTimelineRecord[] = [];
+  let runHasStoppedContent = false;
+
+  function finishRun(terminal?: "run_stopped" | "stopped_result") {
+    if (terminal && runHasStoppedContent) preserved.push(...runRecords);
+    runRecords = [];
+    runHasStoppedContent = false;
+  }
+
+  for (const record of records) {
+    if (isRuntimeLiveRecord(record) && record.event.type === "run_started") {
+      finishRun();
+      runRecords = [record];
+      continue;
+    }
+
+    if (runRecords.length > 0) {
+      runRecords.push(record);
+      if (isStoppedContentLiveRecord(record)) runHasStoppedContent = true;
+      if (isStoppedResultLiveRecord(record)) {
+        finishRun("stopped_result");
+        continue;
+      }
+      if (isRuntimeLiveRecord(record) && isTerminalRuntimeEvent(record.event)) {
+        finishRun(record.event.type === "run_stopped" ? "run_stopped" : undefined);
+      }
+    }
+  }
+
+  finishRun();
+  return preserved;
+}
+
 function removeLiveRetryRecord(threadId: string, runId?: string, options?: { silent?: boolean }): void {
   const pending = pendingRecordsByThread.get(threadId) || EMPTY_RECORDS;
   if (pending.length > 0) {
@@ -231,6 +273,26 @@ function prepareLiveMessage(message: SDKMessage, options?: { modelId?: string })
 
 function isRuntimeLiveRecord(record: BrevynAgentTimelineRecord): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
   return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "runtime");
+}
+
+function isStoppedContentLiveRecord(record: BrevynAgentTimelineRecord): boolean {
+  if (!record || typeof record !== "object" || isRuntimeLiveRecord(record)) return false;
+  const type = (record as { type?: unknown }).type;
+  if (type === "stream_event") return true;
+  if (type !== "assistant") return false;
+  const content = (record as { message?: { content?: unknown } }).message?.content;
+  return Array.isArray(content) && content.some((block) => {
+    if (!block || typeof block !== "object") return false;
+    const item = block as { type?: unknown; text?: unknown; thinking?: unknown };
+    return (item.type === "text" && typeof item.text === "string" && item.text.trim())
+      || (item.type === "thinking" && typeof item.thinking === "string" && item.thinking.trim());
+  });
+}
+
+function isStoppedResultLiveRecord(record: BrevynAgentTimelineRecord): boolean {
+  if (!record || typeof record !== "object" || isRuntimeLiveRecord(record)) return false;
+  return (record as { type?: unknown; subtype?: unknown }).type === "result"
+    && (record as { subtype?: unknown }).subtype === "stopped_by_user";
 }
 
 export function agentRuntimeEventThreadId(event: BrevynAgentRuntimeEvent): string {

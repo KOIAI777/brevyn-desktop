@@ -4,10 +4,9 @@ import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { AgentComposer } from "@/components/agent/AgentComposer";
-import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RetryRuntimeNote, UserMessageBubble } from "@/components/agent/AgentMessageParts";
+import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RetryRuntimeNote, StreamingMarkdownish, UserMessageBubble } from "@/components/agent/AgentMessageParts";
 import { ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
 import { FilePathPreviewProvider } from "@/components/chat/FilePathChip";
-import { Markdownish } from "@/components/chat/Markdownish";
 import type { ProcessEvent, RunSummary } from "@/components/agent/agentTimelineModel";
 import {
   exitPlanSummary,
@@ -512,9 +511,10 @@ function AssistantTurnHeader({
   agentProviders: ModelProviderConfig[];
 }) {
   const modelId = (model || "").trim();
+  if (!modelId) return null;
   const provider = modelId ? agentProviders.find((item) => item.models.some((candidate) => candidate.id === modelId)) : undefined;
   const providerModel = provider?.models.find((candidate) => candidate.id === modelId);
-  const modelLabel = providerModel?.name || modelId || "Brevyn Agent";
+  const modelLabel = providerModel?.name || modelId;
   const logo = getModelLogoById(modelId) || (provider ? getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind) : brevynAppIconUrl);
   const runtimeLabel = assistantRuntimeLabel(summary);
   const timeLabel = createdAt ? formatHeaderTime(createdAt) : "";
@@ -720,7 +720,7 @@ function AssistantTurnEntry({
     return (
       <div className="px-1 py-1 text-xs leading-5 text-foreground">
         <div className="brevyn-thinking-markdown opacity-95">
-          <Markdownish content={assistantContent || ""} threadId={threadId} />
+          <StreamingMarkdownish content={assistantContent || ""} threadId={threadId} streaming={item.assistantStreaming === true} />
         </div>
       </div>
     );

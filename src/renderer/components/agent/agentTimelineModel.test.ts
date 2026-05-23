@@ -5,7 +5,7 @@ import { assistantText, groupIntoTurns, latestTurnBounds, normalizeTimelineRecor
 import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
 import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
 import { buildTimelineViewGroups, buildTimelineViewItems, type AgentTimelineViewItem } from "./useAgentTimelineState";
-import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
+import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAgentLiveRecords, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
 
 (globalThis as unknown as { window: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (id: number) => void } }).window = {
   requestAnimationFrame(callback: () => void) {
@@ -48,6 +48,22 @@ function assistant(content: unknown[], uuid: string): SDKMessage {
   } as unknown as SDKMessage;
 }
 
+function assistantWithoutModel(content: unknown[], uuid: string): SDKMessage {
+  return {
+    type: "assistant",
+    message: {
+      id: uuid,
+      type: "message",
+      role: "assistant",
+      content,
+    },
+    parent_tool_use_id: null,
+    session_id: "session_fixture",
+    uuid,
+    _createdAt: 2,
+  } as unknown as SDKMessage;
+}
+
 function toolResult(toolUseId: string, content: string, uuid: string): SDKMessage {
   return {
     type: "user",
@@ -67,6 +83,21 @@ function toolResult(toolUseId: string, content: string, uuid: string): SDKMessag
   } as unknown as SDKMessage;
 }
 
+function runStarted(modelId: string, runId: string): AgentTimelineRecord {
+  return {
+    kind: "runtime",
+    event: {
+      type: "run_started",
+      runId,
+      threadId: "thread_fixture",
+      permissionMode: "auto",
+      providerId: "provider_fixture",
+      modelId,
+      createdAt: "2026-05-16T00:00:00.000Z",
+    },
+  } as AgentTimelineRecord;
+}
+
 function result(uuid: string): SDKMessage {
   return {
     type: "result",
@@ -78,6 +109,15 @@ function result(uuid: string): SDKMessage {
     session_id: "session_fixture",
     uuid,
     _createdAt: 4,
+  } as unknown as SDKMessage;
+}
+
+function stoppedResult(uuid: string): SDKMessage {
+  return {
+    ...result(uuid),
+    subtype: "stopped_by_user",
+    is_error: true,
+    result: "Agent run stopped.",
   } as unknown as SDKMessage;
 }
 
@@ -612,6 +652,23 @@ assert.equal(permissionDeniedRecords.some((record) => (record as SDKMessage & { 
 const permissionDeniedGroups = groupIntoTurns(permissionDeniedRecords);
 assert.equal(permissionDeniedGroups.some((group) => group.type === "system"), true);
 
+const runModelRecords: AgentTimelineRecord[] = [
+  userText("Use the selected model for this turn.", "user_run_model"),
+  runStarted("claude-opus-4.7", "run_model_stable"),
+  assistantWithoutModel([{ type: "text", text: "Model should come from run_started." }], "assistant_run_model"),
+];
+const runModelGroups = buildTimelineViewGroups(runModelRecords, runModelRecords.map(viewItem), { activeModelId: "gpt-5.5" });
+assert.equal(runModelGroups.find((group) => group.type === "assistant-turn")?.model, "claude-opus-4.7");
+const runModelGroupsAfterSwitch = buildTimelineViewGroups(runModelRecords, runModelRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+assert.equal(runModelGroupsAfterSwitch.find((group) => group.type === "assistant-turn")?.model, "claude-opus-4.7");
+
+const noModelFallbackRecords: AgentTimelineRecord[] = [
+  userText("No model metadata yet.", "user_no_model_fallback"),
+  assistantWithoutModel([{ type: "text", text: "Do not borrow the active model." }], "assistant_no_model_fallback"),
+];
+const noModelFallbackGroups = buildTimelineViewGroups(noModelFallbackRecords, noModelFallbackRecords.map(viewItem), { activeModelId: "gpt-5.5" });
+assert.equal(noModelFallbackGroups.find((group) => group.type === "assistant-turn")?.model, "");
+
 clearAllAgentLiveRecords();
 assert.equal(appendAgentLiveMessage("thread_live", promptSuggestion), false);
 assert.equal(getAgentLiveRecords("thread_live").length, 0);
@@ -665,6 +722,52 @@ appendAgentRuntimeEvent({ type: "run_retrying", threadId: "thread_retry", runId:
 flushAgentLiveRecords("thread_retry");
 appendAgentRuntimeEvent({ type: "run_failed", threadId: "thread_retry", runId: "run_retry", error: "failed", createdAt: "2026-05-16T00:00:05.000Z" });
 assert.equal(getAgentLiveRecords("thread_retry").some(isRuntimeRetryingEvent), false);
+
+clearAllAgentLiveRecords();
+appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_stopped_partial", runId: "run_stopped_partial", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" });
+assert.equal(appendAgentLiveMessage("thread_stopped_partial", streamEvent({ type: "text_delta", text: "Partial answer before stop." }, "stream_stopped_partial")), true);
+assert.equal(appendAgentLiveMessage("thread_stopped_partial", stoppedResult("result_stopped_partial")), true);
+flushAgentLiveRecords("thread_stopped_partial");
+clearAgentLiveRecords("thread_stopped_partial", { preserveStoppedRuns: true });
+assert.equal(getAgentLiveRecords("thread_stopped_partial").some((record) => (record as SDKMessage).type === "stream_event"), true);
+appendAgentRuntimeEvent({ type: "run_stopped", threadId: "thread_stopped_partial", runId: "run_stopped_partial", reason: "Agent run stopped.", createdAt: "2026-05-16T00:00:01.000Z" });
+flushAgentLiveRecords("thread_stopped_partial");
+clearAgentLiveRecords("thread_stopped_partial", { preserveStoppedRuns: true });
+assert.equal(getAgentLiveRecords("thread_stopped_partial").some((record) => (record as SDKMessage).type === "stream_event"), true);
+
+clearAllAgentLiveRecords();
+appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_stopped_assistant", runId: "run_stopped_assistant", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" });
+assert.equal(appendAgentLiveMessage("thread_stopped_assistant", assistant([{ type: "text", text: "Assistant partial before stop." }], "assistant_stopped_partial")), true);
+assert.equal(appendAgentLiveMessage("thread_stopped_assistant", stoppedResult("result_stopped_assistant")), true);
+flushAgentLiveRecords("thread_stopped_assistant");
+clearAgentLiveRecords("thread_stopped_assistant", { preserveStoppedRuns: true });
+assert.equal(getAgentLiveRecords("thread_stopped_assistant").some((record) => (record as SDKMessage).type === "assistant"), true);
+
+clearAllAgentLiveRecords();
+appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_completed_partial", runId: "run_completed_partial", permissionMode: "auto", createdAt: "2026-05-16T00:00:00.000Z" });
+assert.equal(appendAgentLiveMessage("thread_completed_partial", streamEvent({ type: "text_delta", text: "Partial answer before completion." }, "stream_completed_partial")), true);
+appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_completed_partial", runId: "run_completed_partial", createdAt: "2026-05-16T00:00:01.000Z" });
+flushAgentLiveRecords("thread_completed_partial");
+clearAgentLiveRecords("thread_completed_partial", { preserveStoppedRuns: true });
+assert.equal(getAgentLiveRecords("thread_completed_partial").length, 0);
+
+const stoppedStreamRecords: AgentTimelineRecord[] = [
+  userText("Stop after some output.", "user_stopped_stream_view"),
+  streamEvent({ type: "text_delta", text: "First partial " }, "stream_stopped_view_1"),
+  streamEvent({ type: "text_delta", text: "and second partial." }, "stream_stopped_view_2"),
+];
+const stoppedStreamItems = stoppedStreamRecords.map((record, index) => ({
+  ...viewItem(record, index),
+  processSummary: index === 0 ? null : { runId: "run_stopped_view", label: "已停止", running: false, status: "stopped" as const },
+}));
+const stoppedStreamGroups = buildTimelineViewGroups(stoppedStreamRecords, stoppedStreamItems);
+const stoppedStreamTurn = stoppedStreamGroups.find((group) => group.type === "assistant-turn");
+const stoppedStreamText = stoppedStreamTurn?.type === "assistant-turn"
+  ? stoppedStreamTurn.items.find((item) => item.displayKind === "assistant-final")
+  : undefined;
+assert.equal(stoppedStreamText?.assistantContent, "First partial and second partial.");
+assert.equal(stoppedStreamText?.assistantStreaming, false);
+assert.equal(stoppedStreamText?.stoppedByUser, true);
 
 const claudeProvider = {
   id: "provider_claude",

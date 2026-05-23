@@ -72,7 +72,7 @@ export function useAgentSessionController({
       setRunning(openRun);
       setAgentLiveRunning(threadId, openRun);
       if (!openRun) {
-        clearAgentLiveRecords(threadId);
+        clearAgentLiveRecords(threadId, { preserveStoppedRuns: true });
       }
       return true;
     } catch (loadError) {

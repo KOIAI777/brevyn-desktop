@@ -96,7 +96,7 @@ export function buildTimelineViewGroups(
     processCollapsedByKey?: Record<string, boolean>;
   },
 ): AgentTimelineViewGroup[] {
-  const groups = groupIntoTurns(records, options?.activeModelId);
+  const groups = groupIntoTurns(records);
   const viewGroups: AgentTimelineViewGroup[] = [];
 
   for (const group of groups) {
@@ -436,6 +436,18 @@ function assistantTurnViewItems(
   }
 
   for (const [key, slot] of slots) {
+    if (
+      slot.assistantStreaming === true
+      && (slot.displayKind === "assistant-final" || slot.displayKind === "thinking")
+      && slot.processSummary?.status === "stopped"
+    ) {
+      slots.set(key, {
+        ...slot,
+        assistantStreaming: false,
+        stoppedByUser: slot.displayKind === "assistant-final",
+      });
+      continue;
+    }
     if (slot.displayKind !== "tool-use") continue;
     let changed = false;
     const nextEvents = slot.processEvents.map((event) => {

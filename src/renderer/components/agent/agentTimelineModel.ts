@@ -84,6 +84,7 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
   const groups: AgentMessageGroup[] = [];
   let currentTurn: AssistantTurnGroup | null = null;
   let leadingTurn: AssistantTurnGroup | null = null;
+  let pendingRunStart: Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> | null = null;
   let seenUserInput = false;
 
   const flushTurn = (): void => {
@@ -95,11 +96,18 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
 
   records.forEach((record, index) => {
     if (isRuntimeRecord(record)) {
-      if (currentTurn) currentTurn.turnRecords.push({ record, index });
+      if (currentTurn) {
+        applyRuntimeTurnMeta(currentTurn, record, sessionModelId);
+        currentTurn.turnRecords.push({ record, index });
+      }
       else if (!seenUserInput) {
         leadingTurn = leadingTurn ?? emptyAssistantTurn(sessionModelId);
+        applyRuntimeTurnMeta(leadingTurn, record, sessionModelId);
         leadingTurn.turnRecords.push({ record, index });
-      } else groups.push({ type: "runtime", record, index });
+      } else {
+        if (record.event.type === "run_started") pendingRunStart = record;
+        groups.push({ type: "runtime", record, index });
+      }
       return;
     }
 
@@ -107,6 +115,7 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
       if (!currentTurn) {
         currentTurn = !seenUserInput ? leadingTurn ?? emptyAssistantTurn(sessionModelId) : emptyAssistantTurn(sessionModelId);
         if (!seenUserInput) leadingTurn = currentTurn;
+        applyPendingRunStart(currentTurn);
       }
       if (currentTurn) currentTurn.turnRecords.push({ record, index });
       return;
@@ -117,6 +126,7 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
       if (isUserInputMessage(message)) {
         if (seenUserInput) flushTurn();
         else currentTurn = null;
+        pendingRunStart = null;
         groups.push({ type: "user", record: message, index });
         seenUserInput = true;
         if (leadingTurn && leadingTurn.turnRecords.length > 0) {
@@ -135,6 +145,7 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
       if (!currentTurn) {
         currentTurn = !seenUserInput ? leadingTurn ?? emptyAssistantTurn(sessionModelId) : emptyAssistantTurn(sessionModelId);
         if (!seenUserInput) leadingTurn = currentTurn;
+        applyPendingRunStart(currentTurn);
         currentTurn.model = currentTurn.model || messageModel || sessionModelId || "";
         currentTurn.createdAt = currentTurn.createdAt ?? recordCreatedAtMs(message);
         currentTurn.assistantMessages.push(message);
@@ -165,6 +176,12 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
 
   flushTurn();
   return groups;
+
+  function applyPendingRunStart(turn: AssistantTurnGroup): void {
+    if (!pendingRunStart) return;
+    applyRuntimeTurnMeta(turn, pendingRunStart, sessionModelId);
+    pendingRunStart = null;
+  }
 }
 
 function emptyAssistantTurn(sessionModelId?: string): AssistantTurnGroup {
@@ -174,6 +191,12 @@ function emptyAssistantTurn(sessionModelId?: string): AssistantTurnGroup {
     turnRecords: [],
     model: sessionModelId || "",
   };
+}
+
+function applyRuntimeTurnMeta(turn: AssistantTurnGroup, record: Extract<BrevynAgentTimelineRecord, { kind: "runtime" }>, sessionModelId?: string): void {
+  if (record.event.type !== "run_started") return;
+  turn.model = turn.model || stringValue(record.event.modelId, sessionModelId || "");
+  turn.createdAt = turn.createdAt ?? recordCreatedAtMs(record);
 }
 
 export function latestTurnBounds(records: AgentTimelineRecord[]): { user: SDKMessage; userIndex: number; result?: SDKMessage; resultIndex?: number } | null {

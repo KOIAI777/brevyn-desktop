@@ -251,41 +251,112 @@ export function AssistantTextBubble({
   );
 }
 
+export function StreamingMarkdownish({
+  content,
+  threadId,
+  streaming = false,
+}: {
+  content: string;
+  threadId?: string;
+  streaming?: boolean;
+}) {
+  const displayContent = useStreamingMarkdownContent(content.replace(/\u0000/g, ""), streaming);
+  if (!displayContent.trim()) return null;
+  return <Markdownish content={displayContent} threadId={threadId} />;
+}
+
 function useStreamingMarkdownContent(content: string, streaming: boolean): string {
   const [displayedContent, setDisplayedContent] = useState(content);
+  const previousContentRef = useRef(content);
+  const displayedContentRef = useRef(content);
   const latestContentRef = useRef(content);
   const frameRef = useRef(0);
-  const timeoutRef = useRef<number | null>(null);
+  const lastFrameTimeRef = useRef(0);
+  const playbackCreditRef = useRef(0);
 
   useEffect(() => {
+    const previousLatest = latestContentRef.current;
     latestContentRef.current = content;
     if (!streaming) {
-      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
-      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-      frameRef.current = 0;
-      timeoutRef.current = null;
-      setDisplayedContent(content);
+      syncDisplayedContent(content);
       return;
     }
 
-    if (frameRef.current || timeoutRef.current) return;
-    timeoutRef.current = window.setTimeout(() => {
-      timeoutRef.current = null;
-      frameRef.current = window.requestAnimationFrame(() => {
-        frameRef.current = 0;
-        setDisplayedContent(latestContentRef.current);
-      });
-    }, 48);
+    const previousContent = previousContentRef.current;
+    if (content === previousContent) return;
+
+    if (!content.startsWith(previousContent) || !content.startsWith(displayedContentRef.current)) {
+      syncDisplayedContent(content);
+      return;
+    }
+
+    previousContentRef.current = content;
+    if (content.length - previousLatest.length > 0 && latestContentRef.current.length - displayedContentRef.current.length > 96) {
+      playbackCreditRef.current = Math.min(playbackCreditRef.current, 2);
+    }
+    if (content.length - displayedContentRef.current.length <= 4) {
+      displayedContentRef.current = content;
+      setDisplayedContent(content);
+      return;
+    }
+    scheduleStreamingFrame();
   }, [content, streaming]);
 
   useEffect(() => {
     return () => {
       if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
-      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
       frameRef.current = 0;
-      timeoutRef.current = null;
     };
   }, []);
 
   return streaming ? displayedContent : content;
+
+  function syncDisplayedContent(nextContent: string) {
+    if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
+    frameRef.current = 0;
+    previousContentRef.current = nextContent;
+    displayedContentRef.current = nextContent;
+    latestContentRef.current = nextContent;
+    lastFrameTimeRef.current = 0;
+    playbackCreditRef.current = 0;
+    setDisplayedContent(nextContent);
+  }
+
+  function scheduleStreamingFrame() {
+    if (frameRef.current) return;
+    frameRef.current = window.requestAnimationFrame(flushStreamingFrame);
+  }
+
+  function flushStreamingFrame(frameTime: number) {
+    frameRef.current = 0;
+    const latestContent = latestContentRef.current;
+    const displayedContent = displayedContentRef.current;
+    if (latestContent === displayedContent) return;
+    if (!latestContent.startsWith(displayedContent)) {
+      syncDisplayedContent(latestContent);
+      return;
+    }
+
+    const remainingCount = latestContent.length - displayedContent.length;
+    const elapsedMs = lastFrameTimeRef.current ? Math.max(1, frameTime - lastFrameTimeRef.current) : 16;
+    lastFrameTimeRef.current = frameTime;
+    playbackCreditRef.current += streamingPlaybackRate(remainingCount) * elapsedMs;
+    const characterCount = Math.max(1, Math.min(remainingCount, Math.floor(playbackCreditRef.current)));
+    playbackCreditRef.current = Math.max(0, playbackCreditRef.current - characterCount);
+    const nextLength = displayedContent.length + characterCount;
+    const nextContent = latestContent.slice(0, nextLength);
+    displayedContentRef.current = nextContent;
+    setDisplayedContent(nextContent);
+
+    if (nextContent.length < latestContent.length) scheduleStreamingFrame();
+  }
+}
+
+function streamingPlaybackRate(remainingCount: number): number {
+  if (remainingCount <= 24) return 0.038;
+  if (remainingCount <= 96) return 0.052;
+  if (remainingCount <= 240) return 0.072;
+  if (remainingCount <= 520) return 0.11;
+  if (remainingCount <= 1100) return 0.18;
+  return 0.28;
 }
