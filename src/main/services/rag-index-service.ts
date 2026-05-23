@@ -542,9 +542,13 @@ function sectionKindForRow(sectionId: string, filePath: string): CourseFileSecti
 
 function taskIdForRow(sectionId: string, filePath: string): string | undefined {
   const sectionMatch = sectionId.match(/:task-(.+)$/);
-  if (sectionMatch?.[1]) return sectionMatch[1];
+  if (sectionMatch?.[1]) return normalizeTaskId(sectionMatch[1]);
   const pathMatch = filePath.match(/\/Task\/(task-[^/]+)/);
   return pathMatch?.[1];
+}
+
+function normalizeTaskId(value: string): string {
+  return value.startsWith("task-task-") ? value.slice("task-".length) : value;
 }
 
 function assertEmbeddingVectors(vectors: number[][], expectedCount: number): void {
