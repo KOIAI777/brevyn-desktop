@@ -57,6 +57,10 @@ function App() {
     await agentSession.run(prompt, permissionMode, attachments, providerSelection, mentionedSkills);
   }
 
+  async function runAgentForThread(threadId: string, prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<void> {
+    await agentSession.runForThread(threadId, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
+  }
+
   async function stopAgent(): Promise<void> {
     await agentSession.stop();
   }
@@ -151,6 +155,7 @@ function App() {
                   running={agentSession.running}
                   error={agentSession.error}
                   onRun={runAgent}
+                  onRunForThread={runAgentForThread}
                   onStop={stopAgent}
                   onApprove={approveAgent}
                   onReject={rejectAgent}

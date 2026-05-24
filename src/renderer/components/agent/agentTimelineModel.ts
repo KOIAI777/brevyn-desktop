@@ -333,11 +333,6 @@ export function singleLine(value: string): string {
   return text.length > 90 ? `${text.slice(0, 87)}...` : text;
 }
 
-export function truncatePreview(value: string): string {
-  const maxLength = 6000;
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}\n... truncated for display`;
-}
-
 export function normalizeTimelineRecords(
   records: BrevynAgentTimelineRecord[],
   liveRecords: BrevynAgentTimelineRecord[],

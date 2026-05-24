@@ -27,6 +27,7 @@ interface AgentThreadPanelProps {
   running: boolean;
   error?: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -49,6 +50,7 @@ export function AgentThreadPanel({
   running,
   error,
   onRun,
+  onRunForThread,
   onStop,
   onApprove,
   onReject,
@@ -93,6 +95,7 @@ export function AgentThreadPanel({
     agentProviders,
     activeProviderId,
     onRun,
+    onRunForThread,
   });
 
   return (

@@ -3,13 +3,13 @@ import { FileSearch, FileText, FolderOpen, FolderTree, Globe, HelpCircle, ListTo
 import { ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { FilePathChip } from "@/components/chat/FilePathChip";
-import { truncatePreview } from "@/components/agent/agentTimelineModel";
 import {
   formatDiffStats,
   getToolDiffStats,
   getToolTitle,
   recordObject,
   stringValue,
+  truncatePreview,
   type ToolResultBlock,
   type ToolUseBlock,
 } from "@/components/agent/tool-cards/toolModel";

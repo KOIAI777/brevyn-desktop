@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
+import type { AgentAttachment, AgentPermissionMode, BrevynAgentEvent } from "@/types/domain";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import type { RunSummary } from "@/components/agent/agentTimelineModel";
+import { agentRuntimeEventThreadId } from "@/lib/agent-live-store";
 
 export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
@@ -15,16 +16,20 @@ export function useAgentQueueState({
   threadId,
   effectiveRunning,
   runSummary,
-  onRun,
+  onRunForThread,
 }: {
   threadId: string;
   effectiveRunning: boolean;
   runSummary: RunSummary | null;
-  onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
 }): AgentQueueState {
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
+  const queuedMessagesByThreadRef = useRef<Record<string, QueuedAgentMessage[]>>({});
+  const sendingQueuedMessageIdsByThreadRef = useRef<Record<string, string[]>>({});
   const wasRunningRef = useRef(false);
   const lastAutoSentRunIdRef = useRef("");
+  const lastAutoSentRunIdByThreadRef = useRef<Record<string, string>>({});
+  const autoSendTimersRef = useRef<number[]>([]);
   const [queuedMessagesByThread, setQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});
   const [sendingQueuedMessageIdsByThread, setSendingQueuedMessageIdsByThread] = useState<Record<string, string[]>>({});
 
@@ -36,9 +41,41 @@ export function useAgentQueueState({
   }, [queuedMessages]);
 
   useEffect(() => {
+    queuedMessagesByThreadRef.current = queuedMessagesByThread;
+  }, [queuedMessagesByThread]);
+
+  useEffect(() => {
+    sendingQueuedMessageIdsByThreadRef.current = sendingQueuedMessageIdsByThread;
+  }, [sendingQueuedMessageIdsByThread]);
+
+  useEffect(() => {
     lastAutoSentRunIdRef.current = "";
     wasRunningRef.current = effectiveRunning;
   }, [threadId]);
+
+  useEffect(() => {
+    const unsubscribe = window.brevyn.agent.onEvent((event) => {
+      const completed = completedRunEvent(event);
+      if (!completed) return;
+      const timer = window.setTimeout(() => {
+        autoSendTimersRef.current = autoSendTimersRef.current.filter((item) => item !== timer);
+        const nextMessage = queuedMessagesByThreadRef.current[completed.threadId]?.[0];
+        if (!nextMessage) return;
+        if (lastAutoSentRunIdByThreadRef.current[completed.threadId] === completed.runId) return;
+        lastAutoSentRunIdByThreadRef.current = {
+          ...lastAutoSentRunIdByThreadRef.current,
+          [completed.threadId]: completed.runId,
+        };
+        void sendQueuedMessageAsNewRun(completed.threadId, nextMessage, "auto");
+      }, 0);
+      autoSendTimersRef.current.push(timer);
+    });
+    return () => {
+      unsubscribe();
+      for (const timer of autoSendTimersRef.current) window.clearTimeout(timer);
+      autoSendTimersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     const wasRunning = wasRunningRef.current;
@@ -46,10 +83,15 @@ export function useAgentQueueState({
     if (!wasRunning || effectiveRunning) return;
     if (runSummary?.status !== "completed" || !runSummary.runId) return;
     if (lastAutoSentRunIdRef.current === runSummary.runId) return;
+    if (lastAutoSentRunIdByThreadRef.current[threadId] === runSummary.runId) return;
     const nextMessage = queuedMessagesRef.current[0];
     if (!nextMessage) return;
     lastAutoSentRunIdRef.current = runSummary.runId;
-    void sendQueuedMessageAsNewRun(nextMessage, "auto");
+    lastAutoSentRunIdByThreadRef.current = {
+      ...lastAutoSentRunIdByThreadRef.current,
+      [threadId]: runSummary.runId,
+    };
+    void sendQueuedMessageAsNewRun(threadId, nextMessage, "auto");
   }, [effectiveRunning, runSummary?.runId, runSummary?.status]);
 
   function queueMessage(message: QueuedAgentMessage) {
@@ -66,37 +108,37 @@ export function useAgentQueueState({
     }));
   }
 
-  function setQueuedMessageSending(messageId: string, sending: boolean) {
+  function setQueuedMessageSending(targetThreadId: string, messageId: string, sending: boolean) {
     setSendingQueuedMessageIdsByThread((current) => {
-      const currentIds = current[threadId] || [];
+      const currentIds = current[targetThreadId] || [];
       const nextIds = sending
         ? Array.from(new Set([...currentIds, messageId]))
         : currentIds.filter((id) => id !== messageId);
-      return { ...current, [threadId]: nextIds };
+      return { ...current, [targetThreadId]: nextIds };
     });
   }
 
-  function removeQueuedMessage(messageId: string): QueuedAgentMessage | null {
-    const currentQueue = queuedMessagesRef.current;
+  function removeQueuedMessage(targetThreadId: string, messageId: string): QueuedAgentMessage | null {
+    const currentQueue = queuedMessagesByThreadRef.current[targetThreadId] || [];
     const message = currentQueue.find((item) => item.id === messageId) || null;
     if (!message) return null;
     setQueuedMessagesByThread((current) => ({
       ...current,
-      [threadId]: (current[threadId] || []).filter((item) => item.id !== messageId),
+      [targetThreadId]: (current[targetThreadId] || []).filter((item) => item.id !== messageId),
     }));
     return message;
   }
 
-  async function sendQueuedMessageAsNewRun(message: QueuedAgentMessage, source: "manual" | "auto") {
-    if (sendingQueuedMessageIdsByThread[threadId]?.includes(message.id)) return;
-    setQueuedMessageSending(message.id, true);
+  async function sendQueuedMessageAsNewRun(targetThreadId: string, message: QueuedAgentMessage, source: "manual" | "auto") {
+    if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return;
+    setQueuedMessageSending(targetThreadId, message.id, true);
     try {
-      await onRun(message.prompt, message.permissionMode, undefined, message.providerSelection, message.mentionedSkills);
-      removeQueuedMessage(message.id);
+      await onRunForThread(targetThreadId, message.prompt, message.permissionMode, undefined, message.providerSelection, message.mentionedSkills);
+      removeQueuedMessage(targetThreadId, message.id);
     } catch (error) {
       console.error(source === "auto" ? "[AgentThreadPanel] Failed to auto-send queued message:" : "[AgentThreadPanel] Failed to start queued message:", error);
     } finally {
-      setQueuedMessageSending(message.id, false);
+      setQueuedMessageSending(targetThreadId, message.id, false);
     }
   }
 
@@ -105,7 +147,7 @@ export function useAgentQueueState({
     if (!message) return;
     if (sendingQueuedMessageIdsByThread[threadId]?.includes(messageId)) return;
     if (effectiveRunning) {
-      setQueuedMessageSending(messageId, true);
+      setQueuedMessageSending(threadId, messageId, true);
       try {
         await window.brevyn.agent.queueMessage({
           threadId,
@@ -114,15 +156,15 @@ export function useAgentQueueState({
           interrupt: true,
           mentionedSkills: message.mentionedSkills,
         });
-        removeQueuedMessage(messageId);
+        removeQueuedMessage(threadId, messageId);
       } catch (error) {
         console.error("[AgentThreadPanel] Failed to send queued message:", error);
       } finally {
-        setQueuedMessageSending(messageId, false);
+        setQueuedMessageSending(threadId, messageId, false);
       }
       return;
     }
-    await sendQueuedMessageAsNewRun(message, "manual");
+    await sendQueuedMessageAsNewRun(threadId, message, "manual");
   }
 
   return {
@@ -132,4 +174,10 @@ export function useAgentQueueState({
     deleteQueuedMessage,
     sendQueuedMessage,
   };
+}
+
+function completedRunEvent(event: BrevynAgentEvent): { threadId: string; runId: string } | null {
+  if (event.kind !== "brevyn_event" || event.event.type !== "run_completed") return null;
+  const threadId = agentRuntimeEventThreadId(event.event);
+  return threadId ? { threadId, runId: event.event.runId } : null;
 }

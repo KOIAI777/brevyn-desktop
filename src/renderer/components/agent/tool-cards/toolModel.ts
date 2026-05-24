@@ -167,6 +167,11 @@ export function formatDiffStats(diff: ToolDiffStats): string {
   return parts.join(" ");
 }
 
+export function truncatePreview(value: string): string {
+  const maxLength = 6000;
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}\n... truncated for display`;
+}
+
 export function getStructuredToolResult(result?: ToolResultBlock): unknown {
   if (!result) return undefined;
   const raw = result.toolUseResult ?? result.rawResult;

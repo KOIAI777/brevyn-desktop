@@ -104,7 +104,7 @@ export class AgentOrchestrator {
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     const context = this.resolveThreadContext(input.threadId);
     const existingRun = this.activeRuns.get(context.thread.id);
-    if (existingRun) return { runId: existingRun.runId };
+    if (existingRun) throw new Error("An agent run is already active for this thread.");
 
     const runId = entityId("run");
     const abortController = new AbortController();

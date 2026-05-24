@@ -30,6 +30,26 @@ export function appendAgentLiveMessage(threadId: string, message: SDKMessage, op
   return true;
 }
 
+export function removeAgentLiveMessage(threadId: string, uuid: string): void {
+  if (!threadId || !uuid) return;
+  const pending = pendingRecordsByThread.get(threadId) || EMPTY_RECORDS;
+  if (pending.length > 0) {
+    const nextPending = pending.filter((record) => recordUuid(record) !== uuid);
+    if (nextPending.length === 0) pendingRecordsByThread.delete(threadId);
+    else if (nextPending.length !== pending.length) pendingRecordsByThread.set(threadId, nextPending);
+  }
+
+  const current = liveRecordsByThread.get(threadId) || EMPTY_RECORDS;
+  if (current.length === 0) return;
+  const nextRecords = current.filter((record) => recordUuid(record) !== uuid);
+  if (nextRecords.length === current.length) return;
+  const next = new Map(liveRecordsByThread);
+  if (nextRecords.length === 0) next.delete(threadId);
+  else next.set(threadId, nextRecords);
+  liveRecordsByThread = next;
+  emitAgentLiveRecordsChanged();
+}
+
 export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string {
   const threadId = agentRuntimeEventThreadId(event);
   if (!threadId) return "";
@@ -249,6 +269,12 @@ function isRetryRecord(record: BrevynAgentTimelineRecord, runId?: string): boole
 
 function liveRecordKey(record: BrevynAgentTimelineRecord): string {
   return timelineRecordIdentity(record);
+}
+
+function recordUuid(record: BrevynAgentTimelineRecord): string {
+  if (!record || typeof record !== "object" || isRuntimeLiveRecord(record)) return "";
+  const uuid = (record as { uuid?: unknown }).uuid;
+  return typeof uuid === "string" ? uuid : "";
 }
 
 function prepareLiveRecord(record: BrevynAgentTimelineRecord): BrevynAgentTimelineRecord | null {

@@ -7,9 +7,8 @@ import {
   answerKey,
   defaultQuestionAnswers,
   nextQuestionAnswer,
-  truncatePreview,
 } from "@/components/agent/agentTimelineModel";
-import { getToolTitle } from "@/components/agent/tool-cards/toolModel";
+import { getToolTitle, truncatePreview } from "@/components/agent/tool-cards/toolModel";
 
 export function ApprovalCard({
   request,

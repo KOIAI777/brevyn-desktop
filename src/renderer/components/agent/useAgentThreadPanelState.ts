@@ -44,6 +44,7 @@ interface UseAgentThreadPanelStateArgs {
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
 }
 
 export function useAgentThreadPanelState({
@@ -55,6 +56,7 @@ export function useAgentThreadPanelState({
   agentProviders,
   activeProviderId,
   onRun,
+  onRunForThread,
 }: UseAgentThreadPanelStateArgs): AgentThreadPanelState {
   const timelineState = useAgentTimelineState({
     thread,
@@ -70,7 +72,7 @@ export function useAgentThreadPanelState({
     threadId: thread.id,
     effectiveRunning: timelineState.effectiveRunning,
     runSummary: timelineState.runSummary,
-    onRun,
+    onRunForThread,
   });
 
   useAgentAutoCompactState({

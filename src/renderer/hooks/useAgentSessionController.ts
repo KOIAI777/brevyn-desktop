@@ -14,6 +14,7 @@ import {
   clearAgentLiveRecords,
   clearAllAgentLiveRecords,
   flushAgentLiveRecords,
+  removeAgentLiveMessage,
   setAgentLiveRunning,
 } from "@/lib/agent-live-store";
 
@@ -108,20 +109,23 @@ export function useAgentSessionController({
     writeStoredAgentModelSelection(activeThreadIdRef.current, nextSelection);
   }, [providers]);
 
-  const run = useCallback(async (
+  const runForThread = useCallback(async (
+    threadId: string,
     prompt: string,
     permissionMode: AgentPermissionMode = "auto",
     attachments?: AgentAttachment[],
     providerSelection?: AgentProviderSelection,
     mentionedSkills?: string[],
   ): Promise<void> => {
-    const threadId = activeThreadIdRef.current;
     if (!threadId) return;
-    if (runningRef.current || runInFlightByThreadRef.current.has(threadId)) return;
-    setError("");
-    runningRef.current = true;
+    const isActiveThread = threadId === activeThreadIdRef.current;
+    if ((isActiveThread && runningRef.current) || runInFlightByThreadRef.current.has(threadId)) return;
+    if (isActiveThread) {
+      setError("");
+      runningRef.current = true;
+      setRunning(true);
+    }
     runInFlightByThreadRef.current.add(threadId);
-    setRunning(true);
     setAgentLiveRunning(threadId, true);
     const runSelection = agentModelSelectionFromProviderSelection(providerSelection) || selectedAgentModelRef.current;
     if (runSelection) runModelSelectionByThreadRef.current.set(threadId, runSelection);
@@ -141,17 +145,30 @@ export function useAgentSessionController({
         mentionedSkills,
       });
     } catch (runError) {
-      runningRef.current = false;
+      removeAgentLiveMessage(threadId, userMessageId);
+      if (isActiveThread) {
+        runningRef.current = false;
+        setRunning(false);
+      }
       runInFlightByThreadRef.current.delete(threadId);
-      setRunning(false);
       setAgentLiveRunning(threadId, false);
       const message = errorMessage(runError, "Failed to start agent run.");
-      setError(message);
+      if (isActiveThread) setError(message);
       throw new Error(message);
     } finally {
       runInFlightByThreadRef.current.delete(threadId);
     }
   }, []);
+
+  const run = useCallback(async (
+    prompt: string,
+    permissionMode: AgentPermissionMode = "auto",
+    attachments?: AgentAttachment[],
+    providerSelection?: AgentProviderSelection,
+    mentionedSkills?: string[],
+  ): Promise<void> => {
+    await runForThread(activeThreadIdRef.current, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
+  }, [runForThread]);
 
   const stop = useCallback(async (): Promise<void> => {
     const threadId = activeThreadIdRef.current;
@@ -254,6 +271,9 @@ export function useAgentSessionController({
         if (runSelection) runModelSelectionByThreadRef.current.set(eventThreadId, runSelection);
       } else if (isTerminalRunEvent(event.event.type)) {
         runModelSelectionByThreadRef.current.delete(eventThreadId);
+        runInFlightByThreadRef.current.delete(eventThreadId);
+        setAgentLiveRunning(eventThreadId, false);
+        flushAgentLiveRecords(eventThreadId);
       }
 
       appendAgentRuntimeEvent(event.event);
@@ -306,6 +326,7 @@ export function useAgentSessionController({
     refreshProviders,
     selectProvider,
     run,
+    runForThread,
     stop,
     approve,
     reject,
