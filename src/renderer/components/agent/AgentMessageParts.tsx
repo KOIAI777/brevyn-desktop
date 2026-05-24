@@ -214,6 +214,37 @@ function MessageCopyAction({ content, align }: { content: string; align: "left" 
   );
 }
 
+function StreamingTextFade({ content }: { content: string }) {
+  const previousContentRef = useRef(content);
+  const previousContent = previousContentRef.current;
+  const canAnimateDelta = content.startsWith(previousContent);
+  const delta = canAnimateDelta ? content.slice(previousContent.length) : "";
+  const stableContent = canAnimateDelta ? previousContent : content;
+  const deltaChars = Array.from(delta);
+  const animatedChars = deltaChars.slice(-220);
+  const instantDelta = deltaChars.slice(0, Math.max(0, deltaChars.length - animatedChars.length)).join("");
+
+  useEffect(() => {
+    previousContentRef.current = content;
+  }, [content]);
+
+  return (
+    <div className="markdownish whitespace-pre-wrap break-words text-sm leading-6">
+      {stableContent}
+      {instantDelta}
+      {animatedChars.map((char, index) => (
+        <span
+          key={`${index}-${char}`}
+          className="brevyn-stream-char"
+          style={{ animationDelay: `${Math.min(index, 18) * 5}ms` }}
+        >
+          {char}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function AssistantTextBubble({
   content,
   threadId,
@@ -229,7 +260,7 @@ export function AssistantTextBubble({
   copyable?: boolean;
   copyContent?: string;
 }) {
-  const displayContent = useStreamingMarkdownContent(content.replace(/\u0000/g, ""), streaming);
+  const displayContent = content.replace(/\u0000/g, "");
   if (!displayContent.trim()) return null;
   return (
     <div className="group/message flex justify-start">
@@ -238,7 +269,7 @@ export function AssistantTextBubble({
         data-thread-id={threadId}
         data-streaming={streaming ? "true" : "false"}
       >
-        <Markdownish content={displayContent} threadId={threadId} />
+        {streaming ? <StreamingTextFade content={displayContent} /> : <Markdownish content={displayContent} threadId={threadId} />}
         {!streaming && stoppedByUser && (
           <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
             <X className="h-3.5 w-3.5" />
@@ -260,103 +291,7 @@ export function StreamingMarkdownish({
   threadId?: string;
   streaming?: boolean;
 }) {
-  const displayContent = useStreamingMarkdownContent(content.replace(/\u0000/g, ""), streaming);
+  const displayContent = content.replace(/\u0000/g, "");
   if (!displayContent.trim()) return null;
-  return <Markdownish content={displayContent} threadId={threadId} />;
-}
-
-function useStreamingMarkdownContent(content: string, streaming: boolean): string {
-  const [displayedContent, setDisplayedContent] = useState(content);
-  const previousContentRef = useRef(content);
-  const displayedContentRef = useRef(content);
-  const latestContentRef = useRef(content);
-  const frameRef = useRef(0);
-  const lastFrameTimeRef = useRef(0);
-  const playbackCreditRef = useRef(0);
-
-  useEffect(() => {
-    const previousLatest = latestContentRef.current;
-    latestContentRef.current = content;
-    if (!streaming) {
-      syncDisplayedContent(content);
-      return;
-    }
-
-    const previousContent = previousContentRef.current;
-    if (content === previousContent) return;
-
-    if (!content.startsWith(previousContent) || !content.startsWith(displayedContentRef.current)) {
-      syncDisplayedContent(content);
-      return;
-    }
-
-    previousContentRef.current = content;
-    if (content.length - previousLatest.length > 0 && latestContentRef.current.length - displayedContentRef.current.length > 96) {
-      playbackCreditRef.current = Math.min(playbackCreditRef.current, 2);
-    }
-    if (content.length - displayedContentRef.current.length <= 4) {
-      displayedContentRef.current = content;
-      setDisplayedContent(content);
-      return;
-    }
-    scheduleStreamingFrame();
-  }, [content, streaming]);
-
-  useEffect(() => {
-    return () => {
-      if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = 0;
-    };
-  }, []);
-
-  return streaming ? displayedContent : content;
-
-  function syncDisplayedContent(nextContent: string) {
-    if (frameRef.current) window.cancelAnimationFrame(frameRef.current);
-    frameRef.current = 0;
-    previousContentRef.current = nextContent;
-    displayedContentRef.current = nextContent;
-    latestContentRef.current = nextContent;
-    lastFrameTimeRef.current = 0;
-    playbackCreditRef.current = 0;
-    setDisplayedContent(nextContent);
-  }
-
-  function scheduleStreamingFrame() {
-    if (frameRef.current) return;
-    frameRef.current = window.requestAnimationFrame(flushStreamingFrame);
-  }
-
-  function flushStreamingFrame(frameTime: number) {
-    frameRef.current = 0;
-    const latestContent = latestContentRef.current;
-    const displayedContent = displayedContentRef.current;
-    if (latestContent === displayedContent) return;
-    if (!latestContent.startsWith(displayedContent)) {
-      syncDisplayedContent(latestContent);
-      return;
-    }
-
-    const remainingCount = latestContent.length - displayedContent.length;
-    const elapsedMs = lastFrameTimeRef.current ? Math.max(1, frameTime - lastFrameTimeRef.current) : 16;
-    lastFrameTimeRef.current = frameTime;
-    playbackCreditRef.current += streamingPlaybackRate(remainingCount) * elapsedMs;
-    const characterCount = Math.max(1, Math.min(remainingCount, Math.floor(playbackCreditRef.current)));
-    playbackCreditRef.current = Math.max(0, playbackCreditRef.current - characterCount);
-    const nextLength = displayedContent.length + characterCount;
-    const nextContent = latestContent.slice(0, nextLength);
-    displayedContentRef.current = nextContent;
-    setDisplayedContent(nextContent);
-
-    if (nextContent.length < latestContent.length) scheduleStreamingFrame();
-  }
-}
-
-function streamingPlaybackRate(remainingCount: number): number {
-  if (remainingCount <= 24) return 0.038;
-  if (remainingCount <= 96) return 0.052;
-  if (remainingCount <= 240) return 0.072;
-  if (remainingCount <= 520) return 0.11;
-  if (remainingCount <= 1100) return 0.18;
-  return 0.28;
+  return streaming ? <StreamingTextFade content={displayContent} /> : <Markdownish content={displayContent} threadId={threadId} />;
 }
