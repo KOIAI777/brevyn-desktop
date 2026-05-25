@@ -42,6 +42,7 @@ function App() {
   const agentSession = useAgentSessionController({
     activeThreadId: workspace.activeThreadId,
     onThreadHasMessages: workspace.markThreadHasMessages,
+    onThreadUpdated: workspace.applyThreadUpdate,
     onWriteToolCompleted: (filePath) => previewCoordinator.scheduleWorkspacePathPreview(filePath),
   });
   const previewCoordinator = useWorkspacePreviewCoordinator({

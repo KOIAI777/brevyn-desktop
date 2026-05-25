@@ -9,8 +9,10 @@ export interface AgentProviderAdapter {
   readonly providerKind: AgentProviderKind;
   buildModelListRequest(provider: ModelProviderConfig, apiKey: string): ProviderHttpRequest;
   buildConnectionTestRequest(provider: ModelProviderConfig, apiKey: string): ProviderHttpRequest;
+  buildTitleRequest(provider: ModelProviderConfig, apiKey: string, prompt: string): ProviderHttpRequest;
   buildSdkEnv(provider: ModelProviderConfig, apiKey: string): Record<string, string>;
   parseModelList(payload: unknown): ProviderModel[];
+  parseTitleResponse(payload: unknown): string | null;
 }
 
 export interface EmbeddingProviderAdapter {

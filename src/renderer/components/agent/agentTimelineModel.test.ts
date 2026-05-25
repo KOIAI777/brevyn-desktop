@@ -547,6 +547,30 @@ assert.equal(thinkingOnlyTurn?.processItem?.displayKind, "process");
 assert.deepEqual(thinkingOnlyTurn?.items.map((item) => item.displayKind), ["thinking"]);
 assert.equal(thinkingOnlyTurn?.items[0]?.assistantContent, "I should inspect the request first.");
 
+const stableRunSummary = { runId: "run_stable_completion", label: "已处理 1s", running: false, status: "completed" } as const;
+const liveCompletionRecords: AgentTimelineRecord[] = [
+  userText("Write a short answer.", "user_stable_completion"),
+  runStarted("deepseek-v4-pro", stableRunSummary.runId),
+  streamEvent({ type: "text_delta", text: "Final answer." }, "stream_stable_completion"),
+];
+const persistedCompletionRecords: AgentTimelineRecord[] = [
+  userText("Write a short answer.", "user_stable_completion"),
+  runStarted("deepseek-v4-pro", stableRunSummary.runId),
+  assistant([{ type: "text", text: "Final answer." }], "assistant_stable_completion"),
+  result("result_stable_completion"),
+];
+const stableTurnItems = (record: AgentTimelineRecord, index: number): AgentTimelineViewItem => ({
+  ...viewItem(record, index),
+  processSummary: stableRunSummary,
+  processKey: `run-${stableRunSummary.runId}`,
+});
+const liveCompletionGroups = buildTimelineViewGroups(liveCompletionRecords, liveCompletionRecords.map(stableTurnItems), { runSummary: stableRunSummary });
+const persistedCompletionGroups = buildTimelineViewGroups(persistedCompletionRecords, persistedCompletionRecords.map(stableTurnItems), { runSummary: stableRunSummary });
+assert.equal(
+  liveCompletionGroups[1]?.type === "assistant-turn" ? liveCompletionGroups[1].key : "",
+  persistedCompletionGroups[1]?.type === "assistant-turn" ? persistedCompletionGroups[1].key : "missing",
+);
+
 const liveToolRecords: AgentTimelineRecord[] = [
   userText("Run pwd.", "user_live_tool"),
   streamToolStart(0, { type: "tool_use", id: "tool_live_pwd", name: "Bash", input: {} }, "stream_tool_start"),

@@ -35,6 +35,7 @@ import { ExitPlanService } from "./exit-plan-service";
 import { AgentGatewayService } from "./agent-gateway-service";
 import { PermissionService } from "./permission-service";
 import { PromptBuilder } from "./prompt-builder";
+import { ThreadTitleService } from "./thread-title-service";
 import {
   brevynUsageFromAnthropicUsage,
   brevynUsageFromModelUsage,
@@ -90,8 +91,15 @@ interface ResolvedThreadContext {
 
 export class AgentOrchestrator {
   private readonly activeRuns = new Map<string, ActiveRun>();
+  private readonly titleService: ThreadTitleService;
 
-  constructor(private readonly options: AgentOrchestratorOptions) {}
+  constructor(private readonly options: AgentOrchestratorOptions) {
+    this.titleService = new ThreadTitleService({
+      businessStore: options.businessStore,
+      providers: options.providers,
+      eventBus: options.eventBus,
+    });
+  }
 
   messages(threadId: string): BrevynAgentTimelineRecord[] {
     const context = this.resolveThreadContext(threadId);
@@ -161,11 +169,11 @@ export class AgentOrchestrator {
       throw error;
     }
 
-    void this.executeRun(context, runId, promptForAgent, resumeSessionId, compactCommand);
+    void this.executeRun(context, runId, promptForAgent, resumeSessionId, compactCommand, compactCommand ? undefined : input.prompt);
     return { runId };
   }
 
-  private async executeRun(context: ResolvedThreadContext, runId: string, prompt: string, resumeSessionId?: string, slashCommand = false): Promise<void> {
+  private async executeRun(context: ResolvedThreadContext, runId: string, prompt: string, resumeSessionId?: string, slashCommand = false, titleUserMessage?: string): Promise<void> {
     try {
       const active = this.activeRuns.get(context.thread.id);
       if (!active) return;
@@ -206,6 +214,7 @@ export class AgentOrchestrator {
       };
       let completed = false;
       let retryReason = "";
+      let titleGenerationStarted = false;
       for (let attempt = 1; attempt <= AGENT_RUN_MAX_RETRIES + 1; attempt += 1) {
         if (attempt > 1) {
           const delayMs = retryDelayMs(attempt - 1);
@@ -248,6 +257,15 @@ export class AgentOrchestrator {
             canUseTool: this.createCanUseTool(context, runId),
             onQuery: (query) => {
               active.query = query;
+              if (!titleGenerationStarted && titleUserMessage) {
+                titleGenerationStarted = true;
+                void this.titleService.maybeGenerate({
+                  threadId: context.thread.id,
+                  userMessage: titleUserMessage,
+                  providerId: provider.id,
+                  modelId: provider.selectedModel,
+                });
+              }
             },
           });
           for await (const message of stream) {

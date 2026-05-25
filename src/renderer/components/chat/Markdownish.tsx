@@ -1,38 +1,67 @@
-import { memo, useMemo, type ComponentProps } from "react";
+import { Children, cloneElement, isValidElement, memo, useEffect, useMemo, useRef, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FilePathChip, isFilePathLike } from "./FilePathChip";
 
 const remarkPlugins = [remarkGfm];
 
+type MarkdownNode = {
+  position?: {
+    start?: {
+      line?: number;
+      column?: number;
+      offset?: number;
+    };
+  };
+};
+
+type MarkdownComponentProps<T extends keyof JSX.IntrinsicElements> = ComponentProps<T> & {
+  node?: MarkdownNode;
+};
+
 export const Markdownish = memo(function Markdownish({
   content,
   threadId,
   preserveSoftBreaks = false,
+  streaming = false,
 }: {
   content: string;
   threadId?: string;
   preserveSoftBreaks?: boolean;
+  streaming?: boolean;
 }) {
+  const previousTextByPathRef = useRef<Map<string, string>>(new Map());
+  const currentTextByPath = new Map<string, string>();
+  const renderChildren = (children: ReactNode, path: string): ReactNode => renderStreamingChildren(children, {
+    currentTextByPath,
+    path,
+    previousTextByPath: previousTextByPathRef.current,
+    streaming,
+  });
+
+  useEffect(() => {
+    previousTextByPathRef.current = streaming ? currentTextByPath : new Map();
+  });
+
   const components = useMemo(() => ({
-    h1: ({ children, ...props }: ComponentProps<"h1">) => (
+    h1: ({ children, node, ...props }: MarkdownComponentProps<"h1">) => (
       <h2 className="mb-2 mt-4 text-base font-semibold tracking-tight first:mt-0" {...props}>
-        {children}
+        {renderChildren(children, blockPath("h1", node))}
       </h2>
     ),
-    h2: ({ children, ...props }: ComponentProps<"h2">) => (
+    h2: ({ children, node, ...props }: MarkdownComponentProps<"h2">) => (
       <h3 className="mb-2 mt-4 text-sm font-semibold tracking-tight first:mt-0" {...props}>
-        {children}
+        {renderChildren(children, blockPath("h2", node))}
       </h3>
     ),
-    h3: ({ children, ...props }: ComponentProps<"h3">) => (
+    h3: ({ children, node, ...props }: MarkdownComponentProps<"h3">) => (
       <h4 className="mb-2 mt-3 text-sm font-semibold tracking-tight first:mt-0" {...props}>
-        {children}
+        {renderChildren(children, blockPath("h3", node))}
       </h4>
     ),
-    p: ({ children, ...props }: ComponentProps<"p">) => (
+    p: ({ children, node, ...props }: MarkdownComponentProps<"p">) => (
       <p className={`my-2 leading-6 first:mt-0 last:mb-0 ${preserveSoftBreaks ? "whitespace-pre-wrap" : ""}`} {...props}>
-        {children}
+        {renderChildren(children, blockPath("p", node))}
       </p>
     ),
     ul: ({ children, ...props }: ComponentProps<"ul">) => (
@@ -45,9 +74,9 @@ export const Markdownish = memo(function Markdownish({
         {children}
       </ol>
     ),
-    li: ({ children, ...props }: ComponentProps<"li">) => (
+    li: ({ children, node, ...props }: MarkdownComponentProps<"li">) => (
       <li className="pl-0.5" {...props}>
-        {children}
+        {renderChildren(children, blockPath("li", node))}
       </li>
     ),
     blockquote: ({ children, ...props }: ComponentProps<"blockquote">) => (
@@ -56,12 +85,12 @@ export const Markdownish = memo(function Markdownish({
       </blockquote>
     ),
     hr: () => null,
-    a: ({ children, ...props }: ComponentProps<"a">) => (
+    a: ({ children, node, ...props }: MarkdownComponentProps<"a">) => (
       <a className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground" {...props}>
-        {children}
+        {renderChildren(children, blockPath("a", node))}
       </a>
     ),
-    code: ({ className, children, ...props }: ComponentProps<"code">) => {
+    code: ({ className, children, node, ...props }: MarkdownComponentProps<"code">) => {
       const isBlock = /language-/.test(className || "");
       if (!isBlock) {
         const text = inlineText(children);
@@ -70,7 +99,7 @@ export const Markdownish = memo(function Markdownish({
         }
         return (
           <code className="rounded-md bg-muted px-1.5 py-0.5 text-[0.92em]" {...props}>
-            {children}
+            {renderChildren(children, blockPath("code", node))}
           </code>
         );
       }
@@ -97,9 +126,9 @@ export const Markdownish = memo(function Markdownish({
         {children}
       </thead>
     ),
-    th: ({ children, ...props }: ComponentProps<"th">) => (
+    th: ({ children, node, ...props }: MarkdownComponentProps<"th">) => (
       <th className="border-b px-3 py-2 font-semibold" {...props}>
-        {children}
+        {renderChildren(children, blockPath("th", node))}
       </th>
     ),
     tr: ({ children, ...props }: ComponentProps<"tr">) => (
@@ -107,12 +136,12 @@ export const Markdownish = memo(function Markdownish({
         {children}
       </tr>
     ),
-    td: ({ children, ...props }: ComponentProps<"td">) => (
+    td: ({ children, node, ...props }: MarkdownComponentProps<"td">) => (
       <td className="px-3 py-2 align-top" {...props}>
-        {children}
+        {renderChildren(children, blockPath("td", node))}
       </td>
     ),
-  }), [preserveSoftBreaks, threadId]);
+  }), [preserveSoftBreaks, renderChildren, threadId]);
 
   return (
     <div className="markdownish break-words text-sm leading-6">
@@ -125,6 +154,75 @@ export const Markdownish = memo(function Markdownish({
     </div>
   );
 });
+
+function StreamingInlineText({ previousText, text }: { previousText: string; text: string }) {
+  const canAnimateDelta = text.startsWith(previousText);
+  const stableText = canAnimateDelta ? previousText : "";
+  const delta = canAnimateDelta ? text.slice(previousText.length) : text;
+  const deltaChars = Array.from(delta);
+
+  if (!deltaChars.length) return stableText;
+  return (
+    <>
+      {stableText}
+      {deltaChars.map((char, index) => (
+        <span
+          key={`${index}-${char}`}
+          className="brevyn-stream-inline-char"
+          style={{ animationDelay: `${Math.min(index, 18) * 5}ms` }}
+        >
+          {char}
+        </span>
+      ))}
+    </>
+  );
+}
+
+interface RenderStreamingChildrenOptions {
+  currentTextByPath: Map<string, string>;
+  path: string;
+  previousTextByPath: Map<string, string>;
+  streaming: boolean;
+}
+
+function renderStreamingChildren(children: ReactNode, options: RenderStreamingChildrenOptions): ReactNode {
+  if (!options.streaming) return children;
+  return Children.map(children, (child, index) => {
+    const childPath = `${options.path}-${index}`;
+    if (typeof child === "string" || typeof child === "number") {
+      const text = String(child);
+      const previousText = previousTextForPath(options.previousTextByPath, childPath, text);
+      options.currentTextByPath.set(childPath, text);
+      return <StreamingInlineText key={childPath} previousText={previousText} text={text} />;
+    }
+    if (!isValidElement(child)) return child;
+    const element = child as ReactElement<{ children?: ReactNode }>;
+    if (!("children" in element.props)) return child;
+    return cloneElement(element, {
+      children: renderStreamingChildren(element.props.children, { ...options, path: childPath }),
+    });
+  });
+}
+
+function blockPath(kind: string, node?: MarkdownNode): string {
+  const start = node?.position?.start;
+  return `${kind}:${start?.offset ?? `${start?.line ?? 0}:${start?.column ?? 0}`}`;
+}
+
+function previousTextForPath(previousTextByPath: Map<string, string>, path: string, text: string): string {
+  const direct = previousTextByPath.get(path);
+  if (typeof direct === "string") return direct;
+
+  let best = "";
+  for (const previousText of previousTextByPath.values()) {
+    if (text.startsWith(previousText) && previousText.length > best.length) {
+      best = previousText;
+    } else if (previousText.startsWith(text) && text.length > best.length) {
+      best = text;
+    }
+  }
+  return best;
+}
 
 function inlineText(value: unknown): string {
   if (typeof value === "string") return value;

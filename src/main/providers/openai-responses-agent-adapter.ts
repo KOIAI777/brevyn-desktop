@@ -32,6 +32,22 @@ export class OpenAIResponsesAgentAdapter implements AgentProviderAdapter {
     };
   }
 
+  buildTitleRequest(provider: ModelProviderConfig, apiKey: string, prompt: string): ProviderHttpRequest {
+    return {
+      url: `${apiBaseUrl(provider)}/responses`,
+      init: {
+        method: "POST",
+        headers: headers(apiKey),
+        body: JSON.stringify({
+          model: provider.selectedModel || "gpt-5.5",
+          input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
+          max_output_tokens: 50,
+          stream: false,
+        }),
+      },
+    };
+  }
+
   buildSdkEnv(): Record<string, string> {
     throw new Error("OpenAI Responses agent providers must be accessed through the local Anthropic gateway.");
   }
@@ -54,6 +70,18 @@ export class OpenAIResponsesAgentAdapter implements AgentProviderAdapter {
         })];
       })
       .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  parseTitleResponse(payload: unknown): string | null {
+    const response = payload && typeof payload === "object"
+      ? payload as { output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> }
+      : undefined;
+    if (response?.output_text) return response.output_text;
+    for (const item of response?.output || []) {
+      const text = item.content?.find((part) => (part.type === "output_text" || part.type === "text") && part.text)?.text;
+      if (text) return text;
+    }
+    return null;
   }
 }
 

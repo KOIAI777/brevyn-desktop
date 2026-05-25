@@ -83,6 +83,7 @@ export interface ArchivedCourseScope {
 export type TaskType = string;
 export type TaskStatus = "not_started" | "in_progress" | "due_soon" | "done";
 export type TaskFileBucket = "materials" | "drafts" | "submitted";
+export type ThreadTitleSource = "default" | "auto" | "manual";
 
 export interface BrevynTask {
   id: string;
@@ -102,6 +103,8 @@ export interface Thread {
   taskId?: string;
   threadType: "semester_home" | "task";
   title: string;
+  titleSource?: ThreadTitleSource;
+  titleGeneratedAt?: string;
   isDraft?: boolean;
   messageCount?: number;
   lastMessageAt?: string;
@@ -873,7 +876,8 @@ export type BrevynAgentTimelineRecord =
 
 export type BrevynAgentEvent =
   | { kind: "sdk_message"; threadId: string; message: SDKMessage }
-  | { kind: "brevyn_event"; event: BrevynAgentRuntimeEvent };
+  | { kind: "brevyn_event"; event: BrevynAgentRuntimeEvent }
+  | { kind: "thread_updated"; thread: Thread };
 
 export interface AgentRunResult {
   runId: string;

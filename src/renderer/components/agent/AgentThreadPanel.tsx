@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useRef, useState, type ReactNode, type TransitionEvent } from "react";
+import { memo, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
@@ -98,6 +98,21 @@ export function AgentThreadPanel({
     onRunForThread,
   });
 
+  async function handleRun(
+    prompt: string,
+    nextPermissionMode: AgentPermissionMode = "auto",
+    attachments?: AgentAttachment[],
+    providerSelection?: { providerId?: string; modelId?: string },
+    mentionedSkills?: string[],
+  ): Promise<void> {
+    const shouldPushLayout = isFollowingOutput;
+    const runPromise = onRun(prompt, nextPermissionMode, attachments, providerSelection, mentionedSkills);
+    if (shouldPushLayout) {
+      window.requestAnimationFrame(() => scrollToBottom("smooth"));
+    }
+    await runPromise;
+  }
+
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
     <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
@@ -164,7 +179,7 @@ export function AgentThreadPanel({
         agentProviders={agentProviders}
         activeProviderId={activeProviderId}
         onSetPermissionMode={setPermissionMode}
-        onRun={onRun}
+        onRun={handleRun}
         onQueueMessage={queueMessage}
         onSendQueuedMessage={sendQueuedMessage}
         onDeleteQueuedMessage={deleteQueuedMessage}
@@ -574,78 +589,17 @@ function AssistantTurnRenderEntryView({
 }
 
 function TimelineItemsDrawer({ open, insetTop = false, children }: { open: boolean; insetTop?: boolean; children: ReactNode }) {
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [rendered, setRendered] = useState(open);
-  const [visible, setVisible] = useState(open);
-  const [height, setHeight] = useState(open ? "auto" : "0px");
-
-  useEffect(() => {
-    let firstFrame = 0;
-    let secondFrame = 0;
-    if (open) {
-      if (!rendered) {
-        setRendered(true);
-        setHeight("0px");
-        setVisible(false);
-        return undefined;
-      }
-      firstFrame = window.requestAnimationFrame(() => {
-        const nextHeight = contentRef.current?.scrollHeight ?? 0;
-        setHeight(`${nextHeight}px`);
-        setVisible(true);
-      });
-      return () => {
-        window.cancelAnimationFrame(firstFrame);
-      };
-    }
-    if (!rendered) return undefined;
-    const currentHeight = contentRef.current?.scrollHeight ?? 0;
-    setVisible(true);
-    setHeight(`${currentHeight}px`);
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => setHeight("0px"));
-    });
-    return () => {
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
-    };
-  }, [open, rendered]);
-
-  useEffect(() => {
-    if (!open || height !== "auto") return undefined;
-    const element = contentRef.current;
-    if (!element) return undefined;
-    const observer = new ResizeObserver(() => {
-      setHeight("auto");
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [height, open]);
-
-  function handleTransitionEnd(event: TransitionEvent<HTMLDivElement>) {
-    if (event.target !== event.currentTarget || event.propertyName !== "height") return;
-    if (open) {
-      setHeight("auto");
-      return;
-    }
-    setVisible(false);
-    setRendered(false);
-  }
-
-  if (!rendered && !open) return null;
-
   return (
     <div
-      onTransitionEnd={handleTransitionEnd}
-      className={`${open ? "" : "pointer-events-none"} min-w-0 overflow-hidden transform-gpu transition-[height] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] [contain:layout_paint]`}
-      style={{ height }}
+      className={`${open ? "" : "pointer-events-none"} grid min-w-0 transition-all duration-200 ease-out`}
+      style={{
+        gridTemplateRows: open ? "1fr" : "0fr",
+        opacity: open ? 1 : 0,
+      }}
       aria-hidden={!open}
     >
       <div
-        ref={contentRef}
-        className={`${
-          visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
-        } ${insetTop ? "pt-2" : ""} flex min-w-0 flex-col gap-2 transform-gpu transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform`}
+        className={`${insetTop ? "pt-2" : ""} flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden`}
       >
         {children}
       </div>

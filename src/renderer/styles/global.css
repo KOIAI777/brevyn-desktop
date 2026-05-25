@@ -77,17 +77,6 @@
     }
   }
 
-  @keyframes message-rise-in {
-    from {
-      opacity: 0;
-      transform: translateY(5px) scale(0.995);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
   @keyframes process-row-in {
     from {
       opacity: 0;
@@ -99,25 +88,16 @@
     }
   }
 
-  @keyframes brevyn-stream-tail-in {
+  @keyframes brevyn-stream-inline-char-in {
     from {
       opacity: 0;
-      filter: blur(2px);
+      filter: blur(1.6px);
       transform: translateY(2px);
     }
     to {
       opacity: 1;
       filter: blur(0);
       transform: translateY(0);
-    }
-  }
-
-  @keyframes brevyn-stream-char-in {
-    from {
-      opacity: 0.12;
-    }
-    to {
-      opacity: 1;
     }
   }
 
@@ -152,16 +132,10 @@
     animation: taskagent-panel-content-in 180ms ease-out 90ms both;
   }
 
-  .brevyn-stream-tail {
-    animation: brevyn-stream-tail-in 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  .brevyn-stream-inline-char {
+    animation: brevyn-stream-inline-char-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
     display: inline;
     will-change: opacity, transform, filter;
-  }
-
-  .brevyn-stream-char {
-    animation: brevyn-stream-char-in 180ms ease-out both;
-    display: inline;
-    will-change: opacity;
   }
 
   .tool-details-content-in {

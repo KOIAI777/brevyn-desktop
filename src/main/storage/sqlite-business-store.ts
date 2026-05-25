@@ -483,8 +483,21 @@ export class SQLiteBusinessStore {
   renameThread(threadId: string, title: string): Thread | null {
     const thread = this.getThread(threadId);
     if (!thread) return null;
-    const updated = { ...thread, title, updatedAt: now() };
+    const updated = { ...thread, title, titleSource: "manual" as const, updatedAt: now() };
     this.insertThread(updated);
+    return this.getThread(threadId);
+  }
+
+  renameThreadAutomatically(threadId: string, title: string, generatedAt = now()): Thread | null {
+    const thread = this.getThread(threadId);
+    if (!thread || !canAutoRenameThread(thread)) return null;
+    this.insertThread({
+      ...thread,
+      title,
+      titleSource: "auto",
+      titleGeneratedAt: generatedAt,
+      updatedAt: generatedAt,
+    });
     return this.getThread(threadId);
   }
 
@@ -1591,6 +1604,21 @@ function rowToThread(row: Row): Thread {
 
 function threadBusinessJson(thread: Thread): Thread {
   return thread;
+}
+
+function canAutoRenameThread(thread: Thread): boolean {
+  if (thread.titleSource === "default") return true;
+  if (thread.titleSource) return false;
+  return isDefaultThreadTitle(thread.title);
+}
+
+function isDefaultThreadTitle(title: string): boolean {
+  const normalized = title.trim();
+  return normalized === "Home TaskAgent" ||
+    normalized === "Home session" ||
+    normalized === "Task session" ||
+    normalized.endsWith(" session") ||
+    normalized.endsWith(" thread");
 }
 
 function fileBusinessJson(file: WorkspaceFileNode): Partial<WorkspaceFileNode> {

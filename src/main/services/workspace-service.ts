@@ -387,6 +387,7 @@ export class WorkspaceService {
       taskId: input.taskId,
       threadType: input.courseId === SEMESTER_HOME_COURSE_ID ? "semester_home" : "task",
       title: input.title || (task ? `${task.title} thread` : "New Home Thread"),
+      titleSource: "default",
       isDraft: Boolean(input.isDraft),
       messageCount: 0,
       createdAt: now(),

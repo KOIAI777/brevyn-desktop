@@ -924,6 +924,7 @@ function appendRunningProcessViewGroup(
 }
 
 function groupKey(prefix: string, items: AgentTimelineViewItem[], processItem?: AgentTimelineViewItem): string {
+  if (processItem?.processKey) return `${prefix}-${processItem.processKey}`;
   const first = items[0] ?? processItem;
   if (!first) return prefix;
   return `${prefix}-${recordKey(first.record) || first.processKey}`;

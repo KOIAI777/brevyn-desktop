@@ -6,6 +6,7 @@ import type {
   BrevynAgentSessionRecord,
   BrevynAgentTimelineRecord,
   ModelProviderConfig,
+  Thread,
 } from "@/types/domain";
 import {
   agentRuntimeEventThreadId,
@@ -23,6 +24,7 @@ const AGENT_MODEL_STORAGE_PREFIX = "brevyn.agent.modelSelection.";
 interface UseAgentSessionControllerArgs {
   activeThreadId: string;
   onThreadHasMessages: (threadId: string) => void;
+  onThreadUpdated?: (thread: Thread) => void;
   onWriteToolCompleted?: (filePath: string) => void;
 }
 
@@ -34,6 +36,7 @@ export interface AgentProviderSelection {
 export function useAgentSessionController({
   activeThreadId,
   onThreadHasMessages,
+  onThreadUpdated,
   onWriteToolCompleted,
 }: UseAgentSessionControllerArgs) {
   const mountedRef = useRef(true);
@@ -45,6 +48,7 @@ export function useAgentSessionController({
   const runModelSelectionByThreadRef = useRef<Map<string, string>>(new Map());
   const pendingWriteToolPathsRef = useRef<Map<string, string>>(new Map());
   const onThreadHasMessagesRef = useRef(onThreadHasMessages);
+  const onThreadUpdatedRef = useRef(onThreadUpdated);
   const onWriteToolCompletedRef = useRef(onWriteToolCompleted);
 
   const [records, setRecords] = useState<BrevynAgentTimelineRecord[]>([]);
@@ -57,6 +61,7 @@ export function useAgentSessionController({
   activeThreadIdRef.current = activeThreadId;
   selectedAgentModelRef.current = selectedModel;
   onThreadHasMessagesRef.current = onThreadHasMessages;
+  onThreadUpdatedRef.current = onThreadUpdated;
   onWriteToolCompletedRef.current = onWriteToolCompleted;
 
   const loadMessages = useCallback(async (threadId: string): Promise<boolean> => {
@@ -233,6 +238,10 @@ export function useAgentSessionController({
 
   useEffect(() => {
     const unsubscribe = window.brevyn.agent.onEvent((event) => {
+      if (event.kind === "thread_updated") {
+        onThreadUpdatedRef.current?.(event.thread);
+        return;
+      }
       const eventThreadId = event.kind === "sdk_message" ? event.threadId : agentRuntimeEventThreadId(event.event);
       if (!eventThreadId) return;
 

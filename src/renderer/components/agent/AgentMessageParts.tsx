@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Check, Copy, Minimize2, RotateCw, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
@@ -118,7 +118,7 @@ export function UserMessageBubble({
   return (
     <div className="group/message flex justify-end">
       <div className="flex max-w-[76%] flex-col items-end">
-        <div className="min-w-0 animate-[message-rise-in_180ms_cubic-bezier(0.22,1,0.36,1)] rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.96),rgba(246,242,232,0.86))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200">
+        <div className="min-w-0 rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.96),rgba(246,242,232,0.86))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200">
           {content.trim() && <Markdownish content={content} threadId={threadId} />}
           {attachments.length > 0 && <MessageAttachments attachments={attachments} threadId={threadId} />}
         </div>
@@ -214,37 +214,6 @@ function MessageCopyAction({ content, align }: { content: string; align: "left" 
   );
 }
 
-function StreamingTextFade({ content }: { content: string }) {
-  const previousContentRef = useRef(content);
-  const previousContent = previousContentRef.current;
-  const canAnimateDelta = content.startsWith(previousContent);
-  const delta = canAnimateDelta ? content.slice(previousContent.length) : "";
-  const stableContent = canAnimateDelta ? previousContent : content;
-  const deltaChars = Array.from(delta);
-  const animatedChars = deltaChars.slice(-220);
-  const instantDelta = deltaChars.slice(0, Math.max(0, deltaChars.length - animatedChars.length)).join("");
-
-  useEffect(() => {
-    previousContentRef.current = content;
-  }, [content]);
-
-  return (
-    <div className="markdownish whitespace-pre-wrap break-words text-sm leading-6">
-      {stableContent}
-      {instantDelta}
-      {animatedChars.map((char, index) => (
-        <span
-          key={`${index}-${char}`}
-          className="brevyn-stream-char"
-          style={{ animationDelay: `${Math.min(index, 18) * 5}ms` }}
-        >
-          {char}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 export function AssistantTextBubble({
   content,
   threadId,
@@ -269,7 +238,7 @@ export function AssistantTextBubble({
         data-thread-id={threadId}
         data-streaming={streaming ? "true" : "false"}
       >
-        {streaming ? <StreamingTextFade content={displayContent} /> : <Markdownish content={displayContent} threadId={threadId} />}
+        <Markdownish content={displayContent} threadId={threadId} streaming={streaming} />
         {!streaming && stoppedByUser && (
           <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
             <X className="h-3.5 w-3.5" />
@@ -285,7 +254,7 @@ export function AssistantTextBubble({
 export function StreamingMarkdownish({
   content,
   threadId,
-  streaming = false,
+  streaming: _streaming = false,
 }: {
   content: string;
   threadId?: string;
@@ -293,5 +262,5 @@ export function StreamingMarkdownish({
 }) {
   const displayContent = content.replace(/\u0000/g, "");
   if (!displayContent.trim()) return null;
-  return streaming ? <StreamingTextFade content={displayContent} /> : <Markdownish content={displayContent} threadId={threadId} />;
+  return <Markdownish content={displayContent} threadId={threadId} streaming={_streaming} />;
 }

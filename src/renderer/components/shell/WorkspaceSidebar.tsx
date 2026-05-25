@@ -194,6 +194,7 @@ export function WorkspaceSidebar({
                       editing={renamingThreadId === thread.id}
                       onClick={() => onSelectThread(thread)}
                       canArchive={!emptyThreadIds.has(thread.id)}
+                      onStartEditing={() => setRenamingThreadId(thread.id)}
                       onArchive={() => onArchiveThread(thread)}
                       onRename={onRenameThread}
                       onEditingDone={() => setRenamingThreadId("")}
@@ -288,6 +289,7 @@ export function WorkspaceSidebar({
                                 editing={renamingThreadId === thread.id}
                                 onClick={() => onSelectThread(thread)}
                                 canArchive={!emptyThreadIds.has(thread.id)}
+                                onStartEditing={() => setRenamingThreadId(thread.id)}
                                 onArchive={() => onArchiveThread(thread)}
                                 onRename={onRenameThread}
                                 onEditingDone={() => setRenamingThreadId("")}
@@ -357,13 +359,14 @@ type ThreadButtonProps = {
   editing: boolean;
   canArchive: boolean;
   onClick: () => void;
+  onStartEditing: () => void;
   onArchive: () => void;
   onRename: (thread: Thread, title: string) => Promise<void>;
   onEditingDone: () => void;
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
 };
 
-function ThreadButton({ thread, active, editing, canArchive, onClick, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
+function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEditing, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const savingRef = useRef(false);
   const skipNextBlurRef = useRef(false);
@@ -436,6 +439,19 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onArchive,
         >
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>
           <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
+        </button>
+      )}
+      {!editing && (
+        <button
+          type="button"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
+          title="Rename session"
+          onClick={(event) => {
+            event.stopPropagation();
+            onStartEditing();
+          }}
+        >
+          <Pencil className="h-3 w-3" />
         </button>
       )}
       {canArchive && (

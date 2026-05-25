@@ -270,6 +270,11 @@ export function useWorkspaceSessionController({
     }
   }, []);
 
+  const applyThreadUpdate = useCallback((thread: Thread): void => {
+    if (!threadBelongsToSemester(thread, semester?.id)) return;
+    setThreads((current) => dedupeThreads(current.map((item) => (item.id === thread.id ? thread : item))));
+  }, [semester?.id]);
+
   const selectCourseHome = useCallback((courseId: string) => {
     commitActiveCourseId(courseId);
     setActiveTaskId(undefined);
@@ -342,6 +347,7 @@ export function useWorkspaceSessionController({
     createThread,
     archiveThread,
     renameThread,
+    applyThreadUpdate,
     selectCourseHome,
     selectTask,
     selectThread,

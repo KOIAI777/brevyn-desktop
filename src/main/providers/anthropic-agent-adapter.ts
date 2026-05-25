@@ -33,6 +33,24 @@ export class AnthropicAgentAdapter implements AgentProviderAdapter {
     };
   }
 
+  buildTitleRequest(provider: ModelProviderConfig, apiKey: string, prompt: string): ProviderHttpRequest {
+    const model = provider.selectedModel || defaultTestModel(this.providerKind);
+    const body: Record<string, unknown> = {
+      model,
+      max_tokens: 50,
+      messages: [{ role: "user", content: prompt }],
+    };
+    if (shouldDisableThinkingForTitle(this.providerKind, model)) body.thinking = { type: "disabled" };
+    return {
+      url: `${this.apiBaseUrl(provider)}/messages`,
+      init: {
+        method: "POST",
+        headers: this.headers(apiKey, true),
+        body: JSON.stringify(body),
+      },
+    };
+  }
+
   buildSdkEnv(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
     const env: Record<string, string> = {};
     if (this.providerKind === "kimi-coding") {
@@ -51,6 +69,26 @@ export class AnthropicAgentAdapter implements AgentProviderAdapter {
     const data = payload && typeof payload === "object" ? (payload as { data?: Array<{ id?: string; display_name?: string; name?: string }> }).data : undefined;
     return (data || [])
       .flatMap((item) => providerModelFromId(item.id || "", item.display_name || item.name));
+  }
+
+  parseTitleResponse(payload: unknown): string | null {
+    const response = payload && typeof payload === "object"
+      ? payload as {
+        content?: Array<{ type?: string; text?: string; thinking?: string; reasoning?: string }>;
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string; reasoning?: string } }>;
+      }
+      : undefined;
+    const choiceMessage = response?.choices?.find((choice) => choice.message?.content || choice.message?.reasoning_content || choice.message?.reasoning)?.message;
+    if (choiceMessage?.content) return choiceMessage.content;
+    if (choiceMessage?.reasoning_content) return titleFromThinking(choiceMessage.reasoning_content);
+    if (choiceMessage?.reasoning) return titleFromThinking(choiceMessage.reasoning);
+
+    const content = response?.content;
+    const textBlock = content?.find((item) => (!item.type || item.type === "text") && item.text);
+    if (textBlock?.text) return textBlock.text;
+    const thinkingBlock = content?.find((item) => (item.type === "thinking" || item.thinking || item.reasoning) && (item.thinking || item.reasoning));
+    const thinking = thinkingBlock?.thinking || thinkingBlock?.reasoning || "";
+    return thinking ? titleFromThinking(thinking) : null;
   }
 
   private apiBaseUrl(provider: ModelProviderConfig): string {
@@ -77,6 +115,24 @@ export class AnthropicAgentAdapter implements AgentProviderAdapter {
     headers.Authorization = `Bearer ${apiKey}`;
     return headers;
   }
+}
+
+function shouldDisableThinkingForTitle(providerKind: AgentProviderKind, modelId: string): boolean {
+  const model = modelId.toLowerCase();
+  if (model === "claude-mythos-preview" || model.startsWith("claude-mythos-preview-")) return false;
+  if (providerKind === "kimi-api" || providerKind === "kimi-coding") return false;
+  return providerKind === "anthropic" ||
+    providerKind === "deepseek" ||
+    model === "deepseek-v4" ||
+    model.startsWith("deepseek-v4-") ||
+    model.startsWith("claude-opus-4-") ||
+    model.startsWith("claude-sonnet-4-");
+}
+
+function titleFromThinking(thinking: string): string | null {
+  const lines = thinking.trim().split("\n").map((line) => line.trim()).filter(Boolean);
+  const lastLine = lines[lines.length - 1] || "";
+  return lastLine.startsWith("- ") ? lastLine.slice(2).trim() : lastLine || null;
 }
 
 function defaultTestModel(providerKind: AgentProviderKind): string {
