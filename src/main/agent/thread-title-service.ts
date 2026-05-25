@@ -42,12 +42,6 @@ export class ThreadTitleService {
 
     this.pendingThreadIds.add(input.threadId);
     try {
-      console.log("[thread-title] Starting automatic title generation", {
-        threadId: input.threadId,
-        providerId: input.providerId,
-        modelId: input.modelId,
-        messagePreview: userMessage.slice(0, 80),
-      });
       const title = userMessage.length <= SHORT_MESSAGE_THRESHOLD
         ? cleanGeneratedTitle(userMessage)
         : await this.generateWithProvider(input);
@@ -73,23 +67,9 @@ export class ThreadTitleService {
     const adapter = getAgentProviderAdapter(provider);
     const effectiveProvider = providerWithSelectedModel(provider, input.modelId);
     const request = adapter.buildTitleRequest(effectiveProvider, apiKey, `${TITLE_PROMPT_PREFIX}\n${input.userMessage}`);
-    console.log("[thread-title] Sending title request", {
-      providerKind: provider.providerKind,
-      protocol: provider.protocol,
-      url: request.url,
-      modelId: effectiveProvider.selectedModel,
-    });
     const payload = await fetchTitlePayload(request.url, request.init);
-    console.log("[thread-title] Title payload preview", {
-      preview: JSON.stringify(payload).slice(0, 1000),
-    });
     const rawTitle = adapter.parseTitleResponse(payload) || "";
-    const title = cleanGeneratedTitle(rawTitle);
-    console.log("[thread-title] Parsed title response", {
-      rawTitle,
-      title,
-    });
-    return title;
+    return cleanGeneratedTitle(rawTitle);
   }
 }
 
@@ -108,11 +88,9 @@ async function fetchTitlePayload(url: string, init: RequestInit): Promise<unknow
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      console.warn("[thread-title] Title request failed", { status: response.status, statusText: response.statusText, body: body.slice(0, 500) });
+      console.warn("[thread-title] Title request failed", { status: response.status, statusText: response.statusText });
       return null;
     }
-    console.log("[thread-title] Title request completed", { status: response.status, statusText: response.statusText });
     return await response.json();
   } finally {
     clearTimeout(timeout);
@@ -126,9 +104,10 @@ function providerWithSelectedModel(provider: ModelProviderConfig, modelId?: stri
 }
 
 function canAutoGenerateTitle(thread: Thread): boolean {
+  if ((thread.messageCount || 0) > 1) return false;
   if (thread.titleSource === "default") return true;
   if (thread.titleSource) return false;
-  return (thread.messageCount || 0) <= 1 && isDefaultThreadTitle(thread.title);
+  return isDefaultThreadTitle(thread.title);
 }
 
 function isDefaultThreadTitle(title: string): boolean {

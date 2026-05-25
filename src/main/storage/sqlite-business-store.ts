@@ -1607,6 +1607,7 @@ function threadBusinessJson(thread: Thread): Thread {
 }
 
 function canAutoRenameThread(thread: Thread): boolean {
+  if ((thread.messageCount || 0) > 1) return false;
   if (thread.titleSource === "default") return true;
   if (thread.titleSource) return false;
   return isDefaultThreadTitle(thread.title);

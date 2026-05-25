@@ -597,6 +597,7 @@ function TimelineItemsDrawer({ open, insetTop = false, children }: { open: boole
         opacity: open ? 1 : 0,
       }}
       aria-hidden={!open}
+      {...(!open ? { inert: "" } : {})}
     >
       <div
         className={`${insetTop ? "pt-2" : ""} flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden`}
