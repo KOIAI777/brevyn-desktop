@@ -488,9 +488,14 @@ export class SQLiteBusinessStore {
     return this.getThread(threadId);
   }
 
-  renameThreadAutomatically(threadId: string, title: string, generatedAt = now()): Thread | null {
+  renameThreadAutomatically(
+    threadId: string,
+    title: string,
+    generatedAt = now(),
+    options?: { allowAfterFirstMessage?: boolean },
+  ): Thread | null {
     const thread = this.getThread(threadId);
-    if (!thread || !canAutoRenameThread(thread)) return null;
+    if (!thread || !canAutoRenameThread(thread, options)) return null;
     this.insertThread({
       ...thread,
       title,
@@ -1606,8 +1611,8 @@ function threadBusinessJson(thread: Thread): Thread {
   return thread;
 }
 
-function canAutoRenameThread(thread: Thread): boolean {
-  if ((thread.messageCount || 0) > 1) return false;
+function canAutoRenameThread(thread: Thread, options?: { allowAfterFirstMessage?: boolean }): boolean {
+  if (!options?.allowAfterFirstMessage && (thread.messageCount || 0) > 1) return false;
   if (thread.titleSource === "default") return true;
   if (thread.titleSource) return false;
   return isDefaultThreadTitle(thread.title);

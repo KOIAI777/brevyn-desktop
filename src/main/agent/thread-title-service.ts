@@ -46,7 +46,9 @@ export class ThreadTitleService {
         ? cleanGeneratedTitle(userMessage)
         : await this.generateWithProvider(input);
       if (!title) return null;
-      const updated = this.options.businessStore.renameThreadAutomatically(input.threadId, title);
+      const updated = this.options.businessStore.renameThreadAutomatically(input.threadId, title, undefined, {
+        allowAfterFirstMessage: true,
+      });
       if (!updated) return null;
       this.options.eventBus.emit({ kind: "thread_updated", thread: updated });
       return updated;
