@@ -96,6 +96,8 @@ const embeddingProviderKinds = Object.keys(EMBEDDING_PROVIDER_PRESETS) as Embedd
 const visionProviderKinds = Object.keys(VISION_PROVIDER_PRESETS) as VisionProviderKind[];
 
 const SEMESTER_HOME_COURSE_ID = "semester-home";
+const PROVIDER_PROFILE_ROW_HEIGHT_CLASS = "h-[72px]";
+const PROVIDER_PROFILE_LIST_HEIGHT_CLASS = "max-h-[312px]";
 
 const emptyDraft: ProviderDraftInput = {
   purpose: "agent",
@@ -1548,7 +1550,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Agent" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
-          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar">
+          <div className={cx(PROVIDER_PROFILE_LIST_HEIGHT_CLASS, "space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {chatProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1585,7 +1587,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
 
-          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar">
+          <div className={cx(PROVIDER_PROFILE_LIST_HEIGHT_CLASS, "space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {embeddingProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -1646,7 +1648,7 @@ function ProviderSettingsPage({
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Vision" onClick={onNewVisionProvider} disabled={visionBusy} />
           </div>
 
-          <div className="max-h-[272px] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar">
+          <div className={cx(PROVIDER_PROFILE_LIST_HEIGHT_CLASS, "space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {visionProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
@@ -3074,7 +3076,7 @@ function ProviderProfileRow({
   const displayName = providerDisplayName(provider);
   const logo = getProviderProfileLogo(provider);
   return (
-    <div className={cx("group flex min-h-[62px] items-center gap-2 rounded-lg border p-2 transition-colors", active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
+    <div className={cx("group flex items-center gap-2 rounded-lg border p-2 transition-colors", PROVIDER_PROFILE_ROW_HEIGHT_CLASS, active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
       <img src={logo} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="block truncate text-xs font-semibold" title={provider.name}>{displayName}</span>

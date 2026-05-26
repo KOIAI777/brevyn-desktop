@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Course, BrevynTask, GitStatus, SemesterWorkspace, SkillItem, Thread } from "@/types/domain";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
+const LAST_WORKSPACE_THREAD_STORAGE_KEY = "brevyn.workspace.lastThreadId";
+const LAST_WORKSPACE_THREAD_BY_SEMESTER_PREFIX = "brevyn.workspace.lastThreadId.";
 
 interface UseWorkspaceSessionControllerArgs {
   onClearFiles: () => void;
@@ -56,6 +58,11 @@ export function useWorkspaceSessionController({
     setActiveCourseId(courseId);
   }, []);
 
+  const commitActiveThreadId = useCallback((threadId: string, semesterId?: string) => {
+    setActiveThreadId(threadId);
+    writeStoredWorkspaceThreadId(threadId, semesterId);
+  }, []);
+
   const bootstrap = useCallback(async (isCancelled: () => boolean = () => false) => {
     if (!mountedRef.current || isCancelled()) return;
     setBootState("loading");
@@ -76,7 +83,13 @@ export function useWorkspaceSessionController({
       const visibleThreads = await ensureHomeThread(filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id), currentSemester?.id, courseList);
       if (!mountedRef.current || isCancelled()) return;
       const nextTasksByCourse = Object.fromEntries(taskEntries);
-      const selection = pickWorkspaceSelection(courseList, nextTasksByCourse, visibleThreads);
+      const selection = pickWorkspaceSelection(
+        courseList,
+        nextTasksByCourse,
+        visibleThreads,
+        undefined,
+        readStoredWorkspaceThreadId(currentSemester?.id),
+      );
 
       setSemesters(semesterList);
       setSemester(currentSemester);
@@ -88,7 +101,7 @@ export function useWorkspaceSessionController({
 
       commitActiveCourseId(selection.courseId);
       setActiveTaskId(selection.taskId);
-      setActiveThreadId(selection.threadId);
+      commitActiveThreadId(selection.threadId, currentSemester?.id);
       if (!selection.courseId) onClearFilesRef.current();
       setBootState("ready");
       onRefreshAgentProvidersRef.current();
@@ -97,7 +110,7 @@ export function useWorkspaceSessionController({
       setBootError(errorMessage(error, "Failed to load workspace."));
       setBootState("error");
     }
-  }, [commitActiveCourseId]);
+  }, [commitActiveCourseId, commitActiveThreadId]);
 
   const reloadWorkspace = useCallback(async (preferredThreadId?: string): Promise<boolean> => {
     const requestId = workspaceReloadRequestRef.current + 1;
@@ -126,7 +139,7 @@ export function useWorkspaceSessionController({
           taskId: activeTaskId,
           threadId: activeThreadId,
         },
-        preferredThreadId,
+        preferredThreadId || readStoredWorkspaceThreadId(currentSemester?.id),
       );
       const previousCourseId = activeCourseIdRef.current;
 
@@ -138,7 +151,7 @@ export function useWorkspaceSessionController({
 
       commitActiveCourseId(selection.courseId);
       setActiveTaskId(selection.taskId);
-      setActiveThreadId(selection.threadId);
+      commitActiveThreadId(selection.threadId, currentSemester?.id);
       if (!selection.courseId) onClearFilesRef.current();
       else if (previousCourseId === selection.courseId) onReloadCourseFilesRef.current(selection.courseId);
       return true;
@@ -148,7 +161,7 @@ export function useWorkspaceSessionController({
       }
       return false;
     }
-  }, [activeTaskId, activeThreadId, commitActiveCourseId]);
+  }, [activeTaskId, activeThreadId, commitActiveCourseId, commitActiveThreadId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -219,7 +232,7 @@ export function useWorkspaceSessionController({
       if (emptyThread) {
         commitActiveCourseId(emptyThread.courseId);
         setActiveTaskId(emptyThread.taskId);
-        setActiveThreadId(emptyThread.id);
+        commitActiveThreadId(emptyThread.id, emptyThread.semesterId || semester?.id);
         return;
       }
       const thread = await window.brevyn.threads.create({
@@ -232,11 +245,11 @@ export function useWorkspaceSessionController({
       setThreads((current) => dedupeThreads([thread, ...current]));
       commitActiveCourseId(thread.courseId);
       setActiveTaskId(thread.taskId);
-      setActiveThreadId(thread.id);
+      commitActiveThreadId(thread.id, thread.semesterId || semester?.id);
     } catch (error) {
       setWorkspaceError(errorMessage(error, "Create session failed."));
     }
-  }, [activeCourse?.id, commitActiveCourseId, findEmptyThreadForScope, semester?.id, threadTitleForScope]);
+  }, [activeCourse?.id, commitActiveCourseId, commitActiveThreadId, findEmptyThreadForScope, semester?.id, threadTitleForScope]);
 
   const archiveThread = useCallback(async (thread: Thread) => {
     setWorkspaceError("");
@@ -253,11 +266,11 @@ export function useWorkspaceSessionController({
       const taskStillExists = !thread.taskId || (tasksByCourse[thread.courseId] || []).some((task) => task.id === thread.taskId);
       commitActiveCourseId(courseStillExists ? thread.courseId : "");
       setActiveTaskId(courseStillExists && taskStillExists ? thread.taskId : undefined);
-      setActiveThreadId("");
+      commitActiveThreadId("", thread.semesterId || semester?.id);
     } catch (error) {
       setWorkspaceError(errorMessage(error, "Archive session failed."));
     }
-  }, [activeThreadId, commitActiveCourseId, courses, refreshThreads, tasksByCourse]);
+  }, [activeThreadId, commitActiveCourseId, commitActiveThreadId, courses, refreshThreads, semester?.id, tasksByCourse]);
 
   const renameThread = useCallback(async (thread: Thread, title: string): Promise<void> => {
     setWorkspaceError("");
@@ -279,15 +292,15 @@ export function useWorkspaceSessionController({
     commitActiveCourseId(courseId);
     setActiveTaskId(undefined);
     const thread = courseId === SEMESTER_HOME_COURSE_ID ? threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && !item.taskId) : undefined;
-    setActiveThreadId(thread?.id || "");
-  }, [commitActiveCourseId, semester?.id, threads]);
+    commitActiveThreadId(thread?.id || "", semester?.id);
+  }, [commitActiveCourseId, commitActiveThreadId, semester?.id, threads]);
 
   const selectTask = useCallback((courseId: string, taskId: string) => {
     commitActiveCourseId(courseId);
     setActiveTaskId(taskId);
     const thread = threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && item.taskId === taskId);
-    setActiveThreadId(thread?.id || "");
-  }, [commitActiveCourseId, semester?.id, threads]);
+    commitActiveThreadId(thread?.id || "", semester?.id);
+  }, [commitActiveCourseId, commitActiveThreadId, semester?.id, threads]);
 
   const selectThread = useCallback((thread: Thread) => {
     if (!threadBelongsToSemester(thread, semester?.id)) {
@@ -297,8 +310,8 @@ export function useWorkspaceSessionController({
     setWorkspaceError("");
     commitActiveCourseId(thread.courseId);
     setActiveTaskId(thread.taskId);
-    setActiveThreadId(thread.id);
-  }, [commitActiveCourseId, semester?.id]);
+    commitActiveThreadId(thread.id, thread.semesterId || semester?.id);
+  }, [commitActiveCourseId, commitActiveThreadId, semester?.id]);
 
   const handleCourseCreated = useCallback((course: Course) => {
     setCourses((current) => (current.some((item) => item.id === course.id) ? current : [...current, course]));
@@ -368,6 +381,29 @@ function errorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error || "");
   const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
   return message.trim() || fallback;
+}
+
+function readStoredWorkspaceThreadId(semesterId?: string): string {
+  try {
+    const semesterThreadId = semesterId ? window.localStorage.getItem(`${LAST_WORKSPACE_THREAD_BY_SEMESTER_PREFIX}${semesterId}`) : "";
+    return semesterThreadId || window.localStorage.getItem(LAST_WORKSPACE_THREAD_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredWorkspaceThreadId(threadId: string, semesterId?: string): void {
+  try {
+    if (!threadId) {
+      window.localStorage.removeItem(LAST_WORKSPACE_THREAD_STORAGE_KEY);
+      if (semesterId) window.localStorage.removeItem(`${LAST_WORKSPACE_THREAD_BY_SEMESTER_PREFIX}${semesterId}`);
+      return;
+    }
+    window.localStorage.setItem(LAST_WORKSPACE_THREAD_STORAGE_KEY, threadId);
+    if (semesterId) window.localStorage.setItem(`${LAST_WORKSPACE_THREAD_BY_SEMESTER_PREFIX}${semesterId}`, threadId);
+  } catch {
+    // Ignore storage failures; workspace selection still works in memory.
+  }
 }
 
 function dedupeThreads(threads: Thread[]): Thread[] {
