@@ -9,10 +9,8 @@ import {
   ChevronRight,
   Circle,
   Database,
-  Download,
   Eye,
   EyeOff,
-  ExternalLink,
   FileText,
   FolderOpen,
   GitBranch,
@@ -42,8 +40,8 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Markdownish } from "@/components/chat/Markdownish";
-import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
+import { UpdateStatusCard } from "@/components/settings/update/UpdateStatusCard";
+import { VersionHistory } from "@/components/settings/update/VersionHistory";
 import { getModelLogoById, getProviderBaseUrlLogo, getProviderKindLogo, getProviderProfileLogo } from "@/lib/model-provider-logo";
 import { withInferredContextWindow } from "../../../shared/model-context-window";
 import {
@@ -57,7 +55,6 @@ import {
   type EmbeddingProviderKind,
   type VisionProviderKind,
   type Course,
-  type GitHubRelease,
   type GitStatus,
   type ModelProviderConfig,
   type ProviderDraftInput,
@@ -174,7 +171,6 @@ export function SettingsDialog({
   const [embeddingDraft, setEmbeddingDraft] = useState<ProviderDraftInput>(emptyEmbeddingDraft);
   const [visionDraft, setVisionDraft] = useState<ProviderDraftInput>(emptyVisionDraft);
   const [models, setModels] = useState<ProviderModel[]>([]);
-  const [embeddingModels, setEmbeddingModels] = useState<ProviderModel[]>([]);
   const [visionModels, setVisionModels] = useState<ProviderModel[]>([]);
   const [statusLine, setStatusLine] = useState("");
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
@@ -194,6 +190,12 @@ export function SettingsDialog({
   const providerApiKeyLoadRequestRef = useRef(0);
   const embeddingApiKeyLoadRequestRef = useRef(0);
   const visionApiKeyLoadRequestRef = useRef(0);
+  const agentModelsFetchRequestRef = useRef(0);
+  const embeddingModelsFetchRequestRef = useRef(0);
+  const visionModelsFetchRequestRef = useRef(0);
+  const draftRef = useRef(draft);
+  const embeddingDraftRef = useRef(embeddingDraft);
+  const visionDraftRef = useRef(visionDraft);
 
   const enabledSkills = localSkills.filter((skill) => skill.enabled).length;
   const chatProviders = providers.filter((provider) => provider.purpose === "agent");
@@ -219,6 +221,18 @@ export function SettingsDialog({
   useEffect(() => {
     setLocalSkills(skills);
   }, [skills]);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    embeddingDraftRef.current = embeddingDraft;
+  }, [embeddingDraft]);
+
+  useEffect(() => {
+    visionDraftRef.current = visionDraft;
+  }, [visionDraft]);
 
   useEffect(() => {
     if (!providerToast) return;
@@ -382,6 +396,8 @@ export function SettingsDialog({
   }
 
   function selectProvider(provider: ModelProviderConfig) {
+    agentModelsFetchRequestRef.current += 1;
+    setProviderBusy("agent-fetch", false);
     closeEmbeddingEditor();
     closeVisionEditor();
     setCreatingProvider(false);
@@ -392,16 +408,19 @@ export function SettingsDialog({
   }
 
   function selectEmbeddingProvider(provider: ModelProviderConfig) {
+    embeddingModelsFetchRequestRef.current += 1;
+    setProviderBusy("embedding-fetch", false);
     closeProviderEditor();
     closeVisionEditor();
     setCreatingEmbeddingProvider(false);
     setSelectedEmbeddingProviderId(provider.id);
     setEmbeddingDraft(toProviderDraft(provider));
-    setEmbeddingModels([]);
     setEmbeddingStatusLine("");
   }
 
   function selectVisionProvider(provider: ModelProviderConfig) {
+    visionModelsFetchRequestRef.current += 1;
+    setProviderBusy("vision-fetch", false);
     closeProviderEditor();
     closeEmbeddingEditor();
     setCreatingVisionProvider(false);
@@ -412,6 +431,8 @@ export function SettingsDialog({
   }
 
   function newProvider() {
+    agentModelsFetchRequestRef.current += 1;
+    setProviderBusy("agent-fetch", false);
     closeEmbeddingEditor();
     closeVisionEditor();
     setCreatingProvider(true);
@@ -422,16 +443,19 @@ export function SettingsDialog({
   }
 
   function newEmbeddingProvider() {
+    embeddingModelsFetchRequestRef.current += 1;
+    setProviderBusy("embedding-fetch", false);
     closeProviderEditor();
     closeVisionEditor();
     setCreatingEmbeddingProvider(true);
     setSelectedEmbeddingProviderId("");
     setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers, "embedding"), enabled: true });
-    setEmbeddingModels([]);
     setEmbeddingStatusLine("");
   }
 
   function newVisionProvider() {
+    visionModelsFetchRequestRef.current += 1;
+    setProviderBusy("vision-fetch", false);
     closeProviderEditor();
     closeEmbeddingEditor();
     setCreatingVisionProvider(true);
@@ -442,6 +466,8 @@ export function SettingsDialog({
   }
 
   function closeProviderEditor() {
+    agentModelsFetchRequestRef.current += 1;
+    setProviderBusy("agent-fetch", false);
     setCreatingProvider(false);
     setSelectedProviderId("");
     setDraft({ ...emptyDraft });
@@ -449,13 +475,16 @@ export function SettingsDialog({
   }
 
   function closeEmbeddingEditor() {
+    embeddingModelsFetchRequestRef.current += 1;
+    setProviderBusy("embedding-fetch", false);
     setCreatingEmbeddingProvider(false);
     setSelectedEmbeddingProviderId("");
     setEmbeddingDraft({ ...emptyEmbeddingDraft });
-    setEmbeddingModels([]);
   }
 
   function closeVisionEditor() {
+    visionModelsFetchRequestRef.current += 1;
+    setProviderBusy("vision-fetch", false);
     setCreatingVisionProvider(false);
     setSelectedVisionProviderId("");
     setVisionDraft({ ...emptyVisionDraft });
@@ -667,16 +696,20 @@ export function SettingsDialog({
       setStatusLine("获取模型前需要填写 Base URL 和 API Key。");
       return;
     }
+    const requestId = ++agentModelsFetchRequestRef.current;
+    const target = providerDraftFetchTarget(draft);
     setProviderBusy("agent-fetch", true);
     try {
       const fetchedModels = await window.brevyn.providers.models(draft);
+      if (agentModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(draftRef.current, target)) return;
       setModels(fetchedModels);
       setDraft((current) => mergeFetchedDraftModels(current, fetchedModels));
       setStatusLine("已获取可用模型。");
     } catch (error) {
+      if (agentModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(draftRef.current, target)) return;
       setStatusLine(`获取聊天模型失败：${providerFetchErrorMessage(error)}`);
     } finally {
-      setProviderBusy("agent-fetch", false);
+      if (agentModelsFetchRequestRef.current === requestId) setProviderBusy("agent-fetch", false);
     }
   }
 
@@ -685,10 +718,12 @@ export function SettingsDialog({
       setEmbeddingStatusLine("获取模型前需要填写 Base URL 和 API Key。");
       return;
     }
+    const requestId = ++embeddingModelsFetchRequestRef.current;
+    const target = providerDraftFetchTarget(embeddingDraft);
     setProviderBusy("embedding-fetch", true);
     try {
       const fetchedModels = await window.brevyn.providers.models(embeddingDraft);
-      setEmbeddingModels(fetchedModels);
+      if (embeddingModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(embeddingDraftRef.current, target)) return;
       setEmbeddingDraft((current) => ({
         ...current,
         models: fetchedModels,
@@ -696,10 +731,10 @@ export function SettingsDialog({
       }));
       setEmbeddingStatusLine("已获取向量模型。");
     } catch (error) {
-      setEmbeddingModels([]);
+      if (embeddingModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(embeddingDraftRef.current, target)) return;
       setEmbeddingStatusLine(`获取向量模型失败：${errorMessage(error)}`);
     } finally {
-      setProviderBusy("embedding-fetch", false);
+      if (embeddingModelsFetchRequestRef.current === requestId) setProviderBusy("embedding-fetch", false);
     }
   }
 
@@ -708,17 +743,21 @@ export function SettingsDialog({
       setVisionStatusLine("获取模型前需要填写 Base URL 和 API Key。");
       return;
     }
+    const requestId = ++visionModelsFetchRequestRef.current;
+    const target = providerDraftFetchTarget(visionDraft);
     setProviderBusy("vision-fetch", true);
     try {
       const fetchedModels = await window.brevyn.providers.models(visionDraft);
+      if (visionModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(visionDraftRef.current, target)) return;
       setVisionModels(fetchedModels);
       setVisionDraft((current) => mergeFetchedDraftModels(current, fetchedModels));
       setVisionStatusLine("已获取视觉模型。");
     } catch (error) {
+      if (visionModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(visionDraftRef.current, target)) return;
       setVisionModels([]);
       setVisionStatusLine(`获取视觉模型失败：${providerFetchErrorMessage(error)}`);
     } finally {
-      setProviderBusy("vision-fetch", false);
+      if (visionModelsFetchRequestRef.current === requestId) setProviderBusy("vision-fetch", false);
     }
   }
 
@@ -957,7 +996,6 @@ export function SettingsDialog({
                 embeddingDraft={embeddingDraft}
                 visionDraft={visionDraft}
                 models={models}
-                embeddingModels={embeddingModels}
                 visionModels={visionModels}
                 statusLine={statusLine}
                 embeddingStatusLine={embeddingStatusLine}
@@ -1061,7 +1099,6 @@ function ProviderSettingsPage({
   embeddingDraft,
   visionDraft,
   models,
-  embeddingModels,
   visionModels,
   statusLine,
   embeddingStatusLine,
@@ -1113,7 +1150,6 @@ function ProviderSettingsPage({
   embeddingDraft: ProviderDraftInput;
   visionDraft: ProviderDraftInput;
   models: ProviderModel[];
-  embeddingModels: ProviderModel[];
   visionModels: ProviderModel[];
   statusLine: string;
   embeddingStatusLine: string;
@@ -1376,13 +1412,13 @@ function ProviderSettingsPage({
             <Field label="模型" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
           </div>
 
-          {embeddingModels.length > 0 && (
+          {(embeddingDraft.models?.length ?? 0) > 0 && (
             <ModelPicker
               providerKind={embeddingDraft.providerKind}
               baseUrl={embeddingDraft.baseUrl}
               selectedModel={embeddingDraft.selectedModel}
-              models={embeddingModels}
-              onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id, models: embeddingModels })}
+              models={embeddingDraft.models ?? []}
+              onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id })}
             />
           )}
 
@@ -2925,11 +2961,7 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
 function AboutUpdateSettingsPage() {
   const [status, setStatus] = useState<UpdaterStatus | null>(null);
   const [checking, setChecking] = useState(false);
-  const [releaseNotes, setReleaseNotes] = useState<GitHubRelease | null>(null);
-  const [releases, setReleases] = useState<GitHubRelease[]>([]);
-  const [releasesLoading, setReleasesLoading] = useState(false);
-  const [releasesError, setReleasesError] = useState("");
-  const [expandedReleaseIds, setExpandedReleaseIds] = useState<Record<number, boolean>>({});
+  const [releaseNotes, setReleaseNotes] = useState<Awaited<ReturnType<typeof window.brevyn.updater.getReleaseByTag>>>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2955,26 +2987,6 @@ function AboutUpdateSettingsPage() {
     return () => {
       cancelled = true;
       unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setReleasesLoading(true);
-    setReleasesError("");
-    void window.brevyn.updater
-      .listReleases({ perPage: 5, includePrerelease: false })
-      .then((next) => {
-        if (!cancelled) setReleases(next);
-      })
-      .catch((error) => {
-        if (!cancelled) setReleasesError(errorMessage(error, "加载版本历史失败。"));
-      })
-      .finally(() => {
-        if (!cancelled) setReleasesLoading(false);
-      });
-    return () => {
-      cancelled = true;
     };
   }, []);
 
@@ -3021,234 +3033,19 @@ function AboutUpdateSettingsPage() {
     setStatus(next);
   }
 
-  async function refreshReleases() {
-    setReleasesLoading(true);
-    setReleasesError("");
-    try {
-      const next = await window.brevyn.updater.listReleases({ perPage: 5, includePrerelease: false });
-      setReleases(next);
-    } catch (error) {
-      setReleasesError(errorMessage(error, "刷新版本历史失败。"));
-    } finally {
-      setReleasesLoading(false);
-    }
-  }
-
-  function toggleRelease(releaseId: number) {
-    setExpandedReleaseIds((current) => ({ ...current, [releaseId]: !current[releaseId] }));
-  }
-
-  const currentVersion = status?.currentVersion || "0.1.0";
-  const isChecking = checking || status?.status === "checking";
-  const canCheck = status?.status !== "unsupported" && status?.status !== "downloading" && status?.status !== "downloaded";
-  const progress = status?.status === "downloading" ? status.progress : null;
-  const activeReleaseNotes = releaseNotes?.body || (status?.status === "available" ? status.releaseNotes : "");
-  const activeReleaseUrl = releaseNotes?.htmlUrl || `https://github.com/KOIAI777/brevyn-desktop/releases/tag/v${status?.status === "available" ? status.version : currentVersion}`;
-
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
-      <section className="rounded-xl border bg-background/70 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <img src={brevynAppIconUrl} alt="" className="h-8 w-8 rounded-lg" />
-              Brevyn
-            </div>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              本地优先的课程工作区，支持文件、Skill 和 Agent 会话。
-            </p>
-            <div className="mt-3 inline-flex rounded-full border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              版本 {currentVersion}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => void checkForUpdates()}
-            disabled={!canCheck || isChecking}
-          >
-            <RefreshCw className={cx("h-3.5 w-3.5", isChecking && "animate-spin")} />
-            检查更新
-          </button>
-        </div>
-      </section>
-
-      <section className="rounded-xl border bg-background/70 p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">自动更新</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{updateStatusText(status)}</p>
-          </div>
-          {status?.status === "downloaded" ? (
-            <div className="flex shrink-0 items-center gap-2">
-              {!status.dismissed ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                  onClick={() => void dismissDownloadedUpdate()}
-                >
-                  稍后
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-semibold text-background transition hover:opacity-90"
-                onClick={() => void quitAndInstall()}
-              >
-                <Download className="h-3.5 w-3.5" />
-                重启安装
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {progress ? (
-          <div className="mt-4 space-y-2">
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-foreground transition-all duration-300" style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} />
-            </div>
-            <div className="flex justify-between text-[11px] text-muted-foreground">
-              <span>{progress.percent.toFixed(1)}%</span>
-              <span>{formatBytes(progress.transferred)} / {formatBytes(progress.total)} · {formatBytes(progress.bytesPerSecond)}/s</span>
-            </div>
-          </div>
-        ) : null}
-
-        {status?.status === "available" && activeReleaseNotes ? (
-          <ReleaseNotesCard body={activeReleaseNotes} url={activeReleaseUrl} />
-        ) : null}
-      </section>
-
-      <section className="rounded-xl border bg-background/70 shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">版本历史</h3>
-            <p className="mt-1 text-xs text-muted-foreground">从 GitHub Releases 读取最近发布记录。</p>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => void refreshReleases()}
-            disabled={releasesLoading}
-          >
-            <RefreshCw className={cx("h-3.5 w-3.5", releasesLoading && "animate-spin")} />
-            刷新
-          </button>
-        </div>
-        {releasesError ? <p className="px-5 py-3 text-xs text-destructive">{releasesError}</p> : null}
-        <div className="divide-y">
-          {releasesLoading && releases.length === 0 ? (
-            <div className="px-5 py-8 text-center text-xs text-muted-foreground">正在加载版本历史...</div>
-          ) : releases.length === 0 ? (
-            <div className="px-5 py-8 text-center text-xs text-muted-foreground">暂无版本历史。发布 GitHub Release 后会显示在这里。</div>
-          ) : (
-            releases.map((release, index) => {
-              const expanded = Boolean(expandedReleaseIds[release.id]);
-              return (
-                <div key={release.id} className="px-5 py-3">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-lg py-2 text-left transition hover:bg-muted/45"
-                    onClick={() => toggleRelease(release.id)}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-mono text-sm font-semibold text-foreground">{release.tagName}</span>
-                        {index === 0 ? <span className="rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-semibold text-background">最新</span> : null}
-                      </span>
-                      {release.name && release.name !== release.tagName ? <span className="mt-0.5 block truncate text-xs text-muted-foreground">{release.name}</span> : null}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{formatReleaseDate(release.publishedAt)}</span>
-                    <ChevronDown className={cx("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
-                  </button>
-                  {expanded ? (
-                    <div className="mt-3 rounded-xl border bg-card p-3">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <span className="text-xs font-medium text-muted-foreground">{release.assets.length} 个附件</span>
-                        {release.htmlUrl ? (
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-                            onClick={() => void window.brevyn.app.openExternal(release.htmlUrl)}
-                          >
-                            打开 Release
-                            <ExternalLink className="h-3 w-3" />
-                          </button>
-                        ) : null}
-                      </div>
-                      <ReleaseMarkdown body={release.body || "这个版本还没有填写更新说明。"} />
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
+      <UpdateStatusCard
+        status={status}
+        checking={checking}
+        release={releaseNotes}
+        onCheck={() => void checkForUpdates()}
+        onDismissDownloaded={() => void dismissDownloadedUpdate()}
+        onQuitAndInstall={() => void quitAndInstall()}
+      />
+      <VersionHistory />
     </div>
   );
-}
-
-function ReleaseNotesCard({ body, url }: { body: string; url: string }) {
-  return (
-    <div className="mt-4 rounded-xl border bg-card p-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold text-foreground">更新日志</span>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
-          onClick={() => void window.brevyn.app.openExternal(url)}
-        >
-          Release
-          <ExternalLink className="h-3 w-3" />
-        </button>
-      </div>
-      <ReleaseMarkdown body={body} />
-    </div>
-  );
-}
-
-function ReleaseMarkdown({ body }: { body: string }) {
-  return (
-    <div className="max-h-52 overflow-y-auto text-muted-foreground brevyn-scrollbar">
-      <Markdownish content={body} />
-    </div>
-  );
-}
-
-function updateStatusText(status: UpdaterStatus | null): string {
-  if (!status) return "正在读取更新状态...";
-  switch (status.status) {
-    case "unsupported":
-      return status.reason;
-    case "checking":
-      return "正在检查是否有新版本...";
-    case "available":
-      return `发现新版本 ${status.version}，正在后台下载。`;
-    case "downloading":
-      return `正在下载 ${status.version}。`;
-    case "downloaded":
-      return status.dismissed ? `${status.version} 已下载完成，已暂不提醒；可随时重启安装。` : `${status.version} 已下载完成，重启后生效。`;
-    case "not-available":
-      return "当前已经是最新版本。";
-    case "error":
-      return status.error;
-    default:
-      return "未检查更新。";
-  }
-}
-
-function formatReleaseDate(value: string): string {
-  if (!value) return "未知日期";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("zh-CN");
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function ProviderProfileRow({
@@ -3767,6 +3564,35 @@ function toProviderDraft(provider: ModelProviderConfig, overrides: Partial<Provi
     autoCompactThresholdPercent: provider.autoCompactThresholdPercent ?? DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
     ...overrides,
   };
+}
+
+type ProviderDraftFetchTarget = Pick<ProviderDraftInput, "id" | "purpose" | "providerKind" | "protocol" | "authMode" | "baseUrl" | "apiKey">;
+
+function providerDraftFetchTarget(draft: ProviderDraftInput): ProviderDraftFetchTarget {
+  return {
+    id: draft.id,
+    purpose: draft.purpose,
+    providerKind: draft.providerKind,
+    protocol: draft.protocol,
+    authMode: draft.authMode,
+    baseUrl: normalizeProviderDraftBaseUrl(draft.baseUrl),
+    apiKey: draft.apiKey,
+  };
+}
+
+function isSameProviderDraftFetchTarget(draft: ProviderDraftInput, target: ProviderDraftFetchTarget): boolean {
+  const current = providerDraftFetchTarget(draft);
+  return current.id === target.id
+    && current.purpose === target.purpose
+    && current.providerKind === target.providerKind
+    && current.protocol === target.protocol
+    && current.authMode === target.authMode
+    && current.baseUrl === target.baseUrl
+    && current.apiKey === target.apiKey;
+}
+
+function normalizeProviderDraftBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
 }
 
 function selectedEnabledModel(selectedModel: string, models: ProviderModel[]): string {

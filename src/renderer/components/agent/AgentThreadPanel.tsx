@@ -491,22 +491,23 @@ function AssistantTurnTimelineGroup({
           )}
           {entries.map((entry, index) => {
             const keepVisibleWhenCollapsed = stableBodyTextKeys.has(entry.key);
+            if (!showTimelineItems && !keepVisibleWhenCollapsed) return null;
             return (
               <TimelineItemsDrawer
                 key={entry.key}
-                open={showTimelineItems || keepVisibleWhenCollapsed}
+                open
                 insetTop={Boolean(processItem) || index > 0}
               >
-              <AssistantTurnRenderEntryView
-                entry={entry}
-                processItem={processItem}
-                onToggleItemProcess={onToggleItemProcess}
-                onApprove={onApprove}
-                onReject={onReject}
-                onAnswerQuestion={onAnswerQuestion}
-                onResolveExitPlan={onResolveExitPlan}
-                onCompact={onCompact}
-              />
+                <AssistantTurnRenderEntryView
+                  entry={entry}
+                  processItem={processItem}
+                  onToggleItemProcess={onToggleItemProcess}
+                  onApprove={onApprove}
+                  onReject={onReject}
+                  onAnswerQuestion={onAnswerQuestion}
+                  onResolveExitPlan={onResolveExitPlan}
+                  onCompact={onCompact}
+                />
               </TimelineItemsDrawer>
             );
           })}

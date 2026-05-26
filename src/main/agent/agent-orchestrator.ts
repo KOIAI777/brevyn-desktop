@@ -302,7 +302,13 @@ export class AgentOrchestrator {
               }
               this.appendAndEmitSdkMessage(context.thread, withCreatedAt(message));
               if (message.type === "assistant" && assistantError) {
-                if (current) current.assistantErrorWritten = true;
+                if (current) {
+                  current.assistantErrorWritten = true;
+                  this.writeTerminalResult(current, "error_during_execution", assistantError);
+                  this.writeTerminalLifecycle(current, "failed", assistantError);
+                  current.query?.close();
+                  break;
+                }
               }
               if (message.type === "result") {
                 if (current) {
@@ -325,6 +331,12 @@ export class AgentOrchestrator {
           if (active.abortController.signal.aborted) {
             this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", "Agent run stopped.");
             this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", "Agent run stopped.");
+          }
+          if (!active.terminalLifecycleWritten) {
+            const message = active.assistantErrorWritten ? "Agent provider request failed." : "Agent run ended without a result.";
+            if (!active.assistantErrorWritten) this.writeAssistantError(active, message);
+            this.writeTerminalResult(active, "error_during_execution", message);
+            this.writeTerminalLifecycle(active, "failed", message);
           }
           completed = true;
           break;

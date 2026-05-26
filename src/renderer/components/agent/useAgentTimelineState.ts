@@ -101,9 +101,9 @@ export function useAgentTimelineState({
   const compacting = useMemo(() => isCompactingContext(records), [records]);
   const effectiveCompacting = compacting || compactInFlight;
   const autoCompactThreshold = autoCompactThresholdPercent(activeProvider);
-  const resolvedApprovals = useMemo(() => approvalResolutionMap(records), [records]);
-  const resolvedQuestions = useMemo(() => questionResolutionMap(records), [records]);
-  const resolvedExitPlans = useMemo(() => exitPlanResolutionMap(records), [records]);
+  const resolvedApprovals = useMemo(() => approvalResolutionMap(timelineRecords), [timelineRecords]);
+  const resolvedQuestions = useMemo(() => questionResolutionMap(timelineRecords), [timelineRecords]);
+  const resolvedExitPlans = useMemo(() => exitPlanResolutionMap(timelineRecords), [timelineRecords]);
   const ownerUserIndexByRecordIndex = useMemo(() => ownerUserInputIndexes(timelineRecords), [timelineRecords]);
   const runSummaryByUserIndex = useMemo(() => {
     const summaries = new Map<number, RunSummary | null>();

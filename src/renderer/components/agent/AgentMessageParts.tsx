@@ -218,7 +218,6 @@ export function AssistantTextBubble({
   content,
   threadId,
   streaming = false,
-  stoppedByUser = false,
   copyable = true,
   copyContent,
 }: {
@@ -240,12 +239,6 @@ export function AssistantTextBubble({
         data-streaming={renderStreaming ? "true" : "false"}
       >
         <Markdownish content={displayContent} threadId={threadId} streaming={renderStreaming} />
-        {!renderStreaming && stoppedByUser && (
-          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-            <X className="h-3.5 w-3.5" />
-            已停止
-          </span>
-        )}
         {!renderStreaming && copyable && <MessageCopyAction content={copyContent || content} align="left" />}
       </div>
     </div>
