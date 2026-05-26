@@ -50,6 +50,7 @@ import type {
   BrevynTask,
   UpdateCourseInput,
   UpdateTaskInput,
+  ArchivedTaskScope,
   WorkspaceFileNode,
 } from "../../types/domain";
 import { AgentEventBus, AgentGatewayService, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
@@ -181,6 +182,10 @@ export class LocalStore {
     return this.workspace.listCourses();
   }
 
+  listCoursesForArchive(scope?: ArchivedCourseScope): Course[] {
+    return this.workspace.listCoursesForArchive(scope);
+  }
+
   listArchivedCourses(scope?: ArchivedCourseScope): Course[] {
     return this.workspace.listArchivedCourses(scope);
   }
@@ -209,12 +214,24 @@ export class LocalStore {
     return this.workspace.listTasks(courseId);
   }
 
+  listArchivedTasks(scope?: ArchivedTaskScope): BrevynTask[] {
+    return this.workspace.listArchivedTasks(scope);
+  }
+
   createTask(input: CreateTaskInput): BrevynTask {
     return this.workspace.createTask(input);
   }
 
   updateTask(input: UpdateTaskInput): BrevynTask {
     return this.workspace.updateTask(input);
+  }
+
+  archiveTask(taskId: string): BrevynTask {
+    return this.workspace.archiveTask(taskId);
+  }
+
+  restoreTask(taskId: string): BrevynTask {
+    return this.workspace.restoreTask(taskId);
   }
 
   deleteTask(taskId: string): Promise<boolean> {

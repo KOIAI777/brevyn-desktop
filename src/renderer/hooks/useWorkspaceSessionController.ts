@@ -272,6 +272,17 @@ export function useWorkspaceSessionController({
     }
   }, [activeThreadId, commitActiveCourseId, commitActiveThreadId, courses, refreshThreads, semester?.id, tasksByCourse]);
 
+  const archiveTask = useCallback(async (task: BrevynTask): Promise<void> => {
+    setWorkspaceError("");
+    try {
+      await window.brevyn.tasks.archive(task.id);
+      await reloadWorkspace();
+    } catch (error) {
+      setWorkspaceError(errorMessage(error, "归档任务失败。"));
+      throw error;
+    }
+  }, [reloadWorkspace]);
+
   const renameThread = useCallback(async (thread: Thread, title: string): Promise<void> => {
     setWorkspaceError("");
     try {
@@ -359,6 +370,7 @@ export function useWorkspaceSessionController({
     markThreadHasMessages,
     createThread,
     archiveThread,
+    archiveTask,
     renameThread,
     applyThreadUpdate,
     selectCourseHome,

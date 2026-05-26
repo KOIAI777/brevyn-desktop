@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type {
   ArchivedCourseScope,
+  ArchivedTaskScope,
   ArchivedThreadScope,
   Course,
   CreateCourseInput,
@@ -183,6 +184,16 @@ export class WorkspaceService {
     return normalizeCourses(this.options.businessStore.listCourses(semester.id), semester).filter((course) => course.id === SEMESTER_HOME_COURSE_ID || !course.archivedAt);
   }
 
+  listCoursesForArchive(scope?: ArchivedCourseScope): Course[] {
+    const semester = scope?.semesterId
+      ? this.options.businessStore.getSemester(scope.semesterId)
+      : currentActiveSemester(this.options.businessStore);
+    if (!semester) return [];
+    return normalizeCourses(this.options.businessStore.listCourses(semester.id), semester)
+      .filter((course) => course.id !== SEMESTER_HOME_COURSE_ID)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   listArchivedCourses(scope?: ArchivedCourseScope): Course[] {
     const semester = scope?.semesterId
       ? this.options.businessStore.getSemester(scope.semesterId)
@@ -197,6 +208,18 @@ export class WorkspaceService {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId || isCourseArchived(this.options.businessStore, courseId) || isCurrentSemesterArchived(this.options.businessStore)) return [];
     return this.options.businessStore.listTasks(semesterId, courseId);
+  }
+
+  listArchivedTasks(scope?: ArchivedTaskScope): BrevynTask[] {
+    const semesterId = scope?.semesterId || currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) return [];
+    const semester = this.options.businessStore.getSemester(semesterId);
+    if (!semester) return [];
+    if (scope?.courseId) {
+      const course = this.options.businessStore.getCourse(scope.courseId);
+      if (!course || course.semesterId !== semesterId) return [];
+    }
+    return this.options.businessStore.listArchivedTasks(semesterId, scope?.courseId);
   }
 
   createTask(input: CreateTaskInput): BrevynTask {
@@ -237,17 +260,41 @@ export class WorkspaceService {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId || task.semesterId !== semesterId) throw new Error("Select this task's semester before updating it.");
     activeCourseInSemesterOrThrow(this.options.businessStore, task.courseId, semesterId);
+    if (task.archivedAt) throw new Error("Restore this task before updating it.");
     const updated = this.options.businessStore.updateTask(input);
     if (!updated) throw new Error(`Task not found: ${input.id}`);
     return updated;
   }
 
+  archiveTask(taskId: string): BrevynTask {
+    const task = this.options.businessStore.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (task.archivedAt) return { ...task };
+    if (!task.semesterId) throw new Error("Task has no semester scope.");
+    activeCourseInSemesterOrThrow(this.options.businessStore, task.courseId, task.semesterId);
+    const archived = this.options.businessStore.archiveTask(task.id, now());
+    if (!archived) throw new Error(`Task not found: ${taskId}`);
+    return { ...archived };
+  }
+
+  restoreTask(taskId: string): BrevynTask {
+    const task = this.options.businessStore.getTask(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (!task.semesterId) throw new Error("Task has no semester scope.");
+    activeCourseInSemesterOrThrow(this.options.businessStore, task.courseId, task.semesterId);
+    const restored = this.options.businessStore.restoreTask(task.id);
+    if (!restored) throw new Error(`Task not found: ${taskId}`);
+    return { ...restored };
+  }
+
   async deleteTask(taskId: string): Promise<boolean> {
     const task = this.options.businessStore.getTask(taskId);
     if (!task) return false;
-    const semesterId = currentActiveSemesterId(this.options.businessStore);
-    if (!semesterId || task.semesterId !== semesterId) throw new Error("Select this task's semester before deleting it.");
-    activeCourseInSemesterOrThrow(this.options.businessStore, task.courseId, semesterId);
+    if (!task.archivedAt) throw new Error("Archive the task before deleting it permanently.");
+    const semesterId = task.semesterId;
+    if (!semesterId) throw new Error("Task has no semester scope.");
+    const course = this.options.businessStore.getCourse(task.courseId);
+    if (!course || course.semesterId !== semesterId) throw new Error("Task does not belong to this course.");
     if (this.options.businessStore.hasActiveTaskIndexing(task.id, task.courseId)) {
       throw new Error("Wait for indexing to finish before deleting this task.");
     }
@@ -471,6 +518,7 @@ export class WorkspaceService {
     if (!task) throw new Error(`Task not found: ${thread.taskId}`);
     if (task.courseId !== thread.courseId) throw new Error("Task does not belong to this course.");
     if (!task.semesterId || task.semesterId !== thread.semesterId) throw new Error("Task does not belong to this semester.");
+    if (task.archivedAt) throw new Error("Restore this task before using sessions.");
     return task;
   }
 

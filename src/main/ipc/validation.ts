@@ -1,5 +1,6 @@
 import type {
   ArchivedCourseScope,
+  ArchivedTaskScope,
   ArchivedThreadScope,
   AgentAttachment,
   AgentAskUserResponseInput,
@@ -132,6 +133,15 @@ export function normalizeArchivedCourseScope(value: unknown): ArchivedCourseScop
   if (value === undefined || value === null) return undefined;
   const input = requireObject(value, "Archived course scope");
   return { semesterId: optionalString(input.semesterId) };
+}
+
+export function normalizeArchivedTaskScope(value: unknown): ArchivedTaskScope | undefined {
+  if (value === undefined || value === null) return undefined;
+  const input = requireObject(value, "Archived task scope");
+  return {
+    semesterId: optionalString(input.semesterId),
+    courseId: optionalString(input.courseId),
+  };
 }
 
 export function normalizeArchivedThreadScope(value: unknown): ArchivedThreadScope | undefined {

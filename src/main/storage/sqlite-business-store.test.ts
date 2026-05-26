@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Course, SemesterWorkspace, Thread } from "../../types/domain";
+import type { BrevynTask, Course, SemesterWorkspace, Thread } from "../../types/domain";
 import { SQLiteBusinessStore } from "./sqlite-business-store";
 
 const tempDir = mkdtempSync(join(tmpdir(), "brevyn-business-store-"));
@@ -11,6 +11,17 @@ const store = new SQLiteBusinessStore(join(tempDir, "business.sqlite"));
 try {
   store.saveSemester(testSemester());
   store.saveCourse(testCourse());
+  const task = testTask();
+  store.saveTask(task);
+
+  assert.equal(store.listTasks("semester_test", "course_test").length, 1);
+  const archivedTask = store.archiveTask(task.id, "2026-05-25T00:00:00.000Z");
+  assert.equal(archivedTask?.archivedAt, "2026-05-25T00:00:00.000Z");
+  assert.equal(store.listTasks("semester_test", "course_test").length, 0);
+  assert.equal(store.listArchivedTasks("semester_test", "course_test").length, 1);
+  const restoredTask = store.restoreTask(task.id);
+  assert.equal(restoredTask?.archivedAt, undefined);
+  assert.equal(store.listTasks("semester_test", "course_test").length, 1);
 
   const thread = testThread();
   store.saveThread(thread);
@@ -76,5 +87,17 @@ function testCourse(): Course {
     instructor: "",
     color: "#d8c7a1",
     description: "",
+  };
+}
+
+function testTask(): BrevynTask {
+  return {
+    id: "task_test",
+    semesterId: "semester_test",
+    courseId: "course_test",
+    title: "Reading response",
+    taskType: "作业",
+    status: "not_started",
+    summary: "",
   };
 }

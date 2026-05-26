@@ -8,6 +8,7 @@ import type {
   ArchivedThreadScope,
   CreateTaskInput,
   UpdateTaskInput,
+  ArchivedTaskScope,
   CreateThreadInput,
   RenameThreadInput,
   AgentApprovalInput,
@@ -43,6 +44,7 @@ const api: BrevynAPI = {
   },
   courses: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.coursesList),
+    listForArchive: (scope?: ArchivedCourseScope) => ipcRenderer.invoke(IPC_CHANNELS.coursesListForArchive, scope),
     listArchived: (scope?: ArchivedCourseScope) => ipcRenderer.invoke(IPC_CHANNELS.coursesListArchived, scope),
     create: (input: CreateCourseInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesCreate, input),
     update: (input: UpdateCourseInput) => ipcRenderer.invoke(IPC_CHANNELS.coursesUpdate, input),
@@ -52,8 +54,11 @@ const api: BrevynAPI = {
   },
   tasks: {
     list: (courseId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksList, courseId),
+    listArchived: (scope?: ArchivedTaskScope) => ipcRenderer.invoke(IPC_CHANNELS.tasksListArchived, scope),
     create: (input: CreateTaskInput) => ipcRenderer.invoke(IPC_CHANNELS.tasksCreate, input),
     update: (input: UpdateTaskInput) => ipcRenderer.invoke(IPC_CHANNELS.tasksUpdate, input),
+    archive: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksArchive, taskId),
+    restore: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksRestore, taskId),
     delete: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.tasksDelete, taskId),
   },
   threads: {

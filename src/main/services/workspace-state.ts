@@ -72,5 +72,6 @@ export function taskInCourseOrThrow(businessStore: SQLiteBusinessStore, taskId: 
   if (!task) throw new Error(`Task not found: ${taskId}`);
   if (task.courseId !== courseId) throw new Error("Task does not belong to this course.");
   if (!task.semesterId || task.semesterId !== semesterId) throw new Error("Task does not belong to the current semester.");
+  if (task.archivedAt) throw new Error("Restore this task before using it.");
   return task;
 }

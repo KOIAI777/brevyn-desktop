@@ -55,6 +55,7 @@ import {
   type EmbeddingProviderKind,
   type VisionProviderKind,
   type Course,
+  type BrevynTask,
   type GitStatus,
   type ModelProviderConfig,
   type ProviderDraftInput,
@@ -1812,13 +1813,16 @@ function parseVisionOptionValue(value: string): [string, string] {
 
 interface ArchiveSemesterGroup {
   semester: SemesterWorkspace;
+  courses: Course[];
   archivedCourses: Course[];
+  archivedTasks: BrevynTask[];
   archivedThreads: Thread[];
 }
 
 interface ArchiveCourseEntry {
   courseId: string;
   course?: Course;
+  tasks: BrevynTask[];
   threads: Thread[];
 }
 
@@ -1828,8 +1832,8 @@ interface ArchiveDisplayGroup extends ArchiveSemesterGroup {
   courseEntries: ArchiveCourseEntry[];
 }
 
-type ArchiveFilter = "all" | "semesters" | "courses" | "sessions";
-type ArchiveSelectionKind = "semester" | "course" | "thread";
+type ArchiveFilter = "all" | "semesters" | "courses" | "tasks" | "sessions";
+type ArchiveSelectionKind = "semester" | "course" | "task" | "thread";
 type ArchiveSelectionKey = `${ArchiveSelectionKind}:${string}`;
 
 interface ArchiveSelectionTarget {
@@ -1846,6 +1850,7 @@ const archiveFilters: Array<{ value: ArchiveFilter; label: string }> = [
   { value: "all", label: "全部" },
   { value: "semesters", label: "学期" },
   { value: "courses", label: "课程" },
+  { value: "tasks", label: "任务" },
   { value: "sessions", label: "会话" },
 ];
 
@@ -1882,14 +1887,16 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       const semesters = [...activeSemesters, ...archivedSemesters].sort(compareSemestersForArchive);
       const nextGroups = await Promise.all(
         semesters.map(async (item) => {
-          const [archivedCourses, archivedThreads] = await Promise.all([
+          const [courses, archivedCourses, archivedTasks, archivedThreads] = await Promise.all([
+            window.brevyn.courses.listForArchive({ semesterId: item.id }),
             window.brevyn.courses.listArchived({ semesterId: item.id }),
+            window.brevyn.tasks.listArchived({ semesterId: item.id }),
             window.brevyn.threads.listArchived({ semesterId: item.id }),
           ]);
-          return { semester: item, archivedCourses, archivedThreads };
+          return { semester: item, courses, archivedCourses, archivedTasks, archivedThreads };
         }),
       );
-      setGroups(nextGroups.filter((group) => group.semester.archivedAt || group.archivedCourses.length > 0 || group.archivedThreads.length > 0));
+      setGroups(nextGroups.filter((group) => group.semester.archivedAt || group.archivedCourses.length > 0 || group.archivedTasks.length > 0 || group.archivedThreads.length > 0));
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -1974,6 +1981,44 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
     }
   }
 
+  async function restoreTask(task: BrevynTask, blocked: boolean) {
+    if (blocked) {
+      setError("请先恢复父级学期或课程，再恢复这个任务。");
+      return;
+    }
+    setBusyKey(`task:restore:${task.id}`);
+    setError("");
+    try {
+      await window.brevyn.tasks.restore(task.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "恢复任务失败。"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
+  async function deleteTask(task: BrevynTask) {
+    const ok = await confirm({
+      title: `永久删除“${task.title}”？`,
+      message: "这会删除该任务的文件夹、会话、文件记录、时间表关联和 RAG 索引。删除后无法恢复。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusyKey(`task:delete:${task.id}`);
+    setError("");
+    try {
+      await window.brevyn.tasks.delete(task.id);
+      await afterMutation();
+    } catch (reason) {
+      setError(errorMessage(reason, "删除任务失败。"));
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function restoreThread(thread: Thread, blocked: boolean) {
     if (blocked) {
       setError("请先恢复父级学期或课程，再恢复这个会话。");
@@ -2031,6 +2076,8 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
           await window.brevyn.semester.delete(target.id);
         } else if (target.kind === "course") {
           await window.brevyn.courses.delete(target.id);
+        } else if (target.kind === "task") {
+          await window.brevyn.tasks.delete(target.id);
         } else {
           await window.brevyn.threads.delete(target.id);
         }
@@ -2046,6 +2093,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
 
   const archivedSemesterCount = groups.filter((group) => group.semester.archivedAt).length;
   const archivedCourseCount = groups.reduce((count, group) => count + group.archivedCourses.length, 0);
+  const archivedTaskCount = groups.reduce((count, group) => count + group.archivedTasks.length, 0);
   const archivedThreadCount = groups.reduce((count, group) => count + group.archivedThreads.length, 0);
   const filteredGroups = useMemo(() => filterArchiveGroups(groups, query, filter), [filter, groups, query]);
   const totalPages = Math.max(1, Math.ceil(filteredGroups.length / ARCHIVE_PAGE_SIZE));
@@ -2103,14 +2151,15 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
               归档中心
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">
-              恢复已归档的学期、课程和会话。永久删除只对已归档内容开放。
+              恢复已归档的学期、课程、任务和会话。永久删除只对已归档内容开放。
             </div>
           </div>
           <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", loading && "animate-spin")} />} label="刷新" onClick={() => void loadArchive()} disabled={loading} />
         </div>
-        <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground md:grid-cols-3">
+        <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground md:grid-cols-4">
           <ArchiveMetric label="学期" value={archivedSemesterCount} />
           <ArchiveMetric label="课程" value={archivedCourseCount} />
+          <ArchiveMetric label="任务" value={archivedTaskCount} />
           <ArchiveMetric label="会话" value={archivedThreadCount} />
         </div>
         <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -2120,7 +2169,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
               className="h-9 w-full rounded-md border bg-card pl-8 pr-3 text-xs text-foreground outline-none transition focus:ring-2 focus:ring-ring/20"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="筛选已归档的学期、课程或会话"
+              placeholder="筛选已归档的学期、课程、任务或会话"
             />
           </label>
           <div className="flex shrink-0 flex-wrap gap-1">
@@ -2145,7 +2194,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
       {loading ? (
         <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">正在加载归档内容...</div>
       ) : groups.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">暂无已归档的学期、课程或会话。</div>
+        <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">暂无已归档的学期、课程、任务或会话。</div>
       ) : filteredGroups.length === 0 ? (
         <div className="rounded-lg border border-dashed bg-background/55 px-4 py-10 text-center text-xs text-muted-foreground">没有符合筛选条件的归档内容。</div>
       ) : (
@@ -2233,7 +2282,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                         </span>
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
-                        {group.semester.semesterNo} · {group.archivedCourses.length} 门已归档课程 · {group.archivedThreads.length} 个已归档会话
+                        {group.semester.semesterNo} · {group.archivedCourses.length} 门已归档课程 · {group.archivedTasks.length} 个已归档任务 · {group.archivedThreads.length} 个已归档会话
                       </div>
                     </div>
                   </div>
@@ -2266,7 +2315,14 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                   )}
 
                   {homeThreads.length > 0 && (
-                    <ArchivePanel icon={<MessageSquare className="h-3.5 w-3.5" />} title="主页会话" count={homeThreads.length}>
+                    <section className="rounded-lg border bg-background/65 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs font-semibold">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          主页会话
+                        </div>
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{homeThreads.length}</span>
+                      </div>
                       <div className="space-y-2">
                         {homeThreads.map((thread) => (
                           <ArchivedThreadRow
@@ -2281,7 +2337,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                           />
                         ))}
                       </div>
-                    </ArchivePanel>
+                    </section>
                   )}
 
                   {courseEntries.length > 0 && (
@@ -2316,14 +2372,18 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                                       <span className="min-w-0 max-w-full break-words text-xs font-semibold leading-5" title={entry.course?.name || entry.courseId}>{entry.course?.name || `课程 ${shortId(entry.courseId)}`}</span>
                                       {entry.course?.code && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{entry.course.code}</span>}
-                                      {courseArchived && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">已归档课程</span>}
+                                      {courseArchived ? (
+                                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">已归档课程</span>
+                                      ) : entry.course ? (
+                                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] uppercase text-emerald-700">活跃课程</span>
+                                      ) : null}
                                     </div>
                                     <div className="mt-1 text-[11px] text-muted-foreground">
-                                      {entry.threads.length} 个已归档会话 · {entry.course ? entry.course.instructor || "无教师信息" : "课程元数据未加载"}
+                                      {entry.tasks.length} 个已归档任务 · {entry.threads.length} 个已归档会话 · {entry.course ? entry.course.instructor || "无教师信息" : "课程元数据未加载"}
                                     </div>
                                   </div>
                                 </div>
-                                {entry.course && (
+                                {entry.course && courseArchived && (
                                   <div className="flex shrink-0 flex-wrap gap-2">
                                     <ArchiveActionButton
                                       icon={<RotateCcw className="h-3.5 w-3.5" />}
@@ -2343,10 +2403,22 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                                 )}
                               </div>
 
-                              {entry.threads.length > 0 && (
+                              {(entry.tasks.length > 0 || entry.threads.length > 0) && (
                                 <div className={cx("grid transition-[grid-template-rows] duration-200 ease-out", courseOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
                                   <div className="min-h-0 overflow-hidden">
                                     <div className="mt-3 space-y-2">
+                                      {entry.tasks.map((task) => (
+                                        <ArchivedTaskRow
+                                          key={task.id}
+                                          task={task}
+                                          restoreBlocked={restoreBlocked}
+                                          busyKey={busyKey}
+                                          selected={selectedKeys.has(archiveSelectionKey("task", task.id))}
+                                          onSelect={(checked) => toggleSelection(archiveSelectionKey("task", task.id), checked)}
+                                          onRestore={() => void restoreTask(task, restoreBlocked)}
+                                          onDelete={() => void deleteTask(task)}
+                                        />
+                                      ))}
                                       {entry.threads.map((thread) => (
                                         <ArchivedThreadRow
                                           key={thread.id}
@@ -2394,7 +2466,8 @@ function filterArchiveGroups(groups: ArchiveSemesterGroup[], query: string, filt
       );
       const semesterVisible = (filter === "all" || filter === "semesters") && semesterArchived && (!hasQuery || semesterMatches);
       const includeSessions = filter === "all" || filter === "sessions";
-      const includeCourses = filter === "all" || filter === "courses" || filter === "sessions";
+      const includeTasks = filter === "all" || filter === "tasks";
+      const includeCourses = filter === "all" || filter === "courses" || filter === "tasks" || filter === "sessions";
       const homeThreads = includeSessions
         ? group.archivedThreads
           .filter((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID)
@@ -2402,7 +2475,7 @@ function filterArchiveGroups(groups: ArchiveSemesterGroup[], query: string, filt
         : [];
       const courseEntries = includeCourses
         ? archiveCourseEntries(group)
-          .map((entry) => filterArchiveCourseEntry(entry, normalizedQuery, filter, hasQuery))
+          .map((entry) => filterArchiveCourseEntry(entry, normalizedQuery, filter, hasQuery, includeTasks, includeSessions))
           .filter((entry): entry is ArchiveCourseEntry => Boolean(entry))
         : [];
 
@@ -2416,26 +2489,42 @@ function filterArchiveGroups(groups: ArchiveSemesterGroup[], query: string, filt
     .filter((group) => group.semesterVisible || group.homeThreads.length > 0 || group.courseEntries.length > 0);
 }
 
-function filterArchiveCourseEntry(entry: ArchiveCourseEntry, query: string, filter: ArchiveFilter, hasQuery: boolean): ArchiveCourseEntry | null {
+function filterArchiveCourseEntry(entry: ArchiveCourseEntry, query: string, filter: ArchiveFilter, hasQuery: boolean, includeTasks: boolean, includeSessions: boolean): ArchiveCourseEntry | null {
   const courseMatches = archiveTextMatches(
     [entry.course?.name, entry.course?.code, entry.course?.instructor, entry.courseId],
     query,
   );
+  const matchingTasks = includeTasks ? entry.tasks.filter((task) => archiveTaskMatches(task, query)) : [];
   const matchingThreads = entry.threads.filter((thread) => archiveThreadMatches(thread, query));
 
+  const scopedEntry = {
+    ...entry,
+    tasks: includeTasks ? entry.tasks : [],
+    threads: includeSessions ? entry.threads : [],
+  };
+
+  if (filter === "tasks") {
+    if (!hasQuery) return entry.tasks.length ? { ...entry, tasks: entry.tasks, threads: [] } : null;
+    return matchingTasks.length ? { ...entry, tasks: matchingTasks, threads: [] } : null;
+  }
+
   if (filter === "sessions") {
-    if (!hasQuery) return entry.threads.length ? entry : null;
-    return matchingThreads.length ? { ...entry, threads: matchingThreads } : null;
+    if (!hasQuery) return entry.threads.length ? { ...entry, tasks: [], threads: entry.threads } : null;
+    return matchingThreads.length ? { ...entry, tasks: [], threads: matchingThreads } : null;
   }
 
   if (filter === "courses") {
-    return !hasQuery || courseMatches ? entry : null;
+    return !hasQuery || courseMatches ? { ...entry, tasks: [], threads: [] } : null;
   }
 
-  if (!hasQuery) return entry;
-  if (courseMatches) return entry;
-  if (matchingThreads.length) return { ...entry, threads: matchingThreads };
+  if (!hasQuery) return scopedEntry;
+  if (courseMatches) return scopedEntry;
+  if (matchingTasks.length || matchingThreads.length) return { ...entry, tasks: matchingTasks, threads: matchingThreads };
   return null;
+}
+
+function archiveTaskMatches(task: BrevynTask, query: string): boolean {
+  return archiveTextMatches([task.title, task.taskType, task.status, task.dueAt, task.id, task.courseId], query);
 }
 
 function archiveThreadMatches(thread: Thread, query: string): boolean {
@@ -2523,6 +2612,58 @@ function ArchivedThreadRow({
   );
 }
 
+function ArchivedTaskRow({
+  task,
+  restoreBlocked,
+  busyKey,
+  selected,
+  onSelect,
+  onRestore,
+  onDelete,
+}: {
+  task: BrevynTask;
+  restoreBlocked: boolean;
+  busyKey: string;
+  selected: boolean;
+  onSelect: (checked: boolean) => void;
+  onRestore: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/80 px-3 py-2">
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <ArchiveCheckbox checked={selected} label={`选择任务 ${task.title}`} onChange={onSelect} />
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="break-words text-xs font-medium leading-5" title={task.title}>{task.title}</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{task.taskType}</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{displayArchivedTaskStatus(task.status)}</span>
+          </div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            任务 · {shortId(task.id)} · 归档于 {formatArchiveDate(task.archivedAt)}
+          </div>
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <ArchiveActionButton
+          icon={<RotateCcw className="h-3.5 w-3.5" />}
+          label="恢复"
+          disabled={restoreBlocked}
+          busy={busyKey === `task:restore:${task.id}`}
+          onClick={onRestore}
+        />
+        <ArchiveActionButton
+          icon={<Trash2 className="h-3.5 w-3.5" />}
+          label="删除"
+          danger
+          busy={busyKey === `task:delete:${task.id}`}
+          onClick={onDelete}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ArchiveCheckbox({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
   return (
     <button
@@ -2576,12 +2717,18 @@ function ArchiveActionButton({
 
 function archiveCourseEntries(group: ArchiveSemesterGroup): ArchiveCourseEntry[] {
   const entries = new Map<string, ArchiveCourseEntry>();
+  const coursesById = new Map(group.courses.map((course) => [course.id, course]));
   for (const course of group.archivedCourses) {
-    entries.set(course.id, { courseId: course.id, course, threads: [] });
+    entries.set(course.id, { courseId: course.id, course, tasks: [], threads: [] });
+  }
+  for (const task of group.archivedTasks) {
+    const existing = entries.get(task.courseId) || { courseId: task.courseId, course: coursesById.get(task.courseId), tasks: [], threads: [] };
+    existing.tasks.push(task);
+    entries.set(task.courseId, existing);
   }
   for (const thread of group.archivedThreads) {
     if (thread.courseId === SEMESTER_HOME_COURSE_ID) continue;
-    const existing = entries.get(thread.courseId) || { courseId: thread.courseId, threads: [] };
+    const existing = entries.get(thread.courseId) || { courseId: thread.courseId, course: coursesById.get(thread.courseId), tasks: [], threads: [] };
     existing.threads.push(thread);
     entries.set(thread.courseId, existing);
   }
@@ -2635,6 +2782,16 @@ function archiveSelectionTargets(groups: ArchiveDisplayGroup[]): ArchiveSelectio
           courseId: entry.courseId,
         });
       }
+      for (const task of entry.tasks) {
+        targets.push({
+          key: archiveSelectionKey("task", task.id),
+          kind: "task",
+          id: task.id,
+          label: task.title,
+          semesterId: group.semester.id,
+          courseId: task.courseId,
+        });
+      }
     }
     return targets;
   });
@@ -2646,7 +2803,7 @@ function compactArchiveSelection(targets: ArchiveSelectionTarget[]): ArchiveSele
   return targets.filter((target) => {
     if (target.kind === "semester") return true;
     if (selectedSemesterIds.has(target.semesterId)) return false;
-    if (target.kind === "thread" && target.courseId && selectedCourseIds.has(target.courseId)) return false;
+    if ((target.kind === "task" || target.kind === "thread") && target.courseId && selectedCourseIds.has(target.courseId)) return false;
     return true;
   });
 }
@@ -2662,6 +2819,13 @@ function formatArchiveDate(value?: string): string {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return value;
   return new Date(parsed).toLocaleDateString("zh-CN", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function displayArchivedTaskStatus(status: BrevynTask["status"]): string {
+  if (status === "in_progress") return "进行中";
+  if (status === "due_soon") return "即将截止";
+  if (status === "done") return "已完成";
+  return "未开始";
 }
 
 function shortId(value: string): string {

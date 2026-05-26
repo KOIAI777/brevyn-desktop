@@ -125,6 +125,7 @@ function App() {
           onArchiveThread={(thread) => {
             void workspace.archiveThread(thread);
           }}
+          onArchiveTask={workspace.archiveTask}
           emptyThreadIds={workspace.emptyThreadIds}
           onRenameThread={workspace.renameThread}
           onCreateThread={workspace.createThread}

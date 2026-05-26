@@ -5,6 +5,7 @@ import type { Course, Thread, BrevynTask } from "@/types/domain";
 import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { cx } from "@/lib/cn";
 import { formatRelative } from "@/lib/workspace-files";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
 
@@ -24,6 +25,7 @@ export function WorkspaceSidebar({
   onSelectTask,
   onSelectThread,
   onArchiveThread,
+  onArchiveTask,
   onRenameThread,
   onCreateThread,
   onOpenCourses,
@@ -46,6 +48,7 @@ export function WorkspaceSidebar({
   onSelectTask: (courseId: string, taskId: string) => void;
   onSelectThread: (thread: Thread) => void;
   onArchiveThread: (thread: Thread) => void;
+  onArchiveTask: (task: BrevynTask) => Promise<void> | void;
   onRenameThread: (thread: Thread, title: string) => Promise<void>;
   onCreateThread: (courseId?: string, taskId?: string) => void;
   onOpenCourses: () => void;
@@ -58,14 +61,35 @@ export function WorkspaceSidebar({
   const [homeOpen, setHomeOpen] = useState(true);
   const [threadMenu, setThreadMenu] = useState<ThreadContextMenuState | null>(null);
   const [renamingThreadId, setRenamingThreadId] = useState("");
+  const [archivingTaskId, setArchivingTaskId] = useState("");
+  const { confirm, confirmDialog } = useConfirmDialog();
   const recentThreads = [...threads].sort(compareThreadsByUpdatedAtDesc).slice(0, 8);
   const homeCourse = courses.find((course) => course.workspaceKind === "semester_home");
   const courseList = courses.filter((course) => course.workspaceKind !== "semester_home");
   const canCreateThread = activeCourseId === homeCourse?.id || Boolean(activeTaskId);
 
+  async function archiveTaskFromSidebar(task: BrevynTask) {
+    const ok = await confirm({
+      title: `归档「${task.title}」？`,
+      message: "该任务和它的会话会从侧边栏隐藏，文件不会删除。你可以在课程管理里恢复。",
+      confirmLabel: "归档",
+      cancelLabel: "保留",
+    });
+    if (!ok) return;
+    setArchivingTaskId(task.id);
+    try {
+      await onArchiveTask(task);
+    } catch {
+      // Workspace controller surfaces the error in the main shell banner.
+    } finally {
+      setArchivingTaskId("");
+    }
+  }
+
   if (collapsed) {
     return (
       <aside className="flex w-14 shrink-0 flex-col items-center overflow-hidden rounded-lg border bg-card/85 py-2 shadow-sm ring-1 ring-border/60 transition-[width,opacity,transform] duration-200">
+        {confirmDialog}
         <button className="no-drag flex h-9 w-9 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Expand sidebar">
           <PanelLeftOpen className="h-4 w-4" />
         </button>
@@ -123,6 +147,7 @@ export function WorkspaceSidebar({
       )}
       style={{ width }}
     >
+      {confirmDialog}
       <button
         type="button"
         className="absolute right-0 top-0 z-10 h-full w-3 cursor-col-resize touch-none bg-transparent focus:outline-none"
@@ -249,7 +274,7 @@ export function WorkspaceSidebar({
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
                     const taskThreads = threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id);
                     return (
-                      <div key={task.id}>
+                      <div key={task.id} className="group/task">
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -277,6 +302,15 @@ export function WorkspaceSidebar({
                             onClick={() => onCreateThread(course.id, task.id)}
                           >
                             <Plus className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition group-hover/task:opacity-100 hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                            title="归档任务"
+                            disabled={archivingTaskId === task.id}
+                            onClick={() => void archiveTaskFromSidebar(task)}
+                          >
+                            <Archive className="h-3 w-3" />
                           </button>
                         </div>
                         {taskOpen && taskThreads.length > 0 && (

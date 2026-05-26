@@ -74,6 +74,11 @@ export interface ArchivedCourseScope {
   semesterId?: string;
 }
 
+export interface ArchivedTaskScope {
+  semesterId?: string;
+  courseId?: string;
+}
+
 /**
  * Task type is user-defined free-form string (e.g. "assignment", "exam", "读书报告", "小组项目").
  * It's a business label for display, filtering, icons, and section titles.
@@ -94,6 +99,7 @@ export interface BrevynTask {
   status: TaskStatus;
   dueAt?: string;
   summary: string;
+  archivedAt?: string;
 }
 
 export interface Thread {
@@ -951,6 +957,7 @@ export interface BrevynAPI {
   };
   courses: {
     list: () => Promise<Course[]>;
+    listForArchive: (scope?: ArchivedCourseScope) => Promise<Course[]>;
     listArchived: (scope?: ArchivedCourseScope) => Promise<Course[]>;
     create: (input: CreateCourseInput) => Promise<Course>;
     update: (input: UpdateCourseInput) => Promise<Course>;
@@ -960,8 +967,11 @@ export interface BrevynAPI {
   };
   tasks: {
     list: (courseId: string) => Promise<BrevynTask[]>;
+    listArchived: (scope?: ArchivedTaskScope) => Promise<BrevynTask[]>;
     create: (input: CreateTaskInput) => Promise<BrevynTask>;
     update: (input: UpdateTaskInput) => Promise<BrevynTask>;
+    archive: (taskId: string) => Promise<BrevynTask>;
+    restore: (taskId: string) => Promise<BrevynTask>;
     delete: (taskId: string) => Promise<boolean>;
   };
   threads: {

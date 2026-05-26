@@ -34,6 +34,7 @@ import {
   formatSize,
   kindForPath,
   removeFileFromTree,
+  removeTaskFromTree,
 } from "./workspace-file-tree";
 import {
   SEMESTER_HOME_COURSE_ID,
@@ -106,10 +107,12 @@ export class FileService {
       const archivedCourseIds = new Set(archivedCourseIdsForSemester(this.options.businessStore, semesterId));
       const courseRoots = this.options.businessStore.listWorkspaceFiles(semesterId)
         .filter((file) => file.courseId !== SEMESTER_HOME_COURSE_ID && !archivedCourseIds.has(file.courseId) && file.kind === "folder");
+      const visibleCourseRoots = cloneFiles(courseRoots);
+      this.hideArchivedTaskNodes(visibleCourseRoots, semesterId);
       return [
         {
           ...semesterClone,
-          children: [...(semesterClone.children || []), ...cloneFiles(courseRoots)],
+          children: [...(semesterClone.children || []), ...visibleCourseRoots],
         },
       ];
     }
@@ -695,6 +698,7 @@ export class FileService {
       timestamp: now(),
     });
     if (before !== JSON.stringify(roots)) this.persistWorkspaceFilesForCourse(courseId, roots, semesterId);
+    this.hideArchivedTaskNodes(roots, semesterId, courseId);
     return roots;
   }
 
@@ -716,6 +720,17 @@ export class FileService {
 
   private loadCourseRoots(courseId: string, semesterId: string): WorkspaceFileNode[] {
     return cloneFiles(this.options.businessStore.listWorkspaceFiles(semesterId, courseId).filter((file) => file.kind === "folder"));
+  }
+
+  private hideArchivedTaskNodes(roots: WorkspaceFileNode[], semesterId: string, courseId?: string): void {
+    const courseIds = courseId
+      ? [courseId]
+      : Array.from(new Set(roots.map((root) => root.courseId).filter((id): id is string => Boolean(id && id !== SEMESTER_HOME_COURSE_ID))));
+    for (const id of courseIds) {
+      for (const task of this.options.businessStore.listArchivedTasks(semesterId, id)) {
+        removeTaskFromTree(roots, task.id);
+      }
+    }
   }
 
   private syncManagedDiskFiles(courseId: string, semesterId: string): boolean {

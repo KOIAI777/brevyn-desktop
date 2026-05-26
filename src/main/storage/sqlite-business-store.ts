@@ -107,6 +107,7 @@ export class SQLiteBusinessStore {
   listTasks(semesterId?: string, courseId?: string): BrevynTask[] {
     const where: string[] = [];
     const params: unknown[] = [];
+    where.push("archived_at is null");
     if (semesterId) {
       where.push("semester_id = ?");
       params.push(semesterId);
@@ -117,6 +118,21 @@ export class SQLiteBusinessStore {
     }
     const sql = `select * from tasks${where.length ? ` where ${where.join(" and ")}` : ""} order by updated_at desc`;
     return this.all(sql, ...params).map(rowToTask);
+  }
+
+  listArchivedTasks(semesterId: string, courseId?: string): BrevynTask[] {
+    const where = ["semester_id = ?", "archived_at is not null"];
+    const params: unknown[] = [semesterId];
+    if (courseId) {
+      where.push("course_id = ?");
+      params.push(courseId);
+    }
+    return this.all(
+      `select * from tasks
+       where ${where.join(" and ")}
+       order by archived_at desc, updated_at desc`,
+      ...params,
+    ).map(rowToTask);
   }
 
   getTask(taskId: string): BrevynTask | null {
@@ -445,6 +461,17 @@ export class SQLiteBusinessStore {
       input.id,
     );
     return this.getTask(input.id);
+  }
+
+  archiveTask(taskId: string, archivedAt = now()): BrevynTask | null {
+    this.run("update tasks set archived_at = ?, updated_at = ? where id = ?", archivedAt, archivedAt, taskId);
+    return this.getTask(taskId);
+  }
+
+  restoreTask(taskId: string): BrevynTask | null {
+    const timestamp = now();
+    this.run("update tasks set archived_at = null, updated_at = ? where id = ?", timestamp, taskId);
+    return this.getTask(taskId);
   }
 
   deleteTaskDeep(taskId: string): boolean {
@@ -1014,8 +1041,8 @@ export class SQLiteBusinessStore {
   private insertTask(task: BrevynTask): void {
     const timestamp = now();
     this.run(
-      `insert or replace into tasks(id, semester_id, course_id, title, task_type, due_at, status, raw_json, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert or replace into tasks(id, semester_id, course_id, title, task_type, due_at, status, archived_at, raw_json, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       task.id,
       task.semesterId ?? "",
       task.courseId,
@@ -1023,6 +1050,7 @@ export class SQLiteBusinessStore {
       task.taskType,
       task.dueAt ?? null,
       task.status,
+      task.archivedAt ?? null,
       json(task),
       timestamp,
       timestamp,
@@ -1282,6 +1310,7 @@ export class SQLiteBusinessStore {
           task_type text not null,
           due_at text,
           status text not null default 'not_started',
+          archived_at text,
           raw_json text not null default '{}',
           created_at text not null,
           updated_at text not null
@@ -1377,7 +1406,7 @@ export class SQLiteBusinessStore {
         );
 
         create index if not exists idx_courses_semester on courses(semester_id);
-        create index if not exists idx_tasks_course on tasks(course_id);
+        create index if not exists idx_tasks_course on tasks(course_id, archived_at, updated_at);
         create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
         create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
         create index if not exists idx_files_scope on workspace_files(semester_id, course_id, task_id, section_kind);
@@ -1395,6 +1424,7 @@ export class SQLiteBusinessStore {
     this.dropThreadJsonlPathColumn();
     this.ensureColumn("semesters", "archived_at", "text");
     this.ensureColumn("courses", "archived_at", "text");
+    this.ensureColumn("tasks", "archived_at", "text");
     this.ensureColumn("indexing_jobs", "stage", "text");
     this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
@@ -1490,14 +1520,15 @@ export class SQLiteBusinessStore {
           task_type text not null,
           due_at text,
           status text not null default 'not_started',
+          archived_at text,
           raw_json text not null default '{}',
           created_at text not null,
           updated_at text not null
         );
       `);
       this.run(
-        `insert into tasks_without_workspace_path(id, semester_id, course_id, title, task_type, due_at, status, raw_json, created_at, updated_at)
-         select id, semester_id, course_id, title, task_type, due_at, coalesce(status, 'not_started'), coalesce(raw_json, '{}'), created_at, updated_at
+        `insert into tasks_without_workspace_path(id, semester_id, course_id, title, task_type, due_at, status, archived_at, raw_json, created_at, updated_at)
+         select id, semester_id, course_id, title, task_type, due_at, coalesce(status, 'not_started'), archived_at, coalesce(raw_json, '{}'), created_at, updated_at
          from tasks`,
       );
       this.db.exec(`
@@ -1583,6 +1614,7 @@ function rowToTask(row: Row): BrevynTask {
     taskType: stringValue(row.task_type) as TaskType,
     dueAt: nullableString(row.due_at),
     status: stringValue(row.status) as TaskStatus,
+    archivedAt: nullableString(row.archived_at),
   };
 }
 
