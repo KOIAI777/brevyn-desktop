@@ -237,6 +237,7 @@ export function WorkspaceSidebar({
         {courseList.map((course) => {
           const courseTasks = tasksByCourse[course.id] || [];
           const courseOpen = openCourses[course.id] ?? course.id === activeCourseId;
+          const toggleCourseOpen = () => setOpenCourses((current) => ({ ...current, [course.id]: !courseOpen }));
 
           return (
             <div key={course.id} className="mb-2">
@@ -245,7 +246,7 @@ export function WorkspaceSidebar({
                   type="button"
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                   title={courseOpen ? `Collapse ${course.name}` : `Expand ${course.name}`}
-                  onClick={() => setOpenCourses((current) => ({ ...current, [course.id]: !courseOpen }))}
+                  onClick={toggleCourseOpen}
                 >
                   <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", courseOpen && "rotate-90")} />
                 </button>
@@ -254,7 +255,10 @@ export function WorkspaceSidebar({
                     "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors",
                     course.id === activeCourseId && !activeTaskId ? "bg-muted text-foreground ring-1 ring-border/70" : "text-foreground hover:bg-accent/70",
                   )}
-                  onClick={() => onSelectHome(course.id)}
+                  onClick={() => {
+                    onSelectHome(course.id);
+                    toggleCourseOpen();
+                  }}
                 >
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f`, boxShadow: `inset 0 0 0 1px ${course.color}33` }}>
                     <CourseIcon course={course} className="h-3.5 w-3.5" />
