@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
@@ -14,6 +14,7 @@ import {
   userText,
 } from "@/components/agent/agentTimelineModel";
 import { useAgentThreadPanelState } from "@/components/agent/useAgentThreadPanelState";
+import { useAgentScrollState } from "@/components/agent/useAgentScrollState";
 import type { AgentTimelineTurnEntry, AgentTimelineViewItem } from "@/components/agent/useAgentTimelineState";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
@@ -63,12 +64,12 @@ export function AgentThreadPanel({
   skills,
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
+  const [timelineReady, setTimelineReady] = useState(false);
+  const scrollApiRef = useRef({
+    isFollowingOutput: true,
+    scrollToBottom: (_behavior: ScrollBehavior) => {},
+  });
   const {
-    scrollRef,
-    contentRef,
-    composerDockRef,
-    timelineBottomInset,
-    isFollowingOutput,
     permissionMode,
     timelineRecords,
     timelineGroups,
@@ -79,13 +80,13 @@ export function AgentThreadPanel({
     queuedMessages,
     sendingQueuedMessageIds,
     autoCompactThresholdPercent,
+    scrollTransitioning,
     setPermissionMode,
     handleCompact,
     queueMessage,
     deleteQueuedMessage,
     sendQueuedMessage,
     toggleProcessCollapsed,
-    scrollToBottom,
   } = useAgentThreadPanelState({
     thread,
     records,
@@ -97,76 +98,77 @@ export function AgentThreadPanel({
     onRun,
     onRunForThread,
   });
+  useEffect(() => {
+    setTimelineReady(false);
+  }, [thread.id]);
 
-  async function handleRun(
+  useEffect(() => {
+    if (loading) {
+      setTimelineReady(false);
+      return;
+    }
+    if (timelineReady) return;
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (!cancelled) setTimelineReady(true);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [loading, thread.id, timelineReady]);
+
+  const handleRun = useCallback(async (
     prompt: string,
     nextPermissionMode: AgentPermissionMode = "auto",
     attachments?: AgentAttachment[],
     providerSelection?: { providerId?: string; modelId?: string },
     mentionedSkills?: string[],
-  ): Promise<void> {
-    const shouldPushLayout = isFollowingOutput;
+  ): Promise<void> => {
+    const shouldPushLayout = scrollApiRef.current.isFollowingOutput;
     const runPromise = onRun(prompt, nextPermissionMode, attachments, providerSelection, mentionedSkills);
     if (shouldPushLayout) {
-      window.requestAnimationFrame(() => scrollToBottom("smooth"));
+      window.requestAnimationFrame(() => scrollApiRef.current.scrollToBottom("smooth"));
     }
     await runPromise;
-  }
+  }, [onRun]);
+
+  const handleScrollApiReady = useCallback((api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => {
+    scrollApiRef.current = api;
+  }, []);
+
+  const handleToggleItemProcess = useCallback((item: AgentTimelineViewItem) => {
+    toggleProcessCollapsed(item.processKey, item.defaultCollapsed, item.processLockedOpen);
+  }, [toggleProcessCollapsed]);
+
+  const handleCompactRequest = useCallback(() => {
+    void handleCompact();
+  }, [handleCompact]);
 
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
     <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
-    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(247,244,236,0.62))]">
-      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-5 [overflow-anchor:none] [scrollbar-gutter:stable]" style={{ paddingBottom: timelineBottomInset }}>
-        <div ref={contentRef} className="min-h-full">
-          {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading session timeline
-            </div>
-          ) : timelineRecords.length === 0 ? (
-            <EmptyThreadWelcome thread={thread} />
-          ) : (
-            <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-3`}>
-              {timelineGroups.map((group) => (
-                <div
-                  key={group.key}
-                  className="timeline-group min-w-0"
-                >
-                  <AgentTimelineGroup
-                    group={group}
-                    agentProviders={agentProviders}
-                    onToggleItemProcess={(item) => toggleProcessCollapsed(item.processKey, item.defaultCollapsed, item.processLockedOpen)}
-                    onApprove={onApprove}
-                    onReject={onReject}
-                    onAnswerQuestion={onAnswerQuestion}
-                    onResolveExitPlan={onResolveExitPlan}
-                    onCompact={() => void handleCompact()}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {!isFollowingOutput && (
-        <button
-          type="button"
-          className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-card/92 text-muted-foreground shadow-[0_12px_34px_rgba(64,55,38,0.16)] ring-1 ring-border/50 backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
-          style={{ bottom: timelineBottomInset + 10 }}
-          onClick={() => scrollToBottom("smooth")}
-          title="回到底部"
-          aria-label="回到底部"
-        >
-          <ChevronDown className="h-4 w-4" />
-        </button>
-      )}
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(247,244,236,0.62))]">
+      <AgentTimelineScrollArea
+        thread={thread}
+        loading={loading}
+        timelineReady={timelineReady}
+        scrollTransitioning={scrollTransitioning}
+        timelineRecords={timelineRecords}
+        timelineGroups={timelineGroups}
+        agentProviders={agentProviders}
+        onToggleItemProcess={handleToggleItemProcess}
+        onApprove={onApprove}
+        onReject={onReject}
+        onAnswerQuestion={onAnswerQuestion}
+        onResolveExitPlan={onResolveExitPlan}
+        onCompact={handleCompactRequest}
+        onScrollApiReady={handleScrollApiReady}
+      />
 
       {error && <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">{error}</div>}
 
       <AgentComposer
-        dockRef={composerDockRef}
         todos={todos}
         queuedMessages={queuedMessages}
         sendingQueuedMessageIds={sendingQueuedMessageIds}
@@ -184,7 +186,7 @@ export function AgentThreadPanel({
         onSendQueuedMessage={sendQueuedMessage}
         onDeleteQueuedMessage={deleteQueuedMessage}
         onStop={onStop}
-        onCompact={() => void handleCompact()}
+        onCompact={handleCompactRequest}
         onSelectProvider={onSelectProvider}
         files={files}
         skills={skills}
@@ -194,6 +196,104 @@ export function AgentThreadPanel({
     </AgentThreadIdContext.Provider>
   );
 }
+
+const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
+  thread,
+  loading,
+  timelineReady,
+  scrollTransitioning,
+  timelineRecords,
+  timelineGroups,
+  agentProviders,
+  onToggleItemProcess,
+  onApprove,
+  onReject,
+  onAnswerQuestion,
+  onResolveExitPlan,
+  onCompact,
+  onScrollApiReady,
+}: {
+  thread: Thread;
+  loading: boolean;
+  timelineReady: boolean;
+  scrollTransitioning: boolean;
+  timelineRecords: ReturnType<typeof useAgentThreadPanelState>["timelineRecords"];
+  timelineGroups: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"];
+  agentProviders: ModelProviderConfig[];
+  onToggleItemProcess: (item: AgentTimelineViewItem) => void;
+  onApprove: (requestId: string) => Promise<void>;
+  onReject: (requestId: string) => Promise<void>;
+  onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+  onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+  onCompact: () => void;
+  onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
+}) {
+  const {
+    scrollRef,
+    contentRef,
+    isFollowingOutput,
+    scrollToBottom,
+  } = useAgentScrollState(thread.id, {
+    ready: !loading,
+    transitioning: scrollTransitioning,
+  });
+
+  useEffect(() => {
+    onScrollApiReady({ isFollowingOutput, scrollToBottom });
+  }, [isFollowingOutput, onScrollApiReady, scrollToBottom]);
+
+  return (
+    <>
+      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[12rem] pt-5 [overflow-anchor:none] [scrollbar-gutter:stable]">
+        <div
+          ref={contentRef}
+          className={`min-h-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}
+        >
+          {loading ? (
+            <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading session timeline
+            </div>
+          ) : timelineRecords.length === 0 ? (
+            <EmptyThreadWelcome thread={thread} />
+          ) : (
+            <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-3`}>
+              {timelineGroups.map((group) => (
+                <div
+                  key={group.key}
+                  className="timeline-group min-w-0 [contain:layout_paint_style]"
+                >
+                  <AgentTimelineGroup
+                    group={group}
+                    agentProviders={agentProviders}
+                    onToggleItemProcess={onToggleItemProcess}
+                    onApprove={onApprove}
+                    onReject={onReject}
+                    onAnswerQuestion={onAnswerQuestion}
+                    onResolveExitPlan={onResolveExitPlan}
+                    onCompact={onCompact}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {!isFollowingOutput && (
+        <button
+          type="button"
+          className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-card/95 text-muted-foreground shadow-[0_10px_28px_rgba(64,55,38,0.14)] ring-1 ring-border/50 transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
+          style={{ bottom: 208 }}
+          onClick={() => scrollToBottom("smooth")}
+          title="回到底部"
+          aria-label="回到底部"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      )}
+    </>
+  );
+});
 
 function ProcessTimelinePanel({
   summary,
@@ -274,7 +374,7 @@ function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string;
   };
 }
 
-function AgentTimelineGroup({
+const AgentTimelineGroup = memo(function AgentTimelineGroup({
   group,
   agentProviders,
   onToggleItemProcess,
@@ -330,6 +430,38 @@ function AgentTimelineGroup({
       onCompact={onCompact}
     />
   );
+}, areAgentTimelineGroupPropsEqual);
+
+function areAgentTimelineGroupPropsEqual(
+  previous: {
+    group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
+    agentProviders: ModelProviderConfig[];
+    onToggleItemProcess: (item: AgentTimelineViewItem) => void;
+    onApprove: (requestId: string) => Promise<void>;
+    onReject: (requestId: string) => Promise<void>;
+    onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+    onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+    onCompact: () => void;
+  },
+  next: {
+    group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
+    agentProviders: ModelProviderConfig[];
+    onToggleItemProcess: (item: AgentTimelineViewItem) => void;
+    onApprove: (requestId: string) => Promise<void>;
+    onReject: (requestId: string) => Promise<void>;
+    onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
+    onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
+    onCompact: () => void;
+  },
+): boolean {
+  return previous.group === next.group
+    && previous.agentProviders === next.agentProviders
+    && previous.onToggleItemProcess === next.onToggleItemProcess
+    && previous.onApprove === next.onApprove
+    && previous.onReject === next.onReject
+    && previous.onAnswerQuestion === next.onAnswerQuestion
+    && previous.onResolveExitPlan === next.onResolveExitPlan
+    && previous.onCompact === next.onCompact;
 }
 
 function UserTimelineGroup({ item }: { item: AgentTimelineViewItem }) {

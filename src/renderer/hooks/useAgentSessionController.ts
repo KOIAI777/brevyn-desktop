@@ -52,6 +52,7 @@ export function useAgentSessionController({
   const onWriteToolCompletedRef = useRef(onWriteToolCompleted);
 
   const [records, setRecords] = useState<BrevynAgentTimelineRecord[]>([]);
+  const [recordsThreadId, setRecordsThreadId] = useState("");
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -73,6 +74,7 @@ export function useAgentSessionController({
       const nextRecords = await window.brevyn.agent.messages(threadId);
       if (!mountedRef.current || agentLoadRequestRef.current !== requestId || activeThreadIdRef.current !== threadId) return false;
       setRecords(nextRecords);
+      setRecordsThreadId(threadId);
       const openRun = hasOpenAgentRun(nextRecords);
       runningRef.current = openRun;
       setRunning(openRun);
@@ -85,6 +87,7 @@ export function useAgentSessionController({
       if (mountedRef.current && agentLoadRequestRef.current === requestId) {
         setError(errorMessage(loadError, "Failed to load agent timeline."));
         setRecords([]);
+        setRecordsThreadId(threadId);
         runningRef.current = false;
         setRunning(false);
       }
@@ -127,6 +130,7 @@ export function useAgentSessionController({
     if ((isActiveThread && runningRef.current) || runInFlightByThreadRef.current.has(threadId)) return;
     if (isActiveThread) {
       setError("");
+      setRecordsThreadId(threadId);
       runningRef.current = true;
       setRunning(true);
     }
@@ -316,6 +320,7 @@ export function useAgentSessionController({
     if (!activeThreadId) {
       agentLoadRequestRef.current += 1;
       setRecords([]);
+      setRecordsThreadId("");
       setLoading(false);
       runningRef.current = false;
       setRunning(false);
@@ -326,8 +331,8 @@ export function useAgentSessionController({
   }, [activeThreadId, loadMessages]);
 
   return {
-    records,
-    loading,
+    records: recordsThreadId === activeThreadId ? records : [],
+    loading: loading || recordsThreadId !== activeThreadId,
     running,
     error,
     providers,

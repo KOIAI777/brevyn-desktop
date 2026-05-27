@@ -1,36 +1,51 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { RefCallback, RefObject } from "react";
+import type { RefCallback } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 
 export interface AgentScrollState {
   scrollRef: RefCallback<HTMLDivElement>;
   contentRef: RefCallback<HTMLDivElement>;
-  composerDockRef: RefObject<HTMLDivElement>;
-  timelineBottomInset: number;
   isFollowingOutput: boolean;
   scrollToBottom: (behavior: ScrollBehavior) => void;
 }
 
+interface UseAgentScrollStateOptions {
+  ready?: boolean;
+  transitioning?: boolean;
+}
+
 const scrollPositionByThread = new Map<string, number>();
 
-export function useAgentScrollState(threadId: string): AgentScrollState {
+export function useAgentScrollState(threadId: string, options: UseAgentScrollStateOptions = {}): AgentScrollState {
+  const ready = options.ready ?? true;
+  const transitioning = options.transitioning ?? false;
   const sticky = useStickToBottom({
     initial: "instant",
-    resize: "instant",
+    resize: ready && !transitioning ? "smooth" : "instant",
   });
-  const composerDockRef = useRef<HTMLDivElement>(null);
+  const scrollToBottomRef = useRef(sticky.scrollToBottom);
+  const stopScrollRef = useRef(sticky.stopScroll);
   const restoredThreadRef = useRef("");
-  const [timelineBottomInset, setTimelineBottomInset] = useState(224);
+  const restoredRef = useRef(false);
+
+  scrollToBottomRef.current = sticky.scrollToBottom;
+  stopScrollRef.current = sticky.stopScroll;
 
   useLayoutEffect(() => {
+    if (!ready) return;
     const node = sticky.scrollRef.current as HTMLDivElement | null;
     if (!node) return;
-    if (restoredThreadRef.current === threadId) return;
+    if (restoredThreadRef.current !== threadId) {
+      restoredThreadRef.current = "";
+      restoredRef.current = false;
+    }
+    if (restoredRef.current) return;
     restoredThreadRef.current = threadId;
+    restoredRef.current = true;
 
     const savedDistance = scrollPositionByThread.get(threadId);
     if (typeof savedDistance === "number" && savedDistance > 16) {
-      sticky.stopScroll();
+      stopScrollRef.current();
       const restore = () => {
         const nextTop = node.scrollHeight - node.clientHeight - savedDistance;
         node.scrollTop = Math.max(0, nextTop);
@@ -40,10 +55,11 @@ export function useAgentScrollState(threadId: string): AgentScrollState {
       return () => window.cancelAnimationFrame(frame);
     }
 
-    void sticky.scrollToBottom({ animation: "instant", ignoreEscapes: true });
-  }, [sticky, threadId]);
+    void scrollToBottomRef.current({ animation: "instant", ignoreEscapes: true });
+  }, [ready, sticky.scrollRef, threadId]);
 
   useEffect(() => {
+    if (!ready || !restoredRef.current) return;
     const node = sticky.scrollRef.current as HTMLDivElement | null;
     if (!node) return;
     let frame = 0;
@@ -61,41 +77,18 @@ export function useAgentScrollState(threadId: string): AgentScrollState {
       node.removeEventListener("scroll", savePosition);
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [sticky.scrollRef, threadId]);
+  }, [ready, sticky.scrollRef, threadId]);
 
-  useEffect(() => {
-    const dock = composerDockRef.current;
-    if (!dock) return;
-
-    const updateInset = () => {
-      const nextInset = Math.ceil(dock.getBoundingClientRect().height + 80);
-      setTimelineBottomInset((current) => current === nextInset ? current : nextInset);
-      if (sticky.isAtBottom || sticky.isNearBottom) {
-        void sticky.scrollToBottom({
-          animation: "instant",
-          preserveScrollPosition: true,
-        });
-      }
-    };
-
-    updateInset();
-    const observer = new ResizeObserver(updateInset);
-    observer.observe(dock);
-    return () => observer.disconnect();
-  }, [sticky, threadId]);
-
-  function scrollToBottom(behavior: ScrollBehavior) {
-    void sticky.scrollToBottom({
+  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    void scrollToBottomRef.current({
       animation: behavior === "smooth" ? "smooth" : "instant",
       ignoreEscapes: true,
     });
-  }
+  }, []);
 
   return {
     scrollRef: sticky.scrollRef as RefCallback<HTMLDivElement>,
     contentRef: sticky.contentRef as RefCallback<HTMLDivElement>,
-    composerDockRef,
-    timelineBottomInset,
     isFollowingOutput: sticky.isAtBottom || sticky.isNearBottom,
     scrollToBottom,
   };

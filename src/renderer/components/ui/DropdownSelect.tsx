@@ -22,6 +22,7 @@ export function DropdownSelect({
   buttonClassName,
   menuClassName,
   style,
+  menuWidth,
   menuMinWidth = 220,
   menuMaxVisibleItems = 6,
   menuItemHeight = 44,
@@ -37,6 +38,7 @@ export function DropdownSelect({
   buttonClassName?: string;
   menuClassName?: string;
   style?: CSSProperties;
+  menuWidth?: number;
   menuMinWidth?: number;
   menuMaxVisibleItems?: number;
   menuItemHeight?: number;
@@ -56,8 +58,8 @@ export function DropdownSelect({
     const button = buttonRef.current;
     if (!button) return;
     const rect = button.getBoundingClientRect();
-    const menuWidth = Math.max(rect.width, menuMinWidth);
-    const width = Math.min(Math.max(menuWidth, rect.width), window.innerWidth - 24);
+    const desiredMenuWidth = Math.max(rect.width, menuWidth ?? menuMinWidth);
+    const width = Math.min(desiredMenuWidth, window.innerWidth - 24);
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - 12 - width));
     const menuMaxHeight = menuMaxVisibleItems * menuItemHeight + 8;
     const estimatedHeight = Math.min(menuMaxHeight, Math.max(menuItemHeight, options.length * menuItemHeight + 8));
@@ -75,7 +77,7 @@ export function DropdownSelect({
       }
       return { top, left, width };
     });
-  }, [menuItemHeight, menuMaxVisibleItems, menuMinWidth, options.length]);
+  }, [menuItemHeight, menuMaxVisibleItems, menuMinWidth, menuWidth, options.length]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -214,7 +216,7 @@ export function DropdownSelect({
             )}
             style={{ top: position.top, left: position.left, width: position.width, maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}
           >
-            <div className="overflow-y-auto p-1 brevyn-scrollbar" style={{ maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}>
+            <div className="overflow-y-auto p-1 brevyn-scrollbar-thin" style={{ maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}>
               {options.length === 0 ? (
                 <div className="rounded-md px-3 py-2 text-[11px] text-muted-foreground">No options</div>
               ) : (
@@ -229,8 +231,10 @@ export function DropdownSelect({
                       aria-selected={selected}
                       disabled={option.disabled}
                       className={cx(
-                        "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left text-xs transition",
-                        selected ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        "flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition",
+                        selected
+                          ? "border-border/75 bg-[rgba(247,244,236,0.92)] text-foreground shadow-sm"
+                          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
                         highlighted && "ring-1 ring-foreground/10",
                         option.disabled && "cursor-not-allowed opacity-45",
                       )}

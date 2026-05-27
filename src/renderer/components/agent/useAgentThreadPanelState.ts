@@ -1,19 +1,12 @@
-import type { RefCallback, RefObject } from "react";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentTimelineRecord, ModelProviderConfig, Thread } from "@/types/domain";
 import { useAgentAutoCompactState } from "@/components/agent/useAgentAutoCompactState";
 import { useAgentPanelPreferencesState } from "@/components/agent/useAgentPanelPreferencesState";
 import { useAgentQueueState } from "@/components/agent/useAgentQueueState";
-import { useAgentScrollState } from "@/components/agent/useAgentScrollState";
 import { useAgentTimelineState } from "@/components/agent/useAgentTimelineState";
 import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, RunSummary } from "@/components/agent/agentTimelineModel";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export interface AgentThreadPanelState {
-  scrollRef: RefCallback<HTMLDivElement>;
-  contentRef: RefCallback<HTMLDivElement>;
-  composerDockRef: RefObject<HTMLDivElement>;
-  timelineBottomInset: number;
-  isFollowingOutput: boolean;
   nowMs: number;
   permissionMode: AgentPermissionMode;
   timelineRecords: AgentTimelineRecord[];
@@ -26,13 +19,13 @@ export interface AgentThreadPanelState {
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
   autoCompactThresholdPercent: number;
+  scrollTransitioning: boolean;
   setPermissionMode: (mode: AgentPermissionMode) => void;
   handleCompact: () => Promise<void>;
   queueMessage: (message: QueuedAgentMessage) => void;
   deleteQueuedMessage: (messageId: string) => void;
   sendQueuedMessage: (messageId: string) => Promise<void>;
   toggleProcessCollapsed: (key: string, defaultCollapsed: boolean, lockedOpen: boolean) => void;
-  scrollToBottom: (behavior: ScrollBehavior) => void;
 }
 
 interface UseAgentThreadPanelStateArgs {
@@ -66,7 +59,6 @@ export function useAgentThreadPanelState({
     activeProviderId,
     onRun,
   });
-  const scrollState = useAgentScrollState(thread.id);
   const preferencesState = useAgentPanelPreferencesState(thread.id);
   const queueState = useAgentQueueState({
     threadId: thread.id,
@@ -89,7 +81,6 @@ export function useAgentThreadPanelState({
   });
 
   return {
-    ...scrollState,
     ...preferencesState,
     ...timelineState,
     ...queueState,

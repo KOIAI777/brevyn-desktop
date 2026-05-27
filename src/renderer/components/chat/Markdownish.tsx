@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, memo, useEffect, useMemo, useRef, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, memo, useCallback, useEffect, useMemo, useRef, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FilePathChip, isFilePathLike } from "./FilePathChip";
@@ -19,31 +19,91 @@ type MarkdownComponentProps<T extends keyof JSX.IntrinsicElements> = ComponentPr
   node?: MarkdownNode;
 };
 
+interface MarkdownishProps {
+  content: string;
+  threadId?: string;
+  preserveSoftBreaks?: boolean;
+  streaming?: boolean;
+}
+
+type RenderMarkdownChildren = (children: ReactNode, path: string) => ReactNode;
+
+const passthroughChildren: RenderMarkdownChildren = (children) => children;
+
 export const Markdownish = memo(function Markdownish({
   content,
   threadId,
   preserveSoftBreaks = false,
   streaming = false,
-}: {
-  content: string;
-  threadId?: string;
-  preserveSoftBreaks?: boolean;
-  streaming?: boolean;
-}) {
+}: MarkdownishProps) {
+  if (streaming) {
+    return (
+      <StreamingMarkdownishRenderer
+        content={content}
+        preserveSoftBreaks={preserveSoftBreaks}
+        threadId={threadId}
+      />
+    );
+  }
+
+  return (
+    <StaticMarkdownishRenderer
+      content={content}
+      preserveSoftBreaks={preserveSoftBreaks}
+      threadId={threadId}
+    />
+  );
+});
+
+const StaticMarkdownishRenderer = memo(function StaticMarkdownishRenderer({
+  content,
+  threadId,
+  preserveSoftBreaks,
+}: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
+  const components = useMemo(
+    () => createMarkdownComponents({ preserveSoftBreaks, renderChildren: passthroughChildren, threadId }),
+    [preserveSoftBreaks, threadId],
+  );
+
+  return <MarkdownishFrame content={content} components={components} />;
+}, areMarkdownishRenderPropsEqual);
+
+const StreamingMarkdownishRenderer = memo(function StreamingMarkdownishRenderer({
+  content,
+  threadId,
+  preserveSoftBreaks,
+}: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
   const previousTextByPathRef = useRef<Map<string, string>>(new Map());
-  const currentTextByPath = new Map<string, string>();
-  const renderChildren = (children: ReactNode, path: string): ReactNode => renderStreamingChildren(children, {
-    currentTextByPath,
+  const currentTextByPathRef = useRef<Map<string, string>>(new Map());
+  currentTextByPathRef.current = new Map();
+  const renderChildren = useCallback((children: ReactNode, path: string): ReactNode => renderStreamingChildren(children, {
+    currentTextByPath: currentTextByPathRef.current,
     path,
     previousTextByPath: previousTextByPathRef.current,
-    streaming,
-  });
+  }), []);
 
   useEffect(() => {
-    previousTextByPathRef.current = streaming ? currentTextByPath : new Map();
+    previousTextByPathRef.current = currentTextByPathRef.current;
   });
 
-  const components = useMemo(() => ({
+  const components = useMemo(
+    () => createMarkdownComponents({ preserveSoftBreaks, renderChildren, threadId }),
+    [preserveSoftBreaks, renderChildren, threadId],
+  );
+
+  return <MarkdownishFrame content={content} components={components} />;
+}, areMarkdownishRenderPropsEqual);
+
+function createMarkdownComponents({
+  preserveSoftBreaks,
+  renderChildren,
+  threadId,
+}: {
+  preserveSoftBreaks: boolean;
+  renderChildren: RenderMarkdownChildren;
+  threadId?: string;
+}) {
+  return {
     h1: ({ children, node, ...props }: MarkdownComponentProps<"h1">) => (
       <h2 className="mb-2 mt-4 text-base font-semibold tracking-tight first:mt-0" {...props}>
         {renderChildren(children, blockPath("h1", node))}
@@ -141,8 +201,10 @@ export const Markdownish = memo(function Markdownish({
         {renderChildren(children, blockPath("td", node))}
       </td>
     ),
-  }), [preserveSoftBreaks, renderChildren, threadId]);
+  };
+}
 
+function MarkdownishFrame({ content, components }: { content: string; components: ComponentProps<typeof Markdown>["components"] }) {
   return (
     <div className="markdownish break-words text-sm leading-6">
       <Markdown
@@ -153,7 +215,16 @@ export const Markdownish = memo(function Markdownish({
       </Markdown>
     </div>
   );
-});
+}
+
+function areMarkdownishRenderPropsEqual(
+  previous: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">,
+  next: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">,
+): boolean {
+  return previous.content === next.content
+    && previous.preserveSoftBreaks === next.preserveSoftBreaks
+    && previous.threadId === next.threadId;
+}
 
 function StreamingInlineText({ previousText, text }: { previousText: string; text: string }) {
   const canAnimateDelta = text.startsWith(previousText);
@@ -182,11 +253,9 @@ interface RenderStreamingChildrenOptions {
   currentTextByPath: Map<string, string>;
   path: string;
   previousTextByPath: Map<string, string>;
-  streaming: boolean;
 }
 
 function renderStreamingChildren(children: ReactNode, options: RenderStreamingChildrenOptions): ReactNode {
-  if (!options.streaming) return children;
   return Children.map(children, (child, index) => {
     const childPath = `${options.path}-${index}`;
     if (typeof child === "string" || typeof child === "number") {

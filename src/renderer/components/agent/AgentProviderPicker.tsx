@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { AgentPermissionMode, ModelProviderConfig } from "@/types/domain";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { AgentPermissionModeButton } from "@/components/agent/AgentPermissionModeButton";
@@ -18,21 +19,25 @@ export function AgentProviderPicker({
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
   onSelectProvider: (providerId: string) => Promise<void>;
 }) {
-  const providerOptions = agentProviders
-    .filter((provider) => provider.enabled)
-    .flatMap((provider) => {
-      const models = provider.models.filter((model) => model.enabled !== false);
-      const orderedModels = [
-        ...models.filter((model) => model.id === provider.selectedModel),
-        ...models.filter((model) => model.id !== provider.selectedModel),
-      ];
-      return orderedModels.map((model) => ({
-        value: providerModelValue(provider.id, model.id),
-        label: model.name || model.id,
-        detail: provider.name,
-        icon: <ModelLogo src={getModelLogoById(model.id) || getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind)} label={model.name || model.id} />,
-      }));
-    });
+  const providerOptions = useMemo(
+    () => agentProviders
+      .filter((provider) => provider.enabled)
+      .flatMap((provider) => {
+        const models = provider.models.filter((model) => model.enabled !== false);
+        const orderedModels = [
+          ...models.filter((model) => model.id === provider.selectedModel),
+          ...models.filter((model) => model.id !== provider.selectedModel),
+        ];
+        return orderedModels.map((model) => ({
+          value: providerModelValue(provider.id, model.id),
+          label: model.name || model.id,
+          detail: provider.name,
+          icon: <ModelLogo src={getModelLogoById(model.id) || getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind)} label={model.name || model.id} />,
+        }));
+      }),
+    [agentProviders],
+  );
+  const menuWidth = useMemo(() => measuredProviderMenuWidth(providerOptions), [providerOptions]);
   return (
     <>
       <AgentPermissionModeButton running={running} permissionMode={permissionMode} onSetPermissionMode={onSetPermissionMode} />
@@ -47,7 +52,8 @@ export function AgentProviderPicker({
         style={{ width: "fit-content", minWidth: 132, maxWidth: "min(44vw, 280px)" }}
         buttonClassName="h-7 rounded-full border border-border/70 bg-background/55 px-2 text-[11px] font-semibold shadow-sm backdrop-blur"
         menuClassName="bg-card/95 backdrop-blur-xl"
-        menuMinWidth={300}
+        menuWidth={menuWidth}
+        menuMinWidth={220}
         menuItemHeight={64}
         menuMaxVisibleItems={5}
         renderValue={(option) => (
@@ -61,6 +67,27 @@ export function AgentProviderPicker({
       />
     </>
   );
+}
+
+function measuredProviderMenuWidth(options: Array<{ label: string; detail?: string }>): number {
+  const maxTextWidth = options.reduce((maxWidth, option) => {
+    const labelWidth = measureTextWidth(option.label, "600 12px ui-sans-serif, system-ui, sans-serif");
+    const detailWidth = option.detail ? measureTextWidth(option.detail, "400 10px ui-sans-serif, system-ui, sans-serif") : 0;
+    return Math.max(maxWidth, labelWidth, detailWidth);
+  }, 0);
+  const chromeWidth = 16 + 6 + 20 + 24 + 10;
+  return Math.ceil(Math.min(Math.max(maxTextWidth + chromeWidth, 220), 360));
+}
+
+let measureCanvas: HTMLCanvasElement | null = null;
+
+function measureTextWidth(text: string, font: string): number {
+  if (typeof document === "undefined") return text.length * 7;
+  measureCanvas ||= document.createElement("canvas");
+  const context = measureCanvas.getContext("2d");
+  if (!context) return text.length * 7;
+  context.font = font;
+  return context.measureText(text).width;
 }
 
 function ModelLogo({ src, label }: { src: string; label: string }) {

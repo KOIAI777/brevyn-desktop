@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AgentPermissionMode } from "@/types/domain";
 
 const AGENT_PERMISSION_STORAGE_PREFIX = "brevyn.agent.permissionMode.";
@@ -17,10 +17,10 @@ export function useAgentPanelPreferencesState(threadId: string): AgentPanelPrefe
 
   return {
     permissionMode,
-    setPermissionMode: (mode: AgentPermissionMode) => {
+    setPermissionMode: useCallback((mode: AgentPermissionMode) => {
       setPermissionModeState(mode);
       writeStoredPermissionMode(threadId, mode);
-    },
+    }, [threadId]),
   };
 }
 

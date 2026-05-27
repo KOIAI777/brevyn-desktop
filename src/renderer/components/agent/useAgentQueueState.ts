@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentAttachment, AgentPermissionMode, BrevynAgentEvent } from "@/types/domain";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import type { RunSummary } from "@/components/agent/agentTimelineModel";
@@ -94,19 +94,19 @@ export function useAgentQueueState({
     void sendQueuedMessageAsNewRun(threadId, nextMessage, "auto");
   }, [effectiveRunning, runSummary?.runId, runSummary?.status]);
 
-  function queueMessage(message: QueuedAgentMessage) {
+  const queueMessage = useCallback((message: QueuedAgentMessage) => {
     setQueuedMessagesByThread((current) => ({
       ...current,
       [threadId]: [...(current[threadId] || []), message],
     }));
-  }
+  }, [threadId]);
 
-  function deleteQueuedMessage(messageId: string) {
+  const deleteQueuedMessage = useCallback((messageId: string) => {
     setQueuedMessagesByThread((current) => ({
       ...current,
       [threadId]: (current[threadId] || []).filter((message) => message.id !== messageId),
     }));
-  }
+  }, [threadId]);
 
   function setQueuedMessageSending(targetThreadId: string, messageId: string, sending: boolean) {
     setSendingQueuedMessageIdsByThread((current) => {
@@ -142,7 +142,7 @@ export function useAgentQueueState({
     }
   }
 
-  async function sendQueuedMessage(messageId: string) {
+  const sendQueuedMessage = useCallback(async (messageId: string) => {
     const message = queuedMessagesRef.current.find((item) => item.id === messageId);
     if (!message) return;
     if (sendingQueuedMessageIdsByThread[threadId]?.includes(messageId)) return;
@@ -165,7 +165,7 @@ export function useAgentQueueState({
       return;
     }
     await sendQueuedMessageAsNewRun(threadId, message, "manual");
-  }
+  }, [effectiveRunning, sendingQueuedMessageIdsByThread, threadId]);
 
   return {
     queuedMessages,

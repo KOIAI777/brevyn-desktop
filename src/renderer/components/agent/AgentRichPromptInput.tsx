@@ -145,7 +145,7 @@ export function AgentRichPromptInput({
     content: textToTipTapContent(value, skills),
     editorProps: {
       attributes: {
-        class: "brevyn-rich-prompt-editor min-h-14 max-h-[15rem] overflow-y-auto px-1 py-1 text-sm leading-6 outline-none brevyn-scrollbar",
+        class: "brevyn-rich-prompt-editor min-h-12 max-h-[15rem] overflow-y-auto px-1 py-0.5 text-sm leading-6 outline-none brevyn-scrollbar",
       },
       handleDOMEvents: {
         compositionstart: () => {
@@ -195,7 +195,7 @@ export function AgentRichPromptInput({
   }, [editor, skills, value]);
 
   return (
-    <div className="relative min-h-14 w-full">
+    <div className="relative min-h-12 w-full">
       <EditorContent editor={editor} />
       <style>{`
         .brevyn-rich-prompt-editor p {

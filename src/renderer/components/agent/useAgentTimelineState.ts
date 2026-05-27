@@ -53,6 +53,7 @@ export interface AgentTimelinePanelState {
   effectiveCompacting: boolean;
   activeProvider?: ModelProviderConfig;
   autoCompactThresholdPercent: number;
+  scrollTransitioning: boolean;
   toggleProcessCollapsed: (key: string, defaultCollapsed: boolean, lockedOpen: boolean) => void;
   handleCompact: () => Promise<void>;
 }
@@ -77,6 +78,7 @@ export function useAgentTimelineState({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [processCollapsedByKey, setProcessCollapsedByKey] = useState<Record<string, boolean>>({});
   const [compactInFlightAfterCount, setCompactInFlightAfterCount] = useState<number | null>(null);
+  const [scrollTransitioningCooldown, setScrollTransitioningCooldown] = useState(false);
   const wasRunningRef = useRef(false);
 
   const activeProviderSelection = useMemo(() => parseProviderModelSelection(activeProviderId), [activeProviderId]);
@@ -86,7 +88,10 @@ export function useAgentTimelineState({
   );
   const activeModelId = activeProviderSelection.modelId || activeProvider?.selectedModel;
   const compactInFlight = compactInFlightAfterCount !== null;
-  const { effectiveRunning, timelineRecords } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
+  const { effectiveRunning, liveRunning, timelineRecords } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
+  const scrollWasRunningRef = useRef(effectiveRunning);
+  const needsInstantResize = !effectiveRunning && liveRunning;
+  const scrollTransitioning = needsInstantResize || scrollTransitioningCooldown;
   const forceProcessOpen = effectiveRunning && !hasRenderableAssistantContent(timelineRecords);
   const runSummary = useMemo(() => latestRunSummary(timelineRecords, nowMs, effectiveRunning), [effectiveRunning, nowMs, timelineRecords]);
   const stoppedAssistantIndex = useMemo(
@@ -139,6 +144,8 @@ export function useAgentTimelineState({
 
   useEffect(() => {
     setProcessCollapsedByKey({});
+    setScrollTransitioningCooldown(false);
+    scrollWasRunningRef.current = false;
     setNowMs(Date.now());
   }, [thread.id]);
 
@@ -155,6 +162,19 @@ export function useAgentTimelineState({
     if (wasRunningRef.current && !effectiveRunning) setProcessCollapsedByKey({});
     wasRunningRef.current = effectiveRunning;
   }, [effectiveRunning]);
+
+  useEffect(() => {
+    if (scrollWasRunningRef.current && !effectiveRunning) {
+      setScrollTransitioningCooldown(true);
+    }
+    scrollWasRunningRef.current = effectiveRunning;
+  }, [effectiveRunning]);
+
+  useEffect(() => {
+    if (needsInstantResize) return;
+    const timer = window.setTimeout(() => setScrollTransitioningCooldown(false), 150);
+    return () => window.clearTimeout(timer);
+  }, [needsInstantResize]);
 
   useEffect(() => {
     if (compactInFlightAfterCount === null || records.length <= compactInFlightAfterCount) return;
@@ -179,13 +199,13 @@ export function useAgentTimelineState({
     }
   }, [activeProviderSelection, effectiveCompacting, effectiveRunning, onRun, records.length]);
 
-  function toggleProcessCollapsed(key: string, defaultCollapsed: boolean, lockedOpen: boolean) {
+  const toggleProcessCollapsed = useCallback((key: string, defaultCollapsed: boolean, lockedOpen: boolean) => {
     if (lockedOpen) return;
     setProcessCollapsedByKey((current) => ({
       ...current,
       [key]: !(current[key] ?? defaultCollapsed),
     }));
-  }
+  }, []);
 
   return {
     nowMs,
@@ -198,6 +218,7 @@ export function useAgentTimelineState({
     effectiveCompacting,
     activeProvider,
     autoCompactThresholdPercent: autoCompactThreshold,
+    scrollTransitioning,
     toggleProcessCollapsed,
     handleCompact,
   };

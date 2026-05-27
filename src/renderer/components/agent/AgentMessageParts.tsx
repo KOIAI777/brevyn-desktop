@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Check, Copy, Minimize2, RotateCw, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
@@ -229,17 +229,16 @@ export function AssistantTextBubble({
   copyContent?: string;
 }) {
   const displayContent = content.replace(/\u0000/g, "");
-  const renderStreaming = useSettledStreaming(streaming, displayContent);
   if (!displayContent.trim()) return null;
   return (
     <div className="group/message flex justify-start">
       <div
         className="min-w-0 w-full px-1 py-1 text-sm leading-6 text-foreground [contain:layout_paint_style]"
         data-thread-id={threadId}
-        data-streaming={renderStreaming ? "true" : "false"}
+        data-streaming={streaming ? "true" : "false"}
       >
-        <Markdownish content={displayContent} threadId={threadId} streaming={renderStreaming} />
-        {!renderStreaming && copyable && <MessageCopyAction content={copyContent || content} align="left" />}
+        <Markdownish content={displayContent} threadId={threadId} streaming={streaming} />
+        {!streaming && copyable && <MessageCopyAction content={copyContent || content} align="left" />}
       </div>
     </div>
   );
@@ -255,36 +254,6 @@ export function StreamingMarkdownish({
   streaming?: boolean;
 }) {
   const displayContent = content.replace(/\u0000/g, "");
-  const renderStreaming = useSettledStreaming(_streaming, displayContent);
   if (!displayContent.trim()) return null;
-  return <Markdownish content={displayContent} threadId={threadId} streaming={renderStreaming} />;
-}
-
-const STREAM_FADE_SETTLE_MS = 400;
-
-function useSettledStreaming(streaming: boolean, content: string): boolean {
-  const sawStreamingRef = useRef(false);
-  const [settling, setSettling] = useState(false);
-  const shouldStartSettling = !streaming && sawStreamingRef.current && Boolean(content.trim());
-
-  useEffect(() => {
-    if (streaming) {
-      sawStreamingRef.current = true;
-      setSettling(false);
-      return;
-    }
-    if (!sawStreamingRef.current || !content.trim()) {
-      setSettling(false);
-      return;
-    }
-
-    setSettling(true);
-    const timer = window.setTimeout(() => {
-      sawStreamingRef.current = false;
-      setSettling(false);
-    }, STREAM_FADE_SETTLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [content, streaming]);
-
-  return streaming || settling || shouldStartSettling;
+  return <Markdownish content={displayContent} threadId={threadId} streaming={_streaming} />;
 }

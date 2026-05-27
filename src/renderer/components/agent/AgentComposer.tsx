@@ -1,5 +1,5 @@
-import type { FormEvent, Ref } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Send, Square } from "lucide-react";
 import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, SkillItem, WorkspaceFileNode } from "@/types/domain";
 import type { AgentTodoItem, ContextUsage } from "@/components/agent/agentTimelineModel";
@@ -23,7 +23,6 @@ import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachments
 const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
 
 interface AgentComposerProps {
-  dockRef: Ref<HTMLDivElement>;
   todos: AgentTodoItem[];
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
@@ -47,8 +46,7 @@ interface AgentComposerProps {
   onSelectProvider: (providerId: string) => Promise<void>;
 }
 
-export function AgentComposer({
-  dockRef,
+export const AgentComposer = memo(function AgentComposer({
   todos,
   queuedMessages,
   sendingQueuedMessageIds,
@@ -139,8 +137,8 @@ export function AgentComposer({
   }
 
   return (
-    <form ref={formRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-8 pt-8 [background:linear-gradient(180deg,rgba(247,244,236,0),rgba(247,244,236,0.82))]" onSubmit={handleSubmit}>
-      <div ref={dockRef} className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
+    <form ref={formRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-[#f8f4eb] px-5 pb-7 pt-5 [backface-visibility:hidden] [transform:translateZ(0)] [will-change:transform]" onSubmit={handleSubmit}>
+      <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
         {queuedMessages.length > 0 && (
           <QueuedMessageDock
@@ -157,10 +155,10 @@ export function AgentComposer({
           />
         )}
         <div
-          className={`pointer-events-auto relative w-full min-w-0 rounded-2xl border p-3 shadow-[0_18px_52px_rgba(64,55,38,0.18)] ring-1 backdrop-blur-2xl transition ${
+          className={`pointer-events-auto relative w-full min-w-0 rounded-2xl border p-2.5 shadow-[0_10px_26px_rgba(64,55,38,0.13)] [backface-visibility:hidden] [transform:translateZ(0)] ${
             draggingFiles
-              ? "border-sky-200 bg-sky-50/72 ring-sky-100"
-              : "border-white/55 bg-card/70 ring-border/45"
+              ? "border-sky-200 bg-sky-50"
+              : "border-white/80 bg-[#f8f4eb]"
           }`}
           onDragOver={(event) => {
             if (running) return;
@@ -196,7 +194,7 @@ export function AgentComposer({
             files={mentionedFiles}
             onRemove={(fileId) => setMentionedFiles((current) => current.filter((item) => item.id !== fileId))}
           />
-          <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 shrink items-center gap-1.5">
               <button
                 type="button"
@@ -262,6 +260,30 @@ export function AgentComposer({
       </div>
     </form>
   );
+}, areAgentComposerPropsEqual);
+
+function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentComposerProps): boolean {
+  return previous.todos === next.todos
+    && previous.queuedMessages === next.queuedMessages
+    && previous.sendingQueuedMessageIds === next.sendingQueuedMessageIds
+    && previous.running === next.running
+    && previous.permissionMode === next.permissionMode
+    && previous.contextUsage === next.contextUsage
+    && previous.autoCompactThresholdPercent === next.autoCompactThresholdPercent
+    && previous.compacting === next.compacting
+    && previous.threadId === next.threadId
+    && previous.agentProviders === next.agentProviders
+    && previous.activeProviderId === next.activeProviderId
+    && previous.files === next.files
+    && previous.skills === next.skills
+    && previous.onSetPermissionMode === next.onSetPermissionMode
+    && previous.onRun === next.onRun
+    && previous.onQueueMessage === next.onQueueMessage
+    && previous.onSendQueuedMessage === next.onSendQueuedMessage
+    && previous.onDeleteQueuedMessage === next.onDeleteQueuedMessage
+    && previous.onStop === next.onStop
+    && previous.onCompact === next.onCompact
+    && previous.onSelectProvider === next.onSelectProvider;
 }
 
 function skillMentionsFromSlugs(slugs: string[] | undefined, skills: MentionedSkill[]): MentionedSkill[] {
