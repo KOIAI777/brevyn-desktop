@@ -29,6 +29,7 @@ import {
 import {
   buildTimelineViewGroups,
   buildTimelineViewItems,
+  stabilizeTimelineViewGroups,
 } from "@/components/agent/agentTimelineViewModel";
 import type { AgentTimelineViewGroup } from "@/components/agent/agentTimelineViewTypes";
 
@@ -39,11 +40,10 @@ export {
   type AgentTimelineViewGroup,
   type AgentTimelineViewItem,
 } from "@/components/agent/agentTimelineViewTypes";
-export { buildTimelineViewGroups, buildTimelineViewItems } from "@/components/agent/agentTimelineViewModel";
+export { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups } from "@/components/agent/agentTimelineViewModel";
 export { autoCompactThresholdPercent, shouldAutoCompactContext } from "@/components/agent/agentTimelineContextUsage";
 
 export interface AgentTimelinePanelState {
-  nowMs: number;
   timelineRecords: AgentTimelineRecord[];
   timelineGroups: AgentTimelineViewGroup[];
   runSummary: RunSummary | null;
@@ -75,11 +75,11 @@ export function useAgentTimelineState({
   activeProviderId,
   onRun,
 }: UseAgentTimelinePanelStateArgs): AgentTimelinePanelState {
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [processCollapsedByKey, setProcessCollapsedByKey] = useState<Record<string, boolean>>({});
   const [compactInFlightAfterCount, setCompactInFlightAfterCount] = useState<number | null>(null);
   const [scrollTransitioningCooldown, setScrollTransitioningCooldown] = useState(false);
   const wasRunningRef = useRef(false);
+  const stableGroupsRef = useRef<{ threadId: string; groups: AgentTimelineViewGroup[] } | null>(null);
 
   const activeProviderSelection = useMemo(() => parseProviderModelSelection(activeProviderId), [activeProviderId]);
   const activeProvider = useMemo(
@@ -93,7 +93,7 @@ export function useAgentTimelineState({
   const needsInstantResize = !effectiveRunning && liveRunning;
   const scrollTransitioning = needsInstantResize || scrollTransitioningCooldown;
   const forceProcessOpen = effectiveRunning && !hasRenderableAssistantContent(timelineRecords);
-  const runSummary = useMemo(() => latestRunSummary(timelineRecords, nowMs, effectiveRunning), [effectiveRunning, nowMs, timelineRecords]);
+  const runSummary = useMemo(() => latestRunSummary(timelineRecords, Date.now(), effectiveRunning), [effectiveRunning, timelineRecords]);
   const stoppedAssistantIndex = useMemo(
     () => runSummary?.status === "stopped" ? latestAssistantTextIndex(timelineRecords) : undefined,
     [runSummary?.status, timelineRecords],
@@ -114,10 +114,10 @@ export function useAgentTimelineState({
     const summaries = new Map<number, RunSummary | null>();
     for (const ownerUserIndex of ownerUserIndexByRecordIndex) {
       if (ownerUserIndex < 0 || summaries.has(ownerUserIndex)) continue;
-      summaries.set(ownerUserIndex, runSummaryForUserIndex(timelineRecords, ownerUserIndex, nowMs, effectiveRunning));
+      summaries.set(ownerUserIndex, runSummaryForUserIndex(timelineRecords, ownerUserIndex, Date.now(), effectiveRunning));
     }
     return summaries;
-  }, [effectiveRunning, nowMs, ownerUserIndexByRecordIndex, timelineRecords]);
+  }, [effectiveRunning, ownerUserIndexByRecordIndex, timelineRecords]);
   const timelineItems = useMemo(
     () => buildTimelineViewItems(timelineRecords, {
       forceProcessOpen,
@@ -132,7 +132,7 @@ export function useAgentTimelineState({
     }),
     [forceProcessOpen, ownerUserIndexByRecordIndex, processCollapsedByKey, resolvedApprovals, resolvedExitPlans, resolvedQuestions, runSummary, runSummaryByUserIndex, stoppedAssistantIndex, timelineRecords],
   );
-  const timelineGroups = useMemo(
+  const builtTimelineGroups = useMemo(
     () => buildTimelineViewGroups(timelineRecords, timelineItems, {
       effectiveRunning,
       forceProcessOpen,
@@ -141,22 +141,20 @@ export function useAgentTimelineState({
     }),
     [effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineItems, timelineRecords],
   );
+  const timelineGroups = useMemo(() => {
+    const previous = stableGroupsRef.current?.threadId === thread.id
+      ? stableGroupsRef.current.groups
+      : [];
+    const stabilized = stabilizeTimelineViewGroups(previous, builtTimelineGroups);
+    stableGroupsRef.current = { threadId: thread.id, groups: stabilized };
+    return stabilized;
+  }, [builtTimelineGroups, thread.id]);
 
   useEffect(() => {
     setProcessCollapsedByKey({});
     setScrollTransitioningCooldown(false);
     scrollWasRunningRef.current = false;
-    setNowMs(Date.now());
   }, [thread.id]);
-
-  useEffect(() => {
-    if (!effectiveRunning) {
-      setNowMs(Date.now());
-      return;
-    }
-    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [effectiveRunning]);
 
   useEffect(() => {
     if (wasRunningRef.current && !effectiveRunning) setProcessCollapsedByKey({});
@@ -184,9 +182,9 @@ export function useAgentTimelineState({
       setCompactInFlightAfterCount(null);
       return;
     }
-    const summary = latestRunSummary(timelineRecords, nowMs, effectiveRunning);
+    const summary = latestRunSummary(timelineRecords, Date.now(), effectiveRunning);
     if (summary && summary.status !== "running") setCompactInFlightAfterCount(null);
-  }, [compactInFlightAfterCount, effectiveRunning, nowMs, records, timelineRecords]);
+  }, [compactInFlightAfterCount, effectiveRunning, records, timelineRecords]);
 
   const handleCompact = useCallback(async () => {
     if (effectiveRunning || effectiveCompacting) return;
@@ -208,7 +206,6 @@ export function useAgentTimelineState({
   }, []);
 
   return {
-    nowMs,
     timelineRecords,
     timelineGroups,
     runSummary,

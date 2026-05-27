@@ -21,6 +21,12 @@ export interface RunSummary {
   status: "running" | "completed" | "stopped" | "failed" | "interrupted";
   permissionMode?: AgentPermissionMode;
   detail?: string;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+  hasActivity?: boolean;
+  retryAttempt?: number;
+  retryMaxRetries?: number;
+  retryUntilMs?: number;
 }
 
 export interface ContextUsage {
@@ -340,14 +346,31 @@ export function normalizeTimelineRecords(
   _compactInFlight = false,
 ): AgentTimelineRecord[] {
   const normalized: AgentTimelineRecord[] = [];
-  const liveIdentities = new Set(liveRecords.map((record) => timelineRecordIdentity(record)).filter(Boolean));
-  const sourceRecords = [
-    ...records.filter((record) => {
-      const identity = timelineRecordIdentity(record);
-      return !identity || !liveIdentities.has(identity);
-    }),
-    ...liveRecords,
-  ];
+  const usedLiveIdentities = new Set<string>();
+  const liveRecordsByIdentity = new Map<string, BrevynAgentTimelineRecord>();
+  for (const record of liveRecords) {
+    const identity = timelineRecordIdentity(record);
+    if (identity && !liveRecordsByIdentity.has(identity)) liveRecordsByIdentity.set(identity, record);
+  }
+
+  const sourceRecords: BrevynAgentTimelineRecord[] = [];
+  for (const record of records) {
+    const identity = timelineRecordIdentity(record);
+    const liveRecord = identity ? liveRecordsByIdentity.get(identity) : undefined;
+    if (identity && liveRecord) {
+      sourceRecords.push(liveRecord);
+      usedLiveIdentities.add(identity);
+      continue;
+    }
+    sourceRecords.push(record);
+  }
+
+  for (const record of liveRecords) {
+    const identity = timelineRecordIdentity(record);
+    if (identity && usedLiveIdentities.has(identity)) continue;
+    appendLiveRecordInTurnOrder(sourceRecords, record);
+    if (identity) usedLiveIdentities.add(identity);
+  }
   const seenRecords = new Set<string>();
 
   for (const record of sourceRecords) {
@@ -362,6 +385,36 @@ export function normalizeTimelineRecords(
   }
 
   return normalized;
+}
+
+function appendLiveRecordInTurnOrder(records: BrevynAgentTimelineRecord[], record: BrevynAgentTimelineRecord): void {
+  if (isTerminalTimelineRecord(record)) {
+    records.push(record);
+    return;
+  }
+  const insertIndex = firstTrailingTerminalRecordIndex(records);
+  if (insertIndex < 0) {
+    records.push(record);
+    return;
+  }
+  records.splice(insertIndex, 0, record);
+}
+
+function firstTrailingTerminalRecordIndex(records: BrevynAgentTimelineRecord[]): number {
+  let index = records.length - 1;
+  while (index >= 0 && isTerminalTimelineRecord(records[index])) index -= 1;
+  return index === records.length - 1 ? -1 : index + 1;
+}
+
+function isTerminalTimelineRecord(record: BrevynAgentTimelineRecord | undefined): boolean {
+  if (!record) return false;
+  if (isRuntimeRecord(record)) {
+    return record.event.type === "run_completed"
+      || record.event.type === "run_stopped"
+      || record.event.type === "run_failed"
+      || record.event.type === "run_interrupted";
+  }
+  return (record as SDKMessage).type === "result";
 }
 
 export function recordKey(record: AgentTimelineRecord, _index?: number): string {

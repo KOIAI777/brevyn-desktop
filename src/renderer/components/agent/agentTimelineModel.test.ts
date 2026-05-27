@@ -4,7 +4,7 @@ import type { BrevynAgentRuntimeEvent, ModelProviderConfig } from "@/types/domai
 import { assistantText, groupIntoTurns, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
 import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
 import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
-import { buildTimelineViewGroups, buildTimelineViewItems, type AgentTimelineViewItem } from "./useAgentTimelineState";
+import { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups, type AgentTimelineViewItem } from "./useAgentTimelineState";
 import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAgentLiveRecords, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
 
 (globalThis as unknown as { window: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (id: number) => void } }).window = {
@@ -569,6 +569,41 @@ const persistedCompletionGroups = buildTimelineViewGroups(persistedCompletionRec
 assert.equal(
   liveCompletionGroups[1]?.type === "assistant-turn" ? liveCompletionGroups[1].key : "",
   persistedCompletionGroups[1]?.type === "assistant-turn" ? persistedCompletionGroups[1].key : "missing",
+);
+assert.equal(
+  liveCompletionGroups[1]?.type === "assistant-turn" ? liveCompletionGroups[1].entries[0]?.key : "",
+  persistedCompletionGroups[1]?.type === "assistant-turn" ? persistedCompletionGroups[1].entries[0]?.key : "missing",
+);
+const rebuiltPersistedCompletionGroups = buildTimelineViewGroups(persistedCompletionRecords, persistedCompletionRecords.map(stableTurnItems), { runSummary: stableRunSummary });
+const stabilizedPersistedCompletionGroups = stabilizeTimelineViewGroups(persistedCompletionGroups, rebuiltPersistedCompletionGroups);
+assert.equal(stabilizedPersistedCompletionGroups[0], persistedCompletionGroups[0]);
+assert.equal(stabilizedPersistedCompletionGroups[1], persistedCompletionGroups[1]);
+const stabilizedLiveCompletionGroups = stabilizeTimelineViewGroups(persistedCompletionGroups, liveCompletionGroups);
+assert.notEqual(stabilizedLiveCompletionGroups[1], persistedCompletionGroups[1]);
+
+const overlappingLiveCompletionRecords: AgentTimelineRecord[] = [
+  userText("Write a short answer.", "user_stable_completion"),
+  runStarted("deepseek-v4-pro", stableRunSummary.runId),
+  streamEvent({ type: "text_delta", text: "Final answer." }, "stream_stable_completion"),
+  result("result_stable_completion"),
+  { kind: "runtime", event: { type: "run_completed", runId: stableRunSummary.runId, threadId: "thread_fixture", createdAt: "2026-05-16T00:00:01.000Z" } } as AgentTimelineRecord,
+];
+const normalizedOverlappingCompletion = normalizeTimelineRecords(persistedCompletionRecords, overlappingLiveCompletionRecords, false);
+assert.equal((normalizedOverlappingCompletion[0] as SDKMessage | undefined)?.type, "user");
+assert.equal((normalizedOverlappingCompletion[1] as Extract<AgentTimelineRecord, { kind: "runtime" }> | undefined)?.kind, "runtime");
+assert.equal((normalizedOverlappingCompletion[2] as SDKMessage | undefined)?.type, "assistant");
+const normalizedOverlappingGroups = buildTimelineViewGroups(
+  normalizedOverlappingCompletion,
+  normalizedOverlappingCompletion.map(stableTurnItems),
+  { runSummary: stableRunSummary },
+);
+assert.equal(
+  persistedCompletionGroups[1]?.type === "assistant-turn" ? persistedCompletionGroups[1].key : "",
+  normalizedOverlappingGroups[1]?.type === "assistant-turn" ? normalizedOverlappingGroups[1].key : "missing",
+);
+assert.equal(
+  persistedCompletionGroups[1]?.type === "assistant-turn" ? persistedCompletionGroups[1].entries[0]?.key : "",
+  normalizedOverlappingGroups[1]?.type === "assistant-turn" ? normalizedOverlappingGroups[1].entries[0]?.key : "missing",
 );
 
 const liveToolRecords: AgentTimelineRecord[] = [

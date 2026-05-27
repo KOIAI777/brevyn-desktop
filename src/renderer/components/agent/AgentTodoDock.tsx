@@ -14,7 +14,7 @@ export function TodoDock({ todos, running }: { todos: AgentTodoItem[]; running: 
           open ? "grid-rows-[1fr] translate-y-0 opacity-100" : "pointer-events-none grid-rows-[0fr] translate-y-2 opacity-0"
         }`}
       >
-        <div className="min-h-0 overflow-hidden rounded-2xl border border-white/55 bg-card/95 shadow-[0_18px_48px_rgba(64,55,38,0.18)] ring-1 ring-border/35 backdrop-blur-2xl">
+        <div className="min-h-0 overflow-hidden rounded-2xl border border-white/60 bg-card/98 shadow-[0_14px_36px_rgba(64,55,38,0.14)] ring-1 ring-border/35">
           <div className="p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -40,7 +40,7 @@ export function TodoDock({ todos, running }: { todos: AgentTodoItem[]; running: 
       </div>
       <button
         type="button"
-        className="flex h-9 w-full items-center gap-2 rounded-2xl border border-white/55 bg-card/72 px-3 text-[11px] shadow-[0_10px_28px_rgba(64,55,38,0.10)] ring-1 ring-border/30 backdrop-blur-2xl transition hover:bg-card"
+        className="flex h-9 w-full items-center gap-2 rounded-2xl border border-white/60 bg-card/96 px-3 text-[11px] shadow-[0_10px_24px_rgba(64,55,38,0.10)] ring-1 ring-border/30 transition hover:bg-card"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label="Toggle todo list"

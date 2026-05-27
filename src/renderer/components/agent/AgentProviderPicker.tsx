@@ -50,8 +50,8 @@ export function AgentProviderPicker({
         disabled={providerOptions.length === 0}
         className="inline-block shrink-0"
         style={{ width: "fit-content", minWidth: 132, maxWidth: "min(44vw, 280px)" }}
-        buttonClassName="h-7 rounded-full border border-border/70 bg-background/55 px-2 text-[11px] font-semibold shadow-sm backdrop-blur"
-        menuClassName="bg-card/95 backdrop-blur-xl"
+        buttonClassName="h-7 rounded-full border border-border/70 bg-background/88 px-2 text-[11px] font-semibold shadow-sm"
+        menuClassName="bg-card/98"
         menuWidth={menuWidth}
         menuMinWidth={220}
         menuItemHeight={64}

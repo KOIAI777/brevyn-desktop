@@ -52,17 +52,30 @@ export function runSummaryForUserIndex(records: AgentTimelineRecord[], userIndex
   const resultSubtype = result.record ? String((result.record as { subtype?: unknown }).subtype || "") : "";
   const status = lifecycle?.status ?? statusFromResultSubtype(resultSubtype, running);
   const detail = normalizedRunDetail(lifecycle?.detail ?? resultDetail(result.record));
+  const hasActivity = eventsSinceStart(records, userIndex);
   if (status === "running") {
     if (retry) {
-      return { runId, label: retryRunLabel(retry, nowMs), running: true, status, permissionMode, detail: retry.reason };
+      return {
+        runId,
+        label: retryRunLabel(retry, nowMs),
+        running: true,
+        status,
+        permissionMode,
+        detail: retry.reason,
+        startedAtMs: startMs,
+        hasActivity,
+        retryAttempt: retry.retryAttempt,
+        retryMaxRetries: retry.maxRetries,
+        retryUntilMs: retry.createdAtMs + retry.delayMs,
+      };
     }
-    const showProcessed = elapsedMs >= 1000 && eventsSinceStart(records, userIndex);
-    return { runId, label: showProcessed ? `已处理 ${duration}` : "Thinking", running: true, status, permissionMode };
+    const showProcessed = elapsedMs >= 1000 && hasActivity;
+    return { runId, label: showProcessed ? `已处理 ${duration}` : "Thinking", running: true, status, permissionMode, startedAtMs: startMs, hasActivity };
   }
-  if (status === "stopped") return { runId, label: `已停止 · ${duration}`, running: false, status, permissionMode, detail };
-  if (status === "failed") return { runId, label: `运行失败 · ${duration}`, running: false, status, permissionMode, detail };
-  if (status === "interrupted") return { runId, label: `已中断 · ${duration}`, running: false, status, permissionMode, detail };
-  return { runId, label: `已处理 ${duration}`, running: false, status: "completed", permissionMode, detail };
+  if (status === "stopped") return { runId, label: `已停止 · ${duration}`, running: false, status, permissionMode, detail, startedAtMs: startMs, finishedAtMs: finishMs, hasActivity };
+  if (status === "failed") return { runId, label: `运行失败 · ${duration}`, running: false, status, permissionMode, detail, startedAtMs: startMs, finishedAtMs: finishMs, hasActivity };
+  if (status === "interrupted") return { runId, label: `已中断 · ${duration}`, running: false, status, permissionMode, detail, startedAtMs: startMs, finishedAtMs: finishMs, hasActivity };
+  return { runId, label: `已处理 ${duration}`, running: false, status: "completed", permissionMode, detail, startedAtMs: startMs, finishedAtMs: finishMs, hasActivity };
 }
 
 export function latestAssistantTextIndex(records: AgentTimelineRecord[]): number | undefined {

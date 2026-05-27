@@ -139,7 +139,7 @@
   }
 
   .tool-details-content-in {
-    animation: tool-details-content-in 140ms ease-out both;
+    animation: tool-details-content-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
   }
 
   .brevyn-scrollbar {

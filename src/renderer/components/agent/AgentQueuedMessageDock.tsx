@@ -23,7 +23,7 @@ export function QueuedMessageDock({
   const sendingLabel = running ? "追加中" : "发送中";
 
   return (
-    <div className="pointer-events-auto w-full rounded-2xl border border-white/55 bg-card/78 px-3 py-2 shadow-[0_10px_28px_rgba(64,55,38,0.10)] ring-1 ring-border/30 backdrop-blur-2xl">
+    <div className="pointer-events-auto w-full rounded-2xl border border-white/60 bg-card/96 px-3 py-2 shadow-[0_10px_24px_rgba(64,55,38,0.10)] ring-1 ring-border/30">
       <div className="mb-1.5 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-foreground">待确认消息</p>

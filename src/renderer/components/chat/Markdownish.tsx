@@ -1,9 +1,11 @@
-import { Children, cloneElement, isValidElement, memo, useCallback, useEffect, useMemo, useRef, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FilePathChip, isFilePathLike } from "./FilePathChip";
 
 const remarkPlugins = [remarkGfm];
+const LONG_MARKDOWN_CODE_LIMIT = 16_000;
+const LONG_MARKDOWN_CODE_LINES = 220;
 
 type MarkdownNode = {
   position?: {
@@ -170,9 +172,7 @@ function createMarkdownComponents({
       );
     },
     pre: ({ children, ...props }: ComponentProps<"pre">) => (
-      <pre className="my-3 max-h-96 overflow-auto rounded-xl border bg-muted/35 p-3 text-[12px] leading-5" {...props}>
-        {children}
-      </pre>
+      <MarkdownCodePre {...props}>{children}</MarkdownCodePre>
     ),
     table: ({ children, ...props }: ComponentProps<"table">) => (
       <div className="my-3 overflow-x-auto rounded-xl border bg-background/60">
@@ -202,6 +202,31 @@ function createMarkdownComponents({
       </td>
     ),
   };
+}
+
+function MarkdownCodePre({ children, ...props }: ComponentProps<"pre">) {
+  const [expanded, setExpanded] = useState(false);
+  const text = textContent(children);
+  const preview = text && !expanded ? truncateLongText(text, LONG_MARKDOWN_CODE_LIMIT, LONG_MARKDOWN_CODE_LINES) : null;
+  const truncated = Boolean(preview && preview !== text);
+  const renderedChildren = truncated ? replaceFirstTextChild(children, preview ?? "") : children;
+
+  return (
+    <div className="my-3 overflow-hidden rounded-xl border bg-muted/35">
+      <pre className="max-h-96 overflow-auto p-3 text-[12px] leading-5 [contain:layout_paint_style]" {...props}>
+        {renderedChildren}
+      </pre>
+      {truncated && (
+        <button
+          type="button"
+          className="w-full border-t bg-background/75 px-3 py-2 text-left text-[11px] font-medium text-muted-foreground transition hover:text-foreground"
+          onClick={() => setExpanded(true)}
+        >
+          展开完整代码块
+        </button>
+      )}
+    </div>
+  );
 }
 
 function MarkdownishFrame({ content, components }: { content: string; components: ComponentProps<typeof Markdown>["components"] }) {
@@ -298,4 +323,52 @@ function inlineText(value: unknown): string {
   if (typeof value === "number") return String(value);
   if (Array.isArray(value)) return value.map(inlineText).join("");
   return "";
+}
+
+function textContent(value: ReactNode): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(textContent).join("");
+  if (isValidElement(value)) {
+    const element = value as ReactElement<{ children?: ReactNode }>;
+    return textContent(element.props.children);
+  }
+  return "";
+}
+
+function replaceFirstTextChild(value: ReactNode, text: string): ReactNode {
+  if (typeof value === "string" || typeof value === "number") return text;
+  if (Array.isArray(value)) {
+    let replaced = false;
+    return value.map((child) => {
+      if (replaced) return child;
+      const next = replaceFirstTextChild(child, text);
+      replaced = next !== child;
+      return next;
+    });
+  }
+  if (isValidElement(value)) {
+    const element = value as ReactElement<{ children?: ReactNode }>;
+    if (!("children" in element.props)) return value;
+    const nextChildren = replaceFirstTextChild(element.props.children, text);
+    if (nextChildren === element.props.children) return value;
+    return cloneElement(element, { children: nextChildren });
+  }
+  return value;
+}
+
+function truncateLongText(value: string, maxChars: number, maxLines: number): string {
+  if (value.length <= maxChars && lineCount(value) <= maxLines) return value;
+  const byChars = value.slice(0, maxChars);
+  const lines = byChars.split("\n");
+  const preview = lines.length > maxLines ? lines.slice(0, maxLines).join("\n") : byChars;
+  return `${preview.trimEnd()}\n\n... 已截断长内容，展开后查看完整内容`;
+}
+
+function lineCount(value: string): number {
+  let count = 1;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) count += 1;
+  }
+  return count;
 }

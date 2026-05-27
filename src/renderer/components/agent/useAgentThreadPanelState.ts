@@ -7,7 +7,6 @@ import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, RunSummary } fro
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export interface AgentThreadPanelState {
-  nowMs: number;
   permissionMode: AgentPermissionMode;
   timelineRecords: AgentTimelineRecord[];
   timelineGroups: ReturnType<typeof useAgentTimelineState>["timelineGroups"];

@@ -10,10 +10,10 @@ export function CompactContextNote({ state }: { state: "compacting" | "complete"
   return (
     <div className="flex w-full items-center gap-3 py-3">
       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/70 to-border/25" />
-      <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] shadow-sm backdrop-blur-xl ${
+      <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] shadow-sm ${
         compacting
-          ? "border-amber-200 bg-amber-50/75 text-amber-900"
-          : "border-emerald-200 bg-emerald-50/75 text-emerald-800"
+          ? "border-amber-200 bg-amber-50 text-amber-900"
+          : "border-emerald-200 bg-emerald-50 text-emerald-800"
       }`}>
         <Minimize2 className="h-3.5 w-3.5 shrink-0" />
         <span className={`font-semibold ${compacting ? "taskagent-sweep-text" : ""}`}>{compacting ? "正在压缩上下文" : "上下文已压缩"}</span>
@@ -37,7 +37,7 @@ export function RetryRuntimeNote({
   const waitSeconds = Math.max(0, Math.ceil(delayMs / 1000));
   return (
     <div className="flex justify-start px-1 py-1">
-      <div className="inline-flex max-w-2xl items-center gap-2 rounded-full border border-amber-200 bg-amber-50/78 px-3 py-1.5 text-[11px] text-amber-900 shadow-sm ring-1 ring-white/55 backdrop-blur-xl">
+      <div className="inline-flex max-w-2xl items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900 shadow-sm ring-1 ring-white/55">
         <RotateCw className="h-3.5 w-3.5 shrink-0 animate-spin" />
         <span className="font-semibold">正在重试 {attempt}/{maxRetries}</span>
         {waitSeconds > 0 && <span className="text-amber-900/70">{waitSeconds}s 后重连</span>}
@@ -50,7 +50,7 @@ export function RetryRuntimeNote({
 export function PromptTooLongCard({ message, onCompact }: { message: string; onCompact: () => void }) {
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-xl rounded-2xl border border-amber-200 bg-amber-50/82 p-4 text-sm text-amber-950 shadow-sm ring-1 ring-white/55 backdrop-blur-xl">
+      <div className="w-full max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm ring-1 ring-white/55">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
             <Minimize2 className="h-4 w-4" />
@@ -85,7 +85,7 @@ export function ProviderErrorCard({ message }: { message: string }) {
   if (!trimmed) return null;
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50/82 p-4 text-sm text-red-950 shadow-sm ring-1 ring-white/55 backdrop-blur-xl">
+      <div className="w-full max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-950 shadow-sm ring-1 ring-white/55">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-700">
             <AlertTriangle className="h-4 w-4" />
@@ -118,7 +118,7 @@ export function UserMessageBubble({
   return (
     <div className="group/message flex justify-end">
       <div className="flex max-w-[76%] flex-col items-end">
-        <div className="min-w-0 rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.96),rgba(246,242,232,0.86))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 backdrop-blur-xl transition-[box-shadow,border-color,background-color] duration-200">
+        <div className="min-w-0 rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.98),rgba(246,242,232,0.94))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 transition-[box-shadow,border-color,background-color] duration-200">
           {content.trim() && <Markdownish content={content} threadId={threadId} />}
           {attachments.length > 0 && <MessageAttachments attachments={attachments} threadId={threadId} />}
         </div>

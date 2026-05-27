@@ -103,7 +103,7 @@ export function ContextUsageButton({
       </button>
       {open && createPortal(
         <div
-          className="fixed z-[120] w-64 -translate-y-full rounded-2xl border border-white/65 bg-card/95 p-3 text-xs shadow-[0_18px_48px_rgba(64,55,38,0.18)] ring-1 ring-border/50 backdrop-blur-xl"
+          className="fixed z-[120] w-64 -translate-y-full rounded-2xl border border-white/65 bg-card/98 p-3 text-xs shadow-[0_14px_36px_rgba(64,55,38,0.14)] ring-1 ring-border/50"
           style={{ left: menuPosition.left, top: menuPosition.top }}
           onMouseEnter={showMenu}
           onMouseLeave={hideMenuSoon}

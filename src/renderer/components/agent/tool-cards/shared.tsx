@@ -1,4 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+
+const LONG_TOOL_TEXT_LIMIT = 12_000;
+const LONG_TOOL_TEXT_LINES = 180;
 
 export function ToolDetailsShell({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
@@ -17,10 +20,26 @@ export function ToolCodeBlock({
   className?: string;
   maxHeight?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = textContent(children);
+  const preview = text && !expanded ? truncateLongText(text, LONG_TOOL_TEXT_LIMIT, LONG_TOOL_TEXT_LINES) : null;
+  const truncated = Boolean(preview && preview !== text);
+
   return (
-    <pre className={`${maxHeight} overflow-auto whitespace-pre-wrap break-words bg-[linear-gradient(135deg,rgba(255,252,244,0.94),rgba(244,238,224,0.86))] px-4 py-3 font-mono text-[12px] leading-6 text-stone-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] [contain:layout_paint_style] brevyn-scrollbar ${className}`}>
-      {children}
-    </pre>
+    <div className="min-w-0">
+      <pre className={`${maxHeight} overflow-auto whitespace-pre-wrap break-words bg-[linear-gradient(135deg,rgba(255,252,244,0.94),rgba(244,238,224,0.86))] px-4 py-3 font-mono text-[12px] leading-6 text-stone-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] [contain:layout_paint_style] brevyn-scrollbar ${className}`}>
+        {truncated ? preview : children}
+      </pre>
+      {truncated && (
+        <button
+          type="button"
+          className="w-full border-t border-border/60 bg-background/72 px-3 py-2 text-left text-[11px] font-medium text-muted-foreground transition hover:text-foreground"
+          onClick={() => setExpanded(true)}
+        >
+          展开完整内容
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -67,40 +86,45 @@ export function DeferredToolDetails({
   defer?: boolean;
   children: ReactNode;
 }) {
-  const [mounted, setMounted] = useState(() => !collapsed && !defer);
+  const [mounted, setMounted] = useState(() => !collapsed);
+
+  useLayoutEffect(() => {
+    if (!collapsed) setMounted(true);
+  }, [collapsed]);
 
   useEffect(() => {
+    if (!collapsed) return undefined;
     if (!defer) {
-      setMounted(!collapsed);
-      return;
-    }
-    if (collapsed) {
       setMounted(false);
-      return;
+      return undefined;
     }
-    let firstFrame = 0;
-    let secondFrame = 0;
-    const delay = defer ? 72 : 24;
-    const timeout = window.setTimeout(() => {
-      firstFrame = window.requestAnimationFrame(() => {
-        secondFrame = window.requestAnimationFrame(() => setMounted(true));
-      });
-    }, delay);
-    return () => {
-      window.clearTimeout(timeout);
-      if (firstFrame) window.cancelAnimationFrame(firstFrame);
-      if (secondFrame) window.cancelAnimationFrame(secondFrame);
-    };
+    const timeout = window.setTimeout(() => setMounted(false), 260);
+    return () => window.clearTimeout(timeout);
   }, [collapsed, defer]);
 
-  if (!defer && !collapsed) {
-    return <div className="tool-details-content-in [contain:layout_paint_style]">{children}</div>;
-  }
-
-  if (!mounted) {
-    return (
-      <div className="h-7 rounded-lg bg-muted/15 opacity-70" />
-    );
-  }
+  if (!mounted) return null;
   return <div className="tool-details-content-in [contain:layout_paint_style]">{children}</div>;
+}
+
+function textContent(value: ReactNode): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(textContent).join("");
+  return "";
+}
+
+function truncateLongText(value: string, maxChars: number, maxLines: number): string {
+  if (value.length <= maxChars && lineCount(value) <= maxLines) return value;
+  const byChars = value.slice(0, maxChars);
+  const lines = byChars.split("\n");
+  const preview = lines.length > maxLines ? lines.slice(0, maxLines).join("\n") : byChars;
+  return `${preview.trimEnd()}\n\n... 已截断长输出，展开后查看完整内容`;
+}
+
+function lineCount(value: string): number {
+  let count = 1;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) count += 1;
+  }
+  return count;
 }

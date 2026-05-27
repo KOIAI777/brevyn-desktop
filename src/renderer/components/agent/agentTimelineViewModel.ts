@@ -139,6 +139,101 @@ export function buildTimelineViewGroups(
   return appendRunningProcessViewGroup(collapseCompactSystemGroups(filtered), items, records, options);
 }
 
+export function stabilizeTimelineViewGroups(
+  previous: AgentTimelineViewGroup[],
+  next: AgentTimelineViewGroup[],
+): AgentTimelineViewGroup[] {
+  if (previous.length === 0 || next.length === 0) return next;
+  const previousByKey = new Map(previous.map((group) => [group.key, group]));
+  const stabilized = next.map((group) => {
+    const previousGroup = previousByKey.get(group.key);
+    return previousGroup && canReuseTimelineGroup(previousGroup, group) ? previousGroup : group;
+  });
+  return stabilized.length === previous.length && stabilized.every((group, index) => group === previous[index])
+    ? previous
+    : stabilized;
+}
+
+function canReuseTimelineGroup(previous: AgentTimelineViewGroup, next: AgentTimelineViewGroup): boolean {
+  if (previous.type !== next.type || previous.key !== next.key) return false;
+  if (next.type === "user" && previous.type === "user") {
+    return sameStaticViewItem(previous.item, next.item);
+  }
+  if (next.type !== "assistant-turn" || previous.type !== "assistant-turn") return false;
+  if (!isStaticTextTurn(previous) || !isStaticTextTurn(next)) return false;
+  return previous.model === next.model
+    && previous.createdAt === next.createdAt
+    && sameStringList(previous.collapsedVisibleEntryKeys, next.collapsedVisibleEntryKeys)
+    && sameOptionalStaticViewItem(previous.processItem, next.processItem)
+    && sameStaticViewItems(previous.items, next.items)
+    && previous.entries.length === next.entries.length
+    && previous.entries.every((entry, index) => {
+      const nextEntry = next.entries[index];
+      return entry.type === "item"
+        && nextEntry?.type === "item"
+        && entry.key === nextEntry.key
+        && sameStaticViewItem(entry.item, nextEntry.item);
+    });
+}
+
+function isStaticTextTurn(group: Extract<AgentTimelineViewGroup, { type: "assistant-turn" }>): boolean {
+  if (group.processItem?.processSummary?.running) return false;
+  return group.entries.every((entry) => entry.type === "item")
+    && group.items.every((item) => (
+      item.assistantStreaming !== true
+      && item.processEvents.length === 0
+      && (item.displayKind === "assistant-final" || item.displayKind === "thinking" || item.displayKind === "prompt-too-long" || item.displayKind === "provider-error")
+    ));
+}
+
+function sameStaticViewItems(previous: AgentTimelineViewItem[], next: AgentTimelineViewItem[]): boolean {
+  return previous.length === next.length && previous.every((item, index) => {
+    const nextItem = next[index];
+    return Boolean(nextItem) && sameStaticViewItem(item, nextItem);
+  });
+}
+
+function sameOptionalStaticViewItem(previous: AgentTimelineViewItem | undefined, next: AgentTimelineViewItem | undefined): boolean {
+  if (!previous || !next) return previous === next;
+  return sameStaticViewItem(previous, next);
+}
+
+function sameStaticViewItem(previous: AgentTimelineViewItem, next: AgentTimelineViewItem): boolean {
+  return recordKey(previous.record) === recordKey(next.record)
+    && previous.displayKind === next.displayKind
+    && previous.assistantContent === next.assistantContent
+    && previous.assistantStreaming === next.assistantStreaming
+    && previous.contentBlockIndex === next.contentBlockIndex
+    && previous.contentBlockKey === next.contentBlockKey
+    && previous.stoppedByUser === next.stoppedByUser
+    && previous.processExpanded === next.processExpanded
+    && previous.processLockedOpen === next.processLockedOpen
+    && previous.processCollapsible === next.processCollapsible
+    && previous.processKey === next.processKey
+    && previous.defaultCollapsed === next.defaultCollapsed
+    && sameRunSummary(previous.processSummary, next.processSummary);
+}
+
+function sameRunSummary(previous: RunSummary | null, next: RunSummary | null): boolean {
+  if (!previous || !next) return previous === next;
+  return previous.runId === next.runId
+    && previous.label === next.label
+    && previous.running === next.running
+    && previous.status === next.status
+    && previous.permissionMode === next.permissionMode
+    && previous.detail === next.detail
+    && previous.startedAtMs === next.startedAtMs
+    && previous.finishedAtMs === next.finishedAtMs
+    && previous.hasActivity === next.hasActivity
+    && previous.retryAttempt === next.retryAttempt
+    && previous.retryMaxRetries === next.retryMaxRetries
+    && previous.retryUntilMs === next.retryUntilMs;
+}
+
+function sameStringList(previous: string[], next: string[]): boolean {
+  return previous.length === next.length && previous.every((value, index) => value === next[index]);
+}
+
 function collapseCompactSystemGroups(groups: AgentTimelineViewGroup[]): AgentTimelineViewGroup[] {
   const collapsed: AgentTimelineViewGroup[] = [];
   let compactGroupIndex = 0;

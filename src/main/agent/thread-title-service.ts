@@ -12,7 +12,7 @@ const TITLE_PROMPT_PREFIX = [
 ].join("\n");
 const MAX_TITLE_LENGTH = 20;
 const SHORT_MESSAGE_THRESHOLD = 4;
-const TITLE_FETCH_TIMEOUT_MS = 10_000;
+const TITLE_FETCH_TIMEOUT_MS = 30_000;
 
 interface ThreadTitleServiceOptions {
   businessStore: SQLiteBusinessStore;
@@ -86,7 +86,11 @@ export function cleanGeneratedTitle(value: string): string | null {
 
 async function fetchTitlePayload(url: string, init: RequestInit): Promise<unknown> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TITLE_FETCH_TIMEOUT_MS);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, TITLE_FETCH_TIMEOUT_MS);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
     if (!response.ok) {
@@ -94,9 +98,19 @@ async function fetchTitlePayload(url: string, init: RequestInit): Promise<unknow
       return null;
     }
     return await response.json();
+  } catch (error) {
+    if (timedOut && isAbortError(error)) {
+      console.info("[thread-title] Title request timed out", { timeoutMs: TITLE_FETCH_TIMEOUT_MS });
+      return null;
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function providerWithSelectedModel(provider: ModelProviderConfig, modelId?: string): ModelProviderConfig {

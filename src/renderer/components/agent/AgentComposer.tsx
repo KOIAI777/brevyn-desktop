@@ -137,7 +137,7 @@ export const AgentComposer = memo(function AgentComposer({
   }
 
   return (
-    <form ref={formRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-[#f8f4eb] px-5 pb-7 pt-5 [backface-visibility:hidden] [transform:translateZ(0)] [will-change:transform]" onSubmit={handleSubmit}>
+    <form ref={formRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-6 pt-3" onSubmit={handleSubmit}>
       <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
         {queuedMessages.length > 0 && (
@@ -155,10 +155,10 @@ export const AgentComposer = memo(function AgentComposer({
           />
         )}
         <div
-          className={`pointer-events-auto relative w-full min-w-0 rounded-2xl border p-2.5 shadow-[0_10px_26px_rgba(64,55,38,0.13)] [backface-visibility:hidden] [transform:translateZ(0)] ${
+          className={`pointer-events-auto relative w-full min-w-0 rounded-[1.6rem] border p-2.5 shadow-[0_8px_22px_rgba(64,55,38,0.12)] [backface-visibility:hidden] [transform:translateZ(0)] ${
             draggingFiles
               ? "border-sky-200 bg-sky-50"
-              : "border-white/80 bg-[#f8f4eb]"
+              : "border-white/70 bg-[#f5f0e6]"
           }`}
           onDragOver={(event) => {
             if (running) return;

@@ -244,7 +244,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
 
   return (
     <>
-      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[12rem] pt-5 [overflow-anchor:none] [scrollbar-gutter:stable]">
+      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[10.5rem] pt-5 [overflow-anchor:none] [scrollbar-gutter:stable]">
         <div
           ref={contentRef}
           className={`min-h-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}
@@ -308,9 +308,10 @@ function ProcessTimelinePanel({
   collapsible: boolean;
   onToggle: () => void;
 }) {
+  const displaySummary = useLiveRunSummary(summary);
   return (
     <BaseProcessTimelinePanel
-      summary={summary}
+      summary={displaySummary}
       expanded={expanded}
       lockedOpen={lockedOpen}
       collapsible={collapsible}
@@ -318,6 +319,39 @@ function ProcessTimelinePanel({
       runSummaryTone={runSummaryTone}
     />
   );
+}
+
+function useLiveRunSummary(summary: RunSummary): RunSummary {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!summary.running) return;
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [summary.running, summary.runId]);
+
+  if (!summary.running) return summary;
+  if (summary.retryAttempt && summary.retryMaxRetries) {
+    const remainingMs = Math.max(0, (summary.retryUntilMs ?? nowMs) - nowMs);
+    const suffix = remainingMs > 0 ? ` · ${Math.ceil(remainingMs / 1000)}s 后重连` : "";
+    return {
+      ...summary,
+      label: `正在重试 ${summary.retryAttempt}/${summary.retryMaxRetries}${suffix}`,
+    };
+  }
+  if (!summary.startedAtMs || !summary.hasActivity || nowMs - summary.startedAtMs < 1000) return summary;
+  return {
+    ...summary,
+    label: `已处理 ${formatRunDuration(nowMs - summary.startedAtMs)}`,
+  };
+}
+
+function formatRunDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
 function EmptyThreadWelcome({ thread }: { thread: Thread }) {
