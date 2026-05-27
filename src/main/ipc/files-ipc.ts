@@ -60,11 +60,17 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     const error = await shell.openPath(sourcePath);
     if (error) throw new Error(error);
   });
-  ipcMain.handle(IPC_CHANNELS.filesRename, (_event, rawInput: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.filesRename, (event, rawInput: unknown) => {
     const input = normalizeRenameInput(rawInput);
-    return store.renameFile(input.fileId, input.name);
+    const result = store.renameFile(input.fileId, input.name);
+    event.sender.send(IPC_CHANNELS.filesChanged);
+    return result;
   });
-  ipcMain.handle(IPC_CHANNELS.filesDelete, (_event, fileId: unknown) => store.deleteFile(requireString(fileId, "文件 ID")));
+  ipcMain.handle(IPC_CHANNELS.filesDelete, (event, fileId: unknown) => {
+    const result = store.deleteFile(requireString(fileId, "文件 ID"));
+    event.sender.send(IPC_CHANNELS.filesChanged);
+    return result;
+  });
   ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: unknown) => {
     const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
     if (!sourcePath) throw new Error("文件源路径不可用。");

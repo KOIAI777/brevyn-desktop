@@ -97,7 +97,6 @@ function areEqualFileTreeNode(previous: FileTreeNodeProps, next: FileTreeNodePro
   return (
     previous.node === next.node &&
     previous.level === next.level &&
-    previous.collapsedFolderIds === next.collapsedFolderIds &&
     previousOpen === nextOpen &&
     previousActive === nextActive &&
     previous.onSelect === next.onSelect &&
