@@ -397,12 +397,22 @@ function appendLiveRecordInTurnOrder(records: BrevynAgentTimelineRecord[], recor
     records.push(record);
     return;
   }
+  if (isRunBoundaryRecord(record)) {
+    records.push(record);
+    return;
+  }
   const insertIndex = firstTrailingTerminalRecordIndex(records);
   if (insertIndex < 0) {
     records.push(record);
     return;
   }
   records.splice(insertIndex, 0, record);
+}
+
+function isRunBoundaryRecord(record: BrevynAgentTimelineRecord): boolean {
+  if (isRuntimeRecord(record)) return record.event.type === "run_started";
+  const message = record as SDKMessage;
+  return message.type === "user" && !toolResultBlocks(message).length && userText(message).trim().length > 0;
 }
 
 function firstTrailingTerminalRecordIndex(records: BrevynAgentTimelineRecord[]): number {

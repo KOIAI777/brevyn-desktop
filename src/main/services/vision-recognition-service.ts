@@ -200,9 +200,7 @@ export class VisionRecognitionService {
         existingCourses.push(course);
       }
       applied.push(course);
-      const events = recognizedCourseToEvents(recognized, course, semester);
-      this.options.businessStore.replaceCourseSessionEvents(course.id, events);
-      appliedEvents.push(...events);
+      this.options.businessStore.replaceCourseSessionEvents(course.id, []);
     }
     return { courses: applied, events: appliedEvents };
   }
@@ -544,70 +542,6 @@ function firstLocation(sessions: RecognizedCourseSession[]): string | undefined 
 function stripSectionSuffix(name: string, section?: string): string {
   if (!section) return name;
   return name.replace(new RegExp(`\\s*\\(${escapeRegExp(section)}\\)\\s*$`), "").trim() || name;
-}
-
-function recognizedCourseToEvents(recognized: RecognizedCourseSchedule, course: Course, semester: SemesterWorkspace): TimetableEvent[] {
-  if (!semester.startsAt || !semester.endsAt) return [];
-  const rangeStart = dateOnly(semester.startsAt);
-  const rangeEnd = dateOnly(semester.endsAt);
-  if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) return [];
-  return recognized.sessions.flatMap((session) => {
-    const first = firstWeekdayOnOrAfter(rangeStart, session.dayOfWeek);
-    if (!first || first > rangeEnd) return [];
-    const events: TimetableEvent[] = [];
-    for (let day = first; day <= rangeEnd; day = addDays(day, 7)) {
-      const date = formatDateOnly(day);
-      events.push({
-        id: entityId("event"),
-        semesterId: semester.id,
-        courseId: course.id,
-        title: `${course.code} ${course.name}`,
-        kind: "course_session",
-        source: "course",
-        startsAt: `${date}T${session.startTime}:00`,
-        endsAt: `${date}T${session.endTime}:00`,
-        location: session.room,
-        notes: [
-          recognized.section ? `Section ${recognized.section}` : "",
-          recognized.instructor ? `Instructor: ${recognized.instructor}` : "",
-          session.weeks ? `Weeks: ${session.weeks}` : "",
-        ].filter(Boolean).join("\n") || undefined,
-        confidence: session.confidence ?? recognized.confidence,
-      });
-    }
-    return events;
-  });
-}
-
-function dateOnly(value: string): Date | undefined {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return undefined;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  date.setHours(0, 0, 0, 0);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function firstWeekdayOnOrAfter(start: Date, weekday: WeekdayKey): Date {
-  const target = weekdayIndex(weekday);
-  const next = new Date(start);
-  const current = next.getDay();
-  const diff = (target - current + 7) % 7;
-  next.setDate(next.getDate() + diff);
-  return next;
-}
-
-function weekdayIndex(weekday: WeekdayKey): number {
-  return { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }[weekday];
-}
-
-function addDays(date: Date, amount: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function formatDateOnly(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function escapeRegExp(value: string): string {

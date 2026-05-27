@@ -382,8 +382,9 @@ export class FileService {
 
   async renameFile(fileId: string, nextName: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
     const { file, semesterId } = this.guardFileAccess(fileId, "renaming");
+    const affectedFileIds = this.localFileIdsForMutation(file, semesterId);
     const sourcePath = this.mutableSourcePath(file, semesterId, "rename");
-    if (file.kind !== "folder" && this.options.businessStore.hasActiveFileIndexing(fileId)) {
+    if (affectedFileIds.some((id) => this.options.businessStore.hasActiveFileIndexing(id))) {
       throw new Error("Wait for indexing to finish before renaming this file.");
     }
     const safeName = sanitizeFsSegment(nextName);
@@ -392,14 +393,15 @@ export class FileService {
     if (targetPath === sourcePath) return { courseId: file.courseId, tree: this.listFiles(file.courseId) };
     if (existsSync(targetPath)) throw new Error(`"${safeName}" already exists.`);
     renameSync(sourcePath, targetPath);
-    if (file.kind !== "folder") await this.deleteRagChunksForFile(fileId);
+    await this.deleteRagChunksForFiles(affectedFileIds);
     this.syncManagedDiskFiles(file.courseId, semesterId);
     return { courseId: file.courseId, tree: this.listFiles(file.courseId) };
   }
 
   async deleteFile(fileId: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
     const { file, semesterId } = this.guardFileAccess(fileId, "deleting");
-    if (file.kind !== "folder" && this.options.businessStore.hasActiveFileIndexing(fileId)) {
+    const affectedFileIds = this.localFileIdsForMutation(file, semesterId);
+    if (affectedFileIds.some((id) => this.options.businessStore.hasActiveFileIndexing(id))) {
       throw new Error("Wait for indexing to finish before deleting this file.");
     }
     const courseId = file.courseId;
@@ -417,8 +419,16 @@ export class FileService {
         path: sourcePath,
       });
     }
-    await this.deleteRagChunksForFile(fileId);
+    await this.deleteRagChunksForFiles(affectedFileIds);
     return { courseId, tree: this.listFiles(courseId) };
+  }
+
+  private localFileIdsForMutation(file: WorkspaceFileNode, semesterId: string): string[] {
+    if (file.kind !== "folder") return [file.id];
+    const roots = this.loadCourseRoots(file.courseId, semesterId);
+    const folder = findFileNodeById(roots, file.id);
+    if (!folder) return [];
+    return flattenFiles([folder]).filter((child) => Boolean(child.sourcePath)).map((child) => child.id);
   }
 
   private mutableSourcePath(file: WorkspaceFileNode, semesterId: string, operation: "delete" | "rename"): string {
@@ -975,6 +985,12 @@ export class FileService {
     }
   }
 
+  private async deleteRagChunksForFiles(fileIds: string[]): Promise<void> {
+    for (const fileId of new Set(fileIds)) {
+      await this.deleteRagChunksForFile(fileId);
+    }
+  }
+
   private safeRm(path: string, message: string, failure?: Omit<CleanupFailure, "message">): void {
     if (!existsSync(path)) return;
     try {
@@ -1014,6 +1030,15 @@ function hasVisibleDiskEntries(dir: string): boolean {
 
 function lectureWeekNumbersForFolders(semester: Parameters<typeof semesterWeekNumbers>[0]): number[] {
   return semesterWeekNumbers(semester).slice(0, MAX_LECTURE_WEEK_FOLDERS);
+}
+
+function findFileNodeById(nodes: WorkspaceFileNode[], fileId: string): WorkspaceFileNode | undefined {
+  for (const node of nodes) {
+    if (node.id === fileId) return node;
+    const child = node.children ? findFileNodeById(node.children, fileId) : undefined;
+    if (child) return child;
+  }
+  return undefined;
 }
 
 function readPreviewSource(sourcePath?: string): string {

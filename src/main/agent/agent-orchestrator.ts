@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { extname } from "node:path";
 import type { CanUseTool, Query, SDKMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentApprovalDecision,
@@ -141,6 +142,11 @@ export class AgentOrchestrator {
     });
 
     try {
+      if (compactCommand) {
+        this.appendAndEmitSdkMessage(context.thread, compactingSdkMessage());
+      } else {
+        this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments, input.uuid));
+      }
       this.appendAndEmitRuntimeEvent(context.thread, {
         type: "run_started",
         runId,
@@ -158,11 +164,6 @@ export class AgentOrchestrator {
           threadId: context.thread.id,
           createdAt: now(),
         });
-      }
-      if (compactCommand) {
-        this.appendAndEmitSdkMessage(context.thread, compactingSdkMessage());
-      } else {
-        this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments, input.uuid));
       }
     } catch (error) {
       this.activeRuns.delete(context.thread.id);
@@ -963,9 +964,18 @@ function compactBoundarySdkMessage(): SDKMessage {
 function promptWithAttachments(prompt: string, attachments: AgentAttachment[]): string {
   if (attachments.length === 0) return prompt;
   const refs = attachments
-    .map((attachment) => `- ${attachment.name}: ${attachment.path}`)
+    .map((attachment) => `- ${attachment.name}: ${attachment.path}${attachmentReadHint(attachment)}`)
     .join("\n");
-  return `<attached_files>\n${refs}\n</attached_files>\n\n${prompt}`;
+  return `<attached_files>\n${refs}\n\nReading guidance: for plain text/code files use Read/Grep. For PDF, DOCX, PPTX, XLSX, and other binary documents, use the matching native Skill or command-line/Python extraction workflow; do not repeatedly retry Read if it returns only metadata or unsupported content.\n</attached_files>\n\n${prompt}`;
+}
+
+function attachmentReadHint(attachment: AgentAttachment): string {
+  const extension = extname(attachment.name || attachment.path).toLowerCase();
+  if (extension === ".pdf") return " (PDF: use pdf Skill, pdftotext, pdfplumber, or pypdf for extraction)";
+  if (extension === ".docx" || extension === ".doc") return " (Word document: use docx Skill, mammoth, pandoc, or unzip/XML for extraction)";
+  if (extension === ".pptx" || extension === ".ppt") return " (presentation: use pptx Skill or unzip/XML for extraction)";
+  if (extension === ".xlsx" || extension === ".xls" || extension === ".csv" || extension === ".tsv") return " (spreadsheet: use xlsx Skill or Python spreadsheet libraries for extraction)";
+  return "";
 }
 
 function promptWithMentionedSkills(prompt: string, mentionedSkills: string[] | undefined, skills: Array<{ slug?: string; name: string; enabled: boolean }>): string {

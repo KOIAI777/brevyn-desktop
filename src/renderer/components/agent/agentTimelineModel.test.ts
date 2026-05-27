@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BrevynAgentRuntimeEvent, ModelProviderConfig } from "@/types/domain";
-import { assistantText, groupIntoTurns, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
+import { assistantText, groupIntoTurns, isRuntimeRecord, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
 import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
 import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
 import { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups, type AgentTimelineViewItem } from "./useAgentTimelineState";
@@ -94,6 +94,18 @@ function runStarted(modelId: string, runId: string): AgentTimelineRecord {
       providerId: "provider_fixture",
       modelId,
       createdAt: "2026-05-16T00:00:00.000Z",
+    },
+  } as AgentTimelineRecord;
+}
+
+function runCompleted(runId: string): AgentTimelineRecord {
+  return {
+    kind: "runtime",
+    event: {
+      type: "run_completed",
+      runId,
+      threadId: "thread_fixture",
+      createdAt: "2026-05-16T00:00:02.000Z",
     },
   } as AgentTimelineRecord;
 }
@@ -377,6 +389,40 @@ const liveMergeRecords = normalizeTimelineRecords(
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "user").length, 1);
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "assistant").length, 1);
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "stream_event").length, 2);
+
+const nextRunAfterTerminalRecords = normalizeTimelineRecords(
+  [
+    userText("Previous turn.", "user_previous_terminal"),
+    assistant([{ type: "text", text: "Previous answer." }], "assistant_previous_terminal"),
+    result("result_previous_terminal"),
+    runCompleted("run_previous_terminal"),
+  ],
+  [
+    userText("Next turn.", "user_next_live"),
+    runStarted("deepseek-v4-pro", "run_next_live"),
+  ],
+  true,
+);
+assert.deepEqual(
+  nextRunAfterTerminalRecords.map((record) => isRuntimeRecord(record) ? record.event.type : (record as SDKMessage).uuid),
+  [
+    "user_previous_terminal",
+    "assistant_previous_terminal",
+    "result_previous_terminal",
+    "run_completed",
+    "user_next_live",
+    "run_started",
+  ],
+);
+const nextRunSummary = { runId: "run_next_live", label: "Thinking", running: true, status: "running" as const };
+const nextRunGroups = buildTimelineViewGroups(
+  nextRunAfterTerminalRecords,
+  nextRunAfterTerminalRecords.map(viewItem),
+  { effectiveRunning: true, runSummary: nextRunSummary },
+);
+const nextRunLastGroup = nextRunGroups.at(-1);
+assert.equal(nextRunLastGroup?.type, "assistant-turn");
+assert.equal(nextRunLastGroup?.type === "assistant-turn" ? nextRunLastGroup.processItem?.processSummary?.runId : "", "run_next_live");
 
 const streamFinalGroups = buildTimelineViewGroups(liveMergeRecords, liveMergeRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
 const streamFinalItems = streamFinalGroups[1]?.type === "assistant-turn" ? streamFinalGroups[1].items : [];

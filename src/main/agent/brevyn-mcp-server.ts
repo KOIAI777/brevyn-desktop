@@ -60,7 +60,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
       ),
       sdk.tool(
         "list_course_files",
-        "List Brevyn workspace file records for the current course or task. Returns file ids, names, semantic sections, and paths. Use Read/Grep for actual file contents.",
+        "List Brevyn workspace file records for the current course or task. Returns file ids, names, semantic sections, and paths. For text/code files use Read/Grep on paths; for PDF, DOCX, PPTX, XLSX, and other binary documents use the matching Skill or command-line extraction workflow.",
         {
           courseId: z.string().optional().describe("Optional course id in the current semester. Omit to use the current agent scope."),
           sectionKind: SECTION_SCHEMA.optional().describe("Optional semantic section filter: course_shared, lecture, or task."),
@@ -72,7 +72,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
       ),
       sdk.tool(
         "get_file_record",
-        "Look up one Brevyn workspace file record by fileId. Returns metadata and the managed workspace path to use with Read when available.",
+        "Look up one Brevyn workspace file record by fileId. Returns metadata and the managed workspace path. Use Read for ordinary text/code files; use the matching Skill or command-line extraction workflow for PDF, DOCX, PPTX, XLSX, and other binary documents.",
         {
           fileId: z.string().min(1).describe("Brevyn workspace file id returned by list_course_files."),
         },
@@ -81,7 +81,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
       ),
       sdk.tool(
         "rag_search",
-        "Semantic search over indexed Brevyn course materials. Use this for course-material questions, rubric evidence, lecture concepts, and assignment evidence before opening files with Read.",
+        "Semantic search over indexed Brevyn course materials. Use this for course-material questions, rubric evidence, lecture concepts, and assignment evidence before opening source files. Open text/code with Read; extract PDF/Office documents with matching Skills or command-line tools.",
         {
           query: z.string().min(1).describe("Natural language search query for course materials."),
           courseId: z.string().optional().describe("Optional course id in the current semester. Omit to use the current agent scope."),

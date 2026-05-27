@@ -50,6 +50,7 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     const sourcePaths = dialogResult.filePaths;
     const result = await store.importFiles({ ...input, sourcePaths });
     if (result.indexingJob) indexingQueue?.poke();
+    if (result.files.length > 0) event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });
   ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: unknown) => store.courseFileSections(requireString(courseId, "Course id")));
@@ -60,14 +61,14 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     const error = await shell.openPath(sourcePath);
     if (error) throw new Error(error);
   });
-  ipcMain.handle(IPC_CHANNELS.filesRename, (event, rawInput: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.filesRename, async (event, rawInput: unknown) => {
     const input = normalizeRenameInput(rawInput);
-    const result = store.renameFile(input.fileId, input.name);
+    const result = await store.renameFile(input.fileId, input.name);
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });
-  ipcMain.handle(IPC_CHANNELS.filesDelete, (event, fileId: unknown) => {
-    const result = store.deleteFile(requireString(fileId, "文件 ID"));
+  ipcMain.handle(IPC_CHANNELS.filesDelete, async (event, fileId: unknown) => {
+    const result = await store.deleteFile(requireString(fileId, "文件 ID"));
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });

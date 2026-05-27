@@ -464,6 +464,7 @@ export class LocalStore {
     const end = Date.parse(query.rangeEnd);
     return this.businessStore.listTimetableEvents(semesterId)
       .filter((event) => {
+        if (event.kind === "course_session") return false;
         if (event.courseId && archivedCourseIds.has(event.courseId)) return false;
         const startsAt = Date.parse(event.startsAt);
         const endsAt = Date.parse(event.endsAt || event.startsAt);
