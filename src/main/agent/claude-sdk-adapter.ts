@@ -20,6 +20,7 @@ export interface ClaudeSdkRunInput {
   canUseTool?: CanUseTool;
   mcpServers?: Record<string, McpServerConfig>;
   onQuery?: (query: Query) => void;
+  onSessionId?: (sessionId: string) => void;
   permissionMode?: PermissionMode;
   planModeInstructions?: string;
   allowDangerouslySkipPermissions?: boolean;
@@ -123,7 +124,13 @@ export class ClaudeSdkAdapter {
       if (channel) this.activeChannels.set(sessionKey, channel);
     }
     try {
+      let sessionIdEmitted = false;
       for await (const message of query) {
+        const sessionId = sdkMessageSessionId(message);
+        if (!sessionIdEmitted && sessionId) {
+          sessionIdEmitted = true;
+          input.onSessionId?.(sessionId);
+        }
         if (channel && message.type === "result" && !shouldKeepChannelOpen(message) && !channel.consumeKeepOpenOnResult()) {
           channel.close();
         }
@@ -224,6 +231,11 @@ function shouldKeepChannelOpen(message: SDKMessage): boolean {
   const subtype = String((message as { subtype?: unknown }).subtype || "");
   return ["interrupt", "interrupted", "aborted"].includes(subtype)
     || ["aborted_streaming", "aborted_tools", "tool_deferred", "hook_stopped", "stop_hook_prevented"].includes(reason);
+}
+
+function sdkMessageSessionId(message: SDKMessage): string {
+  const sessionId = (message as { session_id?: unknown }).session_id;
+  return typeof sessionId === "string" ? sessionId : "";
 }
 
 const SAFE_TOOLS = new Set([

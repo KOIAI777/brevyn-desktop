@@ -35,6 +35,12 @@ try {
   });
   assert.equal(updated?.title, "宏观经济研读");
   assert.equal(updated?.titleSource, "auto");
+  const withSdkSession = store.updateThreadSdkSessionId(thread.id, "sdk-session-123");
+  assert.equal(withSdkSession?.sdkSessionId, "sdk-session-123");
+  assert.equal(store.getThread(thread.id)?.sdkSessionId, "sdk-session-123");
+  const clearedSdkSession = store.updateThreadSdkSessionId(thread.id, undefined);
+  assert.equal(clearedSdkSession?.sdkSessionId, undefined);
+  assert.equal(store.getThread(thread.id)?.sdkSessionId, undefined);
 
   const manualThread = testThread("thread_manual");
   store.saveThread(manualThread);

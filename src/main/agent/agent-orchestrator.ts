@@ -12,7 +12,6 @@ import type {
   AgentRunResult,
   BrevynAgentEvent,
   BrevynAgentRuntimeEvent,
-  BrevynAgentSessionRecord,
   BrevynAgentTimelineRecord,
   BrevynUsageMetadata,
   BrevynTask,
@@ -116,10 +115,11 @@ export class AgentOrchestrator {
 
     const runId = entityId("run");
     const abortController = new AbortController();
-    const resumeSessionId = this.options.sessions.latestSdkSessionId(context.thread);
+    const resumeSessionId = context.thread.sdkSessionId;
     const attachments = input.attachments || [];
     const selectedProvider = this.options.providers.agentProviderFor(input.providerId, input.modelId);
     const compactCommand = isCompactPrompt(input.prompt);
+    const shouldAutoTitle = !compactCommand && shouldGenerateTitleForRun(context.thread);
     const agentPrompt = promptWithMentionedSkills(input.prompt, input.mentionedSkills, this.options.skillFiles.listSkills());
     const promptForAgent = compactCommand
       ? "/compact"
@@ -169,7 +169,8 @@ export class AgentOrchestrator {
       throw error;
     }
 
-    void this.executeRun(context, runId, promptForAgent, resumeSessionId, compactCommand, compactCommand ? undefined : input.prompt);
+    const titleUserMessage = shouldAutoTitle ? input.prompt : undefined;
+    void this.executeRun(context, runId, promptForAgent, resumeSessionId, compactCommand, titleUserMessage);
     return { runId };
   }
 
@@ -257,15 +258,17 @@ export class AgentOrchestrator {
             canUseTool: this.createCanUseTool(context, runId),
             onQuery: (query) => {
               active.query = query;
-              if (!titleGenerationStarted && titleUserMessage) {
-                titleGenerationStarted = true;
-                void this.titleService.maybeGenerate({
-                  threadId: context.thread.id,
-                  userMessage: titleUserMessage,
-                  providerId: provider.id,
-                  modelId: provider.selectedModel,
-                });
-              }
+            },
+            onSessionId: (sessionId) => {
+              this.saveSdkSessionId(context.thread.id, sessionId);
+              if (!titleUserMessage || titleGenerationStarted) return;
+              titleGenerationStarted = true;
+              this.scheduleTitleGeneration({
+                threadId: context.thread.id,
+                userMessage: titleUserMessage,
+                providerId: provider.id,
+                modelId: provider.selectedModel,
+              });
             },
           });
           for await (const message of stream) {
@@ -312,12 +315,13 @@ export class AgentOrchestrator {
               }
               if (message.type === "result") {
                 if (current) {
-                  if (current.compactCommand && lifecycleForResult(message) === "completed" && !current.compactBoundaryWritten) {
+                  const lifecycle = lifecycleForResult(message);
+                  if (current.compactCommand && lifecycle === "completed" && !current.compactBoundaryWritten) {
                     this.appendAndEmitSdkMessage(context.thread, compactBoundarySdkMessage());
                     current.compactBoundaryWritten = true;
                   }
                   current.terminalResultWritten = true;
-                  this.writeTerminalLifecycle(current, lifecycleForResult(message), String((message as { result?: unknown }).result || ""));
+                  this.writeTerminalLifecycle(current, lifecycle, String((message as { result?: unknown }).result || ""));
                 }
               }
             } else if (shouldEmitLiveSdkMessage(message)) {
@@ -375,6 +379,7 @@ export class AgentOrchestrator {
       const active = this.activeRuns.get(context.thread.id);
       const stoppedByUser = Boolean(active?.stoppedByUser);
       const message = active?.abortController.signal.aborted ? "Agent run stopped." : errorMessage(error);
+      if (isInvalidSdkSessionError(message)) this.saveSdkSessionId(context.thread.id, undefined);
       if (!stoppedByUser && active) this.writeAssistantError(active, message);
       else if (!stoppedByUser) this.appendAndEmitSdkMessage(context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
       if (active) {
@@ -394,6 +399,23 @@ export class AgentOrchestrator {
       this.options.askUsers.clearThread(context.thread.id);
       this.options.exitPlans.clearThread(context.thread.id);
       this.activeRuns.delete(context.thread.id);
+    }
+  }
+
+  private scheduleTitleGeneration(input: { threadId: string; userMessage: string; providerId?: string; modelId?: string }): void {
+    setTimeout(() => {
+      void this.titleService.maybeGenerate({
+        ...input,
+        allowAfterFirstMessage: true,
+      });
+    }, 0);
+  }
+
+  private saveSdkSessionId(threadId: string, sdkSessionId?: string): void {
+    try {
+      this.options.businessStore.updateThreadSdkSessionId(threadId, sdkSessionId);
+    } catch (error) {
+      console.warn("[AgentOrchestrator] Failed to update SDK session metadata:", error);
     }
   }
 
@@ -1053,6 +1075,13 @@ function isContinuableSdkResult(message: SDKMessage): boolean {
     || ["aborted_streaming", "aborted_tools", "tool_deferred", "hook_stopped", "stop_hook_prevented"].includes(reason);
 }
 
+function isInvalidSdkSessionError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("session not found") ||
+    normalized.includes("no conversation found") ||
+    normalized.includes("conversation not found");
+}
+
 function withCreatedAt(message: SDKMessage): SDKMessage {
   const record = message as unknown as Record<string, unknown>;
   if (typeof record._createdAt === "number") return message;
@@ -1073,6 +1102,18 @@ function isCompactBoundaryMessage(message: SDKMessage): boolean {
 function shouldEmitLiveSdkMessage(message: SDKMessage): boolean {
   if (message.type !== "user") return true;
   return userMessageHasToolResult(message);
+}
+
+function shouldGenerateTitleForRun(thread: Thread): boolean {
+  if ((thread.messageCount || 0) > 0) return false;
+  if (thread.titleSource === "default") return true;
+  if (thread.titleSource) return false;
+  const normalized = thread.title.trim();
+  return normalized === "Home TaskAgent" ||
+    normalized === "Home session" ||
+    normalized === "Task session" ||
+    normalized.endsWith(" session") ||
+    normalized.endsWith(" thread");
 }
 
 function userMessageHasToolResult(message: SDKMessage): boolean {

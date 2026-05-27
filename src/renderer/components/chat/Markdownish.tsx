@@ -6,6 +6,8 @@ import { FilePathChip, isFilePathLike } from "./FilePathChip";
 const remarkPlugins = [remarkGfm];
 const LONG_MARKDOWN_CODE_LIMIT = 16_000;
 const LONG_MARKDOWN_CODE_LINES = 220;
+const STREAM_BLOCK_FREEZE_MIN_CHARS = 1_800;
+const STREAM_BLOCK_FREEZE_MIN_BLOCKS = 3;
 
 type MarkdownNode = {
   position?: {
@@ -29,6 +31,10 @@ interface MarkdownishProps {
 }
 
 type RenderMarkdownChildren = (children: ReactNode, path: string) => ReactNode;
+interface StreamingMarkdownBlock {
+  key: string;
+  content: string;
+}
 
 const passthroughChildren: RenderMarkdownChildren = (children) => children;
 
@@ -75,6 +81,64 @@ const StreamingMarkdownishRenderer = memo(function StreamingMarkdownishRenderer(
   threadId,
   preserveSoftBreaks,
 }: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
+  const blocks = useMemo(() => splitStreamingMarkdownBlocks(content), [content]);
+  if (shouldFreezeStreamingBlocks(content, blocks)) {
+    return (
+      <StreamingBlockMarkdownishRenderer
+        blocks={blocks}
+        preserveSoftBreaks={preserveSoftBreaks}
+        threadId={threadId}
+      />
+    );
+  }
+
+  return (
+    <InlineStreamingMarkdownishRenderer
+      content={content}
+      preserveSoftBreaks={preserveSoftBreaks}
+      threadId={threadId}
+    />
+  );
+}, areMarkdownishRenderPropsEqual);
+
+const StreamingBlockMarkdownishRenderer = memo(function StreamingBlockMarkdownishRenderer({
+  blocks,
+  threadId,
+  preserveSoftBreaks,
+}: {
+  blocks: StreamingMarkdownBlock[];
+} & Required<Pick<MarkdownishProps, "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
+  return (
+    <div className="markdownish-stream-blocks">
+      {blocks.map((block, index) => {
+        const streaming = index === blocks.length - 1;
+        return (
+          <div key={block.key} className="markdownish-stream-block">
+            {streaming ? (
+              <InlineStreamingMarkdownishRenderer
+                content={block.content}
+                preserveSoftBreaks={preserveSoftBreaks}
+                threadId={threadId}
+              />
+            ) : (
+              <StaticMarkdownishRenderer
+                content={block.content}
+                preserveSoftBreaks={preserveSoftBreaks}
+                threadId={threadId}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}, areStreamingBlockRenderPropsEqual);
+
+const InlineStreamingMarkdownishRenderer = memo(function InlineStreamingMarkdownishRenderer({
+  content,
+  threadId,
+  preserveSoftBreaks,
+}: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
   const previousTextByPathRef = useRef<Map<string, string>>(new Map());
   const currentTextByPathRef = useRef<Map<string, string>>(new Map());
   currentTextByPathRef.current = new Map();
@@ -95,6 +159,64 @@ const StreamingMarkdownishRenderer = memo(function StreamingMarkdownishRenderer(
 
   return <MarkdownishFrame content={content} components={components} />;
 }, areMarkdownishRenderPropsEqual);
+
+function shouldFreezeStreamingBlocks(content: string, blocks: StreamingMarkdownBlock[]): boolean {
+  return content.length >= STREAM_BLOCK_FREEZE_MIN_CHARS && blocks.length >= STREAM_BLOCK_FREEZE_MIN_BLOCKS;
+}
+
+function splitStreamingMarkdownBlocks(content: string): StreamingMarkdownBlock[] {
+  const lines = content.split("\n");
+  const blocks: StreamingMarkdownBlock[] = [];
+  let current: string[] = [];
+  let currentStartOffset = 0;
+  let lineStartOffset = 0;
+  let inFence = false;
+
+  function pushCurrent() {
+    const blockContent = current.join("\n").trimEnd();
+    if (blockContent.trim()) {
+      blocks.push({
+        key: `${currentStartOffset}:${hashString(blockContent.slice(0, 80))}`,
+        content: blockContent,
+      });
+    }
+    current = [];
+  }
+
+  for (const line of lines) {
+    if (current.length === 0) currentStartOffset = lineStartOffset;
+    current.push(line);
+
+    if (isFenceLine(line)) inFence = !inFence;
+    if (!inFence && line.trim() === "") pushCurrent();
+
+    lineStartOffset += line.length + 1;
+  }
+
+  pushCurrent();
+  return blocks;
+}
+
+function isFenceLine(line: string): boolean {
+  return line.trimStart().startsWith("```");
+}
+
+function areStreamingBlockRenderPropsEqual(
+  previous: {
+    blocks: StreamingMarkdownBlock[];
+  } & Required<Pick<MarkdownishProps, "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">,
+  next: {
+    blocks: StreamingMarkdownBlock[];
+  } & Required<Pick<MarkdownishProps, "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">,
+): boolean {
+  return previous.blocks.length === next.blocks.length
+    && previous.preserveSoftBreaks === next.preserveSoftBreaks
+    && previous.threadId === next.threadId
+    && previous.blocks.every((block, index) => {
+      const nextBlock = next.blocks[index];
+      return Boolean(nextBlock) && block.key === nextBlock.key && block.content === nextBlock.content;
+    });
+}
 
 function createMarkdownComponents({
   preserveSoftBreaks,
@@ -371,4 +493,12 @@ function lineCount(value: string): number {
     if (value.charCodeAt(index) === 10) count += 1;
   }
   return count;
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return (hash >>> 0).toString(36);
 }

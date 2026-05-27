@@ -47,16 +47,6 @@ export class AgentSessionStore {
     this.append(thread, interruptedResultMessage(reason));
   }
 
-  latestSdkSessionId(thread: Thread): string | undefined {
-    const records = this.read(thread);
-    for (let index = records.length - 1; index >= 0; index -= 1) {
-      const record = records[index];
-      const sessionId = (record as { session_id?: unknown }).session_id;
-      if (typeof sessionId === "string" && sessionId.trim()) return sessionId;
-    }
-    return undefined;
-  }
-
   pathForThread(thread: Pick<Thread, "id" | "semesterId">): string {
     if (!thread.semesterId) {
       throw new Error(`Cannot resolve agent session path: thread ${thread.id} has no semester scope.`);

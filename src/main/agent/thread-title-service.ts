@@ -25,6 +25,7 @@ export interface GenerateThreadTitleInput {
   userMessage: string;
   providerId?: string;
   modelId?: string;
+  allowAfterFirstMessage?: boolean;
 }
 
 export class ThreadTitleService {
@@ -35,7 +36,7 @@ export class ThreadTitleService {
   async maybeGenerate(input: GenerateThreadTitleInput): Promise<Thread | null> {
     if (this.pendingThreadIds.has(input.threadId)) return null;
     const thread = this.options.businessStore.getThread(input.threadId);
-    if (!thread || !canAutoGenerateTitle(thread)) return null;
+    if (!thread || !canAutoGenerateTitle(thread, input.allowAfterFirstMessage)) return null;
 
     const userMessage = input.userMessage.trim();
     if (!userMessage) return null;
@@ -47,7 +48,7 @@ export class ThreadTitleService {
         : await this.generateWithProvider(input);
       if (!title) return null;
       const updated = this.options.businessStore.renameThreadAutomatically(input.threadId, title, undefined, {
-        allowAfterFirstMessage: true,
+        allowAfterFirstMessage: input.allowAfterFirstMessage,
       });
       if (!updated) return null;
       this.options.eventBus.emit({ kind: "thread_updated", thread: updated });
@@ -119,8 +120,8 @@ function providerWithSelectedModel(provider: ModelProviderConfig, modelId?: stri
     : provider;
 }
 
-function canAutoGenerateTitle(thread: Thread): boolean {
-  if ((thread.messageCount || 0) > 1) return false;
+function canAutoGenerateTitle(thread: Thread, allowAfterFirstMessage = false): boolean {
+  if (!allowAfterFirstMessage && (thread.messageCount || 0) > 1) return false;
   if (thread.titleSource === "default") return true;
   if (thread.titleSource) return false;
   return isDefaultThreadTitle(thread.title);

@@ -111,6 +111,7 @@ export interface Thread {
   title: string;
   titleSource?: ThreadTitleSource;
   titleGeneratedAt?: string;
+  sdkSessionId?: string;
   isDraft?: boolean;
   messageCount?: number;
   lastMessageAt?: string;

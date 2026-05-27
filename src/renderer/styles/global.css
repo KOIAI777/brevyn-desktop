@@ -138,6 +138,10 @@
     will-change: opacity, transform, filter;
   }
 
+  .markdownish-stream-block + .markdownish-stream-block {
+    margin-top: 0.35rem;
+  }
+
   .tool-details-content-in {
     animation: tool-details-content-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
   }
