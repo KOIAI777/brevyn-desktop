@@ -2,6 +2,7 @@ import { AlertCircle, CalendarDays, Check, ChevronDown, GraduationCap, ImagePlus
 import { useMemo, useState } from "react";
 import type { RecognizedAcademicCalendar, RecognizedCourseTimetable, VisionRecognitionKind } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { semesterWeekRanges } from "../../../shared/semester-weeks";
 
 type VisionDraft = RecognizedAcademicCalendar | RecognizedCourseTimetable;
 
@@ -497,47 +498,32 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function weekCount(startsAt?: string, endsAt?: string): number | undefined {
-  if (!startsAt || !endsAt) return undefined;
-  const start = Date.parse(`${startsAt}T00:00:00`);
-  const end = Date.parse(`${endsAt}T00:00:00`);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined;
-  return Math.max(1, Math.ceil((end - start + 1) / (7 * 24 * 60 * 60 * 1000)));
+  return semesterWeekRanges({ startsAt, endsAt }).length || undefined;
 }
 
 function calendarWeekRows(startsAt: string | undefined, endsAt: string | undefined, events: RecognizedAcademicCalendar["events"]) {
-  const start = dateOnly(startsAt);
-  const end = dateOnly(endsAt);
-  if (!start || !end || end < start) return [];
-  const rows: Array<{
-    week: number;
-    startsAt: string;
-    endsAt: string;
-    events: Array<{ event: RecognizedAcademicCalendar["events"][number]; index: number }>;
-  }> = [];
-  for (let weekStart = start, week = 1; weekStart <= end; weekStart = addDays(weekStart, 7), week += 1) {
-    const weekEnd = minDate(addDays(weekStart, 6), end);
-    rows.push({
-      week,
-      startsAt: formatDateOnly(weekStart),
-      endsAt: formatDateOnly(weekEnd),
+  return semesterWeekRanges({ startsAt, endsAt }).map((range) => {
+    const weekStart = dateOnly(range.startsAt);
+    const weekEnd = dateOnly(range.endsAt);
+    const row: {
+      week: number;
+      startsAt: string;
+      endsAt: string;
+      events: Array<{ event: RecognizedAcademicCalendar["events"][number]; index: number }>;
+    } = {
+      week: range.weekNumber,
+      startsAt: range.startsAt,
+      endsAt: range.endsAt,
       events: events
         .map((event, index) => ({ event, index }))
         .filter(({ event }) => {
           const eventStart = dateOnly(event.startsAt);
           const eventEnd = dateOnly(event.endsAt || event.startsAt);
-          return Boolean(eventStart && eventEnd && eventStart <= weekEnd && eventEnd >= weekStart);
+          return Boolean(weekStart && weekEnd && eventStart && eventEnd && eventStart <= weekEnd && eventEnd >= weekStart);
         }),
-    });
-  }
-  return rows;
-}
-
-function weekNumber(semesterStart?: string, eventStart?: string): string | undefined {
-  if (!semesterStart || !eventStart) return undefined;
-  const start = Date.parse(`${semesterStart}T00:00:00`);
-  const event = Date.parse(`${eventStart}T00:00:00`);
-  if (!Number.isFinite(start) || !Number.isFinite(event) || event < start) return undefined;
-  return `第 ${Math.floor((event - start) / (7 * 24 * 60 * 60 * 1000)) + 1} 周`;
+    };
+    return row;
+  });
 }
 
 function dateOnly(value?: string): Date | undefined {
@@ -549,19 +535,6 @@ function dateOnly(value?: string): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-function addDays(date: Date, amount: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function minDate(a: Date, b: Date): Date {
-  return a <= b ? a : b;
-}
-
-function formatDateOnly(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
 
 function stripSectionLabel(name: string, section?: string): string {
   if (!section) return name;

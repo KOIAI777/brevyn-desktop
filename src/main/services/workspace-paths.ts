@@ -9,6 +9,7 @@ import type {
   Thread,
   BrevynTask,
 } from "../../types/domain";
+import { lectureWeekFolderName, normalizedWeekNumber } from "../../shared/semester-weeks";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
 
@@ -223,7 +224,8 @@ export function ensureImportTargetDir(
   }
 
   if (input.targetSection === "lecture") {
-    const dir = join(courseDir, "Lecture");
+    const weekNumber = normalizedWeekNumber(input.weekNumber);
+    const dir = weekNumber ? join(courseDir, "Lecture", lectureWeekFolderName(weekNumber)) : join(courseDir, "Lecture");
     mkdirSync(dir, { recursive: true });
     return dir;
   }

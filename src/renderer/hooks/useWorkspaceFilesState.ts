@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { FileImportInput, FileImportResult } from "@/types/domain";
 import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
 import { useFilePreviewState } from "@/hooks/useFilePreviewState";
@@ -6,28 +6,33 @@ import { useFileTreeState } from "@/hooks/useFileTreeState";
 import { errorMessage } from "@/hooks/workspaceFileUtils";
 
 interface UseWorkspaceFilesStateArgs {
+  semesterId: string;
   activeCourseId: string;
   activeThreadId: string;
   onError: (message: string) => void;
 }
 
-export function useWorkspaceFilesState({ activeCourseId, activeThreadId, onError }: UseWorkspaceFilesStateArgs) {
+export function useWorkspaceFilesState({ semesterId, activeCourseId, activeThreadId, onError }: UseWorkspaceFilesStateArgs) {
   const mountedRef = useRef(true);
   const activeCourseIdRef = useRef(activeCourseId);
+  const activeCourseScopeKeyRef = useRef(courseScopeKey(semesterId, activeCourseId));
   const activeThreadIdRef = useRef(activeThreadId);
 
   activeCourseIdRef.current = activeCourseId;
+  activeCourseScopeKeyRef.current = courseScopeKey(semesterId, activeCourseId);
   activeThreadIdRef.current = activeThreadId;
 
   const treeState = useFileTreeState({
     mountedRef,
     activeCourseIdRef,
+    activeCourseScopeKeyRef,
     activeThreadIdRef,
     onError,
   });
   const previewState = useFilePreviewState({
     mountedRef,
     activeCourseIdRef,
+    activeCourseScopeKeyRef,
     activeThreadIdRef,
     fileTreeRef: treeState.fileTreeRef,
     refreshCourseTree: treeState.refreshCourseTree,
@@ -41,13 +46,14 @@ export function useWorkspaceFilesState({ activeCourseId, activeThreadId, onError
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    treeState.clearTreeState();
+    previewState.clearPreviewState();
     if (!activeCourseId) {
-      clearFileState();
       return;
     }
-    void loadCourseFiles(activeCourseId);
-  }, [activeCourseId]);
+    void loadCourseFiles(activeCourseId, courseScopeKey(semesterId, activeCourseId));
+  }, [semesterId, activeCourseId]);
 
   useEffect(() => {
     const unsubscribe = window.brevyn.files.onChanged(() => {
@@ -59,9 +65,10 @@ export function useWorkspaceFilesState({ activeCourseId, activeThreadId, onError
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    treeState.clearSessionFiles();
+    previewState.clearPreviewState();
     if (!activeThreadId) {
-      treeState.setSessionFiles([]);
       return;
     }
     void treeState.loadSessionFiles(activeThreadId);
@@ -72,23 +79,23 @@ export function useWorkspaceFilesState({ activeCourseId, activeThreadId, onError
     previewState.clearPreviewState();
   }
 
-  async function loadCourseFiles(courseId: string): Promise<boolean> {
+  async function loadCourseFiles(courseId: string, scopeKey = activeCourseScopeKeyRef.current): Promise<boolean> {
     const requestId = treeState.fileLoadRequestRef.current + 1;
     treeState.fileLoadRequestRef.current = requestId;
     treeState.setFilesLoading(true);
     try {
       const [tree, stats] = await Promise.all([window.brevyn.files.tree(courseId), window.brevyn.files.stats(courseId)]);
-      if (!treeState.isLatestFileLoad(requestId, courseId)) return false;
+      if (!treeState.isLatestFileLoad(requestId, courseId, scopeKey)) return false;
 
       const current = previewState.selectedFileIdRef.current ? findFileNode(tree, previewState.selectedFileIdRef.current) : null;
       const next = current?.kind !== "folder" ? current : firstPreviewableFile(tree);
       treeState.fileTreeRef.current = tree;
       treeState.setFileTree(tree);
       treeState.setFileStats(stats);
-      await previewState.previewImportedFile(next || undefined, () => treeState.isLatestFileLoad(requestId, courseId), "Failed to preview file.");
+      await previewState.previewImportedFile(next || undefined, () => treeState.isLatestFileLoad(requestId, courseId, scopeKey), "Failed to preview file.");
       return true;
     } catch (error) {
-      if (treeState.isLatestFileLoad(requestId, courseId)) {
+      if (treeState.isLatestFileLoad(requestId, courseId, scopeKey)) {
         onError(errorMessage(error, "Failed to load course files."));
         treeState.clearTreeState();
         previewState.clearPreviewState();
@@ -101,19 +108,21 @@ export function useWorkspaceFilesState({ activeCourseId, activeThreadId, onError
 
   async function importCourseFiles(input: FileImportInput): Promise<FileImportResult | null> {
     const targetCourseId = input.courseId;
+    const targetScopeKey = activeCourseScopeKeyRef.current;
     onError("");
     try {
       const result = await window.brevyn.files.import(input);
-      if (!mountedRef.current || activeCourseIdRef.current !== targetCourseId) return result;
+      if (!mountedRef.current || activeCourseIdRef.current !== targetCourseId || activeCourseScopeKeyRef.current !== targetScopeKey) return result;
 
       const requestId = treeState.fileLoadRequestRef.current + 1;
       treeState.fileLoadRequestRef.current = requestId;
       const stats = await window.brevyn.files.stats(targetCourseId);
+      if (!treeState.isLatestFileLoad(requestId, targetCourseId, targetScopeKey)) return result;
       const next = result.files.find((file) => file.kind !== "folder") || firstPreviewableFile(result.tree);
       treeState.fileTreeRef.current = result.tree;
       treeState.setFileTree(result.tree);
       treeState.setFileStats(stats);
-      await previewState.previewImportedFile(next || undefined, () => treeState.isLatestFileLoad(requestId, targetCourseId), "Imported files, but preview failed.");
+      await previewState.previewImportedFile(next || undefined, () => treeState.isLatestFileLoad(requestId, targetCourseId, targetScopeKey), "Imported files, but preview failed.");
       return result;
     } catch (error) {
       const message = errorMessage(error, "Failed to import files.");
@@ -138,4 +147,8 @@ export function useWorkspaceFilesState({ activeCourseId, activeThreadId, onError
     previewWorkspacePath: previewState.previewWorkspacePath,
     importCourseFiles,
   };
+}
+
+function courseScopeKey(semesterId: string, courseId: string) {
+  return `${semesterId}:${courseId}`;
 }

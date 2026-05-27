@@ -2346,6 +2346,7 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                         {courseEntries.map((entry) => {
                           const courseArchived = Boolean(entry.course?.archivedAt);
                           const restoreBlocked = semesterArchived || courseArchived;
+                          const archivedTaskIds = new Set(entry.tasks.map((task) => task.id));
                           const courseOpenKey = `${group.semester.id}:${entry.courseId}`;
                           const courseOpen = openCourses[courseOpenKey] !== false;
                           const courseKey = archiveSelectionKey("course", entry.courseId);
@@ -2419,18 +2420,21 @@ function ArchiveSettingsPage({ onWorkspaceChanged }: { onWorkspaceChanged?: () =
                                           onDelete={() => void deleteTask(task)}
                                         />
                                       ))}
-                                      {entry.threads.map((thread) => (
-                                        <ArchivedThreadRow
-                                          key={thread.id}
-                                          thread={thread}
-                                          restoreBlocked={restoreBlocked}
-                                          busyKey={busyKey}
-                                          selected={selectedKeys.has(archiveSelectionKey("thread", thread.id))}
-                                          onSelect={(checked) => toggleSelection(archiveSelectionKey("thread", thread.id), checked)}
-                                          onRestore={() => void restoreThread(thread, restoreBlocked)}
-                                          onDelete={() => void deleteThread(thread)}
-                                        />
-                                      ))}
+                                      {entry.threads.map((thread) => {
+                                        const threadRestoreBlocked = restoreBlocked || Boolean(thread.taskId && archivedTaskIds.has(thread.taskId));
+                                        return (
+                                          <ArchivedThreadRow
+                                            key={thread.id}
+                                            thread={thread}
+                                            restoreBlocked={threadRestoreBlocked}
+                                            busyKey={busyKey}
+                                            selected={selectedKeys.has(archiveSelectionKey("thread", thread.id))}
+                                            onSelect={(checked) => toggleSelection(archiveSelectionKey("thread", thread.id), checked)}
+                                            onRestore={() => void restoreThread(thread, threadRestoreBlocked)}
+                                            onDelete={() => void deleteThread(thread)}
+                                          />
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 </div>

@@ -35,6 +35,7 @@ function App() {
     },
   });
   const fileState = useWorkspaceFilesState({
+    semesterId: workspace.semester?.id || "",
     activeCourseId: workspace.activeCourseId,
     activeThreadId: workspace.activeThreadId,
     onError: workspace.setWorkspaceError,
@@ -310,6 +311,7 @@ function App() {
       {dialogs.courseFilesUploadOpen && (
         <CourseFilesUploadDialog
           course={workspace.activeCourse}
+          semester={workspace.semester}
           courses={workspace.courses}
           tasksByCourse={workspace.tasksByCourse}
           activeTaskId={workspace.activeTaskId}

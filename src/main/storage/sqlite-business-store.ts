@@ -1715,7 +1715,7 @@ function rowToWorkspaceFileNode(row: Row): WorkspaceFileNode {
     taskId: nullableString(row.task_id),
     taskFileBucket: nullableString(row.task_file_bucket) as WorkspaceFileNode["taskFileBucket"],
     sectionKind: nullableString(row.section_kind) as WorkspaceFileNode["sectionKind"],
-    weekNumber: numberValue(row.week_number),
+    weekNumber: positiveNumberValue(row.week_number),
     sourcePath: nullableString(row.source_path),
     name: stringValue(row.name),
     path: stringValue(row.path),
@@ -1919,9 +1919,15 @@ function semesterSource(value: unknown): SemesterWorkspace["source"] {
 }
 
 function numberValue(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function positiveNumberValue(value: unknown): number | undefined {
+  const parsed = numberValue(value);
+  return parsed && parsed > 0 ? parsed : undefined;
 }
 
 function intBool(value: boolean): number {

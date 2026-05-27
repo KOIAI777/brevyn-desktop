@@ -21,17 +21,21 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, BrevynTask } from "@/types/domain";
+import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, BrevynTask, WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { DropdownSelect, type DropdownOption } from "@/components/ui/DropdownSelect";
 import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon";
 import { FileIndexingBadge } from "@/components/files/FileIndexingBadge";
 import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
+import { lectureWeekNumberFromPath, semesterWeekNumbers } from "../../../shared/semester-weeks";
 
 const DEFAULT_TASK_TYPE = "作业";
 const RAG_RESULTS_PAGE_SIZE = 5;
+const MAX_LECTURE_WEEK_OPTIONS = 30;
 const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
 type CoursePanel = "files" | "tasks" | "indexing" | "search";
+type AutoOpenLectureWeek = { sectionId: string; weekNumber: number; token: number };
 
 export function CourseManagementDialog({
   semester,
@@ -98,12 +102,14 @@ export function CourseManagementDialog({
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [newCourseError, setNewCourseError] = useState("");
   const [uploadingSectionId, setUploadingSectionId] = useState("");
+  const [autoOpenLectureWeek, setAutoOpenLectureWeek] = useState<AutoOpenLectureWeek | null>(null);
   const courseViewRequestRef = useRef(0);
   const ragSearchRequestRef = useRef(0);
   const seenIndexingFailuresRef = useRef(new Set<string>());
   const indexingFailureBaselineCourseRef = useRef("");
   const { confirm, confirmDialog } = useConfirmDialog();
   const canCreateCourse = Boolean(semester?.id);
+  const lectureWeekOptions = useMemo(() => semesterWeekOptions(semester), [semester]);
 
   const existingTaskTypes = useMemo(() => {
     const seen = new Set<string>();
@@ -330,7 +336,7 @@ export function CourseManagementDialog({
     }
   }
 
-  async function uploadToSection(section: CourseFileSection) {
+  async function uploadToSection(section: CourseFileSection, weekNumber?: number) {
     if (!activeCourse?.id) {
       setCourseActionError(courseReadOnlyReason);
       return;
@@ -342,10 +348,14 @@ export function CourseManagementDialog({
       const result = await window.brevyn.files.import({
         courseId: activeCourse.id,
         targetSection: section.kind,
+        weekNumber: section.kind === "lecture" ? weekNumber : undefined,
         taskId: section.taskId,
         taskFileBucket: section.kind === "task" ? "materials" : undefined,
       });
       await loadCourseView(activeCourse.id);
+      if (section.kind === "lecture" && weekNumber && result.files.length > 0) {
+        setAutoOpenLectureWeek({ sectionId: section.id, weekNumber, token: Date.now() });
+      }
       if (result.indexingError) {
         setCourseActionError(`已导入 ${result.files.length} 个文件，但索引未排队：${result.indexingError}`);
       }
@@ -782,8 +792,10 @@ export function CourseManagementDialog({
                       indexing={indexingSectionId === section.id}
                       disabled={activeCourseArchived || Boolean(indexingSectionId)}
                       onIndex={() => void indexSection(section.id)}
-                      onUpload={() => uploadToSection(section)}
+                      onUpload={(weekNumber) => uploadToSection(section, weekNumber)}
                       uploading={uploadingSectionId === section.id}
+                      lectureWeekOptions={section.kind === "lecture" ? lectureWeekOptions : []}
+                      autoOpenWeek={section.kind === "lecture" && autoOpenLectureWeek?.sectionId === section.id ? autoOpenLectureWeek : null}
                       onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
                     />
                   ))}
@@ -1122,21 +1134,40 @@ function SectionCard({
   onIndex,
   onUpload,
   uploading,
+  lectureWeekOptions = [],
+  autoOpenWeek,
   onFileDeleted,
 }: {
   section: CourseFileSection;
   indexing: boolean;
   disabled?: boolean;
   onIndex: () => void;
-  onUpload: () => void;
+  onUpload: (weekNumber?: number) => void;
   uploading: boolean;
+  lectureWeekOptions?: DropdownOption[];
+  autoOpenWeek?: AutoOpenLectureWeek | null;
   onFileDeleted: () => void;
 }) {
   const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "lecture" ? BookOpen : FileText;
   const [open, setOpen] = useState(false);
+  const [openLectureWeeks, setOpenLectureWeeks] = useState<Record<string, boolean>>({});
+  const [lectureWeekValue, setLectureWeekValue] = useState(lectureWeekOptions[0]?.value || "");
   const [deletingFileId, setDeletingFileId] = useState("");
   const [fileActionError, setFileActionError] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
+  const lectureWeekGroups = useMemo(() => section.kind === "lecture" ? groupLectureFilesByWeek(section.files) : [], [section.files, section.kind]);
+
+  useEffect(() => {
+    if (section.kind !== "lecture") return;
+    if (lectureWeekOptions.some((option) => option.value === lectureWeekValue)) return;
+    setLectureWeekValue(lectureWeekOptions[0]?.value || "");
+  }, [lectureWeekOptions, lectureWeekValue, section.kind]);
+
+  useEffect(() => {
+    if (section.kind !== "lecture" || !autoOpenWeek) return;
+    setOpen(true);
+    setOpenLectureWeeks((current) => ({ ...current, [`week-${autoOpenWeek.weekNumber}`]: true }));
+  }, [autoOpenWeek, section.kind]);
 
   async function deleteFile(fileId: string, fileName: string) {
     const ok = await confirm({
@@ -1189,10 +1220,22 @@ function SectionCard({
           <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
             {displayIndexingStatus(section.indexingStatus)}
           </span>
+          {section.kind === "lecture" && lectureWeekOptions.length > 0 && (
+            <DropdownSelect
+              className="w-28"
+              buttonClassName="h-7 bg-background text-[11px]"
+              menuMinWidth={132}
+              menuMaxVisibleItems={5}
+              value={lectureWeekValue}
+              options={lectureWeekOptions}
+              ariaLabel="选择上传课件周次"
+              onChange={setLectureWeekValue}
+            />
+          )}
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-            onClick={onUpload}
+            onClick={() => onUpload(section.kind === "lecture" && lectureWeekValue ? Number(lectureWeekValue) : undefined)}
             disabled={disabled || uploading}
             title="上传文件到此分区"
           >
@@ -1216,31 +1259,48 @@ function SectionCard({
       )}
       {open && section.files.length > 0 && (
         <div className="mt-3 space-y-1">
-          {section.files.map((file) => (
-            <div key={file.id} className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
-              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-[12px]">{file.name}</span>
-              <FileIndexingBadge file={file} />
-              {file.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground">{file.sizeLabel}</span>}
-              <button
-                type="button"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                onClick={() => void revealFile(file.id)}
-                title="在访达中显示"
-              >
-                <FolderOpen className="h-3 w-3" />
-              </button>
-              <button
-                type="button"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
-                onClick={() => void deleteFile(file.id, file.name)}
-                disabled={deletingFileId === file.id}
-                title="删除文件"
-              >
-                {deletingFileId === file.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-              </button>
-            </div>
-          ))}
+          {section.kind === "lecture" ? (
+            lectureWeekGroups.map((group) => {
+              const groupOpen = openLectureWeeks[group.id] ?? false;
+              return (
+                <div key={group.id} className="overflow-hidden rounded-md border border-border/60 bg-background">
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 items-center gap-2 px-2 py-2 text-left text-[12px] hover:bg-accent/60"
+                    onClick={() => setOpenLectureWeeks((current) => ({ ...current, [group.id]: !(current[group.id] ?? false) }))}
+                  >
+                    <ChevronRight className={cx("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", groupOpen && "rotate-90")} />
+                    <BookOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{group.title}</span>
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{group.files.length} 个文件</span>
+                  </button>
+                  {groupOpen && (
+                    <div className="space-y-1 border-t bg-card/40 p-1.5">
+                      {group.files.map((file) => (
+                        <SectionFileRow
+                          key={file.id}
+                          file={file}
+                          deleting={deletingFileId === file.id}
+                          onReveal={() => void revealFile(file.id)}
+                          onDelete={() => void deleteFile(file.id, file.name)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            section.files.map((file) => (
+              <SectionFileRow
+                key={file.id}
+                file={file}
+                deleting={deletingFileId === file.id}
+                onReveal={() => void revealFile(file.id)}
+                onDelete={() => void deleteFile(file.id, file.name)}
+              />
+            ))
+          )}
         </div>
       )}
       {fileActionError && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-900">{fileActionError}</div>}
@@ -1266,6 +1326,54 @@ function displaySectionTitle(section: CourseFileSection): string {
     return [title || section.taskType || "任务", bucketLabel].filter(Boolean).join(" · ");
   }
   return section.title;
+}
+
+function SectionFileRow({ file, deleting, onReveal, onDelete }: { file: WorkspaceFileNode; deleting: boolean; onReveal: () => void; onDelete: () => void }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
+      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-[12px]">{file.name}</span>
+      <FileIndexingBadge file={file} />
+      {file.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground">{file.sizeLabel}</span>}
+      <button
+        type="button"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+        onClick={onReveal}
+        title="在访达中显示"
+      >
+        <FolderOpen className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
+        onClick={onDelete}
+        disabled={deleting}
+        title="删除文件"
+      >
+        {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+      </button>
+    </div>
+  );
+}
+
+function groupLectureFilesByWeek(files: WorkspaceFileNode[]): Array<{ id: string; title: string; weekNumber?: number; files: WorkspaceFileNode[] }> {
+  const groups = new Map<string, { id: string; title: string; weekNumber?: number; files: WorkspaceFileNode[] }>();
+  for (const file of files) {
+    const weekNumber = file.weekNumber || lectureWeekNumberFromPath(file.path) || lectureWeekNumberFromPath(file.sourcePath || "");
+    const id = weekNumber ? `week-${weekNumber}` : "unassigned";
+    const title = weekNumber ? `Week ${weekNumber}` : "未归类课件";
+    const group = groups.get(id) || { id, title, weekNumber, files: [] };
+    group.files.push(file);
+    groups.set(id, group);
+  }
+  return Array.from(groups.values())
+    .map((group) => ({ ...group, files: [...group.files].sort((a, b) => a.name.localeCompare(b.name)) }))
+    .sort((a, b) => {
+      if (a.weekNumber && b.weekNumber) return a.weekNumber - b.weekNumber;
+      if (a.weekNumber) return -1;
+      if (b.weekNumber) return 1;
+      return a.title.localeCompare(b.title);
+    });
 }
 
 function localizeTaskSectionTitle(title: string): string {
@@ -1310,6 +1418,14 @@ function localizePathSegment(value: string): string {
     .replace(/^Materials\//, "材料/")
     .replace(/^Drafts\//, "草稿/")
     .replace(/^Submitted\//, "已提交/");
+}
+
+function semesterWeekOptions(semester?: SemesterWorkspace | null): DropdownOption[] {
+  return semesterWeekNumbers(semester).slice(0, MAX_LECTURE_WEEK_OPTIONS).map((week) => ({
+    value: String(week),
+    label: `Week ${week}`,
+    detail: `第 ${week} 周`,
+  }));
 }
 
 function formatJobTime(value: string): string {

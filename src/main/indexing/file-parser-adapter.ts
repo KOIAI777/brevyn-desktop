@@ -1,9 +1,16 @@
 import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { extname } from "node:path";
 import JSZip from "jszip";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";
 import type { WorkspaceFileKind } from "../../types/domain";
+
+const require = createRequire(__filename);
+const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{
+  numpages?: number;
+  numrender?: number;
+  text?: string;
+}>;
 
 export interface ParsedIndexingFile {
   text: string;

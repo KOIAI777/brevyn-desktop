@@ -15,6 +15,7 @@ import type {
   WeekdayKey,
   WorkspaceFileNode,
 } from "../../types/domain";
+import { semesterWeekRanges } from "../../shared/semester-weeks";
 import { normalizeBaseUrl } from "../providers/url-utils";
 import { SQLiteBusinessStore } from "../storage";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
@@ -351,25 +352,17 @@ function semesterForWeeks(created: SemesterWorkspace | undefined, active: Semest
 }
 
 function calendarWeekEvents(semester: SemesterWorkspace, semesterId: string): TimetableEvent[] {
-  const start = dateOnly(semester.startsAt || "");
-  const end = dateOnly(semester.endsAt || "");
-  if (!start || !end || end < start) return [];
-  const events: TimetableEvent[] = [];
-  for (let weekStart = start, week = 1; weekStart <= end; weekStart = addDays(weekStart, 7), week += 1) {
-    const weekEnd = minDate(addDays(weekStart, 6), end);
-    events.push({
+  return semesterWeekRanges(semester).map((range) => ({
       id: entityId("week"),
       semesterId,
-      title: `Week ${week}`,
+      title: `Week ${range.weekNumber}`,
       kind: "school_week",
       source: "school_calendar",
-      startsAt: formatDateOnly(weekStart),
-      endsAt: formatDateOnly(weekEnd),
-      notes: `${semester.term} · Week ${week}`,
+      startsAt: range.startsAt,
+      endsAt: range.endsAt,
+      notes: `${semester.term} · Week ${range.weekNumber}`,
       confidence: 1,
-    });
-  }
-  return events;
+    }));
 }
 
 function readImagePayload(sourcePath: string): { mediaType: string; data: string } {
@@ -611,10 +604,6 @@ function addDays(date: Date, amount: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
   return next;
-}
-
-function minDate(a: Date, b: Date): Date {
-  return a <= b ? a : b;
 }
 
 function formatDateOnly(date: Date): string {

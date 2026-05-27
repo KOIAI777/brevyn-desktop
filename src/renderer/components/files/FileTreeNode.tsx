@@ -1,4 +1,4 @@
-import { memo, type MouseEvent } from "react";
+import { type MouseEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import type { WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
@@ -16,7 +16,7 @@ type FileTreeNodeProps = {
   selectFolders?: boolean;
 };
 
-export const FileTreeNode = memo(function FileTreeNode({
+export function FileTreeNode({
   node,
   level,
   selectedFileId,
@@ -27,7 +27,8 @@ export const FileTreeNode = memo(function FileTreeNode({
   selectFolders = false,
 }: FileTreeNodeProps) {
   const isFolder = node.kind === "folder";
-  const open = isFolder && !collapsedFolderIds.has(node.id);
+  const hasChildren = isFolder && Boolean(node.children?.length);
+  const open = hasChildren && !collapsedFolderIds.has(node.id);
   const active = selectedFileId === node.id;
   const displayName = fileDisplayName(node);
 
@@ -42,7 +43,7 @@ export const FileTreeNode = memo(function FileTreeNode({
         style={{ paddingLeft: 8 + level * 14 }}
         onClick={() => {
           if (isFolder && !selectFolders) {
-            onToggleFolder(node.id);
+            if (hasChildren) onToggleFolder(node.id);
             return;
           }
           onSelect(node);
@@ -50,7 +51,7 @@ export const FileTreeNode = memo(function FileTreeNode({
         onContextMenu={(event) => onContextMenu(event, node)}
         title={node.path}
       >
-        {isFolder ? (
+        {hasChildren ? (
           <span
             className="-ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={(event) => {
@@ -68,7 +69,7 @@ export const FileTreeNode = memo(function FileTreeNode({
         {node.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground/70">{node.sizeLabel}</span>}
       </button>
 
-      {isFolder && open && node.children && (
+      {hasChildren && open && node.children && (
         <div className="mt-0.5 space-y-0.5">
           {node.children.map((child) => (
             <FileTreeNode
@@ -86,22 +87,5 @@ export const FileTreeNode = memo(function FileTreeNode({
         </div>
       )}
     </div>
-  );
-}, areEqualFileTreeNode);
-
-function areEqualFileTreeNode(previous: FileTreeNodeProps, next: FileTreeNodeProps): boolean {
-  const previousOpen = previous.node.kind === "folder" && !previous.collapsedFolderIds.has(previous.node.id);
-  const nextOpen = next.node.kind === "folder" && !next.collapsedFolderIds.has(next.node.id);
-  const previousActive = previous.selectedFileId === previous.node.id;
-  const nextActive = next.selectedFileId === next.node.id;
-  return (
-    previous.node === next.node &&
-    previous.level === next.level &&
-    previousOpen === nextOpen &&
-    previousActive === nextActive &&
-    previous.onSelect === next.onSelect &&
-    previous.onToggleFolder === next.onToggleFolder &&
-    previous.onContextMenu === next.onContextMenu &&
-    previous.selectFolders === next.selectFolders
   );
 }

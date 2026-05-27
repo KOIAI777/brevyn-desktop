@@ -5,6 +5,7 @@ import { cx } from "@/lib/cn";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
 import { SemesterManagementDialog } from "./SemesterManagementDialog";
+import { semesterWeekNumberForRange } from "../../../shared/semester-weeks";
 
 export function TimetableDialog({
   course,
@@ -32,7 +33,7 @@ export function TimetableDialog({
   const eventsRequestRef = useRef(0);
 
   const range = useMemo(() => getRange(anchorDate, viewMode), [anchorDate, viewMode]);
-  const weekNumber = useMemo(() => getWeekNumber(semester, range.start), [semester, range.start]);
+  const weekNumber = useMemo(() => semesterWeekNumberForRange(semester, range.start, range.end), [semester, range.start, range.end]);
   const rangeSchoolEvents = useMemo(() => events
     .filter((event) => event.kind === "school_event" && eventOverlapsRange(event, range.start, range.end))
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)), [events, range.start, range.end]);
@@ -129,7 +130,7 @@ export function TimetableDialog({
         }
       }
       await loadSemester();
-      if (draft.kind !== "academic_calendar") await loadEvents();
+      await loadEvents();
     } catch (error) {
       setSemesterError(errorMessage(error, "刷新时间表失败。"));
     }
@@ -307,14 +308,13 @@ export function TimetableDialog({
 function WeekGrid({ start, events, weekNumber }: { start: Date; events: TimetableEvent[]; weekNumber?: number }) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
   const weekEnd = endOfDay(addDays(start, 6));
-  const weekMarker = events.find((event) => event.kind === "school_week" && eventOverlapsRange(event, start, weekEnd));
   const now = new Date();
   const showNowLine = now >= start && now <= weekEnd;
   const eventsByDay = days.map((day) => eventsForDay(events, day).filter((event) => event.kind !== "school_event" && event.kind !== "school_week"));
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between rounded-md border bg-muted/25 px-3 py-2">
-        <div className="text-xs font-semibold">{weekMarker?.title || (weekNumber ? `第 ${weekNumber} 周` : "本周")}</div>
+        <div className="text-xs font-semibold">{weekNumber ? `第 ${weekNumber} 周` : "本周"}</div>
         <div className="text-[11px] text-muted-foreground">{formatShort(start)} - {formatShort(weekEnd)}</div>
       </div>
       <div className="grid min-w-[760px] grid-cols-7 gap-2">
@@ -590,16 +590,6 @@ function parseDateOnly(value?: string) {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return undefined;
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-function getWeekNumber(semester: SemesterWorkspace | null, weekStart: Date) {
-  const start = parseDateOnly(semester?.startsAt);
-  const end = parseDateOnly(semester?.endsAt);
-  const normalizedWeekStart = startOfDay(weekStart);
-  if (!start || !end || normalizedWeekStart < startOfWeek(start) || normalizedWeekStart > endOfDay(end)) return undefined;
-  const diff = normalizedWeekStart.getTime() - startOfWeek(start).getTime();
-  if (diff < 0) return undefined;
-  return Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
 }
 
 function isSameDay(a: Date, b: Date) {

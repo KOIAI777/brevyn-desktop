@@ -1,18 +1,21 @@
 import { CalendarDays, Check, FileArchive, FileCode, FileImage, FileText, FolderOpen, Layers3, Library, Loader2, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { Course, CourseFileSectionKind, FileImportInput, FileImportResult, TaskFileBucket, BrevynTask } from "@/types/domain";
+import type { Course, CourseFileSectionKind, FileImportInput, FileImportResult, SemesterWorkspace, TaskFileBucket, BrevynTask } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
+import { semesterWeekNumberForDate, semesterWeekNumbers } from "../../../shared/semester-weeks";
 
 const TASK_BUCKET_LABELS: Record<TaskFileBucket, string> = {
   materials: "材料",
   drafts: "草稿",
   submitted: "已提交",
 };
+const MAX_LECTURE_WEEK_OPTIONS = 30;
 
 export function CourseFilesUploadDialog({
   course,
+  semester,
   courses,
   tasksByCourse,
   activeTaskId,
@@ -20,6 +23,7 @@ export function CourseFilesUploadDialog({
   onImportFiles,
 }: {
   course?: Course;
+  semester?: SemesterWorkspace | null;
   courses: Course[];
   tasksByCourse: Record<string, BrevynTask[]>;
   activeTaskId?: string;
@@ -34,6 +38,7 @@ export function CourseFilesUploadDialog({
   const [targetSection, setTargetSection] = useState<CourseFileSectionKind>(initialTaskId ? "task" : "course_shared");
   const [taskId, setTaskId] = useState(initialTaskId);
   const [taskFileBucket, setTaskFileBucket] = useState<TaskFileBucket>("materials");
+  const [lectureWeekNumber, setLectureWeekNumber] = useState(() => defaultLectureWeekNumber(semester));
   const [lastResult, setLastResult] = useState<FileImportResult | null>(null);
   const [importError, setImportError] = useState("");
 
@@ -43,13 +48,15 @@ export function CourseFilesUploadDialog({
     setTaskId(initialTaskId);
     setTargetSection(initialTaskId ? "task" : "course_shared");
     setTaskFileBucket("materials");
+    setLectureWeekNumber(defaultLectureWeekNumber(semester));
     setLastResult(null);
     setImportError("");
-  }, [activeTaskId, course?.id, importing, initialCourseId, initialTaskId]);
+  }, [activeTaskId, course?.id, importing, initialCourseId, initialTaskId, semester?.endsAt, semester?.startsAt]);
 
   const selectedCourse = courses.find((item) => item.id === selectedCourseId);
   const isSemesterTarget = selectedCourse?.workspaceKind === "semester_home";
   const courseTasks = useMemo(() => tasksByCourse[selectedCourseId] || [], [selectedCourseId, tasksByCourse]);
+  const lectureWeekOptions = useMemo(() => semesterWeekOptions(semester), [semester]);
   const selectedTask = !isSemesterTarget && targetSection === "task" ? courseTasks.find((task) => task.id === taskId) : undefined;
   const selectedTaskId = selectedTask?.id;
   const normalizedTargetSection = isSemesterTarget ? "course_shared" : targetSection;
@@ -59,7 +66,9 @@ export function CourseFilesUploadDialog({
     : normalizedTargetSection === "course_shared"
       ? "课程共享"
       : normalizedTargetSection === "lecture"
-        ? "课件"
+        ? lectureWeekNumber
+          ? `课件 / Week ${lectureWeekNumber}`
+          : "课件"
         : selectedTask
           ? `任务 / ${selectedTask.id}__${selectedTask.title} / ${TASK_BUCKET_LABELS[taskFileBucket]}`
           : "任务 / 请先选择任务";
@@ -73,6 +82,7 @@ export function CourseFilesUploadDialog({
       const result = await onImportFiles({
         courseId: selectedCourseId,
         targetSection: normalizedTargetSection,
+        weekNumber: normalizedTargetSection === "lecture" ? lectureWeekNumber : undefined,
         taskId: selectedTaskId,
         taskFileBucket: normalizedTargetSection === "task" ? taskFileBucket : undefined,
       });
@@ -174,6 +184,23 @@ export function CourseFilesUploadDialog({
                 {!isSemesterTarget && <TargetButton active={targetSection === "task"} icon={<FileText className="h-3 w-3" />} label="任务工作区" onClick={() => setTargetSection("task")} />}
               </div>
 
+              {!isSemesterTarget && targetSection === "lecture" && lectureWeekOptions.length > 0 && (
+                <label className="mt-3 block space-y-1 text-[11px] text-muted-foreground">
+                  <span>课件周次</span>
+                  <DropdownSelect
+                    value={lectureWeekNumber ? String(lectureWeekNumber) : ""}
+                    options={lectureWeekOptions}
+                    placeholder="选择周次"
+                    ariaLabel="选择课件周次"
+                    menuMaxVisibleItems={5}
+                    onChange={(value) => setLectureWeekNumber(Number(value))}
+                  />
+                  <span className="block rounded-md bg-muted/45 px-2 py-1.5">
+                    上传后会进入 Lecture / Week {lectureWeekNumber || 1}，并带上周次索引信息。
+                  </span>
+                </label>
+              )}
+
               {!isSemesterTarget && targetSection === "task" && (
                 <div className="mt-3 space-y-3">
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
@@ -261,4 +288,23 @@ function errorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error || "");
   const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
   return message || fallback;
+}
+
+function semesterWeekOptions(semester?: SemesterWorkspace | null) {
+  return lectureWeekNumbersForOptions(semester).map((week) => ({
+    value: String(week),
+    label: `Week ${week}`,
+    detail: `第 ${week} 周`,
+  }));
+}
+
+function defaultLectureWeekNumber(semester?: SemesterWorkspace | null): number | undefined {
+  const weeks = lectureWeekNumbersForOptions(semester);
+  if (weeks.length === 0) return undefined;
+  const currentWeek = semesterWeekNumberForDate(semester, new Date());
+  return currentWeek && weeks.includes(currentWeek) ? currentWeek : weeks[0];
+}
+
+function lectureWeekNumbersForOptions(semester?: SemesterWorkspace | null): number[] {
+  return semesterWeekNumbers(semester).slice(0, MAX_LECTURE_WEEK_OPTIONS);
 }

@@ -7,6 +7,7 @@ import type {
   BrevynTask,
   WorkspaceFileNode,
 } from "../../types/domain";
+import { lectureWeekFolderName, normalizedWeekNumber } from "../../shared/semester-weeks";
 import {
   DEFAULT_TASK_TYPE,
   SEMESTER_HOME_COURSE_ID,
@@ -165,7 +166,15 @@ export function ensureTargetFolderInTree(root: WorkspaceFileNode, input: FileImp
     return ensureFolderPath(root, [{ name: "Course shared", extra: { sectionKind: "course_shared" } }], timestamp);
   }
   if (input.targetSection === "lecture") {
-    return ensureFolderPath(root, [{ name: "Lecture", extra: { sectionKind: "lecture" } }], timestamp);
+    const lectureFolder = ensureFolderPath(root, [{ name: "Lecture", extra: { sectionKind: "lecture" } }], timestamp);
+    const weekNumber = normalizedWeekNumber(input.weekNumber);
+    if (!weekNumber) return lectureFolder;
+    return ensureFolderChild(
+      lectureFolder,
+      lectureWeekFolderName(weekNumber),
+      { courseId: input.courseId, sectionKind: "lecture", weekNumber },
+      timestamp,
+    );
   }
 
   if (!task) throw new Error("请先选择任务，再导入到任务工作区。");

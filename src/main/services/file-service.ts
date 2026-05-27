@@ -23,6 +23,12 @@ import type {
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import type { SQLiteBusinessStore } from "../storage";
+import {
+  lectureWeekFolderName,
+  lectureWeekNumberFromFolderName,
+  normalizedWeekNumber,
+  semesterWeekNumbers,
+} from "../../shared/semester-weeks";
 import { recordCleanupFailure, type CleanupFailure } from "./cleanup-log";
 import type { ProviderService } from "./provider-service";
 import type { RagIndexService, RagSearchOptions } from "./rag-index-service";
@@ -65,6 +71,7 @@ const now = () => new Date().toISOString();
 const INDEXING_INGEST_LOCK_MS = 5 * 60_000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
 export const WORKSPACE_FILE_PREVIEW_PROTOCOL = "brevyn-file";
 
@@ -308,8 +315,15 @@ export class FileService {
     const root = roots[0];
     if (!root) throw new Error("课程文件树不可用。");
     const task = input.targetSection === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
-    const targetFolder = ensureTargetFolderInTree(root, input, task, timestamp);
-    const managedTargetDir = this.ensureImportTargetDir(input);
+    const semester = this.options.businessStore.getSemester(semesterId);
+    const allowedLectureWeeks = lectureWeekNumbersForFolders(semester);
+    const weekNumber = input.targetSection === "lecture" ? normalizedWeekNumber(input.weekNumber, allowedLectureWeeks) : undefined;
+    if (input.targetSection === "lecture" && input.weekNumber !== undefined && !weekNumber) {
+      throw new Error("选择的课件周次不在当前学期范围内。请刷新后重新选择周次。");
+    }
+    const targetInput: FileImportInput = input.targetSection === "lecture" ? { ...input, weekNumber } : input;
+    const targetFolder = ensureTargetFolderInTree(root, targetInput, task, timestamp);
+    const managedTargetDir = this.ensureImportTargetDir(targetInput);
     const copiedPaths: string[] = [];
     try {
       const importedFiles: WorkspaceFileNode[] = [];
@@ -326,7 +340,8 @@ export class FileService {
           taskId: input.targetSection === "task" ? input.taskId : undefined,
           taskType: input.targetSection === "task" ? task?.taskType : undefined,
           taskFileBucket: input.targetSection === "task" ? input.taskFileBucket || "materials" : undefined,
-          sectionKind: input.targetSection,
+          sectionKind: targetInput.targetSection,
+          weekNumber,
           sourcePath: managedPath,
           name,
           path: `${targetFolder.path}/${name}`,
@@ -338,7 +353,7 @@ export class FileService {
         importedFiles.push(file);
       }
       this.persistWorkspaceFilesForCourse(input.courseId, roots, semesterId);
-      const sectionId = this.sectionIdForImport(input);
+      const sectionId = this.sectionIdForImport(targetInput);
       let indexingJob: IndexingJob | null = null;
       let indexingError: string | undefined;
       try {
@@ -704,6 +719,7 @@ export class FileService {
       tasks: courseId === SEMESTER_HOME_COURSE_ID ? [] : this.options.businessStore.listTasks(semesterId, courseId),
       timestamp: now(),
     });
+    if (courseId !== SEMESTER_HOME_COURSE_ID) this.pruneEmptyLectureWeekFolders(roots);
     if (before !== JSON.stringify(roots)) this.persistWorkspaceFilesForCourse(courseId, roots, semesterId);
     this.hideArchivedTaskNodes(roots, semesterId, courseId);
     return roots;
@@ -722,6 +738,7 @@ export class FileService {
       tasks: courseId === SEMESTER_HOME_COURSE_ID ? [] : this.options.businessStore.listTasks(semesterId, courseId),
       timestamp: now(),
     });
+    if (courseId !== SEMESTER_HOME_COURSE_ID) this.pruneEmptyLectureWeekFolders(roots);
     return roots;
   }
 
@@ -756,6 +773,7 @@ export class FileService {
       }, timestamp) || changed;
     } else {
       const courseDir = courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
+      this.ensureLectureWeekDirs(courseDir, semesterId);
       changed = this.syncDiskFolder(
         ensureTargetFolderInTree(root, { courseId, targetSection: "course_shared" }, undefined, timestamp),
         join(courseDir, "Course shared"),
@@ -796,7 +814,7 @@ export class FileService {
   private syncDiskFolder(
     parent: WorkspaceFileNode,
     dir: string,
-    metadata: Pick<WorkspaceFileNode, "courseId" | "taskId" | "taskType" | "taskFileBucket" | "sectionKind">,
+    metadata: Pick<WorkspaceFileNode, "courseId" | "taskId" | "taskType" | "taskFileBucket" | "sectionKind" | "weekNumber">,
     timestamp: string,
   ): boolean {
     if (!existsSync(dir)) return false;
@@ -809,6 +827,7 @@ export class FileService {
     }
     const visibleEntries = entries
       .filter((entry) => !entry.name.startsWith("."))
+      .filter((entry) => !this.shouldHideEmptyLectureWeekDir(metadata, dir, entry))
       .sort((a, b) => a.name.localeCompare(b.name));
     const visibleNames = new Set(visibleEntries.map((entry) => entry.name));
     parent.children ||= [];
@@ -824,8 +843,9 @@ export class FileService {
       const sourcePath = join(dir, entry.name);
       if (entry.isDirectory()) {
         const childCount = parent.children.length;
-        const folder = ensureFolderChild(parent, entry.name, { ...metadata, sourcePath }, timestamp);
-        changed = parent.children.length !== childCount || this.syncDiskFolder(folder, sourcePath, metadata, timestamp) || changed;
+        const childMetadata = this.metadataForDiskChild(metadata, entry.name);
+        const folder = ensureFolderChild(parent, entry.name, { ...childMetadata, sourcePath }, timestamp);
+        changed = parent.children.length !== childCount || this.syncDiskFolder(folder, sourcePath, childMetadata, timestamp) || changed;
         continue;
       }
       if (!entry.isFile()) continue;
@@ -860,6 +880,49 @@ export class FileService {
         });
         changed = true;
       }
+    }
+    return changed;
+  }
+
+  private metadataForDiskChild(
+    metadata: Pick<WorkspaceFileNode, "courseId" | "taskId" | "taskType" | "taskFileBucket" | "sectionKind" | "weekNumber">,
+    name: string,
+  ): Pick<WorkspaceFileNode, "courseId" | "taskId" | "taskType" | "taskFileBucket" | "sectionKind" | "weekNumber"> {
+    if (metadata.sectionKind !== "lecture" || metadata.weekNumber) return metadata;
+    return { ...metadata, weekNumber: lectureWeekNumberFromFolderName(name) };
+  }
+
+  private shouldHideEmptyLectureWeekDir(
+    metadata: Pick<WorkspaceFileNode, "courseId" | "taskId" | "taskType" | "taskFileBucket" | "sectionKind" | "weekNumber">,
+    dir: string,
+    entry: Dirent<string>,
+  ): boolean {
+    if (metadata.sectionKind !== "lecture" || metadata.weekNumber || !entry.isDirectory()) return false;
+    if (!lectureWeekNumberFromFolderName(entry.name)) return false;
+    return !hasVisibleDiskEntries(join(dir, entry.name));
+  }
+
+  private ensureLectureWeekDirs(courseDir: string, semesterId: string): void {
+    const semester = this.options.businessStore.getSemester(semesterId);
+    for (const weekNumber of lectureWeekNumbersForFolders(semester)) {
+      mkdirSync(join(courseDir, "Lecture", lectureWeekFolderName(weekNumber)), { recursive: true });
+    }
+  }
+
+  private pruneEmptyLectureWeekFolders(nodes: WorkspaceFileNode[], insideLectureRoot = false): boolean {
+    let changed = false;
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const node = nodes[index];
+      const emptyLectureWeek = node.kind === "folder" &&
+        insideLectureRoot &&
+        Boolean(lectureWeekNumberFromFolderName(node.name)) &&
+        (node.children?.length || 0) === 0;
+      if (emptyLectureWeek) {
+        nodes.splice(index, 1);
+        changed = true;
+        continue;
+      }
+      if (node.children && this.pruneEmptyLectureWeekFolders(node.children, node.sectionKind === "lecture" && !node.weekNumber)) changed = true;
     }
     return changed;
   }
@@ -939,6 +1002,18 @@ function uniqueFilePath(dir: string, fileName: string): string {
     index += 1;
   }
   return candidate;
+}
+
+function hasVisibleDiskEntries(dir: string): boolean {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).some((entry) => !entry.name.startsWith("."));
+  } catch {
+    return false;
+  }
+}
+
+function lectureWeekNumbersForFolders(semester: Parameters<typeof semesterWeekNumbers>[0]): number[] {
+  return semesterWeekNumbers(semester).slice(0, MAX_LECTURE_WEEK_FOLDERS);
 }
 
 function readPreviewSource(sourcePath?: string): string {

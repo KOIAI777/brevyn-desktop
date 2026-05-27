@@ -7,6 +7,7 @@ import { errorMessage } from "@/hooks/workspaceFileUtils";
 export function useFilePreviewState({
   mountedRef,
   activeCourseIdRef,
+  activeCourseScopeKeyRef,
   activeThreadIdRef,
   fileTreeRef,
   refreshCourseTree,
@@ -14,6 +15,7 @@ export function useFilePreviewState({
 }: {
   mountedRef: MutableRefObject<boolean>;
   activeCourseIdRef: MutableRefObject<string>;
+  activeCourseScopeKeyRef: MutableRefObject<string>;
   activeThreadIdRef: MutableRefObject<string>;
   fileTreeRef: MutableRefObject<WorkspaceFileNode[]>;
   refreshCourseTree: (courseId: string) => Promise<WorkspaceFileNode[] | null>;
@@ -41,6 +43,8 @@ export function useFilePreviewState({
 
   async function loadPreviewForFile(file: WorkspaceFileNode, options: { sourcePath?: string; errorFallback?: string } = {}): Promise<void> {
     const requestId = filePreviewRequestRef.current + 1;
+    const courseScopeAtRequest = activeCourseScopeKeyRef.current;
+    const threadIdAtRequest = options.sourcePath ? activeThreadIdRef.current : "";
     filePreviewRequestRef.current = requestId;
     commitSelectedFileId(file.id);
     onError("");
@@ -51,10 +55,11 @@ export function useFilePreviewState({
     }
     setFilePreviewLoading(true);
     try {
-      const preview = options.sourcePath && activeThreadIdRef.current
-        ? await window.brevyn.app.previewWorkspacePath({ threadId: activeThreadIdRef.current, path: options.sourcePath })
+      const preview = options.sourcePath && threadIdAtRequest
+        ? await window.brevyn.app.previewWorkspacePath({ threadId: threadIdAtRequest, path: options.sourcePath })
         : await window.brevyn.files.preview(file.id);
       if (!mountedRef.current || filePreviewRequestRef.current !== requestId || selectedFileIdRef.current !== file.id) return;
+      if (options.sourcePath ? activeThreadIdRef.current !== threadIdAtRequest : activeCourseScopeKeyRef.current !== courseScopeAtRequest) return;
       setFilePreview(preview);
       setFilePreviewLoading(false);
     } catch (error) {
@@ -75,20 +80,26 @@ export function useFilePreviewState({
 
   async function previewWorkspacePath(filePath: string, options: { silent?: boolean } = {}) {
     const courseId = activeCourseIdRef.current;
+    const courseScopeAtRequest = activeCourseScopeKeyRef.current;
     let nextFile = findFileNodeByPath(fileTreeRef.current, filePath);
     if (!nextFile && courseId) {
       const latestTree = await refreshCourseTree(courseId);
       if (!latestTree) return;
       nextFile = findFileNodeByPath(latestTree, filePath);
     }
+    if (activeCourseScopeKeyRef.current !== courseScopeAtRequest) return;
     if (!nextFile) {
-      if (!activeThreadIdRef.current) {
+      const threadIdAtRequest = activeThreadIdRef.current;
+      if (!threadIdAtRequest) {
         if (!options.silent) onError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
         return;
       }
+      const requestId = filePreviewRequestRef.current + 1;
+      filePreviewRequestRef.current = requestId;
       try {
         setFilePreviewLoading(true);
-        const preview = await window.brevyn.app.previewWorkspacePath({ threadId: activeThreadIdRef.current, path: filePath });
+        const preview = await window.brevyn.app.previewWorkspacePath({ threadId: threadIdAtRequest, path: filePath });
+        if (!mountedRef.current || filePreviewRequestRef.current !== requestId || activeThreadIdRef.current !== threadIdAtRequest) return;
         if (!preview) {
           setFilePreviewLoading(false);
           if (!options.silent) onError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
@@ -98,6 +109,7 @@ export function useFilePreviewState({
         setFilePreview(preview);
         setFilePreviewLoading(false);
       } catch (error) {
+        if (!mountedRef.current || filePreviewRequestRef.current !== requestId || activeThreadIdRef.current !== threadIdAtRequest) return;
         setFilePreviewLoading(false);
         if (!options.silent) onError(errorMessage(error, "Failed to preview workspace file."));
       }
