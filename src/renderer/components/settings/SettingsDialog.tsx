@@ -42,7 +42,7 @@ import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { UpdateStatusCard } from "@/components/settings/update/UpdateStatusCard";
 import { VersionHistory } from "@/components/settings/update/VersionHistory";
-import { getModelLogoById, getProviderBaseUrlLogo, getProviderKindLogo, getProviderProfileLogo } from "@/lib/model-provider-logo";
+import { getProviderKindLogo, getProviderProfileLogo, resolveModelProviderLogo } from "@/lib/model-provider-logo";
 import { withInferredContextWindow } from "../../../shared/model-context-window";
 import {
   AGENT_PROVIDER_PRESETS,
@@ -3415,7 +3415,6 @@ function ModelPicker({
   onPick: (model: ProviderModel) => void;
 }) {
   if (models.length === 0) return null;
-  const fallbackLogo = getProviderBaseUrlLogo(baseUrl, providerKind);
   return (
     <div className="mt-3 rounded-md border bg-card p-2">
       <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -3438,7 +3437,7 @@ function ModelPicker({
               onClick={() => onPick(model)}
             >
               <span className={cx("relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", selected ? "border-background/20 bg-background/16" : "border-border/55 bg-background")}>
-                <img src={getModelLogoById(model.id) || fallbackLogo} alt="" className="h-4.5 w-4.5 object-contain" />
+                <img src={resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind })} alt="" className="h-4.5 w-4.5 object-contain" />
                 {selected && (
                   <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-background text-foreground shadow-sm">
                     <Check className="h-2.5 w-2.5" />
@@ -3571,7 +3570,7 @@ function ModelTransferRow({
   onRemoveModel?: (model: ProviderModel) => void;
 }) {
   const contextWindowValue = model.contextWindowTokens ? model.contextWindowTokens.toLocaleString() : "";
-  const logo = getModelLogoById(model.id) || getProviderBaseUrlLogo(baseUrl, providerKind);
+  const logo = resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind });
   return (
     <div className={cx("grid min-w-0 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-foreground/25 bg-muted text-foreground" : "border-border/55 bg-card text-muted-foreground")}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">

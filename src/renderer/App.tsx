@@ -58,8 +58,8 @@ function App() {
     await agentSession.run(prompt, permissionMode, attachments, providerSelection, mentionedSkills);
   }
 
-  async function runAgentForThread(threadId: string, prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<void> {
-    await agentSession.runForThread(threadId, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
+  async function runAgentForThread(threadId: string, prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<boolean> {
+    return agentSession.runForThread(threadId, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
   }
 
   async function stopAgent(): Promise<void> {

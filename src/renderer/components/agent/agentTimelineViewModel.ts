@@ -121,6 +121,7 @@ export function buildTimelineViewGroups(
         collapsedVisibleEntryKeys: collapsedAssistantTextKeys(entries),
         processItem,
         model: group.model,
+        providerId: group.providerId,
         createdAt: group.createdAt,
       });
       continue;
@@ -162,6 +163,7 @@ function canReuseTimelineGroup(previous: AgentTimelineViewGroup, next: AgentTime
   if (next.type !== "assistant-turn" || previous.type !== "assistant-turn") return false;
   if (!isStaticTextTurn(previous) || !isStaticTextTurn(next)) return false;
   return previous.model === next.model
+    && previous.providerId === next.providerId
     && previous.createdAt === next.createdAt
     && sameStringList(previous.collapsedVisibleEntryKeys, next.collapsedVisibleEntryKeys)
     && sameOptionalStaticViewItem(previous.processItem, next.processItem)

@@ -54,6 +54,7 @@ export interface AssistantTurnGroup {
   assistantMessages: SDKMessage[];
   turnRecords: Array<{ record: AgentTimelineRecord; index: number }>;
   model?: string;
+  providerId?: string;
   createdAt?: number;
 }
 
@@ -135,16 +136,19 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
     if (message.type === "assistant") {
       if ((message as { isReplay?: unknown }).isReplay === true) return;
       const messageModel = stringValue(recordObject(messageContentEnvelope(message)).model ?? (message as { _channelModelId?: unknown })._channelModelId, "");
+      const messageProviderId = stringValue((message as { _channelProviderId?: unknown })._channelProviderId, "");
       if (!currentTurn) {
         currentTurn = !seenUserInput ? leadingTurn ?? emptyAssistantTurn(sessionModelId) : emptyAssistantTurn(sessionModelId);
         if (!seenUserInput) leadingTurn = currentTurn;
         applyPendingRunStart(currentTurn);
         currentTurn.model = currentTurn.model || messageModel || sessionModelId || "";
+        currentTurn.providerId = currentTurn.providerId || messageProviderId || "";
         currentTurn.createdAt = currentTurn.createdAt ?? recordCreatedAtMs(message);
         currentTurn.assistantMessages.push(message);
         currentTurn.turnRecords.push({ record: message, index });
       } else {
         currentTurn.model = currentTurn.model || messageModel || sessionModelId || "";
+        currentTurn.providerId = currentTurn.providerId || messageProviderId || "";
         currentTurn.createdAt = currentTurn.createdAt ?? recordCreatedAtMs(message);
         currentTurn.assistantMessages.push(message);
         currentTurn.turnRecords.push({ record: message, index });
@@ -189,6 +193,7 @@ function emptyAssistantTurn(sessionModelId?: string): AssistantTurnGroup {
 function applyRuntimeTurnMeta(turn: AssistantTurnGroup, record: Extract<BrevynAgentTimelineRecord, { kind: "runtime" }>, sessionModelId?: string): void {
   if (record.event.type !== "run_started") return;
   turn.model = turn.model || stringValue(record.event.modelId, sessionModelId || "");
+  turn.providerId = turn.providerId || stringValue(record.event.providerId, "");
   turn.createdAt = turn.createdAt ?? recordCreatedAtMs(record);
 }
 

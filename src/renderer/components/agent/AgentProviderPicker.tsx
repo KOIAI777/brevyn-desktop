@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { AgentPermissionMode, ModelProviderConfig } from "@/types/domain";
 import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { AgentPermissionModeButton } from "@/components/agent/AgentPermissionModeButton";
-import { getModelLogoById, getProviderBaseUrlLogo } from "@/lib/model-provider-logo";
+import { resolveModelProviderLogo } from "@/lib/model-provider-logo";
 
 export function AgentProviderPicker({
   running,
@@ -32,7 +32,7 @@ export function AgentProviderPicker({
           value: providerModelValue(provider.id, model.id),
           label: model.name || model.id,
           detail: provider.name,
-          icon: <ModelLogo src={getModelLogoById(model.id) || getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind)} label={model.name || model.id} />,
+          icon: <ModelLogo src={resolveModelProviderLogo({ modelId: model.id, baseUrl: provider.baseUrl, providerKind: provider.providerKind })} label={model.name || model.id} />,
         }));
       }),
     [agentProviders],
@@ -51,7 +51,7 @@ export function AgentProviderPicker({
         className="inline-block shrink-0"
         style={{ width: "fit-content", minWidth: 132, maxWidth: "min(44vw, 280px)" }}
         buttonClassName="h-7 rounded-full border border-border/70 bg-background/88 px-2 text-[11px] font-semibold shadow-sm"
-        menuClassName="bg-card/98"
+        menuClassName="bg-[hsl(var(--card))]"
         menuWidth={menuWidth}
         menuMinWidth={220}
         menuItemHeight={64}

@@ -19,7 +19,7 @@ import type { AgentTimelineTurnEntry, AgentTimelineViewItem } from "@/components
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
 import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
-import { getModelLogoById, getProviderBaseUrlLogo } from "@/lib/model-provider-logo";
+import { resolveModelProviderLogo } from "@/lib/model-provider-logo";
 import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
 
 interface AgentThreadPanelProps {
@@ -29,7 +29,7 @@ interface AgentThreadPanelProps {
   running: boolean;
   error?: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
-  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -485,6 +485,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
       collapsedVisibleEntryKeys={group.collapsedVisibleEntryKeys}
       processItem={group.processItem}
       model={group.model}
+      providerId={group.providerId}
       createdAt={group.createdAt}
       agentProviders={agentProviders}
       onToggleItemProcess={onToggleItemProcess}
@@ -652,6 +653,7 @@ function AssistantTurnTimelineGroup({
   collapsedVisibleEntryKeys,
   processItem,
   model,
+  providerId,
   createdAt,
   agentProviders,
   onToggleItemProcess,
@@ -666,6 +668,7 @@ function AssistantTurnTimelineGroup({
   collapsedVisibleEntryKeys: string[];
   processItem?: AgentTimelineViewItem;
   model?: string;
+  providerId?: string;
   createdAt?: number;
   agentProviders: ModelProviderConfig[];
   onToggleItemProcess: (item: AgentTimelineViewItem) => void;
@@ -682,7 +685,7 @@ function AssistantTurnTimelineGroup({
     <div className="group/assistant-turn flex min-w-0 w-full max-w-full flex-col gap-3">
       {(processItem || entries.length > 0) && (
         <div className="flex min-w-0 flex-col">
-          <AssistantTurnHeader model={model} agentProviders={agentProviders} />
+          <AssistantTurnHeader model={model} providerId={providerId} agentProviders={agentProviders} />
           {processItem && (
             <AttachedProcess item={processItem} onToggle={() => onToggleItemProcess(processItem)} />
           )}
@@ -717,17 +720,22 @@ function AssistantTurnTimelineGroup({
 
 function AssistantTurnHeader({
   model,
+  providerId,
   agentProviders,
 }: {
   model?: string;
+  providerId?: string;
   agentProviders: ModelProviderConfig[];
 }) {
   const modelId = (model || "").trim();
   if (!modelId) return null;
-  const provider = modelId ? agentProviders.find((item) => item.models.some((candidate) => candidate.id === modelId)) : undefined;
+  const providerById = providerId ? agentProviders.find((item) => item.id === providerId) : undefined;
+  const provider = providerById ?? agentProviders.find((item) => item.models.some((candidate) => candidate.id === modelId));
   const providerModel = provider?.models.find((candidate) => candidate.id === modelId);
   const modelLabel = providerModel?.name || modelId;
-  const logo = getModelLogoById(modelId) || (provider ? getProviderBaseUrlLogo(provider.baseUrl, provider.providerKind) : brevynAppIconUrl);
+  const logo = provider
+    ? resolveModelProviderLogo({ modelId, baseUrl: provider.baseUrl, providerKind: provider.providerKind })
+    : resolveModelProviderLogo({ modelId });
 
   return (
     <div className="mb-1 flex min-w-0 items-center gap-2 px-1 text-[11px] text-muted-foreground">
@@ -786,7 +794,29 @@ function AssistantTurnRenderEntryView({
   );
 }
 
-function TimelineItemsDrawer({ open, insetTop = false, children }: { open: boolean; insetTop?: boolean; children: ReactNode }) {
+function TimelineItemsDrawer({
+  open,
+  insetTop = false,
+  unmountWhenClosed = false,
+  children,
+}: {
+  open: boolean;
+  insetTop?: boolean;
+  unmountWhenClosed?: boolean;
+  children: ReactNode;
+}) {
+  const [mounted, setMounted] = useState(open);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+    if (!unmountWhenClosed) return;
+    const timeout = window.setTimeout(() => setMounted(false), 220);
+    return () => window.clearTimeout(timeout);
+  }, [open, unmountWhenClosed]);
+
   return (
     <div
       className={`${open ? "" : "pointer-events-none"} grid min-w-0 transition-all duration-200 ease-out`}
@@ -800,7 +830,7 @@ function TimelineItemsDrawer({ open, insetTop = false, children }: { open: boole
       <div
         className={`${insetTop ? "pt-2" : ""} flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden`}
       >
-        {children}
+        {open || mounted || !unmountWhenClosed ? children : null}
       </div>
     </div>
   );
@@ -996,7 +1026,7 @@ const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { e
         </span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`} />
       </button>
-      <TimelineItemsDrawer open={!collapsed}>
+      <TimelineItemsDrawer open={!collapsed} unmountWhenClosed>
         {entry.summary.running ? (
           <RunningToolGroupDetails events={entry.toolEvents} expandedToolIds={expandedToolIds} onToggleTool={toggleTool} />
         ) : (
@@ -1087,7 +1117,7 @@ const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
               </span>
             </div>
-            <TimelineItemsDrawer open={expanded}>
+            <TimelineItemsDrawer open={expanded} unmountWhenClosed>
               <div className="px-1 pb-1">
                 <OrderedToolUseEntry event={event} collapsed={false} onToggleCollapsed={() => onToggleTool(toolId)} />
               </div>

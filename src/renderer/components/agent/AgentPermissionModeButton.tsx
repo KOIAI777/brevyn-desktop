@@ -55,7 +55,7 @@ export function AgentPermissionModeButton({
       >
         <Icon className="h-4 w-4" strokeWidth={2.1} />
       </button>
-      <div className="pointer-events-none absolute bottom-full right-0 z-[80] mb-2 w-56 translate-y-1 rounded-xl border border-white/60 bg-card/98 px-3 py-2 text-[11px] text-muted-foreground opacity-0 shadow-[0_12px_30px_rgba(64,55,38,0.14)] ring-1 ring-border/50 transition duration-150 group-hover/permission:translate-y-0 group-hover/permission:opacity-100 group-focus-within/permission:translate-y-0 group-focus-within/permission:opacity-100">
+      <div className="pointer-events-none absolute bottom-full right-0 z-[80] mb-2 w-56 translate-y-1 rounded-xl border border-border/65 bg-[hsl(var(--card))] px-3 py-2 text-[11px] text-muted-foreground opacity-0 shadow-[0_16px_38px_rgba(64,55,38,0.18)] ring-1 ring-white/80 transition duration-150 group-hover/permission:translate-y-0 group-hover/permission:opacity-100 group-focus-within/permission:translate-y-0 group-focus-within/permission:opacity-100">
         <p className="font-semibold text-foreground">{copy.label}</p>
         <p className="mt-0.5">{copy.description}</p>
         {!running && <p className="mt-1 text-[10px] text-muted-foreground/80">点击切换到 {copy.next}</p>}

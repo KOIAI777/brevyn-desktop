@@ -124,10 +124,10 @@ export function useAgentSessionController({
     attachments?: AgentAttachment[],
     providerSelection?: AgentProviderSelection,
     mentionedSkills?: string[],
-  ): Promise<void> => {
-    if (!threadId) return;
+  ): Promise<boolean> => {
+    if (!threadId) return false;
     const isActiveThread = threadId === activeThreadIdRef.current;
-    if ((isActiveThread && runningRef.current) || runInFlightByThreadRef.current.has(threadId)) return;
+    if ((isActiveThread && runningRef.current) || runInFlightByThreadRef.current.has(threadId)) return false;
     if (isActiveThread) {
       setError("");
       setRecordsThreadId(threadId);
@@ -153,6 +153,7 @@ export function useAgentSessionController({
         modelId: providerSelection?.modelId,
         mentionedSkills,
       });
+      return true;
     } catch (runError) {
       removeAgentLiveMessage(threadId, userMessageId);
       if (isActiveThread) {

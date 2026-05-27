@@ -21,7 +21,7 @@ export function useAgentQueueState({
   threadId: string;
   effectiveRunning: boolean;
   runSummary: RunSummary | null;
-  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
 }): AgentQueueState {
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
   const queuedMessagesByThreadRef = useRef<Record<string, QueuedAgentMessage[]>>({});
@@ -133,8 +133,8 @@ export function useAgentQueueState({
     if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return;
     setQueuedMessageSending(targetThreadId, message.id, true);
     try {
-      await onRunForThread(targetThreadId, message.prompt, message.permissionMode, undefined, message.providerSelection, message.mentionedSkills);
-      removeQueuedMessage(targetThreadId, message.id);
+      const started = await onRunForThread(targetThreadId, message.prompt, message.permissionMode, undefined, message.providerSelection, message.mentionedSkills);
+      if (started) removeQueuedMessage(targetThreadId, message.id);
     } catch (error) {
       console.error(source === "auto" ? "[AgentThreadPanel] Failed to auto-send queued message:" : "[AgentThreadPanel] Failed to start queued message:", error);
     } finally {

@@ -14,11 +14,17 @@ import qwenLogo from "@/assets/models/qwen.svg";
 
 type ProviderLike = Pick<ModelProviderConfig, "providerKind" | "baseUrl" | "selectedModel">;
 
+interface ResolveModelProviderLogoInput {
+  modelId?: string;
+  providerKind?: ProviderKind;
+  baseUrl?: string;
+}
+
 const MODEL_LOGO_RULES: Array<[RegExp, string]> = [
-  [/gpt|o1|o3|o4|openai/i, openAiLogo],
+  [/gpt-?5|gpt-?4|gpt-?3(?:\.5)?|gpt|o1|o3|o4|codex|openai/i, openAiLogo],
   [/claude|anthropic/i, anthropicLogo],
   [/deepseek/i, deepSeekLogo],
-  [/qwen|qwq|qvq|wan-|dashscope/i, qwenLogo],
+  [/qwen|qwq|qvq|wan-|dashscope|aliyun|alibaba/i, qwenLogo],
   [/kimi|moonshot/i, moonshotLogo],
   [/gemini|gemma|google/i, googleGeminiLogo],
   [/doubao|bytedance|byte[-_ ]?dance|volc|seed/i, byteDanceLogo],
@@ -58,10 +64,7 @@ const PROVIDER_KIND_LOGOS: Partial<Record<ProviderKind, string>> = {
 };
 
 export function getModelLogo(modelId: string, providerKind?: ProviderKind): string {
-  const byModel = getModelLogoById(modelId);
-  if (byModel) return byModel;
-  if (providerKind) return getProviderKindLogo(providerKind);
-  return defaultLogo;
+  return resolveModelProviderLogo({ modelId, providerKind });
 }
 
 export function getModelLogoById(modelId: string): string | undefined {
@@ -73,15 +76,25 @@ export function getProviderKindLogo(providerKind: ProviderKind): string {
 }
 
 export function getProviderProfileLogo(provider: ProviderLike): string {
-  const byModel = logoFromRules(provider.selectedModel, MODEL_LOGO_RULES);
-  if (byModel) return byModel;
-  const byUrl = logoFromRules(provider.baseUrl, BASE_URL_LOGO_RULES);
-  if (byUrl) return byUrl;
-  return getProviderKindLogo(provider.providerKind);
+  return resolveModelProviderLogo({
+    modelId: provider.selectedModel,
+    baseUrl: provider.baseUrl,
+    providerKind: provider.providerKind,
+  });
 }
 
 export function getProviderBaseUrlLogo(baseUrl: string, providerKind?: ProviderKind): string {
   return logoFromRules(baseUrl, BASE_URL_LOGO_RULES) || (providerKind ? getProviderKindLogo(providerKind) : defaultLogo);
+}
+
+export function resolveModelProviderLogo({
+  modelId,
+  baseUrl,
+  providerKind,
+}: ResolveModelProviderLogoInput): string {
+  return logoFromRules(modelId, MODEL_LOGO_RULES)
+    || logoFromRules(baseUrl, BASE_URL_LOGO_RULES)
+    || (providerKind ? getProviderKindLogo(providerKind) : defaultLogo);
 }
 
 function logoFromRules(value: string | undefined, rules: Array<[RegExp, string]>): string | undefined {
