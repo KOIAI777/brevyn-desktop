@@ -97,12 +97,13 @@ function createWindow(): void {
 
 function resolveAppIconPath(): string | undefined {
   const resourceDirs = [
+    process.resourcesPath,
     join(__dirname, "resources"),
     join(process.cwd(), "resources"),
     join(process.cwd(), "src", "renderer", "assets"),
   ];
   const platformNames = process.platform === "darwin"
-    ? ["icon.png"]
+    ? ["icon.png", "icon.icns"]
     : process.platform === "win32"
       ? ["icon.ico", "icon.png"]
       : ["icon.png"];
@@ -125,7 +126,6 @@ app.whenReady().then(() => {
     store = createLocalStore(dataRoot);
     indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
     registerIpcHandlers({ store, indexingQueue });
-    indexingQueue.start();
     storeReady = true;
   } catch (error) {
     console.error("[brevyn] Failed to initialize local store", error);
@@ -135,15 +135,36 @@ app.whenReady().then(() => {
   }
   createWindow();
   initAutoUpdater();
-  if (storeReady) startWatcherForMainWindow(dataRoot);
+  if (storeReady) {
+    startBackgroundServicesAfterFirstPaint(dataRoot);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-      startWatcherForMainWindow(dataRoot);
+      if (storeReady) startBackgroundServicesAfterFirstPaint(dataRoot);
     }
   });
 });
+
+function startBackgroundServicesAfterFirstPaint(dataRoot: string): void {
+  const start = () => {
+    setTimeout(() => {
+      startWatcherForMainWindow(dataRoot);
+      indexingQueue?.start();
+    }, 1_200);
+  };
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) {
+    start();
+    return;
+  }
+  if (window.webContents.isLoading()) {
+    window.webContents.once("did-finish-load", start);
+    return;
+  }
+  start();
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

@@ -15,20 +15,152 @@ npmRebuild: false
 
 asar: true
 asarUnpack:
-  # Agent and skill helper scripts may run in a normal Node.js process outside
-  # Electron's ASAR-aware module loader, so runtime dependencies must exist on
-  # the real filesystem.
-  - "node_modules/**/*"
+  # Native/runtime binaries must live outside ASAR. Keep this list narrow:
+  # JS dependencies are bundled by esbuild/Vite or can run from app.asar.
+  - "node_modules/@anthropic-ai/**"
+  - "node_modules/@lancedb/lancedb-darwin-arm64/**"
+  # Default document skills execute user-authored Node scripts from the
+  # workspace. External Node cannot read app.asar, so these packages must live
+  # on the real filesystem and are exposed through NODE_PATH at runtime.
+  - "node_modules/docx/**"
+  - "node_modules/mammoth/**"
+  - "node_modules/adm-zip/**"
+  - "node_modules/@xmldom/**"
+  - "node_modules/pptxgenjs/**"
+  - "node_modules/pdf-lib/**"
+  - "node_modules/pdfjs-dist/**"
+  - "node_modules/react/**"
+  - "node_modules/react-dom/**"
+  - "node_modules/react-icons/**"
+  - "node_modules/sharp/**"
+  - "node_modules/@img/**"
+  - "node_modules/@pdf-lib/**"
+  - "node_modules/@napi-rs/**"
+  - "node_modules/hash.js/**"
+  - "node_modules/jszip/**"
+  - "node_modules/xml-js/**"
+  - "node_modules/xml/**"
+  - "node_modules/argparse/**"
+  - "node_modules/base64-js/**"
+  - "node_modules/bluebird/**"
+  - "node_modules/dingbat-to-unicode/**"
+  - "node_modules/lop/**"
+  - "node_modules/path-is-absolute/**"
+  - "node_modules/underscore/**"
+  - "node_modules/xmlbuilder/**"
+  - "node_modules/duck/**"
+  - "node_modules/option/**"
+  - "node_modules/pako/**"
+  - "node_modules/https/**"
+  - "node_modules/image-size/**"
+  - "node_modules/loose-envify/**"
+  - "node_modules/scheduler/**"
+  - "node_modules/color/**"
+  - "node_modules/color-convert/**"
+  - "node_modules/color-string/**"
+  - "node_modules/color-name/**"
+  - "node_modules/detect-libc/**"
+  - "node_modules/inherits/**"
+  - "node_modules/minimalistic-assert/**"
+  - "node_modules/lie/**"
+  - "node_modules/immediate/**"
+  - "node_modules/readable-stream/**"
+  - "node_modules/safe-buffer/**"
+  - "node_modules/string_decoder/**"
+  - "node_modules/util-deprecate/**"
+  - "node_modules/setimmediate/**"
+  - "node_modules/sax/**"
+  - "node_modules/queue/**"
+  - "node_modules/js-tokens/**"
+  - "node_modules/simple-swizzle/**"
+  - "node_modules/is-arrayish/**"
 
 files:
   - dist/**/*
+  - "!dist/*.test.cjs"
+  - "!dist/default-skills/**"
+  - "!dist/native/**"
   - package.json
-  # Keep runtime dependencies available for externalized main-process modules
-  # and Brevyn skill helper scripts copied into user data.
-  - node_modules/**/*
-  - "!node_modules/.cache/**"
-  - "!node_modules/electron/dist/**"
-  - "!node_modules/electron-builder/**"
+  # Main/renderer dependencies are bundled. Only external runtime packages stay
+  # in node_modules, mirroring Proma's package strategy.
+  - node_modules/@anthropic-ai/claude-agent-sdk/**/*
+  - node_modules/@anthropic-ai/sdk/**/*
+  - node_modules/@modelcontextprotocol/sdk/**/*
+  - node_modules/@lancedb/lancedb/**/*
+  - node_modules/@lancedb/lancedb-darwin-arm64/**/*
+  - node_modules/apache-arrow/**/*
+  # Packages intentionally available to bundled default skills at runtime.
+  - node_modules/docx/**/*
+  - node_modules/mammoth/**/*
+  - node_modules/adm-zip/**/*
+  - node_modules/@xmldom/**/*
+  - node_modules/pptxgenjs/**/*
+  - node_modules/pdf-lib/**/*
+  - node_modules/pdfjs-dist/**/*
+  - node_modules/react/**/*
+  - node_modules/react-dom/**/*
+  - node_modules/react-icons/**/*
+  - node_modules/sharp/**/*
+  - node_modules/@img/**/*
+  - node_modules/@pdf-lib/**/*
+  - node_modules/@napi-rs/**/*
+  - node_modules/hash.js/**/*
+  - node_modules/jszip/**/*
+  - node_modules/xml-js/**/*
+  - node_modules/xml/**/*
+  - node_modules/argparse/**/*
+  - node_modules/base64-js/**/*
+  - node_modules/bluebird/**/*
+  - node_modules/dingbat-to-unicode/**/*
+  - node_modules/lop/**/*
+  - node_modules/path-is-absolute/**/*
+  - node_modules/underscore/**/*
+  - node_modules/xmlbuilder/**/*
+  - node_modules/duck/**/*
+  - node_modules/option/**/*
+  - node_modules/pako/**/*
+  - node_modules/https/**/*
+  - node_modules/image-size/**/*
+  - node_modules/loose-envify/**/*
+  - node_modules/scheduler/**/*
+  - node_modules/color/**/*
+  - node_modules/color-convert/**/*
+  - node_modules/color-string/**/*
+  - node_modules/color-name/**/*
+  - node_modules/detect-libc/**/*
+  - node_modules/inherits/**/*
+  - node_modules/minimalistic-assert/**/*
+  - node_modules/lie/**/*
+  - node_modules/immediate/**/*
+  - node_modules/readable-stream/**/*
+  - node_modules/safe-buffer/**/*
+  - node_modules/string_decoder/**/*
+  - node_modules/util-deprecate/**/*
+  - node_modules/setimmediate/**/*
+  - node_modules/sax/**/*
+  - node_modules/queue/**/*
+  - node_modules/js-tokens/**/*
+  - node_modules/simple-swizzle/**/*
+  - node_modules/is-arrayish/**/*
+  - node_modules/reflect-metadata/**/*
+  - node_modules/@swc/helpers/**/*
+  - node_modules/flatbuffers/**/*
+  - node_modules/json-bignum/**/*
+  - node_modules/tslib/**/*
+  - node_modules/command-line-args/**/*
+  - node_modules/command-line-usage/**/*
+  - node_modules/array-back/**/*
+  - node_modules/find-replace/**/*
+  - node_modules/typical/**/*
+  - node_modules/wordwrapjs/**/*
+  - node_modules/table-layout/**/*
+  - node_modules/ansi-escape-sequences/**/*
+  - node_modules/collect-all/**/*
+  - node_modules/deep-extend/**/*
+  - node_modules/stream-connect/**/*
+  - node_modules/reduce-flatten/**/*
+  - node_modules/extend-shallow/**/*
+  - node_modules/is-plain-obj/**/*
 
 extraResources:
   # Bundled default skills. In packaged builds these are read from
@@ -48,6 +180,18 @@ mac:
   target:
     - dmg
     - zip
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
 
 win:
   icon: resources/icon.ico

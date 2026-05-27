@@ -262,11 +262,10 @@ export interface FilePreview {
   kind: WorkspaceFileKind;
   mimeType?: string;
   fileUrl?: string;
+  previewUrl?: string;
   content?: string;
   html?: string;
   summary?: string;
-  pages?: string[];
-  sheets?: SpreadsheetPreviewSheet[];
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -276,14 +275,6 @@ export interface OpenPathOption {
   kind: "default" | "finder" | "terminal" | "editor" | "office" | "viewer" | "application";
   appPath?: string;
   iconDataUrl?: string;
-}
-
-export interface SpreadsheetPreviewSheet {
-  name: string;
-  rows: Array<Array<string | number | boolean | null>>;
-  totalRows: number;
-  totalColumns: number;
-  truncated?: boolean;
 }
 
 export interface FileSectionStat {

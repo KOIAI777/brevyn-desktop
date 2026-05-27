@@ -73,6 +73,7 @@ export class ClaudeSdkAdapter {
           ...input.env,
           CLAUDE_AGENT_SDK_CLIENT_APP: "brevyn/0.1.0",
           BREVYN_RUNTIME_REQUIRE_FROM: resolveRuntimeRequireFrom(),
+          NODE_PATH: runtimeNodePath(input.env?.NODE_PATH),
         },
         resume: input.resumeSessionId,
         systemPrompt: input.systemPrompt,
@@ -273,6 +274,16 @@ function resolveRuntimeRequireFrom(): string {
     join(__dirname, "..", "package.json"),
   ];
   return resolve(candidates.find((candidate) => existsSync(candidate)) || candidates[0]);
+}
+
+function runtimeNodePath(existing?: string): string {
+  const paths = [
+    process.cwd() ? join(process.cwd(), "node_modules") : "",
+    join(process.resourcesPath || "", "app.asar.unpacked", "node_modules"),
+    join(process.resourcesPath || "", "app", "node_modules"),
+    existing || process.env.NODE_PATH || "",
+  ].filter(Boolean);
+  return Array.from(new Set(paths)).join(process.platform === "win32" ? ";" : ":");
 }
 
 const safeToolPolicy: CanUseTool = async (toolName, input, options): Promise<PermissionResult> => {

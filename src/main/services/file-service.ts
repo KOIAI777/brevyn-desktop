@@ -1,10 +1,13 @@
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { copyFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import JSZip from "jszip";
+import { posix as pathPosix } from "node:path";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import AdmZip from "adm-zip";
+import { DOMParser } from "@xmldom/xmldom";
 import mammoth from "mammoth";
-import XLSX from "xlsx";
 import type {
   CourseFileSection,
   FileImportInput,
@@ -15,7 +18,6 @@ import type {
   IndexingJob,
   ModelProviderConfig,
   RagSearchResult,
-  SpreadsheetPreviewSheet,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -58,9 +60,12 @@ import {
   taskInCourseOrThrow,
 } from "./workspace-state";
 
+const require = createRequire(__filename);
 const now = () => new Date().toISOString();
 const INDEXING_INGEST_LOCK_MS = 5 * 60_000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
+const PREVIEW_CACHE_DIR = ".preview-cache";
 export const WORKSPACE_FILE_PREVIEW_PROTOCOL = "brevyn-file";
 
 export interface FileServiceOptions {
@@ -238,20 +243,22 @@ export class FileService {
       };
     }
     if (input.kind === "pdf") {
+      const preview = preparePdfCanvasPreview(this.options.rootDataDir, input.sourcePath, input.title);
       return {
         ...common,
         mimeType: "application/pdf",
-        summary: fileUrl ? "正在预览工作区中的原始 PDF 文件。" : "PDF 源文件不可用于预览。",
+        previewUrl: preview.previewUrl,
+        summary: preview.summary,
       };
     }
     if (input.kind === "pptx") {
-      const extracted = await previewPptxText(input.sourcePath);
+      const extracted = await previewPptxHtml(input.sourcePath);
       return {
         ...common,
         mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         summary: extracted.summary,
         content: extracted.content,
-        pages: extracted.pages,
+        html: extracted.html,
       };
     }
     if (input.kind === "docx") {
@@ -265,13 +272,13 @@ export class FileService {
       };
     }
     if (input.kind === "spreadsheet") {
-      const extracted = previewSpreadsheet(input.sourcePath);
+      const extracted = previewSpreadsheetHtml(input.sourcePath);
       return {
         ...common,
         mimeType: spreadsheetMimeType(input.sourcePath),
         summary: extracted.summary,
         content: extracted.content,
-        sheets: extracted.sheets,
+        html: extracted.html,
       };
     }
     if (input.kind === "image") {
@@ -987,7 +994,162 @@ async function previewDocxHtml(sourcePath?: string): Promise<{ summary: string; 
   }
 }
 
-async function previewPptxText(sourcePath?: string): Promise<{ summary: string; content: string; pages?: string[] }> {
+function preparePdfCanvasPreview(rootDataDir: string, sourcePath?: string, title = "PDF"): { summary: string; previewUrl?: string } {
+  if (!sourcePath || !existsSync(sourcePath)) {
+    return { summary: "PDF 源文件不可用于预览。" };
+  }
+  try {
+    const stats = statSync(sourcePath);
+    if (stats.size > MAX_PREVIEW_FILE_BYTES) {
+      return { summary: `PDF 文件过大（${formatSize(stats.size)}），请用外部应用打开。` };
+    }
+    const assets = ensurePdfPreviewAssets(rootDataDir);
+    const html = pdfCanvasPreviewDocument({
+      title,
+      fileUrl: workspaceFilePreviewUrl(sourcePath),
+      pdfScriptUrl: workspaceFilePreviewUrl(assets.pdfScriptPath),
+      pdfWorkerUrl: workspaceFilePreviewUrl(assets.pdfWorkerPath),
+      standardFontDataUrl: `${workspaceFilePreviewUrl(assets.standardFontsDir)}/`,
+    });
+    return {
+      summary: "已生成 PDF 画布预览。",
+      previewUrl: writePreviewHtml(rootDataDir, html),
+    };
+  } catch (error) {
+    return {
+      summary: `PDF 预览失败：${errorMessage(error)}`,
+    };
+  }
+}
+
+function ensurePdfPreviewAssets(rootDataDir: string): { pdfScriptPath: string; pdfWorkerPath: string; standardFontsDir: string } {
+  const assetsDir = join(rootDataDir, PREVIEW_CACHE_DIR, "pdfjs");
+  const standardFontsDir = join(assetsDir, "standard_fonts");
+  const bundledAssetsDir = join(__dirname, "pdfjs");
+  mkdirSync(assetsDir, { recursive: true });
+  const pdfScriptPath = join(assetsDir, "pdf.min.mjs");
+  const pdfWorkerPath = join(assetsDir, "pdf.worker.min.mjs");
+  if (!existsSync(pdfScriptPath)) copyFileSync(resolvePdfPreviewAsset(bundledAssetsDir, "pdf.min.mjs", "pdfjs-dist/build/pdf.min.mjs"), pdfScriptPath);
+  if (!existsSync(pdfWorkerPath)) copyFileSync(resolvePdfPreviewAsset(bundledAssetsDir, "pdf.worker.min.mjs", "pdfjs-dist/build/pdf.worker.min.mjs"), pdfWorkerPath);
+  if (!existsSync(standardFontsDir)) {
+    const bundledFontsDir = join(bundledAssetsDir, "standard_fonts");
+    const sourceFontsDir = existsSync(bundledFontsDir)
+      ? bundledFontsDir
+      : join(dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts");
+    cpSync(sourceFontsDir, standardFontsDir, { recursive: true });
+  }
+  return { pdfScriptPath, pdfWorkerPath, standardFontsDir };
+}
+
+function resolvePdfPreviewAsset(bundledAssetsDir: string, bundledName: string, packagePath: string): string {
+  const bundledPath = join(bundledAssetsDir, bundledName);
+  return existsSync(bundledPath) ? bundledPath : require.resolve(packagePath);
+}
+
+function writePreviewHtml(rootDataDir: string, html: string): string {
+  const previewDir = join(rootDataDir, PREVIEW_CACHE_DIR, "html");
+  mkdirSync(previewDir, { recursive: true });
+  const hash = createHash("sha256").update(html).digest("hex").slice(0, 20);
+  const htmlPath = join(previewDir, `preview-${hash}.html`);
+  if (!existsSync(htmlPath)) writeFileSync(htmlPath, html, "utf8");
+  return workspaceFilePreviewUrl(htmlPath);
+}
+
+function pdfCanvasPreviewDocument(input: {
+  title: string;
+  fileUrl: string;
+  pdfScriptUrl: string;
+  pdfWorkerUrl: string;
+  standardFontDataUrl: string;
+}): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapePreviewHtml(input.title)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      :root { color-scheme: light; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; background: #f5f2ec; color: #1f2933; }
+      body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 18% 0%, rgba(255,255,255,.92), transparent 28rem), #f5f2ec; }
+      .toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid rgba(31,41,51,.1); background: rgba(250,248,242,.86); backdrop-filter: blur(14px); }
+      .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+      .controls { display: flex; align-items: center; gap: 6px; color: #667085; font-size: 11px; }
+      button { height: 26px; min-width: 28px; border: 1px solid rgba(31,41,51,.14); border-radius: 8px; background: #fffdf8; color: #1f2933; font: inherit; cursor: pointer; }
+      button:hover { background: #f0ebe2; }
+      #pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; min-width: 100%; }
+      canvas { display: block; max-width: none; border-radius: 4px; background: white; box-shadow: 0 18px 48px rgba(31,41,51,.16), 0 1px 0 rgba(31,41,51,.08); }
+      .loading, .error, .page-info { width: 100%; padding: 34px 18px; text-align: center; color: #667085; font-size: 12px; line-height: 1.6; }
+      .error { color: #b42318; }
+      .page-info { padding-top: 0; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <div class="title">${escapePreviewHtml(input.title)}</div>
+      <div class="controls">
+        <button id="zoomOut" title="缩小">-</button>
+        <span id="zoom">100%</span>
+        <button id="zoomIn" title="放大">+</button>
+      </div>
+    </div>
+    <main id="pages"><div class="loading">正在加载 PDF...</div></main>
+    <script type="module">
+      const pages = document.getElementById("pages");
+      const zoomLabel = document.getElementById("zoom");
+      const steps = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+      let stepIndex = 2;
+      let pdfDoc = null;
+      function setZoomLabel() { zoomLabel.textContent = Math.round(steps[stepIndex] * 100) + "%"; }
+      async function renderAll() {
+        if (!pdfDoc) return;
+        pages.innerHTML = "";
+        const dpr = window.devicePixelRatio || 1;
+        const scale = steps[stepIndex];
+        for (let index = 1; index <= pdfDoc.numPages; index += 1) {
+          const page = await pdfDoc.getPage(index);
+          const viewport = page.getViewport({ scale: scale * dpr });
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = (viewport.width / dpr) + "px";
+          canvas.style.height = (viewport.height / dpr) + "px";
+          await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+          pages.appendChild(canvas);
+        }
+        const info = document.createElement("div");
+        info.className = "page-info";
+        info.textContent = "共 " + pdfDoc.numPages + " 页";
+        pages.appendChild(info);
+        setZoomLabel();
+      }
+      document.getElementById("zoomOut").addEventListener("click", () => {
+        if (stepIndex <= 0) return;
+        stepIndex -= 1;
+        void renderAll();
+      });
+      document.getElementById("zoomIn").addEventListener("click", () => {
+        if (stepIndex >= steps.length - 1) return;
+        stepIndex += 1;
+        void renderAll();
+      });
+      try {
+        const pdfjsLib = await import(${JSON.stringify(input.pdfScriptUrl)});
+        pdfjsLib.GlobalWorkerOptions.workerSrc = ${JSON.stringify(input.pdfWorkerUrl)};
+        pdfDoc = await pdfjsLib.getDocument({
+          url: ${JSON.stringify(input.fileUrl)},
+          standardFontDataUrl: ${JSON.stringify(input.standardFontDataUrl)},
+        }).promise;
+        await renderAll();
+      } catch (error) {
+        pages.innerHTML = '<div class="error">PDF 加载失败：' + (error?.message || String(error)) + '</div>';
+      }
+    </script>
+  </body>
+</html>`;
+}
+
+async function previewPptxHtml(sourcePath?: string): Promise<{ summary: string; content: string; html?: string }> {
   if (!sourcePath || !existsSync(sourcePath)) {
     return { summary: "PPTX 源文件不可用于预览。", content: "" };
   }
@@ -998,20 +1160,17 @@ async function previewPptxText(sourcePath?: string): Promise<{ summary: string; 
     };
   }
   try {
-    const zip = await JSZip.loadAsync(readFileSync(sourcePath));
-    const slideFiles = Object.values(zip.files)
-      .filter((file) => !file.dir && /^ppt\/slides\/slide\d+\.xml$/.test(file.name))
-      .sort((a, b) => numberFromXmlPath(a.name) - numberFromXmlPath(b.name));
-    const pages: string[] = [];
-    for (const file of slideFiles) {
-      const text = extractPptxPreviewText(await file.async("string"));
-      pages.push(text || "（此幻灯片没有文本。）");
-    }
+    const zip = new AdmZip(sourcePath);
+    const slidePaths = getPptxSlidePaths(zip);
+    const visibleSlidePaths = slidePaths.slice(0, MAX_PPTX_SLIDES);
+    const pages = visibleSlidePaths.map((slidePath) => getPptxSlideText(zip, slidePath).join("\n") || "（此幻灯片没有文本。）");
     const content = pages.map((page, index) => `幻灯片 ${index + 1}\n${page}`).join("\n\n");
+    const truncated = slidePaths.length > visibleSlidePaths.length;
+    const html = renderPptxPreviewHtml(basename(sourcePath), pages, truncated);
     return {
-      summary: `已从 ${slideFiles.length} 张幻灯片提取文本。`,
+      summary: `已生成 ${visibleSlidePaths.length} / ${slidePaths.length} 张幻灯片的 HTML 预览。${truncated ? ` 仅显示前 ${MAX_PPTX_SLIDES} 张。` : ""}`,
       content: truncatePreviewText(content, 24000) || "（未找到可提取的幻灯片文本。）",
-      pages,
+      html,
     };
   } catch (error) {
     return {
@@ -1024,63 +1183,107 @@ async function previewPptxText(sourcePath?: string): Promise<{ summary: string; 
 const SPREADSHEET_MAX_SHEETS = 8;
 const SPREADSHEET_MAX_ROWS = 120;
 const SPREADSHEET_MAX_COLUMNS = 40;
+const MAX_PPTX_SLIDES = 80;
 
-function previewSpreadsheet(sourcePath?: string): { summary: string; content: string; sheets: SpreadsheetPreviewSheet[] } {
+function previewSpreadsheetHtml(sourcePath?: string): { summary: string; content: string; html?: string } {
   if (!sourcePath || !existsSync(sourcePath)) {
-    return { summary: "表格源文件不可用于预览。", content: "", sheets: [] };
+    return { summary: "表格源文件不可用于预览。", content: "" };
   }
   try {
-    const workbook = XLSX.readFile(sourcePath, { cellDates: true, dense: false });
-    const sheetNames = workbook.SheetNames.slice(0, SPREADSHEET_MAX_SHEETS);
-    const sheets: SpreadsheetPreviewSheet[] = sheetNames.map((name) => {
-      const worksheet = workbook.Sheets[name];
-      const range = worksheet?.["!ref"] ? XLSX.utils.decode_range(worksheet["!ref"]) : null;
-      const totalRows = range ? range.e.r - range.s.r + 1 : 0;
-      const totalColumns = range ? range.e.c - range.s.c + 1 : 0;
-      const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean | Date | null>>(worksheet, {
-        header: 1,
-        defval: "",
-        raw: false,
-        blankrows: false,
-      })
-        .slice(0, SPREADSHEET_MAX_ROWS)
-        .map((row) => row.slice(0, SPREADSHEET_MAX_COLUMNS).map(normalizeSpreadsheetCell));
+    const zip = new AdmZip(sourcePath);
+    const workbookXml = readZipText(zip, "xl/workbook.xml");
+    if (!workbookXml) throw new Error("Invalid XLSX: workbook.xml missing");
+
+    const workbookDoc = parsePreviewXml(workbookXml);
+    const relationships = parsePreviewRelationships(zip, "xl/_rels/workbook.xml.rels", "xl");
+    const sharedStrings = parseXlsxSharedStrings(zip);
+    const dateStyleIndexes = parseXlsxDateStyleIndexes(zip);
+    const workbookSheets = getPreviewElementsByLocalName(workbookDoc, "sheet");
+    const sheets = workbookSheets.slice(0, SPREADSHEET_MAX_SHEETS).flatMap((sheet, index) => {
+      const name = sheet.getAttribute("name") || `Sheet ${index + 1}`;
+      const relationshipId = sheet.getAttribute("r:id") || sheet.getAttribute("id");
+      const sheetPath = relationshipId ? relationships.get(relationshipId) : undefined;
+      if (!sheetPath) return [];
+      const parsed = parseXlsxSheetRows(zip, sheetPath, sharedStrings, dateStyleIndexes);
+      const totalColumns = Math.max(...parsed.rows.map((row) => row.length), 0);
       return {
         name,
-        rows,
-        totalRows,
+        rows: parsed.rows,
+        totalRows: parsed.totalRows,
         totalColumns,
-        truncated: totalRows > SPREADSHEET_MAX_ROWS || totalColumns > SPREADSHEET_MAX_COLUMNS,
+        truncated: parsed.truncatedRows || parsed.truncatedColumns,
       };
     });
-    const truncatedWorkbook = workbook.SheetNames.length > sheetNames.length;
+    if (sheets.length === 0) throw new Error("Invalid XLSX: no worksheet data resolved");
+    const truncatedWorkbook = workbookSheets.length > sheets.length;
     const content = sheets.map((sheet) => [
       `工作表：${sheet.name}`,
       ...sheet.rows.map((row) => row.map((cell) => cell == null ? "" : String(cell)).join("\t")),
     ].join("\n")).join("\n\n");
     const summary = [
-      `正在预览 ${sheets.length} / ${workbook.SheetNames.length} 个工作表。`,
+      `正在预览 ${sheets.length} / ${workbookSheets.length} 个工作表。`,
       truncatedWorkbook ? `仅显示前 ${SPREADSHEET_MAX_SHEETS} 个工作表。` : "",
-      "当前以表格形式预览，不完全等同于 Excel 原始版式。",
+      "当前以 Proma 式 OOXML HTML 表格预览，不完全等同于 Excel 原始版式。",
     ].filter(Boolean).join(" ");
     return {
       summary,
       content: truncatePreviewText(content, 24000),
-      sheets,
+      html: renderSpreadsheetPreviewHtml(basename(sourcePath), sheets),
     };
   } catch (error) {
     return {
       summary: `表格预览失败：${errorMessage(error)}`,
       content: "",
-      sheets: [],
     };
   }
 }
 
-function normalizeSpreadsheetCell(value: string | number | boolean | Date | null): string | number | boolean | null {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (value === undefined || value === "") return null;
-  return value;
+function renderPptxPreviewHtml(title: string, pages: string[], truncated = false): string {
+  const slides = pages.map((page, index) => {
+    const lines = page.split("\n").map((line) => line.trim()).filter(Boolean);
+    const slideTitle = lines[0] || "（无标题）";
+    const body = lines.length > 1
+      ? `<ul>${lines.slice(1).map((line) => `<li>${escapePreviewHtml(line)}</li>`).join("")}</ul>`
+      : `<div class="office-empty">这页没有更多可提取文本</div>`;
+    return `<section class="office-slide"><div class="office-slide-index">幻灯片 ${index + 1}</div><h3>${escapePreviewHtml(slideTitle)}</h3>${body}</section>`;
+  }).join("");
+  const notice = truncated ? `<div class="office-preview-notice">仅显示前 ${MAX_PPTX_SLIDES} 张幻灯片</div>` : "";
+  return `<div class="office-preview office-preview-presentation"><div class="office-preview-title">${escapePreviewHtml(title)}</div>${notice}${slides || `<div class="office-empty">这个 PPTX 没有可提取的文本内容</div>`}</div>`;
+}
+
+function renderSpreadsheetPreviewHtml(
+  title: string,
+  sheets: Array<{ name: string; rows: string[][]; totalRows: number; totalColumns: number; truncated: boolean }>,
+): string {
+  const sheetHtml = sheets.map((sheet) => {
+    const columnCount = Math.max(sheet.totalColumns, ...sheet.rows.map((row) => row.length), 1);
+    const visibleColumnCount = Math.min(columnCount, SPREADSHEET_MAX_COLUMNS);
+    const headerCells = Array.from({ length: visibleColumnCount }, (_, index) => `<th>${spreadsheetColumnName(index)}</th>`).join("");
+    const rows = sheet.rows.map((row, rowIndex) => {
+      const cells = Array.from({ length: visibleColumnCount }, (_, columnIndex) => {
+        const value = row[columnIndex];
+        return `<td>${escapePreviewHtml(value == null ? "" : String(value))}</td>`;
+      }).join("");
+      return `<tr><th class="office-row-heading">${rowIndex + 1}</th>${cells}</tr>`;
+    }).join("");
+    const table = rows
+      ? `<div class="office-table-wrap"><table><thead><tr><th></th>${headerCells}</tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="office-empty">这个工作表没有可预览的数据</div>`;
+    const notice = sheet.truncated ? `<div class="office-preview-notice">仅显示前 ${SPREADSHEET_MAX_ROWS} 行 × ${SPREADSHEET_MAX_COLUMNS} 列</div>` : "";
+    return `<section class="office-sheet"><h3>${escapePreviewHtml(sheet.name)}</h3><div class="office-sheet-meta">${sheet.totalRows} 行 × ${sheet.totalColumns} 列</div>${notice}${table}</section>`;
+  }).join("");
+  return `<div class="office-preview office-preview-spreadsheet"><div class="office-preview-title">${escapePreviewHtml(title)}</div>${sheetHtml || `<div class="office-empty">这个表格没有可预览的数据</div>`}</div>`;
+}
+
+function spreadsheetColumnName(index: number): string {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
 }
 
 function spreadsheetMimeType(sourcePath?: string): string {
@@ -1090,34 +1293,242 @@ function spreadsheetMimeType(sourcePath?: string): string {
   return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 }
 
-function extractPptxPreviewText(xml: string): string {
-  const fragments: string[] = [];
-  const tagPattern = /<(?:a|m):t\b[^>]*>([\s\S]*?)<\/(?:a|m):t>/g;
-  for (const match of xml.matchAll(tagPattern)) {
-    const value = decodePreviewXml(match[1] || "").trim();
-    if (value) fragments.push(value);
-  }
-  return normalizePreviewText(fragments.join("\n"));
+function parsePreviewXml(xml: string): Document {
+  return new DOMParser().parseFromString(xml, "application/xml");
 }
 
-function decodePreviewXml(value: string): string {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 10)))
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+function getPreviewElementsByLocalName(root: Node, localName: string): Element[] {
+  const result: Element[] = [];
+  function walk(node: Node): void {
+    const children = node.childNodes;
+    if (!children) return;
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children.item(index);
+      if (child.nodeType === 1) {
+        const element = child as Element;
+        if (element.localName === localName || element.nodeName === localName) result.push(element);
+      }
+      walk(child);
+    }
+  }
+  walk(root);
+  return result;
+}
+
+function getPreviewDirectChildElementsByLocalName(root: Element | Document, localName: string): Element[] {
+  const result: Element[] = [];
+  const children = root.childNodes;
+  if (!children) return result;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children.item(index);
+    if (child.nodeType !== 1) continue;
+    const element = child as Element;
+    if (element.localName === localName || element.nodeName === localName) result.push(element);
+  }
+  return result;
+}
+
+function getPreviewFirstTextByLocalName(root: Element, localName: string): string {
+  return getPreviewElementsByLocalName(root, localName)[0]?.textContent || "";
+}
+
+function readZipText(zip: AdmZip, path: string): string | null {
+  const entry = zip.getEntry(path);
+  return entry ? entry.getData().toString("utf8") : null;
+}
+
+function normalizeZipTarget(baseDir: string, target: string): string {
+  const normalizedTarget = target.replace(/\\/g, "/");
+  if (normalizedTarget.startsWith("/")) return normalizedTarget.slice(1);
+  return pathPosix.normalize(pathPosix.join(baseDir, normalizedTarget));
+}
+
+function parsePreviewRelationships(zip: AdmZip, relsPath: string, baseDir: string): Map<string, string> {
+  const relsXml = readZipText(zip, relsPath);
+  const rels = new Map<string, string>();
+  if (!relsXml) return rels;
+  const relsDoc = parsePreviewXml(relsXml);
+  for (const rel of getPreviewElementsByLocalName(relsDoc, "Relationship")) {
+    const id = rel.getAttribute("Id");
+    const target = rel.getAttribute("Target");
+    if (!id || !target) continue;
+    rels.set(id, normalizeZipTarget(baseDir, target));
+  }
+  return rels;
+}
+
+function parseXlsxSharedStrings(zip: AdmZip): string[] {
+  const sharedXml = readZipText(zip, "xl/sharedStrings.xml");
+  if (!sharedXml) return [];
+  const doc = parsePreviewXml(sharedXml);
+  return getPreviewElementsByLocalName(doc, "si").map((si) => (
+    getPreviewElementsByLocalName(si, "t").map((node) => node.textContent || "").join("")
+  ));
+}
+
+function isDateNumFmtId(numFmtId: number): boolean {
+  return (
+    (numFmtId >= 14 && numFmtId <= 22) ||
+    (numFmtId >= 27 && numFmtId <= 36) ||
+    (numFmtId >= 45 && numFmtId <= 47) ||
+    (numFmtId >= 50 && numFmtId <= 58)
+  );
+}
+
+function isDateFormatCode(formatCode: string): boolean {
+  const normalized = formatCode
+    .replace(/"[^"]*"/g, "")
+    .replace(/\\./g, "")
+    .replace(/\[[^\]]*]/g, "")
+    .toLowerCase();
+  return /[ymdhHsS]/.test(normalized);
+}
+
+function parseXlsxDateStyleIndexes(zip: AdmZip): Set<number> {
+  const stylesXml = readZipText(zip, "xl/styles.xml");
+  const dateStyleIndexes = new Set<number>();
+  if (!stylesXml) return dateStyleIndexes;
+
+  const doc = parsePreviewXml(stylesXml);
+  const customFormats = new Map<number, string>();
+  for (const numFmt of getPreviewElementsByLocalName(doc, "numFmt")) {
+    const id = Number(numFmt.getAttribute("numFmtId"));
+    const code = numFmt.getAttribute("formatCode") || "";
+    if (Number.isFinite(id) && code) customFormats.set(id, code);
+  }
+
+  const cellXfs = getPreviewElementsByLocalName(doc, "cellXfs")[0];
+  if (!cellXfs) return dateStyleIndexes;
+
+  getPreviewDirectChildElementsByLocalName(cellXfs, "xf").forEach((xf, index) => {
+    const numFmtId = Number(xf.getAttribute("numFmtId"));
+    if (!Number.isFinite(numFmtId)) return;
+    const customFormatCode = customFormats.get(numFmtId);
+    if (isDateNumFmtId(numFmtId) || (customFormatCode && isDateFormatCode(customFormatCode))) {
+      dateStyleIndexes.add(index);
+    }
+  });
+  return dateStyleIndexes;
+}
+
+function formatExcelSerialDate(rawValue: string): string {
+  const serial = Number(rawValue);
+  if (!Number.isFinite(serial)) return rawValue;
+  const millis = Math.round((serial - 25569) * 86400 * 1000);
+  const date = new Date(millis);
+  if (Number.isNaN(date.getTime())) return rawValue;
+  const year = date.getUTCFullYear();
+  if (year < 1900 || year > 9999) return rawValue;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const dateText = `${year}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+  const hasTime = Math.abs(serial - Math.floor(serial)) > 0.000001;
+  if (!hasTime) return dateText;
+  return `${dateText} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+}
+
+function columnIndexFromCellRef(cellRef: string): number {
+  const letters = cellRef.match(/[A-Za-z]+/)?.[0]?.toUpperCase();
+  if (!letters) return 0;
+  let index = 0;
+  for (const char of letters) index = index * 26 + (char.charCodeAt(0) - 64);
+  return Math.max(0, index - 1);
+}
+
+function getXlsxCellText(cell: Element, sharedStrings: string[], dateStyleIndexes: Set<number>): string {
+  const type = cell.getAttribute("t");
+  if (type === "inlineStr") {
+    return getPreviewElementsByLocalName(cell, "t").map((node) => node.textContent || "").join("");
+  }
+
+  const value = getPreviewFirstTextByLocalName(cell, "v");
+  if (!value) return "";
+  if (type === "s") {
+    const sharedIndex = Number(value);
+    return Number.isInteger(sharedIndex) ? sharedStrings[sharedIndex] || "" : "";
+  }
+  if (type === "b") return value === "1" ? "TRUE" : "FALSE";
+
+  const styleIndex = Number(cell.getAttribute("s"));
+  if (!type && Number.isInteger(styleIndex) && dateStyleIndexes.has(styleIndex)) {
+    return formatExcelSerialDate(value);
+  }
+  return value;
+}
+
+function parseXlsxSheetRows(
+  zip: AdmZip,
+  sheetPath: string,
+  sharedStrings: string[],
+  dateStyleIndexes: Set<number>,
+): { rows: string[][]; totalRows: number; truncatedRows: boolean; truncatedColumns: boolean } {
+  const sheetXml = readZipText(zip, sheetPath);
+  if (!sheetXml) return { rows: [], totalRows: 0, truncatedRows: false, truncatedColumns: false };
+
+  const doc = parsePreviewXml(sheetXml);
+  const allRows = getPreviewElementsByLocalName(doc, "row");
+  const rows: string[][] = [];
+  let truncatedRows = false;
+  let truncatedColumns = false;
+
+  for (const row of allRows) {
+    if (rows.length >= SPREADSHEET_MAX_ROWS) {
+      truncatedRows = true;
+      break;
+    }
+    const values: string[] = [];
+    for (const cell of getPreviewDirectChildElementsByLocalName(row, "c")) {
+      const cellRef = cell.getAttribute("r") || "";
+      const columnIndex = columnIndexFromCellRef(cellRef);
+      if (columnIndex >= SPREADSHEET_MAX_COLUMNS) {
+        truncatedColumns = true;
+        continue;
+      }
+      values[columnIndex] = getXlsxCellText(cell, sharedStrings, dateStyleIndexes);
+    }
+    while (values.length > 0 && !values[values.length - 1]) values.pop();
+    if (values.some((value) => value.trim().length > 0)) rows.push(values);
+  }
+  return { rows, totalRows: allRows.length, truncatedRows, truncatedColumns };
+}
+
+function getPptxSlidePaths(zip: AdmZip): string[] {
+  const presentationXml = readZipText(zip, "ppt/presentation.xml");
+  const relationships = parsePreviewRelationships(zip, "ppt/_rels/presentation.xml.rels", "ppt");
+  if (presentationXml) {
+    const doc = parsePreviewXml(presentationXml);
+    const slidePaths = getPreviewElementsByLocalName(doc, "sldId")
+      .map((slide) => slide.getAttribute("r:id") || slide.getAttribute("id"))
+      .map((relationshipId) => relationshipId ? relationships.get(relationshipId) : undefined)
+      .filter((path): path is string => Boolean(path));
+    if (slidePaths.length > 0) return slidePaths;
+  }
+
+  return zip.getEntries()
+    .map((entry) => entry.entryName)
+    .filter((entryName) => /^ppt\/slides\/slide\d+\.xml$/.test(entryName))
+    .sort((a, b) => Number(a.match(/slide(\d+)\.xml$/)?.[1] || 0) - Number(b.match(/slide(\d+)\.xml$/)?.[1] || 0));
+}
+
+function getPptxSlideText(zip: AdmZip, slidePath: string): string[] {
+  const slideXml = readZipText(zip, slidePath);
+  if (!slideXml) return [];
+  const doc = parsePreviewXml(slideXml);
+  return getPreviewElementsByLocalName(doc, "p")
+    .map((paragraph) => getPreviewElementsByLocalName(paragraph, "t").map((node) => node.textContent || "").join("").trim())
+    .filter(Boolean);
 }
 
 function normalizePreviewText(value: string): string {
   return value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function numberFromXmlPath(path: string): number {
-  const match = path.match(/(\d+)(?=\.xml$)/);
-  return match ? Number.parseInt(match[1], 10) : 0;
+function escapePreviewHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function latestIndexingJobsByScope(jobs: IndexingJob[]): IndexingJob[] {

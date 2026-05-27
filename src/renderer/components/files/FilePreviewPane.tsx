@@ -1,6 +1,6 @@
 import { ChevronDown, Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Presentation, Table2, Terminal, Type } from "lucide-react";
 import type { FilePreview, OpenPathOption } from "@/types/domain";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "./FileTypeIcon";
 
@@ -17,12 +17,6 @@ export function FilePreviewPane({
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {
-  const [activeSheetName, setActiveSheetName] = useState("");
-  const activeSheet = useMemo(() => {
-    if (!preview?.sheets?.length) return null;
-    return preview.sheets.find((sheet) => sheet.name === activeSheetName) || preview.sheets[0] || null;
-  }, [activeSheetName, preview?.sheets]);
-
   if (!preview) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -110,9 +104,9 @@ export function FilePreviewPane({
           </div>
         )}
 
-        {preview.kind === "pdf" && preview.fileUrl && (
+        {preview.kind === "pdf" && (preview.previewUrl || preview.fileUrl) && (
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background">
-            <iframe className="h-full w-full bg-background" src={preview.fileUrl} title={preview.title} />
+            <iframe className="h-full w-full bg-background" src={preview.previewUrl || preview.fileUrl} title={preview.title} />
           </div>
         )}
 
@@ -136,7 +130,7 @@ export function FilePreviewPane({
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
               className="h-full w-full bg-background"
-              srcDoc={docxPreviewDocument(preview.html)}
+              srcDoc={officePreviewDocument(preview.html)}
               title={preview.title}
             />
           </div>
@@ -148,31 +142,29 @@ export function FilePreviewPane({
           </div>
         )}
 
-        {preview.kind === "pptx" && preview.content && !preview.pages?.length && (
-          <div className="rounded-lg border bg-background px-3 py-3">
-            <pre className="whitespace-pre-wrap text-[12px] leading-6 text-foreground">{preview.content}</pre>
+        {preview.kind === "pptx" && preview.html && (
+          <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
+            <iframe
+              className="h-full w-full bg-background"
+              srcDoc={officePreviewDocument(preview.html)}
+              title={preview.title}
+            />
           </div>
         )}
 
-        {preview.kind === "spreadsheet" && preview.sheets && (
-          <SpreadsheetPreview
-            preview={preview}
-            activeSheetName={activeSheet?.name || ""}
-            onSelectSheet={setActiveSheetName}
-          />
+        {preview.kind === "spreadsheet" && preview.html && (
+          <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
+            <iframe
+              className="h-full w-full bg-background"
+              srcDoc={officePreviewDocument(preview.html)}
+              title={preview.title}
+            />
+          </div>
         )}
 
-        {preview.pages && (
-          <div className="space-y-2">
-            {preview.pages.map((page, index) => (
-              <div key={`${page}-${index}`} className="rounded-lg border bg-background px-3 py-3">
-                <div className="mb-2 flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>{preview.kind === "pptx" ? `幻灯片 ${index + 1}` : `页面 ${index + 1}`}</span>
-                  <span>预览</span>
-                </div>
-                <div className="whitespace-pre-wrap rounded-md bg-muted/55 px-3 py-3 text-[12px] leading-5 text-foreground/80">{page}</div>
-              </div>
-            ))}
+        {(preview.kind === "pptx" || preview.kind === "spreadsheet") && !preview.html && preview.content && (
+          <div className="rounded-lg border bg-background px-3 py-3">
+            <pre className="whitespace-pre-wrap text-[12px] leading-6 text-foreground">{preview.content}</pre>
           </div>
         )}
       </div>
@@ -334,92 +326,6 @@ function openPathOptionsCacheKey(sourcePath: string, kind: FilePreview["kind"]):
   return `${kind}:${extension || fileName.toLowerCase()}`;
 }
 
-function SpreadsheetPreview({
-  preview,
-  activeSheetName,
-  onSelectSheet,
-}: {
-  preview: FilePreview;
-  activeSheetName: string;
-  onSelectSheet: (name: string) => void;
-}) {
-  const sheets = preview.sheets || [];
-  const activeSheet = sheets.find((sheet) => sheet.name === activeSheetName) || sheets[0];
-  if (!activeSheet) {
-    return (
-      <div className="rounded-lg border border-dashed bg-background/65 px-4 py-8 text-center text-xs text-muted-foreground">
-        没有可预览的表格单元格。
-      </div>
-    );
-  }
-  const columnCount = Math.max(activeSheet.totalColumns, ...activeSheet.rows.map((row) => row.length), 1);
-  const visibleColumnCount = Math.min(columnCount, 40);
-  return (
-    <div className="overflow-hidden rounded-lg border bg-background">
-      <div className="flex items-center gap-1 overflow-x-auto border-b bg-muted/30 px-2 py-2 brevyn-scrollbar">
-        {sheets.map((sheet) => (
-          <button
-            key={sheet.name}
-            type="button"
-            className={`shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${
-              sheet.name === activeSheet.name ? "border-foreground/25 bg-card text-foreground shadow-sm" : "border-transparent text-muted-foreground hover:bg-card/80 hover:text-foreground"
-            }`}
-            onClick={() => onSelectSheet(sheet.name)}
-            title={`${sheet.name} · ${sheet.totalRows} 行 × ${sheet.totalColumns} 列`}
-          >
-            {sheet.name}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center justify-between gap-3 border-b bg-card/50 px-3 py-2 text-[10px] text-muted-foreground">
-        <span>
-          {activeSheet.totalRows} 行 × {activeSheet.totalColumns} 列
-        </span>
-        {activeSheet.truncated && <span>仅显示前 120 行 × 40 列</span>}
-      </div>
-      <div className="max-h-[68vh] overflow-auto brevyn-scrollbar">
-        <table className="min-w-full border-separate border-spacing-0 text-left text-[11px]">
-          <thead className="sticky top-0 z-10 bg-muted/95 text-muted-foreground backdrop-blur">
-            <tr>
-              <th className="sticky left-0 z-20 w-10 border-b border-r bg-muted/95 px-2 py-1.5 text-center font-medium">#</th>
-              {Array.from({ length: visibleColumnCount }, (_, index) => (
-                <th key={index} className="min-w-28 border-b border-r px-2 py-1.5 font-medium">
-                  {spreadsheetColumnName(index)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {activeSheet.rows.length === 0 ? (
-              <tr>
-                <td className="px-3 py-8 text-center text-muted-foreground" colSpan={visibleColumnCount + 1}>
-                  空工作表
-                </td>
-              </tr>
-            ) : (
-              activeSheet.rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="odd:bg-background even:bg-muted/20">
-                  <th className="sticky left-0 z-10 border-b border-r bg-inherit px-2 py-1.5 text-center font-medium text-muted-foreground">{rowIndex + 1}</th>
-                  {Array.from({ length: visibleColumnCount }, (_, columnIndex) => {
-                    const value = row[columnIndex];
-                    return (
-                      <td key={columnIndex} className="max-w-64 border-b border-r px-2 py-1.5 align-top text-foreground">
-                        <span className="block max-w-64 truncate" title={value == null ? "" : String(value)}>
-                          {value == null ? "" : String(value)}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function previewKindLabel(kind: FilePreview["kind"]): string {
   if (kind === "folder") return "文件夹";
   if (kind === "markdown") return "Markdown";
@@ -433,18 +339,7 @@ function previewKindLabel(kind: FilePreview["kind"]): string {
   return "文件";
 }
 
-function spreadsheetColumnName(index: number): string {
-  let value = index + 1;
-  let label = "";
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    label = String.fromCharCode(65 + remainder) + label;
-    value = Math.floor((value - 1) / 26);
-  }
-  return label;
-}
-
-function docxPreviewDocument(html: string): string {
+function officePreviewDocument(html: string): string {
   return `<!doctype html>
 <html>
   <head>
@@ -495,7 +390,8 @@ function docxPreviewDocument(html: string): string {
         margin: 0.7em 0;
       }
       table {
-        max-width: 100%;
+        width: max-content;
+        min-width: 100%;
         margin: 1em 0;
         border-collapse: collapse;
         font-size: 12.5px;
@@ -515,6 +411,69 @@ function docxPreviewDocument(html: string): string {
       }
       a {
         color: #2563eb;
+      }
+      .office-preview-title {
+        margin: 0 0 18px;
+        font-size: 18px;
+        font-weight: 720;
+        letter-spacing: -0.02em;
+        color: #111827;
+      }
+      .office-preview-notice,
+      .office-sheet-meta,
+      .office-slide-index,
+      .office-empty {
+        color: #667085;
+        font-size: 12px;
+      }
+      .office-preview-notice {
+        margin: 0 0 12px;
+        border: 1px solid rgba(31, 41, 51, 0.1);
+        border-radius: 10px;
+        background: rgba(245, 242, 236, 0.75);
+        padding: 8px 10px;
+      }
+      .office-sheet,
+      .office-slide {
+        margin-top: 14px;
+        border: 1px solid rgba(31, 41, 51, 0.12);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.62);
+        padding: 14px;
+      }
+      .office-sheet h3,
+      .office-slide h3 {
+        margin: 0 0 8px;
+      }
+      .office-table-wrap {
+        margin-top: 10px;
+        overflow: auto;
+        border: 1px solid rgba(31, 41, 51, 0.12);
+        border-radius: 10px;
+        background: white;
+      }
+      .office-table-wrap table {
+        margin: 0;
+      }
+      .office-table-wrap thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      .office-row-heading {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 38px;
+        text-align: center;
+        color: #667085;
+      }
+      .office-slide ul {
+        margin: 10px 0 0;
+        padding-left: 1.2rem;
+      }
+      .office-slide li + li {
+        margin-top: 6px;
       }
     </style>
   </head>
