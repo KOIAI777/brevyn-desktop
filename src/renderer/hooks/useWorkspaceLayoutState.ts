@@ -229,7 +229,7 @@ function storeSidebarWidth(width: number): void {
 }
 
 function gridColumnsForWidths(fileRailCollapsed: boolean, previewRailCollapsed: boolean, fileRailWidth: number, previewRailWidth: number): string {
-  return `minmax(${CHAT_MIN_WIDTH}px, 1fr) ${railColumn(previewRailCollapsed, previewRailWidth, RAIL_WIDTHS.preview.renderMin)} ${railColumn(fileRailCollapsed, fileRailWidth, RAIL_WIDTHS.files.renderMin)}`;
+  return `minmax(0, 1fr) ${railColumn(previewRailCollapsed, previewRailWidth, RAIL_WIDTHS.preview.renderMin)} ${railColumn(fileRailCollapsed, fileRailWidth, RAIL_WIDTHS.files.renderMin)}`;
 }
 
 function railColumn(collapsed: boolean, width: number, renderMin: number): string {

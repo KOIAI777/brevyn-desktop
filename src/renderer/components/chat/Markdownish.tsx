@@ -282,7 +282,7 @@ function createMarkdownComponents({
           return <FilePathChip filePath={text.trim()} threadId={threadId} />;
         }
         return (
-          <code className="rounded-md bg-muted px-1.5 py-0.5 text-[0.92em]" {...props}>
+          <code className="break-words rounded-md bg-muted px-1.5 py-0.5 text-[0.92em]" {...props}>
             {renderChildren(children, blockPath("code", node))}
           </code>
         );
@@ -297,7 +297,7 @@ function createMarkdownComponents({
       <MarkdownCodePre {...props}>{children}</MarkdownCodePre>
     ),
     table: ({ children, ...props }: ComponentProps<"table">) => (
-      <div className="my-3 overflow-x-auto rounded-xl border bg-background/60">
+      <div className="my-3 min-w-0 w-full max-w-full overflow-x-auto rounded-xl border bg-background/60">
         <table className="w-full border-collapse text-left text-xs" {...props}>
           {children}
         </table>
@@ -334,8 +334,8 @@ function MarkdownCodePre({ children, ...props }: ComponentProps<"pre">) {
   const renderedChildren = truncated ? replaceFirstTextChild(children, preview ?? "") : children;
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border bg-muted/35">
-      <pre className="max-h-96 overflow-auto p-3 text-[12px] leading-5 [contain:layout_paint_style]" {...props}>
+    <div className="my-3 min-w-0 max-w-full overflow-hidden rounded-xl border bg-muted/35">
+      <pre className="max-h-96 max-w-full overflow-auto p-3 text-[12px] leading-5 [contain:layout_paint_style]" {...props}>
         {renderedChildren}
       </pre>
       {truncated && (
@@ -353,7 +353,7 @@ function MarkdownCodePre({ children, ...props }: ComponentProps<"pre">) {
 
 function MarkdownishFrame({ content, components }: { content: string; components: ComponentProps<typeof Markdown>["components"] }) {
   return (
-    <div className="markdownish break-words text-sm leading-6">
+    <div className="markdownish min-w-0 w-full max-w-full overflow-hidden break-words text-sm leading-6">
       <Markdown
         remarkPlugins={remarkPlugins}
         components={components}

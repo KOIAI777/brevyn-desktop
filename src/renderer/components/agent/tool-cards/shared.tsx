@@ -26,8 +26,8 @@ export function ToolCodeBlock({
   const truncated = Boolean(preview && preview !== text);
 
   return (
-    <div className="min-w-0">
-      <pre className={`${maxHeight} overflow-auto whitespace-pre-wrap break-words bg-[linear-gradient(135deg,rgba(255,252,244,0.94),rgba(244,238,224,0.86))] px-4 py-3 font-mono text-[12px] leading-6 text-stone-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] [contain:layout_paint_style] brevyn-scrollbar ${className}`}>
+    <div className="min-w-0 max-w-full overflow-hidden">
+      <pre className={`${maxHeight} max-w-full overflow-auto whitespace-pre-wrap break-words bg-[linear-gradient(135deg,rgba(255,252,244,0.94),rgba(244,238,224,0.86))] px-4 py-3 font-mono text-[12px] leading-6 text-stone-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] [contain:layout_paint_style] brevyn-scrollbar ${className}`}>
         {truncated ? preview : children}
       </pre>
       {truncated && (

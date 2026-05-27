@@ -19,8 +19,7 @@ import { AgentProviderPicker, parseProviderModelValue } from "@/components/agent
 import { QueuedMessageDock } from "@/components/agent/AgentQueuedMessageDock";
 import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
-
-const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
+import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
 
 interface AgentComposerProps {
   todos: AgentTodoItem[];
@@ -36,6 +35,7 @@ interface AgentComposerProps {
   activeProviderId: string;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
+  scrollbarWidth?: number;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
@@ -60,6 +60,7 @@ export const AgentComposer = memo(function AgentComposer({
   activeProviderId,
   files,
   skills,
+  scrollbarWidth = 0,
   onSetPermissionMode,
   onRun,
   onQueueMessage,
@@ -137,7 +138,12 @@ export const AgentComposer = memo(function AgentComposer({
   }
 
   return (
-    <form ref={formRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-6 pt-3" onSubmit={handleSubmit}>
+    <form
+      ref={formRef}
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-20 min-w-0 overflow-x-hidden px-5 pb-6 pt-3"
+      style={{ paddingRight: `calc(1.25rem + ${scrollbarWidth}px)` }}
+      onSubmit={handleSubmit}
+    >
       <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
         {queuedMessages.length > 0 && (
@@ -276,6 +282,7 @@ function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentCom
     && previous.activeProviderId === next.activeProviderId
     && previous.files === next.files
     && previous.skills === next.skills
+    && previous.scrollbarWidth === next.scrollbarWidth
     && previous.onSetPermissionMode === next.onSetPermissionMode
     && previous.onRun === next.onRun
     && previous.onQueueMessage === next.onQueueMessage

@@ -148,7 +148,7 @@ function App() {
               </div>
             )}
 
-            <div className={`min-h-0 flex-1 ${workspace.activeThread ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
+            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
               {workspace.activeThread ? (
                 <AgentThreadPanel
                   thread={workspace.activeThread}

@@ -20,6 +20,7 @@ import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
 import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
 import { getModelLogoById, getProviderBaseUrlLogo } from "@/lib/model-provider-logo";
+import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
 
 interface AgentThreadPanelProps {
   thread: Thread;
@@ -42,8 +43,6 @@ interface AgentThreadPanelProps {
   onPreviewFilePath?: (filePath: string) => void | Promise<void>;
 }
 
-const CHAT_BODY_WIDTH_CLASS = "mx-auto w-full max-w-[58rem]";
-
 export function AgentThreadPanel({
   thread,
   records,
@@ -65,6 +64,7 @@ export function AgentThreadPanel({
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
   const [timelineReady, setTimelineReady] = useState(false);
+  const [timelineScrollbarWidth, setTimelineScrollbarWidth] = useState(0);
   const scrollApiRef = useRef({
     isFollowingOutput: true,
     scrollToBottom: (_behavior: ScrollBehavior) => {},
@@ -164,6 +164,7 @@ export function AgentThreadPanel({
         onResolveExitPlan={onResolveExitPlan}
         onCompact={handleCompactRequest}
         onScrollApiReady={handleScrollApiReady}
+        onScrollbarWidthChange={setTimelineScrollbarWidth}
       />
 
       {error && <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">{error}</div>}
@@ -190,6 +191,7 @@ export function AgentThreadPanel({
         onSelectProvider={onSelectProvider}
         files={files}
         skills={skills}
+        scrollbarWidth={timelineScrollbarWidth}
       />
     </section>
     </FilePathPreviewProvider>
@@ -212,6 +214,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onResolveExitPlan,
   onCompact,
   onScrollApiReady,
+  onScrollbarWidthChange,
 }: {
   thread: Thread;
   loading: boolean;
@@ -227,6 +230,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
   onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
+  onScrollbarWidthChange: (width: number) => void;
 }) {
   const {
     scrollRef,
@@ -237,17 +241,44 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
     ready: !loading,
     transitioning: scrollTransitioning,
   });
+  const scrollElementRef = useRef<HTMLDivElement | null>(null);
+
+  const handleScrollRef = useCallback((node: HTMLDivElement | null) => {
+    scrollElementRef.current = node;
+    scrollRef(node);
+  }, [scrollRef]);
 
   useEffect(() => {
     onScrollApiReady({ isFollowingOutput, scrollToBottom });
   }, [isFollowingOutput, onScrollApiReady, scrollToBottom]);
 
+  useEffect(() => {
+    const element = scrollElementRef.current;
+    if (!element) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      onScrollbarWidthChange(Math.max(0, element.offsetWidth - element.clientWidth));
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [onScrollbarWidthChange]);
+
   return (
     <>
-      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[10.5rem] pt-5 [overflow-anchor:none] [scrollbar-gutter:stable]">
+      <div ref={handleScrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 pb-[10.5rem] pt-5 [overflow-anchor:none]">
         <div
           ref={contentRef}
-          className={`min-h-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}
+          className={`min-h-full min-w-0 max-w-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}
         >
           {loading ? (
             <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -261,7 +292,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
               {timelineGroups.map((group) => (
                 <div
                   key={group.key}
-                  className="timeline-group min-w-0 [contain:layout_paint_style]"
+                  className="timeline-group min-w-0 w-full [contain:layout_paint_style]"
                 >
                   <AgentTimelineGroup
                     group={group}
@@ -648,7 +679,7 @@ function AssistantTurnTimelineGroup({
   const stableBodyTextKeys = new Set(collapsedVisibleEntryKeys);
   const summary = processItem?.processSummary ?? [...items].reverse().find((item) => item.processSummary)?.processSummary ?? null;
   return (
-    <div className="group/assistant-turn flex min-w-0 flex-col gap-3">
+    <div className="group/assistant-turn flex min-w-0 w-full max-w-full flex-col gap-3">
       {(processItem || entries.length > 0) && (
         <div className="flex min-w-0 flex-col">
           <AssistantTurnHeader model={model} agentProviders={agentProviders} />
@@ -749,7 +780,7 @@ function AssistantTurnRenderEntryView({
   );
 
   return (
-    <div>
+    <div className="min-w-0 w-full max-w-full">
       {rendered}
     </div>
   );
@@ -950,7 +981,7 @@ const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { e
   const { collapsed, expandedToolIds, toggleCollapsed, toggleTool } = useToolGroupDisclosure(entry.key, entry.summary.running);
 
   return (
-    <div className="px-1 py-0">
+    <div className="min-w-0 px-1 py-0">
       <button
         type="button"
         className="inline-flex max-w-full items-center gap-2 rounded-md px-0.5 py-0.5 text-left text-[13px] font-semibold text-muted-foreground/80 transition hover:text-foreground"
@@ -969,7 +1000,7 @@ const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { e
         {entry.summary.running ? (
           <RunningToolGroupDetails events={entry.toolEvents} expandedToolIds={expandedToolIds} onToggleTool={toggleTool} />
         ) : (
-          <div className="ml-6 flex flex-col gap-1">
+          <div className="ml-6 flex min-w-0 flex-col gap-1">
             {entry.toolEvents.map((event) => (
               <OrderedToolUseEntry key={event.tool.id || event.id} event={event} collapsed={expandedToolIds[event.tool.id || event.id] !== true} onToggleCollapsed={() => toggleTool(event.tool.id || event.id)} />
             ))}
@@ -1025,7 +1056,7 @@ const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
   onToggleTool: (toolId: string) => void;
 }) {
   return (
-    <div className="ml-6 flex flex-col gap-1 rounded-lg border border-border/55 bg-muted/12 p-1">
+    <div className="ml-6 flex min-w-0 flex-col gap-1 rounded-lg border border-border/55 bg-muted/12 p-1">
       {events.map((event) => {
         const toolId = event.tool.id || event.id;
         const running = !event.result;
