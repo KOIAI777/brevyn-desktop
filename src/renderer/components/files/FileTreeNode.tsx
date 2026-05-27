@@ -1,19 +1,11 @@
-import type { MouseEvent } from "react";
+import { memo, type MouseEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import type { WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { fileDisplayName } from "./FileContextMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 
-export function FileTreeNode({
-  node,
-  level,
-  selectedFileId,
-  collapsedFolderIds,
-  onSelect,
-  onToggleFolder,
-  onContextMenu,
-}: {
+type FileTreeNodeProps = {
   node: WorkspaceFileNode;
   level: number;
   selectedFileId: string;
@@ -21,7 +13,19 @@ export function FileTreeNode({
   onSelect: (file: WorkspaceFileNode) => void;
   onToggleFolder: (folderId: string) => void;
   onContextMenu: (event: MouseEvent, file: WorkspaceFileNode) => void;
-}) {
+  selectFolders?: boolean;
+};
+
+export const FileTreeNode = memo(function FileTreeNode({
+  node,
+  level,
+  selectedFileId,
+  collapsedFolderIds,
+  onSelect,
+  onToggleFolder,
+  onContextMenu,
+  selectFolders = false,
+}: FileTreeNodeProps) {
   const isFolder = node.kind === "folder";
   const open = isFolder && !collapsedFolderIds.has(node.id);
   const active = selectedFileId === node.id;
@@ -37,13 +41,28 @@ export function FileTreeNode({
         )}
         style={{ paddingLeft: 8 + level * 14 }}
         onClick={() => {
-          if (isFolder) onToggleFolder(node.id);
+          if (isFolder && !selectFolders) {
+            onToggleFolder(node.id);
+            return;
+          }
           onSelect(node);
         }}
         onContextMenu={(event) => onContextMenu(event, node)}
         title={node.path}
       >
-        {isFolder ? <ChevronRight className={cx("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-90")} /> : <span className="w-3.5 shrink-0" />}
+        {isFolder ? (
+          <span
+            className="-ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFolder(node.id);
+            }}
+          >
+            <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
+          </span>
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
         <FileTypeIcon name={node.name || displayName} isDirectory={isFolder} size={16} />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
         {node.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground/70">{node.sizeLabel}</span>}
@@ -61,10 +80,29 @@ export function FileTreeNode({
               onSelect={onSelect}
               onToggleFolder={onToggleFolder}
               onContextMenu={onContextMenu}
+              selectFolders={selectFolders}
             />
           ))}
         </div>
       )}
     </div>
+  );
+}, areEqualFileTreeNode);
+
+function areEqualFileTreeNode(previous: FileTreeNodeProps, next: FileTreeNodeProps): boolean {
+  const previousOpen = previous.node.kind === "folder" && !previous.collapsedFolderIds.has(previous.node.id);
+  const nextOpen = next.node.kind === "folder" && !next.collapsedFolderIds.has(next.node.id);
+  const previousActive = previous.selectedFileId === previous.node.id;
+  const nextActive = next.selectedFileId === next.node.id;
+  return (
+    previous.node === next.node &&
+    previous.level === next.level &&
+    previous.collapsedFolderIds === next.collapsedFolderIds &&
+    previousOpen === nextOpen &&
+    previousActive === nextActive &&
+    previous.onSelect === next.onSelect &&
+    previous.onToggleFolder === next.onToggleFolder &&
+    previous.onContextMenu === next.onContextMenu &&
+    previous.selectFolders === next.selectFolders
   );
 }

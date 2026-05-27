@@ -240,6 +240,7 @@ function App() {
           <FileBrowserRail
             collapsed={layoutState.fileRailCollapsed}
             course={workspace.activeCourse}
+            activeTask={workspace.activeTask}
             stats={fileState.fileStats}
             files={fileState.fileTree}
             sessionFiles={fileState.sessionFiles}
