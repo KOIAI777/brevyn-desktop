@@ -273,7 +273,7 @@ export interface FilePreview {
 export interface OpenPathOption {
   id: string;
   label: string;
-  kind: "default" | "finder" | "terminal" | "application";
+  kind: "default" | "finder" | "terminal" | "editor" | "office" | "viewer" | "application";
   appPath?: string;
   iconDataUrl?: string;
 }

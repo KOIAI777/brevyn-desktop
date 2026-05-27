@@ -37,6 +37,10 @@ extraResources:
     to: default-skills
     filter:
       - "**/*"
+  - from: dist/native
+    to: native
+    filter:
+      - "**/*"
 
 mac:
   category: public.app-category.education

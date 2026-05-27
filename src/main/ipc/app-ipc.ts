@@ -1,10 +1,9 @@
 import { ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
-import { dirname, extname } from "node:path";
+import { dirname } from "node:path";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 import { requireString } from "./validation";
-import type { OpenPathOption } from "../../types/domain";
 
 export function registerAppIpc(ctx: IpcContext): void {
   const service = ctx.openWithService;
@@ -30,20 +29,7 @@ export function registerAppIpc(ctx: IpcContext): void {
 
   ipcMain.handle(IPC_CHANNELS.appOpenPathOptions, async (_event, path: unknown) => {
     const targetPath = requireExistingPath(path);
-    const extension = extname(targetPath).slice(1).toLowerCase();
-    const candidates = await service.getAppCandidates(extension);
-    const options: OpenPathOption[] = [];
-    for (const c of candidates) {
-      if (!existsSync(c.appPath)) continue;
-      options.push({
-        id: c.isDefault ? "default" : `app:${c.label}`,
-        label: c.label,
-        kind: c.isDefault ? "default" : "application",
-        appPath: c.appPath,
-        iconDataUrl: await service.getFileIcon(c.appPath),
-      });
-    }
-    return options;
+    return service.getPathOptions(targetPath);
   });
 
   ipcMain.handle(IPC_CHANNELS.appOpenPathWith, async (_event, input: unknown) => {
@@ -60,6 +46,10 @@ export function registerAppIpc(ctx: IpcContext): void {
     }
     if (optionId === "terminal") {
       await service.openTerminalAt(dirname(targetPath));
+      return;
+    }
+    if (optionId.startsWith("terminal:")) {
+      await service.openTerminalAt(targetPath, typeof data.appPath === "string" ? data.appPath : undefined);
       return;
     }
     const appPath = requireString(data.appPath, "App path");
