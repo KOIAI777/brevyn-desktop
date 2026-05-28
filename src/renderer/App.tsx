@@ -1,5 +1,5 @@
 import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
@@ -85,6 +85,11 @@ function App() {
     agentSession.selectProvider(providerSelection);
   }
 
+  const previewInlineFilePath = useCallback(async (filePath: string): Promise<void> => {
+    previewCoordinator.revealSelectedFile("file");
+    await fileState.previewWorkspacePath(filePath);
+  }, [fileState.previewWorkspacePath, previewCoordinator]);
+
   if (workspace.bootState === "loading") {
     return <AppLoadingScreen />;
   }
@@ -167,7 +172,7 @@ function App() {
                   onSelectProvider={selectAgentProvider}
                   files={fileState.fileTree}
                   skills={workspace.skills}
-                  onPreviewFilePath={fileState.previewWorkspacePath}
+                  onPreviewFilePath={previewInlineFilePath}
                 />
               ) : (
                 <div className="flex flex-col items-center gap-3 text-center">

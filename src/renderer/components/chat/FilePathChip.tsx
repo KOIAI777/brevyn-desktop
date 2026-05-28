@@ -138,9 +138,15 @@ function isRelativeFilePath(value: string): boolean {
   if (isDirectoryPath(value) && value.includes("/")) return true;
   const extension = extensionName(value);
   if (!extension || !PREVIEWABLE_EXTENSIONS.has(extension)) return false;
-  if (!/^[\w .()@/-]+$/.test(value)) return false;
+  if (!hasSafeInlineFilePathCharacters(value)) return false;
   if (value.startsWith(".") && !value.startsWith("./") && !value.includes("/")) return false;
   return true;
+}
+
+function hasSafeInlineFilePathCharacters(value: string): boolean {
+  if (/[\u0000-\u001f\u007f]/.test(value)) return false;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return false;
+  return !/[<>"|?*`]/.test(value);
 }
 
 function fileName(filePath: string): string {
