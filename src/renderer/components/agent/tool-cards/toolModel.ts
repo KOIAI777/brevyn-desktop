@@ -115,6 +115,7 @@ export function getToolSuccessSummary(toolUse: ToolUseBlock, result?: ToolResult
 
 export function getToolTarget(toolName: string, input: unknown): string {
   const data = recordObject(input);
+  if (data._partialInput === true && toolName === "Read") return "";
   if (toolName === "Bash") return singleLine(stringValue(data.command, "command"));
   if (toolName === "Grep") return singleLine(stringValue(data.pattern, "pattern"));
   if (toolName === "Glob") return singleLine(stringValue(data.pattern, "pattern"));
@@ -149,14 +150,24 @@ export function getToolDiffHunks(toolName: string, input: unknown): DiffHunk[] {
 }
 
 export function getToolDiffStats(toolName: string, input: unknown): ToolDiffStats | null {
-  const hunks = getToolDiffHunks(toolName, input);
-  if (hunks.length === 0) return null;
+  const data = recordObject(input);
   let additions = 0;
   let deletions = 0;
-  for (const hunk of hunks) {
-    additions += hunk.rows.filter((row) => row.type === "added").length;
-    deletions += hunk.rows.filter((row) => row.type === "removed").length;
+
+  if (toolName === "Write") {
+    additions = lineCount(typeof data.content === "string" ? data.content : "");
+  } else if (toolName === "Edit") {
+    additions = lineCount(typeof data.new_string === "string" ? data.new_string : "");
+    deletions = lineCount(typeof data.old_string === "string" ? data.old_string : "");
+  } else if (toolName === "MultiEdit") {
+    const edits = Array.isArray(data.edits) ? data.edits : [];
+    for (const edit of edits) {
+      const editData = recordObject(edit);
+      additions += lineCount(typeof editData.new_string === "string" ? editData.new_string : "");
+      deletions += lineCount(typeof editData.old_string === "string" ? editData.old_string : "");
+    }
   }
+
   return additions > 0 || deletions > 0 ? { additions, deletions } : null;
 }
 
@@ -366,6 +377,15 @@ function rowsFromText(value: string, type: DiffRow["type"], startLine: number): 
     lineNumber: startLine + index,
     text: line,
   }));
+}
+
+function lineCount(value: string): number {
+  if (!value) return 0;
+  let count = 1;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) count += 1;
+  }
+  return value.endsWith("\n") ? Math.max(0, count - 1) : count;
 }
 
 function numericValue(value: unknown): number | null {

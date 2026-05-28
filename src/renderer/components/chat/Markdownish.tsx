@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { cloneElement, isValidElement, memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FilePathChip, isFilePathLike } from "./FilePathChip";
@@ -6,8 +6,12 @@ import { FilePathChip, isFilePathLike } from "./FilePathChip";
 const remarkPlugins = [remarkGfm];
 const LONG_MARKDOWN_CODE_LIMIT = 16_000;
 const LONG_MARKDOWN_CODE_LINES = 220;
-const STREAM_BLOCK_FREEZE_MIN_CHARS = 1_800;
-const STREAM_BLOCK_FREEZE_MIN_BLOCKS = 3;
+const STREAM_PLAYBACK_FAST_BACKLOG = 720;
+const STREAM_PLAYBACK_MEDIUM_BACKLOG = 240;
+const STREAM_PLAYBACK_LARGE_STEP = 28;
+const STREAM_PLAYBACK_MEDIUM_STEP = 16;
+const STREAM_PLAYBACK_SMALL_STEP = 8;
+const STREAM_INLINE_ANIMATION_LIMIT = 72;
 
 type MarkdownNode = {
   position?: {
@@ -34,6 +38,7 @@ type RenderMarkdownChildren = (children: ReactNode, path: string) => ReactNode;
 interface StreamingMarkdownBlock {
   key: string;
   content: string;
+  startOffset: number;
 }
 
 const passthroughChildren: RenderMarkdownChildren = (children) => children;
@@ -81,20 +86,12 @@ const StreamingMarkdownishRenderer = memo(function StreamingMarkdownishRenderer(
   threadId,
   preserveSoftBreaks,
 }: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
-  const blocks = useMemo(() => splitStreamingMarkdownBlocks(content), [content]);
-  if (shouldFreezeStreamingBlocks(content, blocks)) {
-    return (
-      <StreamingBlockMarkdownishRenderer
-        blocks={blocks}
-        preserveSoftBreaks={preserveSoftBreaks}
-        threadId={threadId}
-      />
-    );
-  }
+  const displayContent = useStreamingDisplayContent(content);
+  const blocks = useMemo(() => splitStreamingMarkdownBlocks(displayContent), [displayContent]);
 
   return (
-    <InlineStreamingMarkdownishRenderer
-      content={content}
+    <StreamingBlockMarkdownishRenderer
+      blocks={blocks}
       preserveSoftBreaks={preserveSoftBreaks}
       threadId={threadId}
     />
@@ -113,12 +110,11 @@ const StreamingBlockMarkdownishRenderer = memo(function StreamingBlockMarkdownis
       {blocks.map((block, index) => {
         const streaming = index === blocks.length - 1;
         return (
-          <div key={block.key} className="markdownish-stream-block">
+          <div key={streaming ? `streaming:${block.startOffset}` : block.key} className="markdownish-stream-block">
             {streaming ? (
-              <InlineStreamingMarkdownishRenderer
+              <StreamingPlainTextBlock
                 content={block.content}
                 preserveSoftBreaks={preserveSoftBreaks}
-                threadId={threadId}
               />
             ) : (
               <StaticMarkdownishRenderer
@@ -134,35 +130,80 @@ const StreamingBlockMarkdownishRenderer = memo(function StreamingBlockMarkdownis
   );
 }, areStreamingBlockRenderPropsEqual);
 
-const InlineStreamingMarkdownishRenderer = memo(function InlineStreamingMarkdownishRenderer({
-  content,
-  threadId,
-  preserveSoftBreaks,
-}: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">> & Pick<MarkdownishProps, "threadId">) {
-  const previousTextByPathRef = useRef<Map<string, string>>(new Map());
-  const currentTextByPathRef = useRef<Map<string, string>>(new Map());
-  currentTextByPathRef.current = new Map();
-  const renderChildren = useCallback((children: ReactNode, path: string): ReactNode => renderStreamingChildren(children, {
-    currentTextByPath: currentTextByPathRef.current,
-    path,
-    previousTextByPath: previousTextByPathRef.current,
-  }), []);
+function useStreamingDisplayContent(content: string): string {
+  const [displayContent, setDisplayContent] = useState(content);
+  const displayContentRef = useRef(content);
+  const targetContentRef = useRef(content);
 
   useEffect(() => {
-    previousTextByPathRef.current = currentTextByPathRef.current;
-  });
+    targetContentRef.current = content;
+    let frame = 0;
+    let cancelled = false;
 
-  const components = useMemo(
-    () => createMarkdownComponents({ preserveSoftBreaks, renderChildren, threadId }),
-    [preserveSoftBreaks, renderChildren, threadId],
-  );
+    function tick() {
+      if (cancelled) return;
+      const target = targetContentRef.current;
+      const current = displayContentRef.current;
+      if (!target.startsWith(current)) {
+        displayContentRef.current = target;
+        setDisplayContent(target);
+        return;
+      }
 
-  return <MarkdownishFrame content={content} components={components} />;
-}, areMarkdownishRenderPropsEqual);
+      const backlog = target.length - current.length;
+      if (backlog <= 0) return;
 
-function shouldFreezeStreamingBlocks(content: string, blocks: StreamingMarkdownBlock[]): boolean {
-  return content.length >= STREAM_BLOCK_FREEZE_MIN_CHARS && blocks.length >= STREAM_BLOCK_FREEZE_MIN_BLOCKS;
+      const step = playbackStep(backlog);
+      const next = advanceByCodePoints(target, current.length, step);
+      displayContentRef.current = next;
+      setDisplayContent(next);
+      frame = window.requestAnimationFrame(tick);
+    }
+
+    frame = window.requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [content]);
+
+  return displayContent;
 }
+
+function playbackStep(backlog: number): number {
+  if (backlog >= STREAM_PLAYBACK_FAST_BACKLOG) return STREAM_PLAYBACK_LARGE_STEP;
+  if (backlog >= STREAM_PLAYBACK_MEDIUM_BACKLOG) return STREAM_PLAYBACK_MEDIUM_STEP;
+  return STREAM_PLAYBACK_SMALL_STEP;
+}
+
+function advanceByCodePoints(value: string, start: number, count: number): string {
+  let index = start;
+  let remaining = count;
+  while (index < value.length && remaining > 0) {
+    const codePoint = value.codePointAt(index);
+    index += codePoint && codePoint > 0xffff ? 2 : 1;
+    remaining -= 1;
+  }
+  return value.slice(0, index);
+}
+
+const StreamingPlainTextBlock = memo(function StreamingPlainTextBlock({
+  content,
+  preserveSoftBreaks,
+}: Required<Pick<MarkdownishProps, "content" | "preserveSoftBreaks">>) {
+  const previousContentRef = useRef("");
+  const previousContent = previousContentRef.current;
+
+  useEffect(() => {
+    previousContentRef.current = content;
+  }, [content]);
+
+  return (
+    <div className="markdownish markdownish-streaming-tail min-w-0 w-full max-w-full overflow-hidden whitespace-pre-wrap break-words text-sm leading-6">
+      <StreamingInlineText previousText={previousContent} text={content} />
+    </div>
+  );
+}, (previous, next) => previous.content === next.content && previous.preserveSoftBreaks === next.preserveSoftBreaks);
 
 function splitStreamingMarkdownBlocks(content: string): StreamingMarkdownBlock[] {
   const lines = content.split("\n");
@@ -178,6 +219,7 @@ function splitStreamingMarkdownBlocks(content: string): StreamingMarkdownBlock[]
       blocks.push({
         key: `${currentStartOffset}:${hashString(blockContent.slice(0, 80))}`,
         content: blockContent,
+        startOffset: currentStartOffset,
       });
     }
     current = [];
@@ -380,10 +422,13 @@ function StreamingInlineText({ previousText, text }: { previousText: string; tex
   const deltaChars = Array.from(delta);
 
   if (!deltaChars.length) return stableText;
+  const animatedChars = deltaChars.slice(-STREAM_INLINE_ANIMATION_LIMIT);
+  const immediateDelta = deltaChars.slice(0, Math.max(0, deltaChars.length - animatedChars.length)).join("");
   return (
     <>
       {stableText}
-      {deltaChars.map((char, index) => (
+      {immediateDelta}
+      {animatedChars.map((char, index) => (
         <span
           key={`${index}-${char}`}
           className="brevyn-stream-inline-char"
@@ -396,48 +441,9 @@ function StreamingInlineText({ previousText, text }: { previousText: string; tex
   );
 }
 
-interface RenderStreamingChildrenOptions {
-  currentTextByPath: Map<string, string>;
-  path: string;
-  previousTextByPath: Map<string, string>;
-}
-
-function renderStreamingChildren(children: ReactNode, options: RenderStreamingChildrenOptions): ReactNode {
-  return Children.map(children, (child, index) => {
-    const childPath = `${options.path}-${index}`;
-    if (typeof child === "string" || typeof child === "number") {
-      const text = String(child);
-      const previousText = previousTextForPath(options.previousTextByPath, childPath, text);
-      options.currentTextByPath.set(childPath, text);
-      return <StreamingInlineText key={childPath} previousText={previousText} text={text} />;
-    }
-    if (!isValidElement(child)) return child;
-    const element = child as ReactElement<{ children?: ReactNode }>;
-    if (!("children" in element.props)) return child;
-    return cloneElement(element, {
-      children: renderStreamingChildren(element.props.children, { ...options, path: childPath }),
-    });
-  });
-}
-
 function blockPath(kind: string, node?: MarkdownNode): string {
   const start = node?.position?.start;
   return `${kind}:${start?.offset ?? `${start?.line ?? 0}:${start?.column ?? 0}`}`;
-}
-
-function previousTextForPath(previousTextByPath: Map<string, string>, path: string, text: string): string {
-  const direct = previousTextByPath.get(path);
-  if (typeof direct === "string") return direct;
-
-  let best = "";
-  for (const previousText of previousTextByPath.values()) {
-    if (text.startsWith(previousText) && previousText.length > best.length) {
-      best = previousText;
-    } else if (previousText.startsWith(text) && text.length > best.length) {
-      best = text;
-    }
-  }
-  return best;
 }
 
 function inlineText(value: unknown): string {

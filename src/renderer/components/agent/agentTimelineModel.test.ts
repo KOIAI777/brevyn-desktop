@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BrevynAgentRuntimeEvent, ModelProviderConfig } from "@/types/domain";
-import { assistantText, groupIntoTurns, isRuntimeRecord, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
+import { approvalResolutionMap, assistantText, groupIntoTurns, isRuntimeRecord, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
 import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
 import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
-import { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups, type AgentTimelineViewItem } from "./useAgentTimelineState";
+import { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups, type AgentTimelineViewGroup, type AgentTimelineViewItem } from "./useAgentTimelineState";
 import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAgentLiveRecords, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
 
 (globalThis as unknown as { window: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (id: number) => void } }).window = {
@@ -105,6 +105,39 @@ function runCompleted(runId: string): AgentTimelineRecord {
       type: "run_completed",
       runId,
       threadId: "thread_fixture",
+      createdAt: "2026-05-16T00:00:02.000Z",
+    },
+  } as AgentTimelineRecord;
+}
+
+function approvalRequested(runId: string, requestId: string, toolUseId: string): AgentTimelineRecord {
+  return {
+    kind: "runtime",
+    event: {
+      type: "approval_requested",
+      request: {
+        requestId,
+        threadId: "thread_fixture",
+        runId,
+        toolName: "Bash",
+        toolUseId,
+        input: { command: "rm -rf tmp" },
+        createdAt: "2026-05-16T00:00:01.000Z",
+      },
+      createdAt: "2026-05-16T00:00:01.000Z",
+    },
+  } as AgentTimelineRecord;
+}
+
+function approvalResolved(runId: string, requestId: string): AgentTimelineRecord {
+  return {
+    kind: "runtime",
+    event: {
+      type: "approval_resolved",
+      runId,
+      threadId: "thread_fixture",
+      requestId,
+      decision: "allow",
       createdAt: "2026-05-16T00:00:02.000Z",
     },
   } as AgentTimelineRecord;
@@ -214,6 +247,14 @@ function viewItem(record: AgentTimelineRecord, index: number): AgentTimelineView
     processKey: `record-${index}`,
     defaultCollapsed: true,
   };
+}
+
+function firstToolEvent(turn: Extract<AgentTimelineViewGroup, { type: "assistant-turn" }> | undefined) {
+  const entry = turn?.entries[0];
+  if (!entry) return undefined;
+  if (entry.type === "tool-group") return entry.toolEvents[0];
+  const event = entry.item.processEvents[0];
+  return event?.kind === "tool_use" ? event : undefined;
 }
 
 const records: AgentTimelineRecord[] = [
@@ -390,6 +431,16 @@ assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type ===
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "assistant").length, 1);
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "stream_event").length, 2);
 
+const persistedAssistantToReplace = assistant([{ type: "text", text: "Persisted answer." }], "assistant_replace_live");
+const liveAssistantReplacement = assistant([{ type: "text", text: "Live answer replacement." }], "assistant_replace_live");
+const liveReplacementRecords = normalizeTimelineRecords(
+  [userText("Replace assistant.", "user_replace_live"), persistedAssistantToReplace],
+  [liveAssistantReplacement],
+  true,
+);
+assert.equal(liveReplacementRecords[1], liveAssistantReplacement);
+assert.equal(assistantText(liveReplacementRecords[1] as SDKMessage), "Live answer replacement.");
+
 const nextRunAfterTerminalRecords = normalizeTimelineRecords(
   [
     userText("Previous turn.", "user_previous_terminal"),
@@ -523,6 +574,31 @@ assert.deepEqual(
   ["tool_shifted_read_a", "tool_shifted_read_b"],
 );
 
+const runningMultiReadGroups = buildTimelineViewGroups(
+  [
+    userText("Read two files.", "user_running_multi_read"),
+    streamToolStart(0, { type: "tool_use", id: "tool_running_read_a", name: "Read", input: {} }, "stream_running_read_a"),
+    streamToolInput(0, "{\"file_path\":\"alpha.md\"}", "stream_running_read_a_input"),
+    streamToolStart(1, { type: "tool_use", id: "tool_running_read_b", name: "Read", input: {} }, "stream_running_read_b"),
+    streamToolInput(1, "{\"file_path\":\"beta.md\"}", "stream_running_read_b_input"),
+  ],
+  [
+    userText("Read two files.", "user_running_multi_read"),
+    streamToolStart(0, { type: "tool_use", id: "tool_running_read_a", name: "Read", input: {} }, "stream_running_read_a"),
+    streamToolInput(0, "{\"file_path\":\"alpha.md\"}", "stream_running_read_a_input"),
+    streamToolStart(1, { type: "tool_use", id: "tool_running_read_b", name: "Read", input: {} }, "stream_running_read_b"),
+    streamToolInput(1, "{\"file_path\":\"beta.md\"}", "stream_running_read_b_input"),
+  ].map((record, index) => ({
+    ...viewItem(record, index),
+    processSummary: index === 0 ? null : { runId: "run_running_multi_read", label: "运行中", running: true, status: "running" as const },
+  })),
+  { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
+);
+const runningMultiReadTurn = runningMultiReadGroups[1]?.type === "assistant-turn" ? runningMultiReadGroups[1] : undefined;
+const runningMultiReadEntry = runningMultiReadTurn?.entries[0];
+assert.equal(runningMultiReadEntry?.type === "tool-group" ? runningMultiReadEntry.summary.parts.join(" ") : "", "正在读取 beta.md");
+assert.equal(runningMultiReadEntry?.type === "tool-group" ? runningMultiReadEntry.summary.running : false, true);
+
 const outOfOrderRecords: AgentTimelineRecord[] = [
   assistant([{ type: "text", text: "This arrived before the user in live replay." }], "assistant_out_of_order"),
   userText("Keep the user as the turn boundary.", "user_out_of_order"),
@@ -652,6 +728,40 @@ assert.equal(
   normalizedOverlappingGroups[1]?.type === "assistant-turn" ? normalizedOverlappingGroups[1].entries[0]?.key : "missing",
 );
 
+const approvalRunId = "run_approval_live_merge";
+const approvalRequestId = "approval_live_merge";
+const approvalToolUseId = "tool_approval_live_merge";
+const approvalPersistedRecords: AgentTimelineRecord[] = [
+  userText("Run a risky command.", "user_approval_live_merge"),
+  runStarted("deepseek-v4-pro", approvalRunId),
+  streamToolStart(0, { type: "tool_use", id: approvalToolUseId, name: "Bash", input: { command: "rm -rf tmp" } }, "stream_approval_tool_start"),
+  approvalRequested(approvalRunId, approvalRequestId, approvalToolUseId),
+];
+const approvalMergedRecords = normalizeTimelineRecords(
+  approvalPersistedRecords,
+  [approvalResolved(approvalRunId, approvalRequestId)],
+  true,
+);
+const approvalMergedItems = buildTimelineViewItems(approvalMergedRecords, {
+  forceProcessOpen: false,
+  ownerUserIndexByRecordIndex: approvalMergedRecords.map((_, index) => index === 0 ? -1 : 0),
+  processCollapsedByKey: {},
+  resolvedApprovals: approvalResolutionMap(approvalMergedRecords),
+  resolvedExitPlans: new Map(),
+  resolvedQuestions: new Map(),
+  runSummary: { runId: approvalRunId, label: "运行中", running: true, status: "running" },
+  runSummaryByUserIndex: new Map([[0, { runId: approvalRunId, label: "运行中", running: true, status: "running" }]]),
+});
+const approvalMergedGroups = buildTimelineViewGroups(approvalMergedRecords, approvalMergedItems, {
+  effectiveRunning: true,
+  runSummary: { runId: approvalRunId, label: "运行中", running: true, status: "running" },
+});
+assert.equal(approvalMergedItems.some((item) => item.displayKind === "approval-request"), false);
+assert.equal(
+  approvalMergedGroups.filter((group) => group.type === "assistant-turn").length,
+  1,
+);
+
 const liveToolRecords: AgentTimelineRecord[] = [
   userText("Run pwd.", "user_live_tool"),
   streamToolStart(0, { type: "tool_use", id: "tool_live_pwd", name: "Bash", input: {} }, "stream_tool_start"),
@@ -684,7 +794,66 @@ const livePartialInputGroups = buildTimelineViewGroups(
   { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
 );
 const livePartialTurn = livePartialInputGroups[1]?.type === "assistant-turn" ? livePartialInputGroups[1] : undefined;
-assert.equal(livePartialTurn?.entries[0]?.type === "item" ? livePartialTurn.entries[0].item.processEvents[0]?.kind === "tool_use" ? (livePartialTurn.entries[0].item.processEvents[0].tool.input as { file_path?: string }).file_path : "" : "", "notes");
+const livePartialEvent = firstToolEvent(livePartialTurn);
+assert.equal((livePartialEvent?.tool.input as { file_path?: string } | undefined)?.file_path, undefined);
+assert.equal((livePartialEvent?.tool.input as { _partialInput?: boolean } | undefined)?._partialInput, undefined);
+assert.equal(livePartialEvent?.tool.name, "Read");
+
+const liveCompleteInputGroups = buildTimelineViewGroups(
+  [
+    userText("Read a file.", "user_live_complete_input"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_complete_read", name: "Read", input: {} }, "stream_tool_complete_start"),
+    streamToolInput(0, "{\"file_path\":\"debate-guidelines.pdf\"}", "stream_tool_complete_input"),
+  ],
+  [
+    userText("Read a file.", "user_live_complete_input"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_complete_read", name: "Read", input: {} }, "stream_tool_complete_start"),
+    streamToolInput(0, "{\"file_path\":\"debate-guidelines.pdf\"}", "stream_tool_complete_input"),
+  ].map(viewItem),
+  { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
+);
+const liveCompleteTurn = liveCompleteInputGroups[1]?.type === "assistant-turn" ? liveCompleteInputGroups[1] : undefined;
+const liveCompleteInput = firstToolEvent(liveCompleteTurn)?.tool.input as { file_path?: string; _partialInput?: boolean } | undefined ?? {};
+assert.equal(liveCompleteInput.file_path, "debate-guidelines.pdf");
+assert.equal(liveCompleteInput._partialInput, undefined);
+
+const liveWritePartialInputGroups = buildTimelineViewGroups(
+  [
+    userText("Write a long file.", "user_live_write_partial_input"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_partial_write", name: "Write", input: {} }, "stream_tool_partial_write_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md\",\"content\":\"", "stream_tool_partial_write_path"),
+    streamToolInput(0, "x".repeat(10000), "stream_tool_partial_write_content"),
+  ],
+  [
+    userText("Write a long file.", "user_live_write_partial_input"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_partial_write", name: "Write", input: {} }, "stream_tool_partial_write_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md\",\"content\":\"", "stream_tool_partial_write_path"),
+    streamToolInput(0, "x".repeat(10000), "stream_tool_partial_write_content"),
+  ].map(viewItem),
+  { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
+);
+const liveWritePartialTurn = liveWritePartialInputGroups[1]?.type === "assistant-turn" ? liveWritePartialInputGroups[1] : undefined;
+const liveWritePartialInput = firstToolEvent(liveWritePartialTurn)?.tool.input as { file_path?: string; content?: string } | undefined ?? {};
+assert.equal(liveWritePartialInput.file_path, "draft.md");
+assert.equal(liveWritePartialInput.content, undefined);
+
+const liveWriteCompleteInputGroups = buildTimelineViewGroups(
+  [
+    userText("Write a file.", "user_live_write_complete_input"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_complete_write", name: "Write", input: {} }, "stream_tool_complete_write_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md\",\"content\":\"hello\\nworld\"}", "stream_tool_complete_write_input"),
+  ],
+  [
+    userText("Write a file.", "user_live_write_complete_input"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_complete_write", name: "Write", input: {} }, "stream_tool_complete_write_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md\",\"content\":\"hello\\nworld\"}", "stream_tool_complete_write_input"),
+  ].map(viewItem),
+  { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
+);
+const liveWriteCompleteTurn = liveWriteCompleteInputGroups[1]?.type === "assistant-turn" ? liveWriteCompleteInputGroups[1] : undefined;
+const liveWriteCompleteInput = firstToolEvent(liveWriteCompleteTurn)?.tool.input as { file_path?: string; content?: string } | undefined ?? {};
+assert.equal(liveWriteCompleteInput.file_path, "draft.md");
+assert.equal(liveWriteCompleteInput.content, undefined);
 
 const runningToolGroupTitleGroups = buildTimelineViewGroups(
   [
@@ -789,9 +958,8 @@ assert.equal(appendAgentLiveMessage("thread_stream_coalesce", streamEvent({ type
 assert.equal(appendAgentLiveMessage("thread_stream_coalesce", streamEvent({ type: "text_delta", text: "world" }, "stream_coalesce_2")), true);
 flushAgentLiveRecords("thread_stream_coalesce");
 const coalescedStream = getAgentLiveRecords("thread_stream_coalesce");
-assert.equal(coalescedStream.length, 2);
-assert.equal(streamTextDelta(coalescedStream[0]!), "Hello ");
-assert.equal(streamTextDelta(coalescedStream[1]!), "world");
+assert.equal(coalescedStream.length, 1);
+assert.equal(streamTextDelta(coalescedStream[0]!), "Hello world");
 
 clearAllAgentLiveRecords();
 assert.equal(appendAgentLiveMessage("thread_stream_block_index", streamEvent({ type: "text_delta", text: "First block" }, "stream_block_0", 0)), true);

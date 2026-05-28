@@ -25,7 +25,6 @@ interface UseAgentSessionControllerArgs {
   activeThreadId: string;
   onThreadHasMessages: (threadId: string) => void;
   onThreadUpdated?: (thread: Thread) => void;
-  onWriteToolCompleted?: (filePath: string) => void;
 }
 
 export interface AgentProviderSelection {
@@ -37,7 +36,6 @@ export function useAgentSessionController({
   activeThreadId,
   onThreadHasMessages,
   onThreadUpdated,
-  onWriteToolCompleted,
 }: UseAgentSessionControllerArgs) {
   const mountedRef = useRef(true);
   const activeThreadIdRef = useRef(activeThreadId);
@@ -46,10 +44,8 @@ export function useAgentSessionController({
   const runInFlightByThreadRef = useRef<Set<string>>(new Set());
   const selectedAgentModelRef = useRef("");
   const runModelSelectionByThreadRef = useRef<Map<string, string>>(new Map());
-  const pendingWriteToolPathsRef = useRef<Map<string, string>>(new Map());
   const onThreadHasMessagesRef = useRef(onThreadHasMessages);
   const onThreadUpdatedRef = useRef(onThreadUpdated);
-  const onWriteToolCompletedRef = useRef(onWriteToolCompleted);
 
   const [records, setRecords] = useState<BrevynAgentTimelineRecord[]>([]);
   const [recordsThreadId, setRecordsThreadId] = useState("");
@@ -63,7 +59,6 @@ export function useAgentSessionController({
   selectedAgentModelRef.current = selectedModel;
   onThreadHasMessagesRef.current = onThreadHasMessages;
   onThreadUpdatedRef.current = onThreadUpdated;
-  onWriteToolCompletedRef.current = onWriteToolCompleted;
 
   const loadMessages = useCallback(async (threadId: string): Promise<boolean> => {
     const requestId = agentLoadRequestRef.current + 1;
@@ -259,11 +254,6 @@ export function useAgentSessionController({
         if (isLiveStreamEventMessage(event.message)) return;
 
         onThreadHasMessagesRef.current(eventThreadId);
-        rememberWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
-        const completedWritePaths = completedWriteToolPaths(event.message, pendingWriteToolPathsRef.current);
-        if (eventThreadId === activeThreadIdRef.current) {
-          for (const path of completedWritePaths) onWriteToolCompletedRef.current?.(path);
-        }
         if (event.message.type === "result" && eventThreadId === activeThreadIdRef.current) {
           void loadMessages(eventThreadId).finally(() => {
             if (!mountedRef.current || activeThreadIdRef.current !== eventThreadId) return;
@@ -466,55 +456,4 @@ function liveUserMessage(prompt: string, attachments: AgentAttachment[] | undefi
     session_id: "",
     _createdAt: Date.now(),
   } as unknown as SDKMessage;
-}
-
-const WRITE_PREVIEW_TOOL_NAMES = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
-
-function rememberWriteToolPaths(message: unknown, pending: Map<string, string>): void {
-  const record = objectValue(message);
-  if (record.type !== "assistant") return;
-  for (const block of messageContentBlocks(record)) {
-    const data = objectValue(block);
-    if (data.type !== "tool_use") continue;
-    const toolName = stringValue(data.name);
-    if (!WRITE_PREVIEW_TOOL_NAMES.has(toolName)) continue;
-    const path = toolInputPath(data.input);
-    const id = stringValue(data.id);
-    if (id && path) pending.set(id, path);
-  }
-}
-
-function completedWriteToolPaths(message: unknown, pending: Map<string, string>): string[] {
-  const record = objectValue(message);
-  if (record.type !== "user") return [];
-  const paths: string[] = [];
-  for (const block of messageContentBlocks(record)) {
-    const data = objectValue(block);
-    if (data.type !== "tool_result") continue;
-    const id = stringValue(data.tool_use_id);
-    if (!id || !pending.has(id)) continue;
-    const path = pending.get(id) || "";
-    pending.delete(id);
-    if (data.is_error === true) continue;
-    if (path) paths.push(path);
-  }
-  return paths;
-}
-
-function messageContentBlocks(record: Record<string, unknown>): unknown[] {
-  const envelope = objectValue(record.message);
-  return Array.isArray(envelope.content) ? envelope.content : [];
-}
-
-function toolInputPath(input: unknown): string {
-  const data = objectValue(input);
-  return stringValue(data.file_path) || stringValue(data.filePath) || stringValue(data.path) || stringValue(data.notebook_path);
-}
-
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
 }

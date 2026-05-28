@@ -62,11 +62,13 @@ export function useAgentQueueState({
         const nextMessage = queuedMessagesByThreadRef.current[completed.threadId]?.[0];
         if (!nextMessage) return;
         if (lastAutoSentRunIdByThreadRef.current[completed.threadId] === completed.runId) return;
-        lastAutoSentRunIdByThreadRef.current = {
-          ...lastAutoSentRunIdByThreadRef.current,
-          [completed.threadId]: completed.runId,
-        };
-        void sendQueuedMessageAsNewRun(completed.threadId, nextMessage, "auto");
+        void sendQueuedMessageAsNewRun(completed.threadId, nextMessage, "auto").then((started) => {
+          if (!started) return;
+          lastAutoSentRunIdByThreadRef.current = {
+            ...lastAutoSentRunIdByThreadRef.current,
+            [completed.threadId]: completed.runId,
+          };
+        });
       }, 0);
       autoSendTimersRef.current.push(timer);
     });
@@ -86,12 +88,14 @@ export function useAgentQueueState({
     if (lastAutoSentRunIdByThreadRef.current[threadId] === runSummary.runId) return;
     const nextMessage = queuedMessagesRef.current[0];
     if (!nextMessage) return;
-    lastAutoSentRunIdRef.current = runSummary.runId;
-    lastAutoSentRunIdByThreadRef.current = {
-      ...lastAutoSentRunIdByThreadRef.current,
-      [threadId]: runSummary.runId,
-    };
-    void sendQueuedMessageAsNewRun(threadId, nextMessage, "auto");
+    void sendQueuedMessageAsNewRun(threadId, nextMessage, "auto").then((started) => {
+      if (!started || !runSummary.runId) return;
+      lastAutoSentRunIdRef.current = runSummary.runId;
+      lastAutoSentRunIdByThreadRef.current = {
+        ...lastAutoSentRunIdByThreadRef.current,
+        [threadId]: runSummary.runId,
+      };
+    });
   }, [effectiveRunning, runSummary?.runId, runSummary?.status]);
 
   const queueMessage = useCallback((message: QueuedAgentMessage) => {
@@ -129,14 +133,16 @@ export function useAgentQueueState({
     return message;
   }
 
-  async function sendQueuedMessageAsNewRun(targetThreadId: string, message: QueuedAgentMessage, source: "manual" | "auto") {
-    if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return;
+  async function sendQueuedMessageAsNewRun(targetThreadId: string, message: QueuedAgentMessage, source: "manual" | "auto"): Promise<boolean> {
+    if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return false;
     setQueuedMessageSending(targetThreadId, message.id, true);
     try {
       const started = await onRunForThread(targetThreadId, message.prompt, message.permissionMode, undefined, message.providerSelection, message.mentionedSkills);
       if (started) removeQueuedMessage(targetThreadId, message.id);
+      return started;
     } catch (error) {
       console.error(source === "auto" ? "[AgentThreadPanel] Failed to auto-send queued message:" : "[AgentThreadPanel] Failed to start queued message:", error);
+      return false;
     } finally {
       setQueuedMessageSending(targetThreadId, message.id, false);
     }

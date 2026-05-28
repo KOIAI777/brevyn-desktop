@@ -88,16 +88,16 @@ export function useAgentTimelineState({
   );
   const activeModelId = activeProviderSelection.modelId || activeProvider?.selectedModel;
   const compactInFlight = compactInFlightAfterCount !== null;
-  const { effectiveRunning, liveRunning, timelineRecords } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
+  const {
+    effectiveRunning,
+    liveRunning,
+    timelineRecords,
+  } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
   const scrollWasRunningRef = useRef(effectiveRunning);
   const needsInstantResize = !effectiveRunning && liveRunning;
   const scrollTransitioning = needsInstantResize || scrollTransitioningCooldown;
   const forceProcessOpen = effectiveRunning && !hasRenderableAssistantContent(timelineRecords);
   const runSummary = useMemo(() => latestRunSummary(timelineRecords, Date.now(), effectiveRunning), [effectiveRunning, timelineRecords]);
-  const stoppedAssistantIndex = useMemo(
-    () => runSummary?.status === "stopped" ? latestAssistantTextIndex(timelineRecords) : undefined,
-    [runSummary?.status, timelineRecords],
-  );
   const todos = useMemo(() => latestTodoList(timelineRecords), [timelineRecords]);
   const contextUsage = useMemo(
     () => latestContextUsage(timelineRecords, { activeProvider, providers: agentProviders, activeModelId }) ?? defaultContextUsage(activeModelId, activeProvider),
@@ -106,40 +106,14 @@ export function useAgentTimelineState({
   const compacting = useMemo(() => isCompactingContext(records), [records]);
   const effectiveCompacting = compacting || compactInFlight;
   const autoCompactThreshold = autoCompactThresholdPercent(activeProvider);
-  const resolvedApprovals = useMemo(() => approvalResolutionMap(timelineRecords), [timelineRecords]);
-  const resolvedQuestions = useMemo(() => questionResolutionMap(timelineRecords), [timelineRecords]);
-  const resolvedExitPlans = useMemo(() => exitPlanResolutionMap(timelineRecords), [timelineRecords]);
-  const ownerUserIndexByRecordIndex = useMemo(() => ownerUserInputIndexes(timelineRecords), [timelineRecords]);
-  const runSummaryByUserIndex = useMemo(() => {
-    const summaries = new Map<number, RunSummary | null>();
-    for (const ownerUserIndex of ownerUserIndexByRecordIndex) {
-      if (ownerUserIndex < 0 || summaries.has(ownerUserIndex)) continue;
-      summaries.set(ownerUserIndex, runSummaryForUserIndex(timelineRecords, ownerUserIndex, Date.now(), effectiveRunning));
-    }
-    return summaries;
-  }, [effectiveRunning, ownerUserIndexByRecordIndex, timelineRecords]);
-  const timelineItems = useMemo(
-    () => buildTimelineViewItems(timelineRecords, {
-      forceProcessOpen,
-      ownerUserIndexByRecordIndex,
-      processCollapsedByKey,
-      resolvedApprovals,
-      resolvedExitPlans,
-      resolvedQuestions,
-      runSummary,
-      runSummaryByUserIndex,
-      stoppedAssistantIndex,
-    }),
-    [forceProcessOpen, ownerUserIndexByRecordIndex, processCollapsedByKey, resolvedApprovals, resolvedExitPlans, resolvedQuestions, runSummary, runSummaryByUserIndex, stoppedAssistantIndex, timelineRecords],
-  );
   const builtTimelineGroups = useMemo(
-    () => buildTimelineViewGroups(timelineRecords, timelineItems, {
+    () => buildTimelineGroupsForRecords(timelineRecords, {
       effectiveRunning,
       forceProcessOpen,
-      runSummary,
       processCollapsedByKey,
+      runSummary,
     }),
-    [effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineItems, timelineRecords],
+    [effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineRecords],
   );
   const timelineGroups = useMemo(() => {
     const previous = stableGroupsRef.current?.threadId === thread.id
@@ -219,6 +193,45 @@ export function useAgentTimelineState({
     toggleProcessCollapsed,
     handleCompact,
   };
+}
+
+function buildTimelineGroupsForRecords(
+  records: AgentTimelineRecord[],
+  options: {
+    effectiveRunning: boolean;
+    forceProcessOpen: boolean;
+    processCollapsedByKey: Record<string, boolean>;
+    runSummary: RunSummary | null;
+  },
+): AgentTimelineViewGroup[] {
+  if (records.length === 0) return [];
+  const resolvedApprovals = approvalResolutionMap(records);
+  const resolvedQuestions = questionResolutionMap(records);
+  const resolvedExitPlans = exitPlanResolutionMap(records);
+  const ownerUserIndexByRecordIndex = ownerUserInputIndexes(records);
+  const runSummaryByUserIndex = new Map<number, RunSummary | null>();
+  for (const ownerUserIndex of ownerUserIndexByRecordIndex) {
+    if (ownerUserIndex < 0 || runSummaryByUserIndex.has(ownerUserIndex)) continue;
+    runSummaryByUserIndex.set(ownerUserIndex, runSummaryForUserIndex(records, ownerUserIndex, Date.now(), options.effectiveRunning));
+  }
+  const stoppedAssistantIndex = options.runSummary?.status === "stopped" ? latestAssistantTextIndex(records) : undefined;
+  const items = buildTimelineViewItems(records, {
+    forceProcessOpen: options.forceProcessOpen,
+    ownerUserIndexByRecordIndex,
+    processCollapsedByKey: options.processCollapsedByKey,
+    resolvedApprovals,
+    resolvedExitPlans,
+    resolvedQuestions,
+    runSummary: options.runSummary,
+    runSummaryByUserIndex,
+    stoppedAssistantIndex,
+  });
+  return buildTimelineViewGroups(records, items, {
+    effectiveRunning: options.effectiveRunning,
+    forceProcessOpen: options.forceProcessOpen,
+    runSummary: options.runSummary,
+    processCollapsedByKey: options.processCollapsedByKey,
+  });
 }
 
 function parseProviderModelSelection(value: string): { providerId?: string; modelId?: string } {

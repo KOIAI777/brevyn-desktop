@@ -148,9 +148,15 @@ function ToolCardHeader({
 }
 
 function isToolExpandable(toolUse: ToolUseBlock, result?: ToolResultBlock): boolean {
+  if (toolUse.name === "Read") return false;
+  if (!result && isFileWriteTool(toolUse.name)) return false;
   if (!result) return toolUse.name !== "WebSearch";
   if (toolUse.name === "WebSearch") return getToolSearchLinks(result).length > 0;
   return true;
+}
+
+function isFileWriteTool(toolName: string): boolean {
+  return toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit";
 }
 
 function DiffStatsText({ value }: { value: string }) {
@@ -167,6 +173,7 @@ function DiffStatsText({ value }: { value: string }) {
 
 function fileTarget(toolUse: ToolUseBlock): string {
   const input = recordObject(toolUse.input);
+  if (input._partialInput === true && toolUse.name === "Read") return "";
   if (toolUse.name === "Read" || toolUse.name === "Write" || toolUse.name === "Edit" || toolUse.name === "MultiEdit") {
     return stringValue(input.file_path ?? input.filePath ?? input.path ?? input.notebook_path, "");
   }

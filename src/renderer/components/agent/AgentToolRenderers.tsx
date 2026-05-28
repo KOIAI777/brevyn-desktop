@@ -45,6 +45,14 @@ export function ToolTitle({ toolName, input, isError = false }: { toolName: stri
   const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
 
   if (toolName === "Read") {
+    if (path) {
+      return (
+        <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+          <span className="shrink-0">读取</span>
+          <FilePathChip filePath={path} threadId={threadId} />
+        </span>
+      );
+    }
     return <span>读取</span>;
   }
 

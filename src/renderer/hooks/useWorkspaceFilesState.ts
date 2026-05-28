@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { FileImportInput, FileImportResult } from "@/types/domain";
-import { findFileNode, firstPreviewableFile } from "@/lib/workspace-files";
+import { findFileNode } from "@/lib/workspace-files";
 import { useFilePreviewState } from "@/hooks/useFilePreviewState";
 import { useFileTreeState } from "@/hooks/useFileTreeState";
 import { errorMessage } from "@/hooks/workspaceFileUtils";
@@ -87,12 +87,12 @@ export function useWorkspaceFilesState({ semesterId, activeCourseId, activeThrea
       const [tree, stats] = await Promise.all([window.brevyn.files.tree(courseId), window.brevyn.files.stats(courseId)]);
       if (!treeState.isLatestFileLoad(requestId, courseId, scopeKey)) return false;
 
-      const current = previewState.selectedFileIdRef.current ? findFileNode(tree, previewState.selectedFileIdRef.current) : null;
-      const next = current?.kind !== "folder" ? current : firstPreviewableFile(tree);
       treeState.fileTreeRef.current = tree;
       treeState.setFileTree(tree);
       treeState.setFileStats(stats);
-      await previewState.previewImportedFile(next || undefined, () => treeState.isLatestFileLoad(requestId, courseId, scopeKey), "Failed to preview file.");
+      if (previewState.selectedFileIdRef.current && !findFileNode(tree, previewState.selectedFileIdRef.current)) {
+        previewState.clearPreviewState();
+      }
       return true;
     } catch (error) {
       if (treeState.isLatestFileLoad(requestId, courseId, scopeKey)) {
@@ -118,11 +118,9 @@ export function useWorkspaceFilesState({ semesterId, activeCourseId, activeThrea
       treeState.fileLoadRequestRef.current = requestId;
       const stats = await window.brevyn.files.stats(targetCourseId);
       if (!treeState.isLatestFileLoad(requestId, targetCourseId, targetScopeKey)) return result;
-      const next = result.files.find((file) => file.kind !== "folder") || firstPreviewableFile(result.tree);
       treeState.fileTreeRef.current = result.tree;
       treeState.setFileTree(result.tree);
       treeState.setFileStats(stats);
-      await previewState.previewImportedFile(next || undefined, () => treeState.isLatestFileLoad(requestId, targetCourseId, targetScopeKey), "Imported files, but preview failed.");
       return result;
     } catch (error) {
       const message = errorMessage(error, "Failed to import files.");

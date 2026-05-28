@@ -23,7 +23,7 @@ import {
   type RunSummary,
   type WebCitationLink,
 } from "@/components/agent/agentTimelineModel";
-import { parsePartialToolInput } from "@/components/agent/agentTimelinePartialInput";
+import { completePartialToolInputHints, isCompleteToolInputJson, parsePartialToolInput } from "@/components/agent/agentTimelinePartialInput";
 import { processStateKey } from "@/components/agent/agentTimelineRunState";
 import { recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
 import type {
@@ -33,6 +33,8 @@ import type {
   AgentTimelineViewGroup,
   AgentTimelineViewItem,
 } from "@/components/agent/agentTimelineViewTypes";
+
+const HEAVY_PARTIAL_INPUT_HINT_LIMIT = 4096;
 
 export function buildTimelineViewItems(
   records: AgentTimelineRecord[],
@@ -425,20 +427,36 @@ function assistantTurnViewItems(
       if (inputDelta) {
         const segment = streamTargetSegment(inputDelta.index, "tool");
         const key = slotKey(segment, inputDelta.index, "tool");
-        const previous = streamToolInputBySlotKey.get(key) || "";
-        const nextInput = `${previous}${inputDelta.partialJson}`;
-        streamToolInputBySlotKey.set(key, nextInput);
         const existing = slots.get(key);
         if (existing?.displayKind === "tool-use") {
           const event = existing.processEvents.find((candidate): candidate is Extract<ProcessEvent, { kind: "tool_use" }> => candidate.kind === "tool_use");
           if (event) {
+            const heavyPartialInput = isHeavyPartialInputTool(event.tool.name);
+            if (heavyPartialInput && hasToolTargetHint(event.tool.input)) continue;
+
+            const previous = streamToolInputBySlotKey.get(key) || "";
+            const nextInput = heavyPartialInput
+              ? `${previous}${inputDelta.partialJson}`.slice(0, HEAVY_PARTIAL_INPUT_HINT_LIMIT)
+              : `${previous}${inputDelta.partialJson}`;
+            streamToolInputBySlotKey.set(key, nextInput);
+            const parsedInput = parsePartialToolInput(nextInput, {
+              hintsOnly: heavyPartialInput,
+              maxLength: heavyPartialInput ? HEAVY_PARTIAL_INPUT_HINT_LIMIT : undefined,
+            });
+            if (!parsedInput) continue;
+            const parsedInputObject = recordObject(parsedInput);
+            const partialInput = !isCompleteToolInputJson(nextInput);
+            const nextVisibleInput = visibleStreamToolInput(event.tool.name, parsedInputObject, partialInput, nextInput);
+            if (!nextVisibleInput) continue;
             setSlot(key, slotOrderValue(segment, inputDelta.index, "tool"), {
               ...existing,
               processEvents: [{
                 ...event,
                 tool: {
                   ...event.tool,
-                  input: parsePartialToolInput(nextInput) ?? event.tool.input,
+                  input: heavyPartialInput
+                    ? { ...recordObject(event.tool.input), ...nextVisibleInput }
+                    : nextVisibleInput,
                 },
               }],
             });
@@ -565,6 +583,37 @@ function assistantTurnViewItems(
     .filter((item) => item.displayKind !== "hidden");
 }
 
+function isHeavyPartialInputTool(toolName: string): boolean {
+  return toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit";
+}
+
+function visibleStreamToolInput(toolName: string, input: Record<string, unknown>, partialInput: boolean, rawInput: string): Record<string, unknown> | null {
+  if (isFileTool(toolName)) {
+    if (partialInput) return completePartialToolInputHints(rawInput);
+    if (toolName === "Read") return input;
+    return fileToolTargetInput(input);
+  }
+  return partialInput ? { ...input, _partialInput: true } : input;
+}
+
+function isFileTool(toolName: string): boolean {
+  return toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit";
+}
+
+function fileToolTargetInput(input: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of ["file_path", "filePath", "path", "notebook_path"]) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) result[key] = value;
+  }
+  return result;
+}
+
+function hasToolTargetHint(input: unknown): boolean {
+  const data = recordObject(input);
+  return Boolean(stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, ""));
+}
+
 function turnProcessSummaryItem(
   items: AgentTimelineViewItem[],
   options?: {
@@ -610,7 +659,8 @@ function assistantTurnRenderEntries(items: AgentTimelineViewItem[]): AgentTimeli
 
   function flushTools() {
     if (pendingTools.length === 0) return;
-    if (pendingTools.length === 1) {
+    const runningToolGroup = pendingTools.some((item) => item.assistantStreaming === true || item.processSummary?.running);
+    if (pendingTools.length === 1 && !runningToolGroup) {
       const item = pendingTools[0]!;
       entries.push({ type: "item", key: assistantTurnItemKey(item), item });
     } else {
@@ -681,6 +731,14 @@ function toolEventsFromItems(items: AgentTimelineViewItem[]): Extract<ProcessEve
 }
 
 function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): AgentTimelineToolGroupSummary {
+  const runningSummary = summarizeRunningToolGroup(events);
+  if (runningSummary) return runningSummary;
+
+  return summarizeCompletedToolGroup(events);
+}
+
+function summarizeRunningToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): AgentTimelineToolGroupSummary | null {
+  if (!events.some((event) => !event.result)) return null;
   const runningEvent = toolGroupRunningDisplayEvent(events);
   if (runningEvent) {
     return {
@@ -689,7 +747,37 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
       running: true,
     };
   }
+  const fallbackEvent = [...events].reverse().find((event) => toolEventHasTarget(event));
+  if (fallbackEvent) {
+    return {
+      iconToolName: fallbackEvent.tool.name,
+      parts: [runningToolLabel(fallbackEvent)],
+      running: true,
+    };
+  }
+  return null;
+}
 
+function summarizeCompletedToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): AgentTimelineToolGroupSummary {
+  const stats = toolGroupStats(events);
+  const parts = completedToolGroupSummaryParts(stats);
+  return {
+    iconToolName: toolGroupIconName(stats, events),
+    parts: parts.length > 0 ? parts : [`已使用 ${events.length} 个工具`],
+    running: false,
+  };
+}
+
+function toolGroupStats(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): {
+  editedFiles: Set<string>;
+  exploredFiles: Set<string>;
+  exploredCount: number;
+  searches: number;
+  commands: number;
+  skills: number;
+  others: number;
+  failed: number;
+} {
   const stats = {
     editedFiles: new Set<string>(),
     exploredFiles: new Set<string>(),
@@ -706,15 +794,18 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
     const input = recordObject(event.tool.input);
     if (event.result?.isError) stats.failed += 1;
 
-    if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
-      const path = stringValue(input.file_path ?? input.filePath ?? input.path, event.tool.id);
-      stats.editedFiles.add(path);
+    if (isEditTool(toolName)) {
+      const path = stringValue(input.file_path ?? input.filePath ?? input.path, "");
+      if (path) stats.editedFiles.add(path);
+      else stats.others += 1;
       continue;
     }
 
     if (toolName === "Read") {
-      const path = stringValue(input.file_path ?? input.filePath ?? input.path, event.tool.id);
-      stats.exploredFiles.add(path);
+      const path = stringValue(input.file_path ?? input.filePath ?? input.path, "");
+      if (path) stats.exploredFiles.add(path);
+      else if (event.result) stats.exploredCount += 1;
+      else stats.others += 1;
       continue;
     }
 
@@ -740,7 +831,10 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
 
     stats.others += 1;
   }
+  return stats;
+}
 
+function completedToolGroupSummaryParts(stats: ReturnType<typeof toolGroupStats>): string[] {
   const exploredTotal = stats.exploredFiles.size + stats.exploredCount;
   const parts: string[] = [];
   if (stats.editedFiles.size > 0) parts.push(`已编辑 ${stats.editedFiles.size} 个文件`);
@@ -750,11 +844,18 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
   if (stats.skills > 0) parts.push(`已使用 ${stats.skills} 个技能`);
   if (stats.others > 0) parts.push(`已使用 ${stats.others} 个工具`);
   if (stats.failed > 0) parts.push(`${stats.failed} 个失败`);
+  return parts;
+}
 
+function isEditTool(toolName: string): boolean {
+  return toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit";
+}
+
+function toolGroupIconName(stats: ReturnType<typeof toolGroupStats>, events: Extract<ProcessEvent, { kind: "tool_use" }>[]): string {
   return {
-    iconToolName: stats.editedFiles.size > 0
+    name: stats.editedFiles.size > 0
       ? "Edit"
-      : exploredTotal > 0
+      : stats.exploredFiles.size + stats.exploredCount > 0
         ? "Read"
         : stats.searches > 0
           ? "WebSearch"
@@ -763,9 +864,7 @@ function summarizeToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[
             : stats.skills > 0
               ? "Skill"
               : events[0]?.tool.name || "Tool",
-    parts: parts.length > 0 ? parts : [`已使用 ${events.length} 个工具`],
-    running: false,
-  };
+  }.name;
 }
 
 function toolGroupRunningDisplayEvent(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): Extract<ProcessEvent, { kind: "tool_use" }> | undefined {
@@ -773,16 +872,17 @@ function toolGroupRunningDisplayEvent(events: Extract<ProcessEvent, { kind: "too
   if (pendingEvents.length === 0) return undefined;
   const latestPending = pendingEvents.at(-1);
   const targetedPending = [...pendingEvents].reverse().find(toolEventHasTarget);
+  if (targetedPending) return targetedPending;
   const latestEvent = events.at(-1);
-  if (latestPending && !toolEventHasTarget(latestPending) && latestEvent && latestEvent !== latestPending && toolEventHasTarget(latestEvent)) {
-    return latestEvent;
-  }
-  return targetedPending ?? latestPending;
+  if (latestPending && toolEventHasTarget(latestPending)) return latestPending;
+  if (latestEvent && latestEvent !== latestPending && toolEventHasTarget(latestEvent)) return latestEvent;
+  return [...events].reverse().find(toolEventHasTarget) ?? latestPending;
 }
 
 function toolEventHasTarget(event: Extract<ProcessEvent, { kind: "tool_use" }>): boolean {
   const toolName = event.tool.name;
   const input = recordObject(event.tool.input);
+  if (input._partialInput === true && toolName === "Read") return false;
   if (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
     return Boolean(stringValue(input.file_path ?? input.filePath ?? input.path, "").trim());
   }
@@ -798,13 +898,16 @@ function runningToolLabel(event: Extract<ProcessEvent, { kind: "tool_use" }>): s
   const toolName = event.tool.name;
   const input = recordObject(event.tool.input);
   if (toolName === "Read") {
-    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, "文件"));
+    if (input._partialInput === true) return "正在读取文件";
+    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, ""));
+    if (!path) return "正在读取文件";
     return `正在读取 ${path}`;
   }
   if (toolName === "Glob") return `正在搜索 ${stringValue(input.pattern, "文件")}`;
   if (toolName === "Grep") return `正在搜索 ${stringValue(input.pattern, "内容")}`;
   if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
-    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, "文件"));
+    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, ""));
+    if (!path) return "正在编辑文件";
     return `正在编辑 ${path}`;
   }
   if (toolName === "Bash") return `正在运行 ${stringValue(input.command, "命令")}`;

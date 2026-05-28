@@ -118,30 +118,6 @@ export function useFilePreviewState({
     await selectFile(nextFile);
   }
 
-  async function previewImportedFile(file: WorkspaceFileNode | undefined, loadStillLatest: () => boolean, errorFallback: string): Promise<void> {
-    const previewRequestId = filePreviewRequestRef.current + 1;
-    filePreviewRequestRef.current = previewRequestId;
-    commitSelectedFileId(file?.id || "");
-    if (file) {
-      setFilePreviewLoading(true);
-    } else {
-      setFilePreview(null);
-      setFilePreviewLoading(false);
-      return;
-    }
-    let preview: FilePreview | null = null;
-    try {
-      preview = await window.brevyn.files.preview(file.id);
-    } catch (error) {
-      if (loadStillLatest() && filePreviewRequestRef.current === previewRequestId) {
-        onError(errorMessage(error, errorFallback));
-      }
-    }
-    if (!loadStillLatest() || filePreviewRequestRef.current !== previewRequestId) return;
-    setFilePreview(preview);
-    setFilePreviewLoading(false);
-  }
-
   return {
     selectedFileId,
     selectedFileIdRef,
@@ -155,6 +131,5 @@ export function useFilePreviewState({
     selectFile,
     selectSessionFile,
     previewWorkspacePath,
-    previewImportedFile,
   };
 }

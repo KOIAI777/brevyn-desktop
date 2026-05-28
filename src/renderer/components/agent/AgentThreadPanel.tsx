@@ -1014,14 +1014,16 @@ const OrderedToolGroupEntry = memo(function OrderedToolGroupEntry({ entry }: { e
     <div className="min-w-0 px-1 py-0">
       <button
         type="button"
-        className="inline-flex max-w-full items-center gap-2 rounded-md px-0.5 py-0.5 text-left text-[13px] font-semibold text-muted-foreground/80 transition hover:text-foreground"
+        className="inline-flex h-6 max-w-full items-center gap-2 rounded-md px-0.5 text-left text-[13px] font-semibold leading-none text-muted-foreground/80 transition hover:text-foreground"
         onClick={toggleCollapsed}
         title={collapsed ? "展开工具详情" : "折叠工具详情"}
       >
-        <ToolGlyph toolName={entry.summary.iconToolName} className={`h-4 w-4 shrink-0 opacity-80 ${entry.summary.running ? "animate-pulse" : ""}`} />
-        <span className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 ${entry.summary.running ? "taskagent-sweep-text" : ""}`}>
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+          <ToolGlyph toolName={entry.summary.iconToolName} className={`h-4 w-4 opacity-80 ${entry.summary.running ? "animate-pulse" : ""}`} />
+        </span>
+        <span className={`flex h-4 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap ${entry.summary.running ? "taskagent-sweep-text" : ""}`}>
           {entry.summary.parts.map((part) => (
-            <span key={part} className="truncate">{part}</span>
+            <span key={part} className="truncate leading-none">{part}</span>
           ))}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : ""}`} />
@@ -1086,7 +1088,7 @@ const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
   onToggleTool: (toolId: string) => void;
 }) {
   return (
-    <div className="ml-6 flex min-w-0 flex-col gap-1 rounded-lg border border-border/55 bg-muted/12 p-1">
+    <div className="ml-6 flex min-w-0 flex-col gap-1">
       {events.map((event) => {
         const toolId = event.tool.id || event.id;
         const running = !event.result;

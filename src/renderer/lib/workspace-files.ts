@@ -1,14 +1,5 @@
 import type { WorkspaceFileNode } from "@/types/domain";
 
-export function firstPreviewableFile(nodes: WorkspaceFileNode[]): WorkspaceFileNode | null {
-  for (const node of nodes) {
-    if (node.kind !== "folder") return node;
-    const child = node.children ? firstPreviewableFile(node.children) : null;
-    if (child) return child;
-  }
-  return null;
-}
-
 export function findFileNode(nodes: WorkspaceFileNode[], id: string): WorkspaceFileNode | null {
   for (const node of nodes) {
     if (node.id === id) return node;

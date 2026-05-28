@@ -44,11 +44,9 @@ function App() {
     activeThreadId: workspace.activeThreadId,
     onThreadHasMessages: workspace.markThreadHasMessages,
     onThreadUpdated: workspace.applyThreadUpdate,
-    onWriteToolCompleted: (filePath) => previewCoordinator.scheduleWorkspacePathPreview(filePath),
   });
   const previewCoordinator = useWorkspacePreviewCoordinator({
     importCourseFiles: fileState.importCourseFiles,
-    previewWorkspacePath: fileState.previewWorkspacePath,
     setFileRailCollapsed: layoutState.setFileRailCollapsed,
     setPreviewRailCollapsed: layoutState.setPreviewRailCollapsed,
   });

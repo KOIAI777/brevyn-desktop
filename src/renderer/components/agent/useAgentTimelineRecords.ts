@@ -29,5 +29,10 @@ export function useAgentTimelineRecords({
     [compactInFlight, effectiveRunning, liveRecords, records],
   );
 
-  return { liveRecords, liveRunning, effectiveRunning, timelineRecords };
+  return {
+    liveRecords,
+    liveRunning,
+    effectiveRunning,
+    timelineRecords,
+  };
 }

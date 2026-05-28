@@ -5,11 +5,21 @@ import type { BrevynAgentRuntimeEvent, BrevynAgentTimelineRecord } from "@/types
 
 const EMPTY_RECORDS: BrevynAgentTimelineRecord[] = [];
 
+interface LiveStreamState {
+  runId: string;
+  segment: number;
+  blocks: Map<string, SDKMessage>;
+  textByKey: Map<string, string>;
+  inputByKey: Map<string, string>;
+}
+
 let liveRecordsByThread = new Map<string, BrevynAgentTimelineRecord[]>();
 let liveRunningByThread = new Map<string, boolean>();
 let pendingRecordsByThread = new Map<string, BrevynAgentTimelineRecord[]>();
+let liveStreamStateByThread = new Map<string, LiveStreamState>();
 let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
+let liveSequence = 0;
 
 export function appendAgentLiveRecords(threadId: string, records: BrevynAgentTimelineRecord[]): void {
   if (!threadId || records.length === 0) return;
@@ -24,6 +34,13 @@ export function appendAgentLiveRecords(threadId: string, records: BrevynAgentTim
 }
 
 export function appendAgentLiveMessage(threadId: string, message: SDKMessage, options?: { modelId?: string }): boolean {
+  if (isStreamEventMessage(message)) {
+    const liveStreamRecord = prepareLiveStreamRecord(threadId, message, options);
+    if (!liveStreamRecord) return false;
+    appendAgentLiveRecords(threadId, [liveStreamRecord]);
+    return true;
+  }
+  if (isToolResultMessage(message)) advanceLiveStreamSegment(threadId);
   const liveMessage = prepareLiveMessage(message, options);
   if (!liveMessage) return false;
   appendAgentLiveRecords(threadId, [liveMessage]);
@@ -54,6 +71,7 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
   const threadId = agentRuntimeEventThreadId(event);
   if (!threadId) return "";
   if (event.type === "run_started") {
+    resetLiveStreamState(threadId, event.runId);
     setAgentLiveRunning(threadId, true);
   }
   if (event.type === "run_retrying") {
@@ -96,6 +114,7 @@ export function clearAgentLiveRecords(threadId: string, options?: { preserveStop
     ? appendUniqueRecords(current, pending)
     : current;
   const preserved = options?.preserveStoppedRuns ? stoppedRunLiveRecords(merged) : EMPTY_RECORDS;
+  liveStreamStateByThread.delete(threadId);
   if (!liveRecordsByThread.has(threadId) && preserved.length === 0) return;
   const next = new Map(liveRecordsByThread);
   if (preserved.length > 0) next.set(threadId, preserved);
@@ -131,6 +150,7 @@ export function clearAllAgentLiveRecords(): void {
   pendingRecordsByThread = new Map();
   liveRunningByThread = new Map();
   liveRecordsByThread = new Map();
+  liveStreamStateByThread = new Map();
   if (hadState) emitAgentLiveRecordsChanged();
 }
 
@@ -195,13 +215,24 @@ function flushAgentLiveThread(threadId: string, options?: { silent?: boolean }):
 }
 
 function appendUniqueRecords(current: BrevynAgentTimelineRecord[], pending: BrevynAgentTimelineRecord[]): BrevynAgentTimelineRecord[] {
-  const seenKeys = new Set(current.map(liveRecordKey).filter(Boolean));
+  const indexByKey = new Map<string, number>();
+  current.forEach((record, index) => {
+    const key = liveRecordKey(record);
+    if (key) indexByKey.set(key, index);
+  });
   let changed = false;
   const next = [...current];
   for (const record of pending) {
     const key = liveRecordKey(record);
-    if (key && seenKeys.has(key)) continue;
-    if (key) seenKeys.add(key);
+    const existingIndex = key ? indexByKey.get(key) : undefined;
+    if (existingIndex !== undefined) {
+      if (next[existingIndex] !== record) {
+        next[existingIndex] = record;
+        changed = true;
+      }
+      continue;
+    }
+    if (key) indexByKey.set(key, next.length);
     next.push(record);
     changed = true;
   }
@@ -283,11 +314,12 @@ function prepareLiveRecord(record: BrevynAgentTimelineRecord): BrevynAgentTimeli
 }
 
 function prepareLiveMessage(message: SDKMessage, options?: { modelId?: string }): SDKMessage | null {
-  const record = message as SDKMessage & { type?: unknown; isReplay?: unknown; _createdAt?: unknown; _channelModelId?: unknown };
+  const record = message as SDKMessage & { type?: unknown; isReplay?: unknown; _createdAt?: unknown; _channelModelId?: unknown; _liveSeq?: unknown };
   if (record.isReplay === true) return null;
   if (record.type === "prompt_suggestion") return null;
-  let next: SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown } = message as SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown };
+  let next: SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown; _liveSeq?: unknown } = message as SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown; _liveSeq?: unknown };
   if (typeof next._createdAt !== "number") next = { ...next, _createdAt: Date.now() };
+  if (typeof next._liveSeq !== "number") next = { ...next, _liveSeq: nextLiveSequence() };
   if (!(next as { _renderId?: unknown })._renderId) {
     next = { ...next, _renderId: timelineRecordRenderKey(next, "live") };
   }
@@ -295,6 +327,161 @@ function prepareLiveMessage(message: SDKMessage, options?: { modelId?: string })
     next = { ...next, _channelModelId: options.modelId };
   }
   return next;
+}
+
+function prepareLiveStreamRecord(threadId: string, message: SDKMessage, options?: { modelId?: string }): SDKMessage | null {
+  const record = message as SDKMessage & { isReplay?: unknown };
+  if (record.isReplay === true) return null;
+
+  const event = recordObject((message as { event?: unknown }).event);
+  const eventType = stringValue(event.type, "");
+  if (eventType !== "content_block_start" && eventType !== "content_block_delta") return null;
+
+  const index = streamEventIndex(event);
+  const state = liveStreamState(threadId);
+
+  if (eventType === "content_block_start") {
+    const block = recordObject(event.content_block);
+    const blockType = stringValue(block.type, "");
+    if (blockType !== "tool_use" && blockType !== "server_tool_use") return null;
+    const key = streamBlockKey(state, index, "tool-start");
+    const existing = state.blocks.get(key);
+    const next = withLiveStreamMetadata(message, key, existing, options);
+    state.blocks.set(key, next);
+    return next;
+  }
+
+  const delta = recordObject(event.delta);
+  const deltaType = stringValue(delta.type, "");
+  if (deltaType === "text_delta") {
+    const text = typeof delta.text === "string" ? delta.text : "";
+    if (!text) return null;
+    const key = streamBlockKey(state, index, "text");
+    const nextText = `${state.textByKey.get(key) || ""}${text}`;
+    state.textByKey.set(key, nextText);
+    const existing = state.blocks.get(key);
+    const next = withLiveStreamMetadata(rewriteStreamDelta(message, { type: "text_delta", text: nextText }), key, existing, options);
+    state.blocks.set(key, next);
+    return next;
+  }
+
+  if (deltaType === "thinking_delta") {
+    const thinking = typeof delta.thinking === "string" ? delta.thinking : "";
+    if (!thinking) return null;
+    const key = streamBlockKey(state, index, "thinking");
+    const nextThinking = `${state.textByKey.get(key) || ""}${thinking}`;
+    state.textByKey.set(key, nextThinking);
+    const existing = state.blocks.get(key);
+    const next = withLiveStreamMetadata(rewriteStreamDelta(message, { type: "thinking_delta", thinking: nextThinking }), key, existing, options);
+    state.blocks.set(key, next);
+    return next;
+  }
+
+  if (deltaType === "input_json_delta") {
+    const partialJson = stringValue(delta.partial_json, "");
+    if (!partialJson) return null;
+    const key = streamBlockKey(state, index, "tool-input");
+    const nextInput = `${state.inputByKey.get(key) || ""}${partialJson}`;
+    state.inputByKey.set(key, nextInput);
+    const existing = state.blocks.get(key);
+    const next = withLiveStreamMetadata(rewriteStreamDelta(message, { type: "input_json_delta", partial_json: nextInput }), key, existing, options);
+    state.blocks.set(key, next);
+    return next;
+  }
+
+  return null;
+}
+
+function rewriteStreamDelta(message: SDKMessage, delta: Record<string, unknown>): SDKMessage {
+  const event = recordObject((message as { event?: unknown }).event);
+  return {
+    ...message,
+    event: {
+      ...event,
+      delta,
+    },
+  } as unknown as SDKMessage;
+}
+
+function withLiveStreamMetadata(message: SDKMessage, key: string, existing?: SDKMessage, options?: { modelId?: string }): SDKMessage {
+  const previous = existing as (SDKMessage & { _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown; _liveSeq?: unknown }) | undefined;
+  const next = message as SDKMessage & { uuid?: unknown; _createdAt?: unknown; _channelModelId?: unknown; _renderId?: unknown; _liveSeq?: unknown };
+  return {
+    ...next,
+    uuid: streamRecordUuid(key),
+    _createdAt: typeof previous?._createdAt === "number"
+      ? previous._createdAt
+      : typeof next._createdAt === "number" ? next._createdAt : Date.now(),
+    _liveSeq: typeof previous?._liveSeq === "number" ? previous._liveSeq : nextLiveSequence(),
+    _renderId: typeof previous?._renderId === "string" ? previous._renderId : `live-stream:${key}`,
+    _channelModelId: typeof previous?._channelModelId === "string" ? previous._channelModelId : typeof next._channelModelId === "string" ? next._channelModelId : options?.modelId,
+  } as unknown as SDKMessage;
+}
+
+function liveStreamState(threadId: string): LiveStreamState {
+  const existing = liveStreamStateByThread.get(threadId);
+  if (existing) return existing;
+  const next: LiveStreamState = {
+    runId: "run",
+    segment: 0,
+    blocks: new Map(),
+    textByKey: new Map(),
+    inputByKey: new Map(),
+  };
+  liveStreamStateByThread.set(threadId, next);
+  return next;
+}
+
+function resetLiveStreamState(threadId: string, runId: string): void {
+  liveStreamStateByThread.set(threadId, {
+    runId,
+    segment: 0,
+    blocks: new Map(),
+    textByKey: new Map(),
+    inputByKey: new Map(),
+  });
+}
+
+function advanceLiveStreamSegment(threadId: string): void {
+  const state = liveStreamStateByThread.get(threadId);
+  if (!state) return;
+  state.segment += 1;
+}
+
+function streamBlockKey(state: LiveStreamState, index: number, kind: "text" | "thinking" | "tool-start" | "tool-input"): string {
+  return `${state.runId}:${state.segment}:${index}:${kind}`;
+}
+
+function streamRecordUuid(key: string): string {
+  return `live-stream:${key}`;
+}
+
+function streamEventIndex(event: Record<string, unknown>): number {
+  const index = Number(event.index);
+  return Number.isFinite(index) ? index : 0;
+}
+
+function nextLiveSequence(): number {
+  liveSequence += 1;
+  return liveSequence;
+}
+
+function isStreamEventMessage(message: SDKMessage): boolean {
+  return (message as { type?: unknown }).type === "stream_event";
+}
+
+function isToolResultMessage(message: SDKMessage): boolean {
+  if ((message as { type?: unknown }).type !== "user") return false;
+  const content = recordObject((message as { message?: unknown }).message).content;
+  return Array.isArray(content) && content.some((block) => recordObject(block).type === "tool_result");
+}
+
+function recordObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
 }
 
 function isRuntimeLiveRecord(record: BrevynAgentTimelineRecord): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
