@@ -135,10 +135,10 @@ function isAbsoluteFilePath(value: string): boolean {
 }
 
 function isRelativeFilePath(value: string): boolean {
+  if (!hasSafeInlineFilePathCharacters(value)) return false;
   if (isDirectoryPath(value) && value.includes("/")) return true;
   const extension = extensionName(value);
   if (!extension || !PREVIEWABLE_EXTENSIONS.has(extension)) return false;
-  if (!hasSafeInlineFilePathCharacters(value)) return false;
   if (value.startsWith(".") && !value.startsWith("./") && !value.includes("/")) return false;
   return true;
 }

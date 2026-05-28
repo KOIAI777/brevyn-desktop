@@ -13,6 +13,7 @@ const accepted = [
 const rejected = [
   "not a file",
   "https://example.com/report.pdf",
+  "https://example.com/",
   "report.pdf\nnext line",
   "report.pdf?",
   ".env",

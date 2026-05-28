@@ -10,9 +10,10 @@ interface UseWorkspaceFilesStateArgs {
   activeCourseId: string;
   activeThreadId: string;
   onError: (message: string) => void;
+  onPreviewError?: (message: string) => void;
 }
 
-export function useWorkspaceFilesState({ semesterId, activeCourseId, activeThreadId, onError }: UseWorkspaceFilesStateArgs) {
+export function useWorkspaceFilesState({ semesterId, activeCourseId, activeThreadId, onError, onPreviewError }: UseWorkspaceFilesStateArgs) {
   const mountedRef = useRef(true);
   const activeCourseIdRef = useRef(activeCourseId);
   const activeCourseScopeKeyRef = useRef(courseScopeKey(semesterId, activeCourseId));
@@ -36,7 +37,7 @@ export function useWorkspaceFilesState({ semesterId, activeCourseId, activeThrea
     activeThreadIdRef,
     fileTreeRef: treeState.fileTreeRef,
     refreshCourseTree: treeState.refreshCourseTree,
-    onError,
+    onError: onPreviewError || onError,
   });
 
   useEffect(() => {

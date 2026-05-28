@@ -1,5 +1,5 @@
 import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
@@ -22,6 +22,7 @@ function App() {
   const contentGridRef = useRef<HTMLDivElement | null>(null);
   const fileStateRef = useRef<ReturnType<typeof useWorkspaceFilesState> | null>(null);
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
+  const previewErrorTimeoutRef = useRef<number | null>(null);
 
   const dialogs = useAppDialogState();
   const layoutState = useWorkspaceLayoutState({ contentGridRef });
@@ -34,11 +35,24 @@ function App() {
       void agentSessionRef.current?.refreshProviders();
     },
   });
+  const setPreviewWorkspaceError = useCallback((message: string) => {
+    if (previewErrorTimeoutRef.current !== null) {
+      window.clearTimeout(previewErrorTimeoutRef.current);
+      previewErrorTimeoutRef.current = null;
+    }
+    workspace.setWorkspaceError(message);
+    if (!message) return;
+    previewErrorTimeoutRef.current = window.setTimeout(() => {
+      workspace.setWorkspaceError((current) => current === message ? "" : current);
+      previewErrorTimeoutRef.current = null;
+    }, 4200);
+  }, [workspace.setWorkspaceError]);
   const fileState = useWorkspaceFilesState({
     semesterId: workspace.semester?.id || "",
     activeCourseId: workspace.activeCourseId,
     activeThreadId: workspace.activeThreadId,
     onError: workspace.setWorkspaceError,
+    onPreviewError: setPreviewWorkspaceError,
   });
   const agentSession = useAgentSessionController({
     activeThreadId: workspace.activeThreadId,
@@ -52,6 +66,13 @@ function App() {
   });
   fileStateRef.current = fileState;
   agentSessionRef.current = agentSession;
+
+  useEffect(() => () => {
+    if (previewErrorTimeoutRef.current !== null) {
+      window.clearTimeout(previewErrorTimeoutRef.current);
+      previewErrorTimeoutRef.current = null;
+    }
+  }, []);
 
   async function runAgent(prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<void> {
     await agentSession.run(prompt, permissionMode, attachments, providerSelection, mentionedSkills);
