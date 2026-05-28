@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { FileContents } from "@pierre/diffs";
 import { MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
+import { Check, Copy } from "lucide-react";
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
 import { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
 import { ToolCodeBlock, ToolDetailsShell } from "@/components/agent/tool-cards/shared";
@@ -67,11 +68,80 @@ function FileDiffDetails({
   return <PierreDiffSource source={source} />;
 }
 
-function PierreDiffFrame({ children }: { children: React.ReactNode }) {
+function PierreDiffFrame({
+  children,
+  filePath,
+  additions,
+  deletions,
+  copyText,
+}: {
+  children: React.ReactNode;
+  filePath: string;
+  additions: number;
+  deletions: number;
+  copyText: string;
+}) {
   return (
-    <div className="mt-2 max-h-[400px] min-w-0 overflow-auto rounded-xl border border-border/70 bg-background/70 text-[11px] shadow-sm [contain:layout_paint_style] brevyn-scrollbar">
-      {children}
+    <div className="mt-2 flex max-h-[400px] min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/95 text-[11px] shadow-sm [contain:layout_paint_style]">
+      <DiffFrameHeader filePath={filePath} additions={additions} deletions={deletions} copyText={copyText} />
+      <div className="min-h-0 overflow-auto bg-background/70 brevyn-scrollbar">
+        {children}
+      </div>
     </div>
+  );
+}
+
+function DiffFrameHeader({
+  filePath,
+  additions,
+  deletions,
+  copyText,
+}: {
+  filePath: string;
+  additions: number;
+  deletions: number;
+  copyText: string;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const displayName = React.useMemo(() => basename(filePath || "file"), [filePath]);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch (error) {
+      console.error("[FileDiffDetails] Failed to copy diff:", error);
+    }
+  }
+
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-muted/35 px-3">
+      <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-medium text-foreground/82" title={filePath || displayName}>
+        {displayName}
+      </span>
+      <DiffStat value={additions} tone="add" />
+      <DiffStat value={deletions} tone="delete" />
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        aria-label={copied ? "Diff copied" : "Copy diff"}
+        title={copied ? "已复制" : "复制 diff"}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+function DiffStat({ value, tone }: { value: number; tone: "add" | "delete" }) {
+  const prefix = tone === "add" ? "+" : "-";
+  const color = tone === "add" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+  return (
+    <span className={`shrink-0 font-mono text-[12px] font-semibold ${color}`}>
+      {prefix}{Math.max(0, value)}
+    </span>
   );
 }
 
@@ -91,15 +161,15 @@ function usePierreDiffOptions(disableLineNumbers = false) {
 }
 
 type FileDiffSource =
-  | { kind: "patch"; patch: string }
-  | { kind: "files"; filePath: string; oldContent: string; newContent: string; disableLineNumbers?: boolean };
+  | { kind: "patch"; patch: string; filePath: string; additions: number; deletions: number }
+  | { kind: "files"; filePath: string; oldContent: string; newContent: string; additions: number; deletions: number; disableLineNumbers?: boolean };
 
 function PierreDiffSource({ source }: { source: FileDiffSource }) {
   const options = usePierreDiffOptions(source.kind === "files" && source.disableLineNumbers === true);
 
   if (source.kind === "patch") {
     return (
-      <PierreDiffFrame>
+      <PierreDiffFrame filePath={source.filePath} additions={source.additions} deletions={source.deletions} copyText={source.patch}>
         <PatchDiff patch={source.patch} options={options} />
       </PierreDiffFrame>
     );
@@ -110,6 +180,8 @@ function PierreDiffSource({ source }: { source: FileDiffSource }) {
       filePath={source.filePath}
       oldContent={source.oldContent}
       newContent={source.newContent}
+      additions={source.additions}
+      deletions={source.deletions}
       options={options}
     />
   );
@@ -119,11 +191,15 @@ function PierreFileDiff({
   filePath,
   oldContent,
   newContent,
+  additions,
+  deletions,
   options,
 }: {
   filePath: string;
   oldContent: string;
   newContent: string;
+  additions: number;
+  deletions: number;
   options: ReturnType<typeof usePierreDiffOptions>;
 }) {
   const oldFile = React.useMemo<FileContents>(() => ({
@@ -138,7 +214,7 @@ function PierreFileDiff({
   }), [filePath, newContent]);
 
   return (
-    <PierreDiffFrame>
+    <PierreDiffFrame filePath={filePath} additions={additions} deletions={deletions} copyText={newContent}>
       <MultiFileDiff oldFile={oldFile} newFile={newFile} options={options} />
     </PierreDiffFrame>
   );
@@ -151,17 +227,27 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
   const gitDiff = recordObject(raw.gitDiff);
   const gitPatch = stringValue(gitDiff.patch, "");
   if (gitPatch) {
+    const patch = normalizeGitPatch(gitPatch, filePath, stringValue(gitDiff.status, ""));
+    const stats = diffStatsFromPatch(patch);
     return {
       kind: "patch",
-      patch: normalizeGitPatch(gitPatch, filePath, stringValue(gitDiff.status, "")),
+      patch,
+      filePath: filePath || filePathFromPatch(patch) || "file",
+      additions: stats.additions,
+      deletions: stats.deletions,
     };
   }
 
   const structuredPatch = Array.isArray(raw.structuredPatch) ? raw.structuredPatch : [];
   if (structuredPatch.length > 0) {
+    const patch = patchFromStructuredPatch(structuredPatch, filePath, raw.originalFile === null ? "added" : "modified");
+    const stats = diffStatsFromPatch(patch);
     return {
       kind: "patch",
-      patch: patchFromStructuredPatch(structuredPatch, filePath, raw.originalFile === null ? "added" : "modified"),
+      patch,
+      filePath: filePath || filePathFromPatch(patch) || "file",
+      additions: stats.additions,
+      deletions: stats.deletions,
     };
   }
 
@@ -178,6 +264,8 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
       filePath: filePath || "new-file",
       oldContent: originalFile ?? "",
       newContent: content,
+      additions: lineCount(content),
+      deletions: lineCount(originalFile ?? ""),
     };
   }
 
@@ -198,6 +286,8 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
         filePath: filePath || "file",
         oldContent: originalFile,
         newContent: applyEdit(originalFile, oldString, newString, raw.replaceAll === true),
+        additions: lineCount(newString),
+        deletions: lineCount(oldString),
       };
     }
     if (oldString || newString) {
@@ -206,6 +296,8 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
         filePath: filePath || "file",
         oldContent: oldString,
         newContent: newString,
+        additions: lineCount(newString),
+        deletions: lineCount(oldString),
         disableLineNumbers: true,
       };
     }
@@ -221,11 +313,41 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
       filePath: filePath || "file",
       oldContent,
       newContent,
+      additions: lineCount(newContent),
+      deletions: lineCount(oldContent),
       disableLineNumbers: true,
     };
   }
 
   return null;
+}
+
+function diffStatsFromPatch(patch: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions += 1;
+    if (line.startsWith("-")) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
+function filePathFromPatch(patch: string): string {
+  const plusMatch = patch.match(/^\+\+\+\s+b\/(.+)$/m);
+  if (plusMatch?.[1]) return plusMatch[1].trim();
+  const diffMatch = patch.match(/^diff --git\s+a\/.+?\s+b\/(.+)$/m);
+  return diffMatch?.[1]?.trim() || "";
+}
+
+function lineCount(value: string): number {
+  if (!value) return 0;
+  return value.split("\n").filter((line) => line.length > 0).length;
+}
+
+function basename(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).pop() || normalized || "file";
 }
 
 function filePathFrom(raw: Record<string, unknown>, input: Record<string, unknown>): string {
