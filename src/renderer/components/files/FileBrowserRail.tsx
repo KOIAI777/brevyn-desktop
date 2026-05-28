@@ -4,7 +4,7 @@ import { FolderOpen, Loader2, Paperclip, Upload, X } from "lucide-react";
 import type { BrevynTask, Course, FileStats, WorkspaceFileNode } from "@/types/domain";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cx } from "@/lib/cn";
-import { FileContextMenu, fileDisplayName, type FileContextMenuState } from "./FileContextMenu";
+import { FileContextMenu, fileDisplayName, type FileContextMenuAction, type FileContextMenuState } from "./FileContextMenu";
 import { FileTreeNode } from "./FileTreeNode";
 
 export function FileBrowserRail({
@@ -100,7 +100,7 @@ export function FileBrowserRail({
     if (selectedFileId === file.id) onSelectFile(file);
   };
 
-  async function handleContextAction(action: "open" | "reveal" | "copyPath" | "copyName" | "rename" | "delete", file: WorkspaceFileNode) {
+  async function handleContextAction(action: FileContextMenuAction, file: WorkspaceFileNode) {
     setActionError("");
     try {
       if (action === "open") {
@@ -117,6 +117,11 @@ export function FileBrowserRail({
       }
       if (action === "copyName") {
         await navigator.clipboard.writeText(fileDisplayName(file));
+        return;
+      }
+      if (action === "retryIndex") {
+        await window.brevyn.files.retryIndex(file.id);
+        refreshSelectedFile({ ...file, indexingStatus: "queued", indexingError: undefined, indexingWarning: undefined });
         return;
       }
       if (action === "rename") {

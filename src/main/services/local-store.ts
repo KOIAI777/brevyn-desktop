@@ -323,6 +323,10 @@ export class LocalStore {
     return this.files.reindexCourseFiles(courseId, sectionId);
   }
 
+  retryIndexingFile(fileId: string): IndexingJob {
+    return this.files.retryIndexingFile(fileId);
+  }
+
   indexActiveSemesterCourses(): Promise<IndexActiveSemesterResult> {
     return this.files.indexActiveSemesterCourses();
   }

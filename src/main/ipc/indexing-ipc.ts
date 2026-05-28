@@ -9,6 +9,12 @@ export function registerIndexingIpc({ store, indexingQueue }: IpcContext): void 
     indexingQueue?.poke();
     return job;
   });
+  ipcMain.handle(IPC_CHANNELS.filesRetryIndex, async (event, fileId: unknown) => {
+    const job = await store.retryIndexingFile(requireString(fileId, "File id"));
+    indexingQueue?.poke();
+    event.sender.send(IPC_CHANNELS.filesChanged);
+    return job;
+  });
   ipcMain.handle(IPC_CHANNELS.filesIndexActiveSemester, async () => {
     const result = await store.indexActiveSemesterCourses();
     if (result.jobs.length > 0) indexingQueue?.poke();

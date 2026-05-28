@@ -43,6 +43,7 @@ export const IPC_CHANNELS = {
   filesSections: "brevyn:files:sections",
   filesStats: "brevyn:files:stats",
   filesIndex: "brevyn:files:index",
+  filesRetryIndex: "brevyn:files:retry-index",
   filesIndexActiveSemester: "brevyn:files:index-active-semester",
   filesIndexingJobs: "brevyn:files:indexing-jobs",
   filesIndexingCancel: "brevyn:files:indexing-cancel",

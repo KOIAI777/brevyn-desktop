@@ -98,7 +98,7 @@ export class RagIndexService {
       await this.deleteFile(task.payload.fileId);
       return true;
     }
-    const provider = this.resolveEmbeddingProvider();
+    const provider = this.resolveEmbeddingProviderForTask(task);
     if (!provider) {
       throw new Error("No embedding provider is configured. Save an embedding-enabled provider before indexing files.");
     }
@@ -306,6 +306,20 @@ export class RagIndexService {
     const provider = this.options.resolveEmbeddingProvider();
     if (!provider || provider.purpose !== "embedding" || provider.protocol !== "openai_compatible" || provider.adapterKind !== "openai_embedding" || !provider.enabled || !provider.selectedModel || !provider.baseUrl) return undefined;
     return provider;
+  }
+
+  private resolveEmbeddingProviderForTask(task: IndexingTaskRecord): ModelProviderConfig | undefined {
+    const provider = task.payload.embeddingProvider;
+    if (
+      provider?.purpose === "embedding" &&
+      provider.protocol === "openai_compatible" &&
+      provider.adapterKind === "openai_embedding" &&
+      provider.selectedModel &&
+      provider.baseUrl
+    ) {
+      return provider;
+    }
+    return this.resolveEmbeddingProvider();
   }
 
   private async embedTexts(texts: string[], provider: ModelProviderConfig, apiKey: string): Promise<number[][]> {

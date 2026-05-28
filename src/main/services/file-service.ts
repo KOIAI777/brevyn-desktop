@@ -357,7 +357,7 @@ export class FileService {
       let indexingJob: IndexingJob | null = null;
       let indexingError: string | undefined;
       try {
-        indexingJob = this.indexCourseFiles(input.courseId, sectionId);
+        indexingJob = this.indexImportedFiles(input.courseId, sectionId, importedFiles);
       } catch (error) {
         indexingError = errorMessage(error);
         console.warn("[indexing] Failed to create indexing job after import", error);
@@ -555,6 +555,51 @@ export class FileService {
     const files = sectionId ? sections.find((section) => section.id === sectionId)?.files || [] : sections.flatMap((section) => section.files);
     const provider = this.embeddingProvider();
     const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
+    return this.createIndexingJobForFiles({
+      semesterId,
+      courseId,
+      sectionId,
+      files: localFiles,
+      provider,
+    });
+  }
+
+  private indexImportedFiles(courseId: string, sectionId: string | undefined, files: WorkspaceFileNode[]): IndexingJob {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) throw new Error("请先选择学期，再索引文件。");
+    activeCourseScopeOrThrow(this.options.businessStore, courseId, semesterId);
+    const provider = this.embeddingProvider();
+    const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
+    const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, courseId, sectionId);
+    if (activeJob && localFiles.length > 0 && provider?.selectedModel && activeJob.embeddingModel === provider.selectedModel) {
+      const tasks = this.indexingTasksForFiles({
+        jobId: activeJob.id,
+        semesterId,
+        courseId,
+        sectionId,
+        files: localFiles,
+        provider,
+      });
+      return this.options.businessStore.appendIndexingTasksToJob(activeJob.id, tasks) || activeJob;
+    }
+    return this.createIndexingJobForFiles({
+      semesterId,
+      courseId,
+      sectionId,
+      files: localFiles,
+      provider,
+    });
+  }
+
+  private createIndexingJobForFiles(input: {
+    semesterId: string;
+    courseId: string;
+    sectionId?: string;
+    files: WorkspaceFileNode[];
+    provider?: ModelProviderConfig;
+  }): IndexingJob {
+    const { semesterId, courseId, sectionId, provider } = input;
+    const localFiles = input.files.filter((file) => Boolean(file.sourcePath));
     const timestamp = now();
     const hasFiles = localFiles.length > 0;
     const hasProvider = Boolean(provider?.selectedModel);
@@ -594,11 +639,34 @@ export class FileService {
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-    const tasks: IndexingTaskInsert[] = status === "queued" ? localFiles.map((file, index) => {
+    const tasks = status === "queued" ? this.indexingTasksForFiles({
+      jobId: job.id,
+      semesterId,
+      courseId,
+      sectionId,
+      files: localFiles,
+      provider,
+    }) : [];
+    const created = this.options.businessStore.createIndexingJob(job, tasks);
+    this.refreshIndexingJobs();
+    return { ...created };
+  }
+
+  private indexingTasksForFiles(input: {
+    jobId: string;
+    semesterId: string;
+    courseId: string;
+    sectionId?: string;
+    files: WorkspaceFileNode[];
+    provider?: ModelProviderConfig;
+  }): IndexingTaskInsert[] {
+    const { jobId, semesterId, courseId, sectionId, files, provider } = input;
+    const timestamp = Date.now().toString(36);
+    return files.map((file, index) => {
       const fileCourseId = file.courseId || courseId;
       return {
-        id: `idx-task-${job.id}-${index + 1}`,
-        jobId: job.id,
+        id: `idx-task-${jobId}-${timestamp}-${index + 1}-${Math.random().toString(36).slice(2, 7)}`,
+        jobId,
         semesterId,
         courseId: fileCourseId,
         sectionId,
@@ -616,17 +684,47 @@ export class FileService {
           kind: file.kind,
           weekNumber: file.weekNumber,
           taskFileBucket: file.taskFileBucket,
+          embeddingProvider: provider ? embeddingProviderSnapshot(provider) : undefined,
         },
       };
-    }) : [];
-    const created = this.options.businessStore.createIndexingJob(job, tasks);
-    this.refreshIndexingJobs();
-    return { ...created };
+    });
   }
 
   async reindexCourseFiles(courseId: string, sectionId?: string): Promise<IndexingJob> {
     await this.options.ragIndex.rebuildOutdatedSchemaForExplicitReindex();
     return this.indexCourseFiles(courseId, sectionId);
+  }
+
+  retryIndexingFile(fileId: string): IndexingJob {
+    const { file, semesterId } = this.guardFileAccess(fileId, "re-indexing");
+    if (file.kind === "folder") throw new Error("Folders cannot be indexed directly. Choose a file instead.");
+    if (!file.sourcePath) throw new Error("No local source path is available for this file. Re-import the file before indexing.");
+    if (!existsSync(file.sourcePath)) throw new Error("文件源路径不可用。请重新导入这个文件。");
+    this.assertFileSourceInsideWorkspace(file, semesterId);
+    if (this.options.businessStore.hasActiveFileIndexing(file.id)) {
+      throw new Error("This file is already being indexed.");
+    }
+    const provider = this.embeddingProvider();
+    const sectionId = sectionIdForFile(file);
+    const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, file.courseId, sectionId);
+    if (activeJob && provider?.selectedModel && activeJob.embeddingModel === provider.selectedModel) {
+      const tasks = this.indexingTasksForFiles({
+        jobId: activeJob.id,
+        semesterId,
+        courseId: file.courseId,
+        sectionId,
+        files: [file],
+        provider,
+      });
+      return this.options.businessStore.appendIndexingTasksToJob(activeJob.id, tasks) || activeJob;
+    }
+    return this.createIndexingJobForFiles({
+      semesterId,
+      courseId: file.courseId,
+      sectionId,
+      files: [file],
+      provider,
+    });
   }
 
   async indexActiveSemesterCourses(): Promise<IndexActiveSemesterResult> {
@@ -1641,6 +1739,34 @@ function latestIndexingJobsByScope(jobs: IndexingJob[]): IndexingJob[] {
     }
   }
   return Array.from(latest.values()).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
+
+function embeddingProviderSnapshot(provider: ModelProviderConfig): ModelProviderConfig {
+  return {
+    id: provider.id,
+    purpose: provider.purpose,
+    providerKind: provider.providerKind,
+    adapterKind: provider.adapterKind,
+    name: provider.name,
+    protocol: provider.protocol,
+    baseUrl: provider.baseUrl,
+    apiKeyMasked: provider.apiKeyMasked,
+    apiKeySecretRef: provider.apiKeySecretRef,
+    authMode: provider.authMode,
+    models: provider.models.filter((model) => model.id === provider.selectedModel),
+    selectedModel: provider.selectedModel,
+    enabled: provider.enabled,
+    autoCompactThresholdPercent: provider.autoCompactThresholdPercent,
+    createdAt: provider.createdAt,
+    updatedAt: provider.updatedAt,
+  };
+}
+
+function sectionIdForFile(file: WorkspaceFileNode): string | undefined {
+  if (file.sectionKind === "course_shared") return `${file.courseId}:shared`;
+  if (file.sectionKind === "lecture") return `${file.courseId}:lecture`;
+  if (file.sectionKind === "task" && file.taskId) return `${file.courseId}:task-${file.taskId}`;
+  return undefined;
 }
 
 function errorMessage(error: unknown): string {

@@ -1,4 +1,4 @@
-import type { WorkspaceFileKind } from "../../types/domain";
+import type { ModelProviderConfig, WorkspaceFileKind } from "../../types/domain";
 
 export type IndexingTaskKind = "parse_chunk" | "embed" | "upsert" | "multimodal";
 export type IndexingTaskStatus = "queued" | "running" | "done" | "failed" | "cancelled";
@@ -15,6 +15,7 @@ export interface IndexingTaskPayload {
   kind: WorkspaceFileKind;
   weekNumber?: number;
   taskFileBucket?: string;
+  embeddingProvider?: ModelProviderConfig;
 }
 
 export interface IndexingTaskRecord {

@@ -701,6 +701,25 @@ export class SQLiteBusinessStore {
     return this.getIndexingJob(job.id) || job;
   }
 
+  appendIndexingTasksToJob(jobId: string, tasks: IndexingTaskInsert[]): IndexingJob | null {
+    if (tasks.length === 0) return this.getIndexingJob(jobId);
+    this.db.exec("begin immediate;");
+    try {
+      const job = this.getIndexingJob(jobId);
+      if (!job || job.status === "failed" || job.status === "cancelled" || job.status === "idle") {
+        this.db.exec("commit;");
+        return job;
+      }
+      for (const task of tasks) this.insertIndexingTask({ ...task, jobId });
+      const updated = this.refreshIndexingJob(jobId);
+      this.db.exec("commit;");
+      return updated;
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
   getIndexingTask(taskId: string): IndexingTaskRecord | null {
     const row = this.db.prepare("select * from indexing_tasks where id = ?").get(taskId) as Row | undefined;
     return row ? rowToIndexingTask(row) : null;

@@ -996,6 +996,7 @@ export interface BrevynAPI {
     sections: (courseId: string) => Promise<CourseFileSection[]>;
     stats: (courseId?: string) => Promise<FileStats>;
     index: (courseId: string, sectionId?: string) => Promise<IndexingJob>;
+    retryIndex: (fileId: string) => Promise<IndexingJob>;
     indexActiveSemester: () => Promise<IndexActiveSemesterResult>;
     indexingJobs: (courseId?: string) => Promise<IndexingJob[]>;
     cancelIndexing: (jobId: string) => Promise<IndexingJob | null>;

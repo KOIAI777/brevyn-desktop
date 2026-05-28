@@ -1153,6 +1153,7 @@ function SectionCard({
   const [openLectureWeeks, setOpenLectureWeeks] = useState<Record<string, boolean>>({});
   const [lectureWeekValue, setLectureWeekValue] = useState(lectureWeekOptions[0]?.value || "");
   const [deletingFileId, setDeletingFileId] = useState("");
+  const [retryingFileId, setRetryingFileId] = useState("");
   const [fileActionError, setFileActionError] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
   const lectureWeekGroups = useMemo(() => section.kind === "lecture" ? groupLectureFilesByWeek(section.files) : [], [section.files, section.kind]);
@@ -1195,6 +1196,19 @@ function SectionCard({
       await window.brevyn.files.reveal(fileId);
     } catch (error) {
       setFileActionError(error instanceof Error ? error.message : "在访达中显示失败");
+    }
+  }
+
+  async function retryFileIndex(fileId: string) {
+    setRetryingFileId(fileId);
+    setFileActionError("");
+    try {
+      await window.brevyn.files.retryIndex(fileId);
+      onFileDeleted();
+    } catch (error) {
+      setFileActionError(error instanceof Error ? error.message : "重新索引失败");
+    } finally {
+      setRetryingFileId("");
     }
   }
 
@@ -1281,7 +1295,9 @@ function SectionCard({
                           key={file.id}
                           file={file}
                           deleting={deletingFileId === file.id}
+                          retrying={retryingFileId === file.id}
                           onReveal={() => void revealFile(file.id)}
+                          onRetryIndex={() => void retryFileIndex(file.id)}
                           onDelete={() => void deleteFile(file.id, file.name)}
                         />
                       ))}
@@ -1296,7 +1312,9 @@ function SectionCard({
                 key={file.id}
                 file={file}
                 deleting={deletingFileId === file.id}
+                retrying={retryingFileId === file.id}
                 onReveal={() => void revealFile(file.id)}
+                onRetryIndex={() => void retryFileIndex(file.id)}
                 onDelete={() => void deleteFile(file.id, file.name)}
               />
             ))
@@ -1328,7 +1346,22 @@ function displaySectionTitle(section: CourseFileSection): string {
   return section.title;
 }
 
-function SectionFileRow({ file, deleting, onReveal, onDelete }: { file: WorkspaceFileNode; deleting: boolean; onReveal: () => void; onDelete: () => void }) {
+function SectionFileRow({
+  file,
+  deleting,
+  retrying,
+  onReveal,
+  onRetryIndex,
+  onDelete,
+}: {
+  file: WorkspaceFileNode;
+  deleting: boolean;
+  retrying: boolean;
+  onReveal: () => void;
+  onRetryIndex: () => void;
+  onDelete: () => void;
+}) {
+  const canRetryIndex = shouldOfferIndexRetry(file);
   return (
     <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1343,6 +1376,17 @@ function SectionFileRow({ file, deleting, onReveal, onDelete }: { file: Workspac
       >
         <FolderOpen className="h-3 w-3" />
       </button>
+      {canRetryIndex && (
+        <button
+          type="button"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+          onClick={onRetryIndex}
+          disabled={retrying}
+          title="重新索引此文件"
+        >
+          {retrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        </button>
+      )}
       <button
         type="button"
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
@@ -1354,6 +1398,12 @@ function SectionFileRow({ file, deleting, onReveal, onDelete }: { file: Workspac
       </button>
     </div>
   );
+}
+
+function shouldOfferIndexRetry(file: WorkspaceFileNode): boolean {
+  if (file.kind === "folder" || !file.sourcePath) return false;
+  const status = file.indexingStatus || "idle";
+  return status === "failed" || status === "warning" || status === "skipped" || status === "cancelled" || status === "idle";
 }
 
 function groupLectureFilesByWeek(files: WorkspaceFileNode[]): Array<{ id: string; title: string; weekNumber?: number; files: WorkspaceFileNode[] }> {

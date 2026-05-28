@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, ExternalLink, FolderOpen, Pencil, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, FolderOpen, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import type { WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
@@ -14,7 +14,7 @@ export type FileContextMenuState = {
   };
 };
 
-type FileContextMenuAction = "open" | "reveal" | "copyPath" | "copyName" | "rename" | "delete";
+export type FileContextMenuAction = "open" | "reveal" | "copyPath" | "copyName" | "retryIndex" | "rename" | "delete";
 
 export function FileContextMenu({
   state,
@@ -67,11 +67,13 @@ export function FileContextMenu({
   const items = useMemo(() => {
     if (!state) return [];
     const mutable = Boolean(state.file.sourcePath);
+    const canRetryIndex = mutable && state.file.kind !== "folder" && shouldOfferIndexRetry(state.file);
     return [
       { action: "open" as const, label: "打开", icon: ExternalLink, disabled: !state.file.sourcePath },
       { action: "reveal" as const, label: "在访达中显示", icon: FolderOpen, disabled: !state.file.sourcePath },
       { action: "copyPath" as const, label: "复制路径", icon: Copy, disabled: false },
       { action: "copyName" as const, label: "复制名称", icon: Copy, disabled: false },
+      ...(canRetryIndex ? [{ action: "retryIndex" as const, label: "重新索引此文件", icon: RefreshCw, disabled: false }] : []),
       { action: "rename" as const, label: "重命名", icon: Pencil, disabled: !mutable },
       { action: "delete" as const, label: "删除", icon: Trash2, disabled: !mutable, danger: true },
     ];
@@ -147,4 +149,9 @@ function managedFolderDisplayName(name: string): string {
   if (name === "Drafts") return "草稿";
   if (name === "Submitted") return "已提交";
   return "";
+}
+
+function shouldOfferIndexRetry(file: WorkspaceFileNode): boolean {
+  const status = file.indexingStatus || "idle";
+  return status === "failed" || status === "warning" || status === "skipped" || status === "cancelled" || status === "idle";
 }
