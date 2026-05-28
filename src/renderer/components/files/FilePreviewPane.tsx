@@ -130,6 +130,7 @@ export function FilePreviewPane({
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
               className="h-full w-full bg-background"
+              sandbox=""
               srcDoc={officePreviewDocument(preview.html)}
               title={preview.title}
             />
@@ -146,6 +147,7 @@ export function FilePreviewPane({
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
               className="h-full w-full bg-background"
+              sandbox=""
               srcDoc={officePreviewDocument(preview.html)}
               title={preview.title}
             />
@@ -156,6 +158,7 @@ export function FilePreviewPane({
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
               className="h-full w-full bg-background"
+              sandbox=""
               srcDoc={officePreviewDocument(preview.html)}
               title={preview.title}
             />

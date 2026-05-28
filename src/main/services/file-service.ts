@@ -1341,7 +1341,11 @@ function pdfCanvasPreviewDocument(input: {
         }).promise;
         await renderAll();
       } catch (error) {
-        pages.innerHTML = '<div class="error">PDF 加载失败：' + (error?.message || String(error)) + '</div>';
+        pages.textContent = "";
+        const message = document.createElement("div");
+        message.className = "error";
+        message.textContent = "PDF 加载失败：" + (error?.message || String(error));
+        pages.appendChild(message);
       }
     </script>
   </body>

@@ -307,15 +307,13 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
     }
     if (oldString || newString) {
       const resolvedFilePath = filePath || "file";
-      const patch = createUnifiedPatch(oldString, newString, resolvedFilePath, oldString ? "modified" : "added");
       return {
         kind: "files",
         filePath: resolvedFilePath,
         oldContent: oldString,
         newContent: newString,
-        patch,
-        additions: patch ? diffStatsFromPatch(patch).additions : contentLineCount(newString),
-        deletions: patch ? diffStatsFromPatch(patch).deletions : contentLineCount(oldString),
+        additions: contentLineCount(newString),
+        deletions: contentLineCount(oldString),
         disableLineNumbers: true,
       };
     }
@@ -323,19 +321,32 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
 
   if (toolName === "MultiEdit") {
     const edits = Array.isArray(inputData.edits) ? inputData.edits.map(recordObject) : [];
+    if (originalFile !== undefined && edits.length > 0) {
+      const newContent = applyMultiEdit(originalFile, edits);
+      const resolvedFilePath = filePath || "file";
+      const patch = createUnifiedPatch(originalFile, newContent, resolvedFilePath, "modified");
+      const stats = patch ? diffStatsFromPatch(patch) : { additions: 0, deletions: 0 };
+      return {
+        kind: "files",
+        filePath: resolvedFilePath,
+        oldContent: originalFile,
+        newContent,
+        patch,
+        additions: stats.additions,
+        deletions: stats.deletions,
+      };
+    }
     const oldContent = edits.map((edit) => typeof edit.old_string === "string" ? edit.old_string : "").join("\n");
     const newContent = edits.map((edit) => typeof edit.new_string === "string" ? edit.new_string : "").join("\n");
     if (!oldContent && !newContent) return null;
     const resolvedFilePath = filePath || "file";
-    const patch = createUnifiedPatch(oldContent, newContent, resolvedFilePath, oldContent ? "modified" : "added");
     return {
       kind: "files",
       filePath: resolvedFilePath,
       oldContent,
       newContent,
-      patch,
-      additions: patch ? diffStatsFromPatch(patch).additions : contentLineCount(newContent),
-      deletions: patch ? diffStatsFromPatch(patch).deletions : contentLineCount(oldContent),
+      additions: contentLineCount(newContent),
+      deletions: contentLineCount(oldContent),
       disableLineNumbers: true,
     };
   }
@@ -448,6 +459,15 @@ function rangeSpec(start: number, lines: number): string {
 function applyEdit(content: string, oldString: string, newString: string, replaceAll: boolean): string {
   if (!oldString) return content;
   return replaceAll ? content.split(oldString).join(newString) : content.replace(oldString, newString);
+}
+
+function applyMultiEdit(content: string, edits: Array<Record<string, unknown>>): string {
+  return edits.reduce((current, edit) => {
+    const oldString = typeof edit.old_string === "string" ? edit.old_string : "";
+    const newString = typeof edit.new_string === "string" ? edit.new_string : "";
+    const replaceAll = edit.replace_all === true || edit.replaceAll === true;
+    return applyEdit(current, oldString, newString, replaceAll);
+  }, content);
 }
 
 function numericValue(value: unknown): number | null {

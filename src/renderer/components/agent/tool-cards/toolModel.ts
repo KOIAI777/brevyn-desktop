@@ -43,17 +43,6 @@ export interface ToolDiffStats {
   deletions: number;
 }
 
-export interface DiffRow {
-  type: "added" | "removed" | "context";
-  lineNumber: number;
-  text: string;
-}
-
-export interface DiffHunk {
-  id: string;
-  rows: DiffRow[];
-}
-
 export interface ToolPhrase {
   label: string;
   status: string;
@@ -128,25 +117,6 @@ export function getToolTarget(toolName: string, input: unknown): string {
   if (toolName === "TaskList") return "";
   if (toolName === "mcp__brevyn__rag_search") return singleLine(stringValue(data.query, "query"));
   return stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
-}
-
-export function getToolDiffHunks(toolName: string, input: unknown): DiffHunk[] {
-  const data = recordObject(input);
-  if (toolName === "Write") {
-    const content = typeof data.content === "string" ? data.content : "";
-    return content ? [{ id: "write", rows: rowsFromText(content, "added", 1) }] : [];
-  }
-  if (toolName === "Edit") {
-    const rows = editRows(data);
-    return rows.length > 0 ? [{ id: "edit", rows }] : [];
-  }
-  if (toolName === "MultiEdit") {
-    const edits = Array.isArray(data.edits) ? data.edits : [];
-    return edits
-      .map((edit, index) => ({ id: `edit-${index}`, rows: editRows(recordObject(edit)) }))
-      .filter((hunk) => hunk.rows.length > 0);
-  }
-  return [];
 }
 
 export function getToolDiffStats(toolName: string, input: unknown): ToolDiffStats | null {
@@ -356,27 +326,6 @@ function webSearchQueryFromInput(input: Record<string, unknown>): string {
     if (value) return value;
   }
   return "";
-}
-
-function editRows(input: Record<string, unknown>): DiffRow[] {
-  const oldString = typeof input.old_string === "string" ? input.old_string : "";
-  const newString = typeof input.new_string === "string" ? input.new_string : "";
-  const startLine = numericValue(input.line_number ?? input.start_line ?? input.startLine) ?? 1;
-  return [
-    ...rowsFromText(oldString, "removed", startLine),
-    ...rowsFromText(newString, "added", startLine),
-  ];
-}
-
-function rowsFromText(value: string, type: DiffRow["type"], startLine: number): DiffRow[] {
-  if (!value) return [];
-  const lines = value.split("\n");
-  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-  return lines.map((line, index) => ({
-    type,
-    lineNumber: startLine + index,
-    text: line,
-  }));
 }
 
 function lineCount(value: string): number {

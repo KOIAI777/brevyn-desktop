@@ -1,13 +1,14 @@
 import { app, BrowserWindow, Menu, nativeTheme, net, protocol, shell } from "electron";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { normalize, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerIpcHandlers } from "./ipc";
 import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
 import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
 import { WORKSPACE_FILE_PREVIEW_PROTOCOL } from "./services/file-service";
+import { isPathInside } from "./services/workspace-paths";
 import { cleanupUpdater, initAutoUpdater, isInstallingUpdate } from "./updater/auto-updater";
 
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Brevyn" : "Brevyn Dev"));
@@ -233,9 +234,8 @@ function registerWorkspaceFilePreviewProtocol(dataRoot: string): void {
     if (url.hostname !== "workspace") {
       return new Response("Invalid workspace file host.", { status: 400 });
     }
-    const requestedPath = normalize(decodeURIComponent(url.pathname.slice(1)));
-    const normalizedRoot = normalize(dataRoot);
-    if (!requestedPath.startsWith(`${normalizedRoot}/`) && requestedPath !== normalizedRoot) {
+    const requestedPath = decodeURIComponent(url.pathname.slice(1));
+    if (!isPathInside(requestedPath, dataRoot)) {
       return new Response("Workspace file is outside the Brevyn data root.", { status: 403 });
     }
     if (!existsSync(requestedPath)) {

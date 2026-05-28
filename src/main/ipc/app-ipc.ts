@@ -1,6 +1,5 @@
 import { ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
-import { dirname } from "node:path";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 import { requireString } from "./validation";
@@ -45,7 +44,7 @@ export function registerAppIpc(ctx: IpcContext): void {
       return;
     }
     if (optionId === "terminal") {
-      await service.openTerminalAt(dirname(targetPath));
+      await service.openTerminalAt(targetPath);
       return;
     }
     if (optionId.startsWith("terminal:")) {
