@@ -162,7 +162,7 @@ function usePierreDiffOptions(disableLineNumbers = false) {
 
 type FileDiffSource =
   | { kind: "patch"; patch: string; filePath: string; additions: number; deletions: number }
-  | { kind: "files"; filePath: string; oldContent: string; newContent: string; additions: number; deletions: number; disableLineNumbers?: boolean };
+  | { kind: "files"; filePath: string; oldContent: string; newContent: string; patch: string; additions: number; deletions: number; disableLineNumbers?: boolean };
 
 function PierreDiffSource({ source }: { source: FileDiffSource }) {
   const options = usePierreDiffOptions(source.kind === "files" && source.disableLineNumbers === true);
@@ -180,6 +180,7 @@ function PierreDiffSource({ source }: { source: FileDiffSource }) {
       filePath={source.filePath}
       oldContent={source.oldContent}
       newContent={source.newContent}
+      patch={source.patch}
       additions={source.additions}
       deletions={source.deletions}
       options={options}
@@ -191,6 +192,7 @@ function PierreFileDiff({
   filePath,
   oldContent,
   newContent,
+  patch,
   additions,
   deletions,
   options,
@@ -198,6 +200,7 @@ function PierreFileDiff({
   filePath: string;
   oldContent: string;
   newContent: string;
+  patch: string;
   additions: number;
   deletions: number;
   options: ReturnType<typeof usePierreDiffOptions>;
@@ -214,7 +217,7 @@ function PierreFileDiff({
   }), [filePath, newContent]);
 
   return (
-    <PierreDiffFrame filePath={filePath} additions={additions} deletions={deletions} copyText={newContent}>
+    <PierreDiffFrame filePath={filePath} additions={additions} deletions={deletions} copyText={patch}>
       <MultiFileDiff oldFile={oldFile} newFile={newFile} options={options} />
     </PierreDiffFrame>
   );
@@ -259,13 +262,16 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
         ? inputData.content
         : "";
     if (!content) return null;
+    const oldContent = originalFile ?? "";
+    const resolvedFilePath = filePath || "new-file";
     return {
       kind: "files",
-      filePath: filePath || "new-file",
-      oldContent: originalFile ?? "",
+      filePath: resolvedFilePath,
+      oldContent,
       newContent: content,
-      additions: lineCount(content),
-      deletions: lineCount(originalFile ?? ""),
+      patch: patchFromContents(oldContent, content, resolvedFilePath, oldContent ? "modified" : "added"),
+      additions: contentLineCount(content),
+      deletions: contentLineCount(oldContent),
     };
   }
 
@@ -281,23 +287,28 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
         ? inputData.new_string
         : "";
     if (originalFile !== undefined && oldString) {
+      const newContent = applyEdit(originalFile, oldString, newString, raw.replaceAll === true);
+      const resolvedFilePath = filePath || "file";
       return {
         kind: "files",
-        filePath: filePath || "file",
+        filePath: resolvedFilePath,
         oldContent: originalFile,
-        newContent: applyEdit(originalFile, oldString, newString, raw.replaceAll === true),
-        additions: lineCount(newString),
-        deletions: lineCount(oldString),
+        newContent,
+        patch: patchFromContents(originalFile, newContent, resolvedFilePath, "modified"),
+        additions: contentLineCount(newString),
+        deletions: contentLineCount(oldString),
       };
     }
     if (oldString || newString) {
+      const resolvedFilePath = filePath || "file";
       return {
         kind: "files",
-        filePath: filePath || "file",
+        filePath: resolvedFilePath,
         oldContent: oldString,
         newContent: newString,
-        additions: lineCount(newString),
-        deletions: lineCount(oldString),
+        patch: patchFromContents(oldString, newString, resolvedFilePath, oldString ? "modified" : "added"),
+        additions: contentLineCount(newString),
+        deletions: contentLineCount(oldString),
         disableLineNumbers: true,
       };
     }
@@ -308,13 +319,15 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
     const oldContent = edits.map((edit) => typeof edit.old_string === "string" ? edit.old_string : "").join("\n");
     const newContent = edits.map((edit) => typeof edit.new_string === "string" ? edit.new_string : "").join("\n");
     if (!oldContent && !newContent) return null;
+    const resolvedFilePath = filePath || "file";
     return {
       kind: "files",
-      filePath: filePath || "file",
+      filePath: resolvedFilePath,
       oldContent,
       newContent,
-      additions: lineCount(newContent),
-      deletions: lineCount(oldContent),
+      patch: patchFromContents(oldContent, newContent, resolvedFilePath, oldContent ? "modified" : "added"),
+      additions: contentLineCount(newContent),
+      deletions: contentLineCount(oldContent),
       disableLineNumbers: true,
     };
   }
@@ -340,9 +353,13 @@ function filePathFromPatch(patch: string): string {
   return diffMatch?.[1]?.trim() || "";
 }
 
-function lineCount(value: string): number {
+function contentLineCount(value: string): number {
   if (!value) return 0;
-  return value.split("\n").filter((line) => line.length > 0).length;
+  let count = 1;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 10) count += 1;
+  }
+  return value.endsWith("\n") ? Math.max(0, count - 1) : count;
 }
 
 function basename(filePath: string): string {
@@ -359,6 +376,24 @@ function normalizeGitPatch(patch: string, filePath: string, status: string): str
   const trimmed = patch.trimEnd();
   if (/^diff --git /m.test(trimmed)) return trimmed;
   return patchFromHunks(trimmed, filePath || "file", status || "modified");
+}
+
+function patchFromContents(oldContent: string, newContent: string, filePath: string, status: string): string {
+  const oldLines = diffContentLines(oldContent);
+  const newLines = diffContentLines(newContent);
+  const hunk = [
+    `@@ -${rangeSpec(oldLines.length > 0 ? 1 : 0, oldLines.length)} +${rangeSpec(newLines.length > 0 ? 1 : 0, newLines.length)} @@`,
+    ...oldLines.map((line) => `-${line}`),
+    ...newLines.map((line) => `+${line}`),
+  ];
+  return patchFromHunks(hunk.join("\n"), filePath || "file", status);
+}
+
+function diffContentLines(value: string): string[] {
+  if (!value) return [];
+  const lines = value.split("\n");
+  if (value.endsWith("\n")) lines.pop();
+  return lines;
 }
 
 function patchFromStructuredPatch(structuredPatch: unknown[], filePath: string, status: string): string {

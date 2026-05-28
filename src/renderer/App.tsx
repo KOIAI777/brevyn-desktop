@@ -23,6 +23,7 @@ function App() {
   const fileStateRef = useRef<ReturnType<typeof useWorkspaceFilesState> | null>(null);
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
   const previewErrorTimeoutRef = useRef<number | null>(null);
+  const previewErrorMessageRef = useRef("");
 
   const dialogs = useAppDialogState();
   const layoutState = useWorkspaceLayoutState({ contentGridRef });
@@ -40,10 +41,19 @@ function App() {
       window.clearTimeout(previewErrorTimeoutRef.current);
       previewErrorTimeoutRef.current = null;
     }
+    if (!message) {
+      const currentPreviewError = previewErrorMessageRef.current;
+      if (currentPreviewError) {
+        workspace.setWorkspaceError((current) => current === currentPreviewError ? "" : current);
+        previewErrorMessageRef.current = "";
+      }
+      return;
+    }
+    previewErrorMessageRef.current = message;
     workspace.setWorkspaceError(message);
-    if (!message) return;
     previewErrorTimeoutRef.current = window.setTimeout(() => {
-      workspace.setWorkspaceError((current) => current === message ? "" : current);
+      workspace.setWorkspaceError((current) => current === message && previewErrorMessageRef.current === message ? "" : current);
+      if (previewErrorMessageRef.current === message) previewErrorMessageRef.current = "";
       previewErrorTimeoutRef.current = null;
     }, 4200);
   }, [workspace.setWorkspaceError]);
@@ -72,6 +82,7 @@ function App() {
       window.clearTimeout(previewErrorTimeoutRef.current);
       previewErrorTimeoutRef.current = null;
     }
+    previewErrorMessageRef.current = "";
   }, []);
 
   async function runAgent(prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<void> {
