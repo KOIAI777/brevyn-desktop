@@ -1154,8 +1154,8 @@ export class SQLiteBusinessStore {
 
   private insertIndexingJob(job: IndexingJob): void {
     this.run(
-      `insert or replace into indexing_jobs(id, semester_id, course_id, section_id, status, stage, embedding_model, indexed_files, total_files, completed_files, progress, error, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert or replace into indexing_jobs(id, semester_id, course_id, section_id, status, stage, embedding_model, embedding_provider_fingerprint, indexed_files, total_files, completed_files, progress, error, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       job.id,
       job.semesterId ?? "",
       job.courseId,
@@ -1163,6 +1163,7 @@ export class SQLiteBusinessStore {
       job.status,
       job.stage ?? null,
       job.embeddingModel,
+      job.embeddingProviderFingerprint ?? null,
       job.indexedFiles,
       job.totalFiles ?? job.indexedFiles ?? 0,
       job.completedFiles ?? job.indexedFiles ?? 0,
@@ -1456,6 +1457,7 @@ export class SQLiteBusinessStore {
     this.ensureColumn("courses", "archived_at", "text");
     this.ensureColumn("tasks", "archived_at", "text");
     this.ensureColumn("indexing_jobs", "stage", "text");
+    this.ensureColumn("indexing_jobs", "embedding_provider_fingerprint", "text");
     this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
     this.db.exec("drop table if exists providers;");
@@ -1869,6 +1871,7 @@ function rowToIndexingJob(row: Row): IndexingJob {
     status: stringValue(row.status) as IndexingJob["status"],
     stage: nullableString(row.stage),
     embeddingModel: stringValue(row.embedding_model),
+    embeddingProviderFingerprint: nullableString(row.embedding_provider_fingerprint),
     indexedFiles: numberValue(row.indexed_files) || 0,
     totalFiles: numberValue(row.total_files) || 0,
     completedFiles: numberValue(row.completed_files) || 0,

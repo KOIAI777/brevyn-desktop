@@ -571,7 +571,7 @@ export class FileService {
     const provider = this.embeddingProvider();
     const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
     const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, courseId, sectionId);
-    if (activeJob && localFiles.length > 0 && provider?.selectedModel && activeJob.embeddingModel === provider.selectedModel) {
+    if (activeJob && localFiles.length > 0 && embeddingJobMatchesProvider(activeJob, provider)) {
       const tasks = this.indexingTasksForFiles({
         jobId: activeJob.id,
         semesterId,
@@ -631,6 +631,7 @@ export class FileService {
       status,
       stage,
       embeddingModel: provider?.selectedModel || "(none)",
+      embeddingProviderFingerprint: provider ? embeddingProviderFingerprint(provider) : undefined,
       indexedFiles: 0,
       totalFiles: localFiles.length,
       completedFiles: 0,
@@ -707,7 +708,7 @@ export class FileService {
     const provider = this.embeddingProvider();
     const sectionId = sectionIdForFile(file);
     const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, file.courseId, sectionId);
-    if (activeJob && provider?.selectedModel && activeJob.embeddingModel === provider.selectedModel) {
+    if (activeJob && embeddingJobMatchesProvider(activeJob, provider)) {
       const tasks = this.indexingTasksForFiles({
         jobId: activeJob.id,
         semesterId,
@@ -1760,6 +1761,22 @@ function embeddingProviderSnapshot(provider: ModelProviderConfig): ModelProvider
     createdAt: provider.createdAt,
     updatedAt: provider.updatedAt,
   };
+}
+
+function embeddingProviderFingerprint(provider: ModelProviderConfig): string {
+  return [
+    provider.id,
+    provider.adapterKind,
+    provider.providerKind,
+    provider.protocol,
+    provider.baseUrl,
+    provider.selectedModel,
+  ].join("|");
+}
+
+function embeddingJobMatchesProvider(job: IndexingJob, provider?: ModelProviderConfig): provider is ModelProviderConfig {
+  if (!provider?.selectedModel) return false;
+  return job.embeddingProviderFingerprint === embeddingProviderFingerprint(provider);
 }
 
 function sectionIdForFile(file: WorkspaceFileNode): string | undefined {

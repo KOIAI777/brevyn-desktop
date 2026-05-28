@@ -1,6 +1,6 @@
-import { AlertTriangle, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { cx } from "@/lib/cn";
 
 export type ConfirmRequest = {
@@ -47,13 +47,21 @@ export function useConfirmDialog() {
 }
 
 function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onResolve: (value: boolean) => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
+  const titleId = useId();
+  const messageId = useId();
 
   useEffect(() => {
     setMounted(true);
     const frame = window.requestAnimationFrame(() => {
-      confirmButtonRef.current?.focus();
+      if (request.tone === "danger") {
+        cancelButtonRef.current?.focus();
+      } else {
+        confirmButtonRef.current?.focus();
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [request]);
@@ -69,57 +77,101 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onResolve]);
 
-  const toneClass = request.tone === "danger" ? "border-red-200 bg-red-50 text-red-700" : "border-border bg-card text-foreground";
+  const isDanger = request.tone === "danger";
+  const Icon = isDanger ? AlertTriangle : AlertCircle;
+
+  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Tab") return;
+    const focusable = focusableElements(dialogRef.current);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm" onMouseDown={() => onResolve(false)}>
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm"
+      onMouseDown={() => onResolve(false)}
+      role="presentation"
+    >
       <div
+        ref={dialogRef}
+        role={isDanger ? "alertdialog" : "dialog"}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={request.message ? messageId : undefined}
         className={cx(
-          "w-full max-w-md rounded-lg border shadow-2xl ring-1 ring-border/80 transition duration-150 ease-out",
+          "w-full max-w-[28rem] overflow-hidden rounded-2xl border border-border/70 bg-card text-foreground shadow-2xl ring-1 ring-border/50 transition duration-150 ease-out",
           mounted ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-[0.98] opacity-0",
-          toneClass,
         )}
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={handleDialogKeyDown}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
-          <div className="flex min-w-0 items-start gap-2">
-            <span className={cx("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md", request.tone === "danger" ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground")}>
-              <AlertTriangle className="h-4 w-4" />
+        <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              className={cx(
+                "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+                isDanger ? "border-red-200 bg-red-50 text-red-600" : "border-border bg-muted text-muted-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{request.title}</div>
-              {request.message && <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{request.message}</div>}
+              <div id={titleId} className="text-sm font-semibold leading-6">
+                {request.title}
+              </div>
+              {request.message && (
+                <div id={messageId} className="mt-1.5 text-[12px] leading-5 text-muted-foreground">
+                  {request.message}
+                </div>
+              )}
             </div>
           </div>
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={() => onResolve(false)}
-            title="Close"
+            title="关闭"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="space-y-3 px-4 py-4">
-          <div className="flex items-center justify-end gap-2">
+        {isDanger && (
+          <div className="mx-5 rounded-xl border border-red-100 bg-red-50/70 px-3 py-2 text-[11px] leading-5 text-red-700">
+            这个操作可能无法撤销，请确认目标无误后再继续。
+          </div>
+        )}
+
+        <div className="px-5 py-4">
+          <div className="flex items-center justify-end gap-2.5">
             <button
               type="button"
-              className="inline-flex h-8 items-center rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              ref={cancelButtonRef}
+              className="inline-flex h-8 items-center rounded-lg border bg-background px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
               onClick={() => onResolve(false)}
             >
-              {request.cancelLabel || "Cancel"}
+              {request.cancelLabel || "取消"}
             </button>
             <button
               type="button"
               ref={confirmButtonRef}
               className={cx(
-                "inline-flex h-8 items-center rounded-md px-3 text-xs font-medium text-background transition",
-                request.tone === "danger" ? "bg-red-600 hover:bg-red-700" : "bg-foreground hover:opacity-90",
+                "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium text-background shadow-sm transition",
+                isDanger ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-500/30" : "bg-foreground hover:opacity-90",
               )}
               onClick={() => onResolve(true)}
             >
-              {request.confirmLabel || "Confirm"}
+              {request.confirmLabel || "确认"}
             </button>
           </div>
         </div>
@@ -127,4 +179,13 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
     </div>,
     document.body,
   );
+}
+
+function focusableElements(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hasAttribute("disabled") && element.tabIndex !== -1);
 }

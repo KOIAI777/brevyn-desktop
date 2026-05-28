@@ -414,6 +414,7 @@ export interface IndexingJob {
   status: IndexingStatus;
   stage?: string;
   embeddingModel: string;
+  embeddingProviderFingerprint?: string;
   indexedFiles: number;
   totalFiles?: number;
   completedFiles?: number;
