@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { FileContents } from "@pierre/diffs";
 import { MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
+import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { Check, Copy } from "lucide-react";
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
 import { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
@@ -79,7 +80,7 @@ function PierreDiffFrame({
   filePath: string;
   additions: number;
   deletions: number;
-  copyText: string;
+  copyText?: string;
 }) {
   return (
     <div className="mt-2 flex max-h-[400px] min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card/95 text-[11px] shadow-sm [contain:layout_paint_style]">
@@ -100,12 +101,13 @@ function DiffFrameHeader({
   filePath: string;
   additions: number;
   deletions: number;
-  copyText: string;
+  copyText?: string;
 }) {
   const [copied, setCopied] = React.useState(false);
   const displayName = React.useMemo(() => basename(filePath || "file"), [filePath]);
 
   async function handleCopy() {
+    if (!copyText) return;
     try {
       await navigator.clipboard.writeText(copyText);
       setCopied(true);
@@ -122,15 +124,17 @@ function DiffFrameHeader({
       </span>
       <DiffStat value={additions} tone="add" />
       <DiffStat value={deletions} tone="delete" />
-      <button
-        type="button"
-        onClick={() => void handleCopy()}
-        className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
-        aria-label={copied ? "Diff copied" : "Copy diff"}
-        title={copied ? "已复制" : "复制 diff"}
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </button>
+      {copyText && (
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+          aria-label={copied ? "Diff copied" : "Copy diff"}
+          title={copied ? "已复制" : "复制 diff"}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      )}
     </div>
   );
 }
@@ -162,7 +166,7 @@ function usePierreDiffOptions(disableLineNumbers = false) {
 
 type FileDiffSource =
   | { kind: "patch"; patch: string; filePath: string; additions: number; deletions: number }
-  | { kind: "files"; filePath: string; oldContent: string; newContent: string; patch: string; additions: number; deletions: number; disableLineNumbers?: boolean };
+  | { kind: "files"; filePath: string; oldContent: string; newContent: string; patch?: string; additions: number; deletions: number; disableLineNumbers?: boolean };
 
 function PierreDiffSource({ source }: { source: FileDiffSource }) {
   const options = usePierreDiffOptions(source.kind === "files" && source.disableLineNumbers === true);
@@ -200,7 +204,7 @@ function PierreFileDiff({
   filePath: string;
   oldContent: string;
   newContent: string;
-  patch: string;
+  patch?: string;
   additions: number;
   deletions: number;
   options: ReturnType<typeof usePierreDiffOptions>;
@@ -264,14 +268,15 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
     if (!content) return null;
     const oldContent = originalFile ?? "";
     const resolvedFilePath = filePath || "new-file";
+    const patch = createUnifiedPatch(oldContent, content, resolvedFilePath, oldContent ? "modified" : "added");
     return {
       kind: "files",
       filePath: resolvedFilePath,
       oldContent,
       newContent: content,
-      patch: patchFromContents(oldContent, content, resolvedFilePath, oldContent ? "modified" : "added"),
-      additions: contentLineCount(content),
-      deletions: contentLineCount(oldContent),
+      patch,
+      additions: patch ? diffStatsFromPatch(patch).additions : contentLineCount(content),
+      deletions: patch ? diffStatsFromPatch(patch).deletions : contentLineCount(oldContent),
     };
   }
 
@@ -289,26 +294,28 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
     if (originalFile !== undefined && oldString) {
       const newContent = applyEdit(originalFile, oldString, newString, raw.replaceAll === true);
       const resolvedFilePath = filePath || "file";
+      const patch = createUnifiedPatch(originalFile, newContent, resolvedFilePath, "modified");
       return {
         kind: "files",
         filePath: resolvedFilePath,
         oldContent: originalFile,
         newContent,
-        patch: patchFromContents(originalFile, newContent, resolvedFilePath, "modified"),
-        additions: contentLineCount(newString),
-        deletions: contentLineCount(oldString),
+        patch,
+        additions: patch ? diffStatsFromPatch(patch).additions : contentLineCount(newString),
+        deletions: patch ? diffStatsFromPatch(patch).deletions : contentLineCount(oldString),
       };
     }
     if (oldString || newString) {
       const resolvedFilePath = filePath || "file";
+      const patch = createUnifiedPatch(oldString, newString, resolvedFilePath, oldString ? "modified" : "added");
       return {
         kind: "files",
         filePath: resolvedFilePath,
         oldContent: oldString,
         newContent: newString,
-        patch: patchFromContents(oldString, newString, resolvedFilePath, oldString ? "modified" : "added"),
-        additions: contentLineCount(newString),
-        deletions: contentLineCount(oldString),
+        patch,
+        additions: patch ? diffStatsFromPatch(patch).additions : contentLineCount(newString),
+        deletions: patch ? diffStatsFromPatch(patch).deletions : contentLineCount(oldString),
         disableLineNumbers: true,
       };
     }
@@ -320,14 +327,15 @@ function fileDiffSource(toolName: string, input: unknown, result: ToolResultBloc
     const newContent = edits.map((edit) => typeof edit.new_string === "string" ? edit.new_string : "").join("\n");
     if (!oldContent && !newContent) return null;
     const resolvedFilePath = filePath || "file";
+    const patch = createUnifiedPatch(oldContent, newContent, resolvedFilePath, oldContent ? "modified" : "added");
     return {
       kind: "files",
       filePath: resolvedFilePath,
       oldContent,
       newContent,
-      patch: patchFromContents(oldContent, newContent, resolvedFilePath, oldContent ? "modified" : "added"),
-      additions: contentLineCount(newContent),
-      deletions: contentLineCount(oldContent),
+      patch,
+      additions: patch ? diffStatsFromPatch(patch).additions : contentLineCount(newContent),
+      deletions: patch ? diffStatsFromPatch(patch).deletions : contentLineCount(oldContent),
       disableLineNumbers: true,
     };
   }
@@ -378,22 +386,33 @@ function normalizeGitPatch(patch: string, filePath: string, status: string): str
   return patchFromHunks(trimmed, filePath || "file", status || "modified");
 }
 
-function patchFromContents(oldContent: string, newContent: string, filePath: string, status: string): string {
-  const oldLines = diffContentLines(oldContent);
-  const newLines = diffContentLines(newContent);
-  const hunk = [
-    `@@ -${rangeSpec(oldLines.length > 0 ? 1 : 0, oldLines.length)} +${rangeSpec(newLines.length > 0 ? 1 : 0, newLines.length)} @@`,
-    ...oldLines.map((line) => `-${line}`),
-    ...newLines.map((line) => `+${line}`),
-  ];
-  return patchFromHunks(hunk.join("\n"), filePath || "file", status);
-}
-
-function diffContentLines(value: string): string[] {
-  if (!value) return [];
-  const lines = value.split("\n");
-  if (value.endsWith("\n")) lines.pop();
-  return lines;
+function createUnifiedPatch(oldContent: string, newContent: string, filePath: string, status: string): string | undefined {
+  if (oldContent === newContent) return undefined;
+  const safePath = filePath.replace(/\\/g, "/") || "file";
+  const patch = createTwoFilesPatch(
+    status === "added" ? "/dev/null" : `a/${safePath}`,
+    `b/${safePath}`,
+    oldContent,
+    newContent,
+    "",
+    "",
+    {
+      context: 3,
+      headerOptions: FILE_HEADERS_ONLY,
+      maxEditLength: 20_000,
+      stripTrailingCr: true,
+    },
+  );
+  if (!patch) return undefined;
+  const body = patch
+    .replace(/\t$/gm, "")
+    .replace(/^--- \/dev\/null$/m, "--- /dev/null")
+    .trimEnd();
+  const header = [
+    `diff --git a/${safePath} b/${safePath}`,
+    status === "added" ? "new file mode 100644" : "",
+  ].filter(Boolean);
+  return [...header, body].join("\n");
 }
 
 function patchFromStructuredPatch(structuredPatch: unknown[], filePath: string, status: string): string {
