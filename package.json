@@ -20,6 +20,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
+    "analyze:package-size": "node scripts/analyze-package-size.mjs",
     "typecheck": "tsc --noEmit",
     "test:semester-weeks": "esbuild src/shared/semester-weeks.test.ts --bundle --platform=node --format=cjs --outfile=dist/semester-weeks.test.cjs && node dist/semester-weeks.test.cjs",
     "test:agent-timeline": "esbuild src/renderer/components/agent/agentTimelineModel.test.ts --bundle --platform=node --format=cjs --outfile=dist/agentTimelineModel.test.cjs && node dist/agentTimelineModel.test.cjs",
