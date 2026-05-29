@@ -107,6 +107,7 @@ export function AgentRichPromptInput({
         heading: false,
         blockquote: false,
         horizontalRule: false,
+        link: false,
       }),
       Placeholder.configure({ placeholder }),
       Mention.extend({

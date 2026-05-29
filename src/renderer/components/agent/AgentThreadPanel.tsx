@@ -1109,9 +1109,9 @@ const RunningToolGroupDetails = memo(function RunningToolGroupDetails({
               title={expanded ? "折叠工具详情" : "展开工具详情"}
             >
               <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
-                <ToolGlyph toolName={event.tool.name} className={`h-3.5 w-3.5 shrink-0 ${running ? "animate-pulse" : "opacity-70"}`} />
+                <ToolGlyph toolName={event.tool.name} result={event.result} className={`h-3.5 w-3.5 shrink-0 ${running ? "animate-pulse" : "opacity-70"}`} />
                 <span className="min-w-0">
-                  <ToolTitle toolName={event.tool.name} input={event.tool.input} isError={failed} />
+                  <ToolTitle toolName={event.tool.name} input={event.tool.input} result={event.result} isError={failed} />
                 </span>
               </span>
               <span className={`inline-flex shrink-0 items-center gap-1.5 font-medium ${running ? "taskagent-sweep-text" : failed ? "text-destructive" : "text-muted-foreground/75"}`}>

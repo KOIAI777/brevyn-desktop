@@ -1,12 +1,13 @@
 import { useContext } from "react";
-import { FileSearch, FileText, FolderOpen, FolderTree, Globe, HelpCircle, ListTodo, MessageCircleQuestion, Pencil, Search, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare } from "lucide-react";
+import { FilePlus, FileSearch, FileText, FolderOpen, FolderTree, Globe, HelpCircle, ListTodo, MessageCircleQuestion, Pencil, Search, ShieldAlert, ShieldCheck, Sparkles, TerminalSquare } from "lucide-react";
 import { ToolUseCard as BaseToolUseCard } from "@/components/agent/AgentToolCards";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { FilePathChip } from "@/components/chat/FilePathChip";
 import {
   formatDiffStats,
-  getToolDiffStats,
+  getToolDiffStatsForDisplay,
   getToolTitle,
+  isCreatedFileWriteResult,
   recordObject,
   stringValue,
   truncatePreview,
@@ -32,16 +33,16 @@ export function ToolUseCard({
       collapsed={collapsed}
       onToggleCollapsed={onToggleCollapsed}
       truncatePreview={truncatePreview}
-      renderToolGlyph={(toolName, className) => <ToolGlyph toolName={toolName} className={className} />}
+      renderToolGlyph={(toolName, className, result) => <ToolGlyph toolName={toolName} result={result} className={className} />}
     />
   );
 }
 
-export function ToolTitle({ toolName, input, isError = false }: { toolName: string; input: unknown; isError?: boolean }) {
+export function ToolTitle({ toolName, input, result, isError = false }: { toolName: string; input: unknown; result?: ToolResultBlock; isError?: boolean }) {
   const threadId = useContext(AgentThreadIdContext);
   const data = recordObject(input);
   const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
-  const diff = getToolDiffStats(toolName, input);
+  const diff = getToolDiffStatsForDisplay(toolName, input, result);
   const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
 
   if (toolName === "Read") {
@@ -57,9 +58,10 @@ export function ToolTitle({ toolName, input, isError = false }: { toolName: stri
   }
 
   if (path && (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit")) {
+    const verb = !result ? "正在编辑" : isCreatedFileWriteResult(toolName, result) ? "已创建" : isError ? "编辑失败" : "已编辑";
     return (
       <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
-        <span className="shrink-0">编辑</span>
+        <span className="shrink-0">{verb}</span>
         <FilePathChip filePath={path} threadId={threadId} />
         {diffLabel && <DiffStatsText value={diffLabel} />}
       </span>
@@ -82,13 +84,13 @@ export function DiffStatsText({ value }: { value: string }) {
   );
 }
 
-export function ToolGlyph({ toolName, className }: { toolName: string; className?: string }) {
+export function ToolGlyph({ toolName, result, className }: { toolName: string; result?: ToolResultBlock; className?: string }) {
   if (toolName === "Bash") return <TerminalSquare className={className} />;
   if (toolName === "Read") return <FileText className={className} />;
   if (toolName === "Glob") return <FolderOpen className={className} />;
   if (toolName === "Grep") return <Search className={className} />;
-  if (toolName === "Write") return <FileText className={className} />;
-  if (toolName === "Edit" || toolName === "MultiEdit") return <Pencil className={className} />;
+  if (isCreatedFileWriteResult(toolName, result)) return <FilePlus className={className} />;
+  if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") return <Pencil className={className} />;
   if (toolName === "TodoWrite" || toolName === "TodoRead" || toolName === "TaskCreate" || toolName === "TaskGet" || toolName === "TaskUpdate" || toolName === "TaskList") return <ListTodo className={className} />;
   if (toolName === "mcp__brevyn__course_structure") return <FolderTree className={className} />;
   if (toolName === "mcp__brevyn__rag_search") return <FileSearch className={className} />;

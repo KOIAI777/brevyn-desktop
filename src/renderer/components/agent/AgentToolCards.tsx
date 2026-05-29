@@ -50,7 +50,7 @@ export function ToolUseCard({
         collapsed={effectiveCollapsed}
         onToggleCollapsed={onToggleCollapsed}
         expandable={expandable}
-        glyph={helpers.renderToolGlyph(block.name, "h-3.5 w-3.5 shrink-0")}
+        glyph={helpers.renderToolGlyph(block.name, "h-3.5 w-3.5 shrink-0", result)}
       />
       {!failed && expandable && (
         <div className={`${effectiveCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-[260ms] ease-[cubic-bezier(0.2,0,0,1)]`}>

@@ -6,6 +6,7 @@ import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } fro
 import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
 import { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups, type AgentTimelineViewGroup, type AgentTimelineViewItem } from "./useAgentTimelineState";
 import { appendAgentLiveMessage, appendAgentRuntimeEvent, clearAgentLiveRecords, clearAllAgentLiveRecords, flushAgentLiveRecords, getAgentLiveRecords, getAgentLiveRunning } from "@/lib/agent-live-store";
+import { getToolPhrase } from "@/components/agent/tool-cards/toolModel";
 
 (globalThis as unknown as { window: { requestAnimationFrame: (callback: () => void) => number; cancelAnimationFrame: (id: number) => void } }).window = {
   requestAnimationFrame(callback: () => void) {
@@ -855,6 +856,42 @@ const liveWriteCompleteInput = firstToolEvent(liveWriteCompleteTurn)?.tool.input
 assert.equal(liveWriteCompleteInput.file_path, "draft.md");
 assert.equal(liveWriteCompleteInput.content, undefined);
 
+const liveEditPartialPathGroups = buildTimelineViewGroups(
+  [
+    userText("Edit a file.", "user_live_edit_partial_path"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_partial_edit", name: "Edit", input: {} }, "stream_tool_partial_edit_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md", "stream_tool_partial_edit_path"),
+  ],
+  [
+    userText("Edit a file.", "user_live_edit_partial_path"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_partial_edit", name: "Edit", input: {} }, "stream_tool_partial_edit_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md", "stream_tool_partial_edit_path"),
+  ].map(viewItem),
+  { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
+);
+const liveEditPartialPathTurn = liveEditPartialPathGroups[1]?.type === "assistant-turn" ? liveEditPartialPathGroups[1] : undefined;
+const liveEditPartialPathInput = firstToolEvent(liveEditPartialPathTurn)?.tool.input as { file_path?: string; old_string?: string } | undefined ?? {};
+assert.equal(liveEditPartialPathInput.file_path, undefined);
+assert.equal(liveEditPartialPathInput.old_string, undefined);
+
+const liveEditCompletePathGroups = buildTimelineViewGroups(
+  [
+    userText("Edit a file.", "user_live_edit_complete_path"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_complete_path_edit", name: "Edit", input: {} }, "stream_tool_complete_path_edit_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md\",\"old_string\":\"", "stream_tool_complete_path_edit_path"),
+  ],
+  [
+    userText("Edit a file.", "user_live_edit_complete_path"),
+    streamToolStart(0, { type: "tool_use", id: "tool_live_complete_path_edit", name: "Edit", input: {} }, "stream_tool_complete_path_edit_start"),
+    streamToolInput(0, "{\"file_path\":\"draft.md\",\"old_string\":\"", "stream_tool_complete_path_edit_path"),
+  ].map(viewItem),
+  { activeModelId: "deepseek-v4-pro", effectiveRunning: true },
+);
+const liveEditCompletePathTurn = liveEditCompletePathGroups[1]?.type === "assistant-turn" ? liveEditCompletePathGroups[1] : undefined;
+const liveEditCompletePathInput = firstToolEvent(liveEditCompletePathTurn)?.tool.input as { file_path?: string; old_string?: string } | undefined ?? {};
+assert.equal(liveEditCompletePathInput.file_path, "draft.md");
+assert.equal(liveEditCompletePathInput.old_string, undefined);
+
 const runningToolGroupTitleGroups = buildTimelineViewGroups(
   [
     userText("Read then edit.", "user_running_tool_group_title"),
@@ -1214,6 +1251,63 @@ assert.deepEqual(
   },
 );
 assert.equal(shouldAutoCompactContext({ inputTokens: 1_000, contextInputTokens: 1_000, contextWindowSource: "unknown" }, openAiProvider), false);
+
+const runningWritePhrase = getToolPhrase(
+  { type: "tool_use", id: "tool_write_running_stats", name: "Write", input: { file_path: "stats.md", content: "one\ntwo\nthree\nfour\nfive\nsix\nseven" } },
+);
+assert.equal(runningWritePhrase.diffLabel, "");
+
+const completedWritePhrase = getToolPhrase(
+  { type: "tool_use", id: "tool_write_stats", name: "Write", input: { file_path: "stats.md", content: "one\ntwo\nthree\nfour\nfive\nsix\nseven" } },
+  {
+    type: "tool_result",
+    toolUseId: "tool_write_stats",
+    content: "ok",
+    isError: false,
+    toolUseResult: {
+      filePath: "stats.md",
+      gitDiff: { filename: "stats.md", status: "modified", additions: 1, deletions: 0, changes: 1, patch: "" },
+    },
+  },
+);
+assert.equal(completedWritePhrase.diffLabel, "+1");
+
+const completedCreatedWritePhrase = getToolPhrase(
+  { type: "tool_use", id: "tool_write_create_stats", name: "Write", input: { file_path: "created.md", content: "one\ntwo\nthree\nfour\nfive\nsix\nseven" } },
+  {
+    type: "tool_result",
+    toolUseId: "tool_write_create_stats",
+    content: "ok",
+    isError: false,
+    toolUseResult: {
+      type: "create",
+      filePath: "created.md",
+      originalFile: null,
+      content: "one\ntwo\nthree\nfour\nfive\nsix\nseven",
+      gitDiff: { filename: "created.md", status: "added", additions: 7, deletions: 0, changes: 7, patch: "" },
+    },
+  },
+);
+assert.equal(completedCreatedWritePhrase.diffLabel, "+7");
+assert.equal(completedCreatedWritePhrase.label, "已创建");
+
+const completedCreatedWriteWithSdkContentPhrase = getToolPhrase(
+  { type: "tool_use", id: "tool_write_create_no_stats", name: "Write", input: { file_path: "created.md", content: "one\ntwo\nthree\nfour\nfive\nsix\nseven" } },
+  {
+    type: "tool_result",
+    toolUseId: "tool_write_create_no_stats",
+    content: "ok",
+    isError: false,
+    toolUseResult: {
+      type: "create",
+      filePath: "created.md",
+      originalFile: null,
+      content: "one\ntwo\nthree\nfour\nfive\nsix\nseven",
+    },
+  },
+);
+assert.equal(completedCreatedWriteWithSdkContentPhrase.diffLabel, "+7");
+assert.equal(completedCreatedWriteWithSdkContentPhrase.label, "已创建");
 
 console.log("agentTimelineModel fixture tests passed");
 

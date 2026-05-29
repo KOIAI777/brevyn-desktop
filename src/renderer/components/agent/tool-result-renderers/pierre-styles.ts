@@ -29,6 +29,10 @@ export const PIERRE_DIFF_CSS = `
     background: var(--diffs-scrollbar-thumb-hover);
   }
 
+  [data-separator=line-info] {
+    display: none !important;
+  }
+
   [data-separator=line-info],
   [data-separator=line-info] [data-separator-wrapper],
   [data-separator=line-info] [data-separator-content],

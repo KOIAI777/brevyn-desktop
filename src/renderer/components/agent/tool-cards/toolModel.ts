@@ -57,9 +57,9 @@ export function getToolPhrase(toolUse: ToolUseBlock, result?: ToolResultBlock): 
   const target = getToolTarget(toolUse.name, toolUse.input);
   const running = !result;
   const failed = result?.isError === true;
-  const diff = getToolDiffStats(toolUse.name, toolUse.input);
+  const diff = getToolDiffStatsForDisplay(toolUse.name, toolUse.input, result);
   const diffLabel = diff && !failed ? formatDiffStats(diff) : "";
-  const label = running ? descriptor.running : failed ? descriptor.failed : descriptor.done;
+  const label = running ? descriptor.running : failed ? descriptor.failed : getCompletedToolLabel(toolUse.name, result, descriptor.done);
   return {
     label,
     status: running ? "运行中" : failed ? getToolErrorSummary(result) : getToolSuccessSummary(toolUse, result),
@@ -68,6 +68,13 @@ export function getToolPhrase(toolUse: ToolUseBlock, result?: ToolResultBlock): 
     failed,
     running,
   };
+}
+
+export function isCreatedFileWriteResult(toolName: string, result?: ToolResultBlock): boolean {
+  if (toolName !== "Write" || !result || result.isError) return false;
+  const raw = recordObject(result.toolUseResult ?? result.rawResult);
+  const gitDiff = recordObject(raw.gitDiff);
+  return raw.type === "create" || gitDiff.status === "added";
 }
 
 export function getToolTitle(toolName: string, input: unknown): string {
@@ -139,6 +146,29 @@ export function getToolDiffStats(toolName: string, input: unknown): ToolDiffStat
   }
 
   return additions > 0 || deletions > 0 ? { additions, deletions } : null;
+}
+
+export function getToolDiffStatsForDisplay(toolName: string, _input: unknown, result?: ToolResultBlock): ToolDiffStats | null {
+  if (!result || result.isError) return null;
+  return getToolResultDiffStats(result, toolName);
+}
+
+export function getToolResultDiffStats(result?: ToolResultBlock, toolName?: string): ToolDiffStats | null {
+  const raw = recordObject(result?.toolUseResult ?? result?.rawResult);
+  const gitDiff = recordObject(raw.gitDiff);
+  const gitAdditions = nonNegativeInteger(gitDiff.additions);
+  const gitDeletions = nonNegativeInteger(gitDiff.deletions);
+  if (gitAdditions !== null || gitDeletions !== null) {
+    return diffStatsOrNull(gitAdditions ?? 0, gitDeletions ?? 0);
+  }
+  const patch = stringValue(gitDiff.patch, "");
+  if (patch) return diffStatsFromPatch(patch);
+  const structuredPatch = Array.isArray(raw.structuredPatch) ? raw.structuredPatch : [];
+  if (structuredPatch.length > 0) return diffStatsFromStructuredPatch(structuredPatch);
+  if (toolName === "Write" && raw.type === "create" && raw.originalFile === null && typeof raw.content === "string") {
+    return diffStatsOrNull(lineCount(raw.content), 0);
+  }
+  return null;
 }
 
 export function formatDiffStats(diff: ToolDiffStats): string {
@@ -315,6 +345,11 @@ function getToolDescriptor(toolName: string): { neutral: string; running: string
   return { neutral: `Tool · ${toolName}`, running: "正在调用工具", done: "已调用工具", failed: "工具调用失败" };
 }
 
+function getCompletedToolLabel(toolName: string, result: ToolResultBlock | undefined, fallback: string): string {
+  if (isCreatedFileWriteResult(toolName, result)) return "已创建";
+  return fallback;
+}
+
 function webSearchQueryFromInput(input: Record<string, unknown>): string {
   const direct = stringValue(input.query, "");
   if (direct) return direct;
@@ -335,6 +370,45 @@ function lineCount(value: string): number {
     if (value.charCodeAt(index) === 10) count += 1;
   }
   return value.endsWith("\n") ? Math.max(0, count - 1) : count;
+}
+
+function diffStatsFromPatch(patch: string): ToolDiffStats | null {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions += 1;
+    if (line.startsWith("-")) deletions += 1;
+  }
+  return diffStatsOrNull(additions, deletions);
+}
+
+function diffStatsFromStructuredPatch(structuredPatch: unknown[]): ToolDiffStats | null {
+  let additions = 0;
+  let deletions = 0;
+  for (const item of structuredPatch) {
+    const patch = recordObject(item);
+    const lines = Array.isArray(patch.lines) ? patch.lines : [];
+    for (const line of lines) {
+      if (typeof line !== "string") continue;
+      if (line.startsWith("+")) additions += 1;
+      if (line.startsWith("-")) deletions += 1;
+    }
+  }
+  return diffStatsOrNull(additions, deletions);
+}
+
+function diffStatsOrNull(additions: number, deletions: number): ToolDiffStats | null {
+  return additions > 0 || deletions > 0 ? { additions, deletions } : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
+  }
+  return null;
 }
 
 function numericValue(value: unknown): number | null {
