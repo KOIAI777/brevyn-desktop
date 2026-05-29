@@ -67,6 +67,7 @@ export function useFilePreviewState({
     } catch (error) {
       if (!mountedRef.current || filePreviewRequestRef.current !== requestId) return false;
       setFilePreviewLoading(false);
+      setFilePreview(null);
       onError(errorMessage(error, options.errorFallback || "Failed to preview file."));
       return false;
     }
@@ -105,6 +106,7 @@ export function useFilePreviewState({
         if (!mountedRef.current || filePreviewRequestRef.current !== requestId || activeThreadIdRef.current !== threadIdAtRequest) return false;
         if (!preview) {
           setFilePreviewLoading(false);
+          setFilePreview(null);
           if (!options.silent) onError(`没有在当前文件浏览器里找到这个文件：${filePath}`);
           return false;
         }
@@ -116,6 +118,7 @@ export function useFilePreviewState({
       } catch (error) {
         if (!mountedRef.current || filePreviewRequestRef.current !== requestId || activeThreadIdRef.current !== threadIdAtRequest) return false;
         setFilePreviewLoading(false);
+        setFilePreview(null);
         if (!options.silent) onError(errorMessage(error, "Failed to preview workspace file."));
         return false;
       }

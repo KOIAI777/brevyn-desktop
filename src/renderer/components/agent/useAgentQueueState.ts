@@ -16,11 +16,15 @@ export function useAgentQueueState({
   threadId,
   effectiveRunning,
   runSummary,
+  currentPermissionMode,
+  currentProviderSelection,
   onRunForThread,
 }: {
   threadId: string;
   effectiveRunning: boolean;
   runSummary: RunSummary | null;
+  currentPermissionMode: AgentPermissionMode;
+  currentProviderSelection?: { providerId?: string; modelId?: string };
   onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
 }): AgentQueueState {
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
@@ -30,6 +34,8 @@ export function useAgentQueueState({
   const lastAutoSentRunIdRef = useRef("");
   const lastAutoSentRunIdByThreadRef = useRef<Record<string, string>>({});
   const autoSendTimersRef = useRef<number[]>([]);
+  const currentPermissionModeRef = useRef(currentPermissionMode);
+  const currentProviderSelectionRef = useRef(currentProviderSelection);
   const [queuedMessagesByThread, setQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});
   const [sendingQueuedMessageIdsByThread, setSendingQueuedMessageIdsByThread] = useState<Record<string, string[]>>({});
 
@@ -47,6 +53,11 @@ export function useAgentQueueState({
   useEffect(() => {
     sendingQueuedMessageIdsByThreadRef.current = sendingQueuedMessageIdsByThread;
   }, [sendingQueuedMessageIdsByThread]);
+
+  useEffect(() => {
+    currentPermissionModeRef.current = currentPermissionMode;
+    currentProviderSelectionRef.current = currentProviderSelection;
+  }, [currentPermissionMode, currentProviderSelection]);
 
   useEffect(() => {
     lastAutoSentRunIdRef.current = "";
@@ -137,7 +148,14 @@ export function useAgentQueueState({
     if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return false;
     setQueuedMessageSending(targetThreadId, message.id, true);
     try {
-      const started = await onRunForThread(targetThreadId, message.prompt, message.permissionMode, undefined, message.providerSelection, message.mentionedSkills);
+      const started = await onRunForThread(
+        targetThreadId,
+        message.prompt,
+        message.permissionMode ?? currentPermissionModeRef.current,
+        undefined,
+        message.providerSelection ?? currentProviderSelectionRef.current,
+        message.mentionedSkills,
+      );
       if (started) removeQueuedMessage(targetThreadId, message.id);
       return started;
     } catch (error) {

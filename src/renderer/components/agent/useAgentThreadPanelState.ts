@@ -3,6 +3,7 @@ import { useAgentAutoCompactState } from "@/components/agent/useAgentAutoCompact
 import { useAgentPanelPreferencesState } from "@/components/agent/useAgentPanelPreferencesState";
 import { useAgentQueueState } from "@/components/agent/useAgentQueueState";
 import { useAgentTimelineState } from "@/components/agent/useAgentTimelineState";
+import { parseProviderModelValue } from "@/components/agent/AgentProviderPicker";
 import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, RunSummary } from "@/components/agent/agentTimelineModel";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
@@ -63,6 +64,8 @@ export function useAgentThreadPanelState({
     threadId: thread.id,
     effectiveRunning: timelineState.effectiveRunning,
     runSummary: timelineState.runSummary,
+    currentPermissionMode: preferencesState.permissionMode,
+    currentProviderSelection: parseProviderModelValue(activeProviderId),
     onRunForThread,
   });
 

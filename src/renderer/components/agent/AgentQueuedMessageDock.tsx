@@ -17,7 +17,7 @@ export function QueuedMessageDock({
   onEdit: (message: QueuedAgentMessage) => void;
 }) {
   const helperText = running
-    ? "待确认；当前轮正常完成后会自动作为下一轮发送"
+    ? "待确认；立即追加会沿用当前运行，等完成后会作为下一轮发送"
     : "待发送；将作为新一轮运行";
   const sendTitle = running ? "立即追加到当前运行" : "立即发送";
   const sendingLabel = running ? "追加中" : "发送中";

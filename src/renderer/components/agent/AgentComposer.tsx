@@ -109,8 +109,6 @@ export const AgentComposer = memo(function AgentComposer({
       onQueueMessage({
         id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         prompt: prompt || "请使用已选择的 Skill。",
-        permissionMode,
-        providerSelection: parseProviderModelValue(activeProviderId),
         mentionedSkills: mentionedSkillSlugs,
         createdAt: Date.now(),
       });

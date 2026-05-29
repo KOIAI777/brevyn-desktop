@@ -13,6 +13,7 @@ import {
   recordObject,
   stringValue,
 } from "@/components/agent/tool-cards/toolModel";
+import { hasToolResultDiffSource } from "@/components/agent/tool-cards/toolDiffModel";
 export { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
 
 interface ToolUseCardProps extends ToolCardHelpers {
@@ -152,6 +153,7 @@ function isToolExpandable(toolUse: ToolUseBlock, result?: ToolResultBlock): bool
   if (!result && isFileWriteTool(toolUse.name)) return false;
   if (!result) return toolUse.name !== "WebSearch";
   if (toolUse.name === "WebSearch") return getToolSearchLinks(result).length > 0;
+  if (!result.isError && isFileWriteTool(toolUse.name)) return hasToolResultDiffSource(toolUse.name, result);
   return true;
 }
 

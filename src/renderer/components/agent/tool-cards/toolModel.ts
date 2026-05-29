@@ -1,3 +1,14 @@
+import {
+  formatDiffStats,
+  getToolResultDiffStats,
+  type ToolDiffStats,
+} from "@/components/agent/tool-cards/toolDiffModel";
+export {
+  formatDiffStats,
+  getToolResultDiffStats,
+};
+export type { ToolDiffStats } from "@/components/agent/tool-cards/toolDiffModel";
+
 export interface ToolUseBlock {
   type: "tool_use";
   id: string;
@@ -38,11 +49,6 @@ export interface AgentTaskSummary {
   blockedBy?: string[];
 }
 
-export interface ToolDiffStats {
-  additions: number;
-  deletions: number;
-}
-
 export interface ToolPhrase {
   label: string;
   status: string;
@@ -80,9 +86,7 @@ export function isCreatedFileWriteResult(toolName: string, result?: ToolResultBl
 export function getToolTitle(toolName: string, input: unknown): string {
   const descriptor = getToolDescriptor(toolName);
   const target = getToolTarget(toolName, input);
-  const diff = getToolDiffStats(toolName, input);
-  const diffLabel = diff ? formatDiffStats(diff) : "";
-  return [descriptor.neutral, target, diffLabel].filter(Boolean).join(" · ");
+  return [descriptor.neutral, target].filter(Boolean).join(" · ");
 }
 
 export function getToolResultSummary(result: ToolResultBlock): string {
@@ -126,56 +130,9 @@ export function getToolTarget(toolName: string, input: unknown): string {
   return stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
 }
 
-export function getToolDiffStats(toolName: string, input: unknown): ToolDiffStats | null {
-  const data = recordObject(input);
-  let additions = 0;
-  let deletions = 0;
-
-  if (toolName === "Write") {
-    additions = lineCount(typeof data.content === "string" ? data.content : "");
-  } else if (toolName === "Edit") {
-    additions = lineCount(typeof data.new_string === "string" ? data.new_string : "");
-    deletions = lineCount(typeof data.old_string === "string" ? data.old_string : "");
-  } else if (toolName === "MultiEdit") {
-    const edits = Array.isArray(data.edits) ? data.edits : [];
-    for (const edit of edits) {
-      const editData = recordObject(edit);
-      additions += lineCount(typeof editData.new_string === "string" ? editData.new_string : "");
-      deletions += lineCount(typeof editData.old_string === "string" ? editData.old_string : "");
-    }
-  }
-
-  return additions > 0 || deletions > 0 ? { additions, deletions } : null;
-}
-
 export function getToolDiffStatsForDisplay(toolName: string, _input: unknown, result?: ToolResultBlock): ToolDiffStats | null {
   if (!result || result.isError) return null;
   return getToolResultDiffStats(result, toolName);
-}
-
-export function getToolResultDiffStats(result?: ToolResultBlock, toolName?: string): ToolDiffStats | null {
-  const raw = recordObject(result?.toolUseResult ?? result?.rawResult);
-  const gitDiff = recordObject(raw.gitDiff);
-  const gitAdditions = nonNegativeInteger(gitDiff.additions);
-  const gitDeletions = nonNegativeInteger(gitDiff.deletions);
-  if (gitAdditions !== null || gitDeletions !== null) {
-    return diffStatsOrNull(gitAdditions ?? 0, gitDeletions ?? 0);
-  }
-  const patch = stringValue(gitDiff.patch, "");
-  if (patch) return diffStatsFromPatch(patch);
-  const structuredPatch = Array.isArray(raw.structuredPatch) ? raw.structuredPatch : [];
-  if (structuredPatch.length > 0) return diffStatsFromStructuredPatch(structuredPatch);
-  if (toolName === "Write" && raw.type === "create" && raw.originalFile === null && typeof raw.content === "string") {
-    return diffStatsOrNull(lineCount(raw.content), 0);
-  }
-  return null;
-}
-
-export function formatDiffStats(diff: ToolDiffStats): string {
-  const parts: string[] = [];
-  if (diff.additions > 0) parts.push(`+${diff.additions}`);
-  if (diff.deletions > 0) parts.push(`-${diff.deletions}`);
-  return parts.join(" ");
 }
 
 export function truncatePreview(value: string): string {
@@ -361,54 +318,6 @@ function webSearchQueryFromInput(input: Record<string, unknown>): string {
     if (value) return value;
   }
   return "";
-}
-
-function lineCount(value: string): number {
-  if (!value) return 0;
-  let count = 1;
-  for (let index = 0; index < value.length; index += 1) {
-    if (value.charCodeAt(index) === 10) count += 1;
-  }
-  return value.endsWith("\n") ? Math.max(0, count - 1) : count;
-}
-
-function diffStatsFromPatch(patch: string): ToolDiffStats | null {
-  let additions = 0;
-  let deletions = 0;
-  for (const line of patch.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) additions += 1;
-    if (line.startsWith("-")) deletions += 1;
-  }
-  return diffStatsOrNull(additions, deletions);
-}
-
-function diffStatsFromStructuredPatch(structuredPatch: unknown[]): ToolDiffStats | null {
-  let additions = 0;
-  let deletions = 0;
-  for (const item of structuredPatch) {
-    const patch = recordObject(item);
-    const lines = Array.isArray(patch.lines) ? patch.lines : [];
-    for (const line of lines) {
-      if (typeof line !== "string") continue;
-      if (line.startsWith("+")) additions += 1;
-      if (line.startsWith("-")) deletions += 1;
-    }
-  }
-  return diffStatsOrNull(additions, deletions);
-}
-
-function diffStatsOrNull(additions: number, deletions: number): ToolDiffStats | null {
-  return additions > 0 || deletions > 0 ? { additions, deletions } : null;
-}
-
-function nonNegativeInteger(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.floor(value));
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.max(0, Math.floor(parsed));
-  }
-  return null;
 }
 
 function numericValue(value: unknown): number | null {
