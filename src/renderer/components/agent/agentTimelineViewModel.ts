@@ -25,7 +25,7 @@ import {
 } from "@/components/agent/agentTimelineModel";
 import { completePartialToolInputHints, isCompleteToolInputJson, parsePartialToolInput } from "@/components/agent/agentTimelinePartialInput";
 import { processStateKey } from "@/components/agent/agentTimelineRunState";
-import { recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
+import { getToolInputPath, recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
 import type {
   AgentTimelineDisplayKind,
   AgentTimelineToolGroupSummary,
@@ -610,8 +610,7 @@ function fileToolTargetInput(input: Record<string, unknown>): Record<string, unk
 }
 
 function hasToolTargetHint(input: unknown): boolean {
-  const data = recordObject(input);
-  return Boolean(stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, ""));
+  return Boolean(getToolInputPath(input));
 }
 
 function turnProcessSummaryItem(
@@ -795,14 +794,14 @@ function toolGroupStats(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): 
     if (event.result?.isError) stats.failed += 1;
 
     if (isEditTool(toolName)) {
-      const path = stringValue(input.file_path ?? input.filePath ?? input.path, "");
+      const path = getToolInputPath(input);
       if (path) stats.editedFiles.add(path);
       else stats.others += 1;
       continue;
     }
 
     if (toolName === "Read") {
-      const path = stringValue(input.file_path ?? input.filePath ?? input.path, "");
+      const path = getToolInputPath(input);
       if (path) stats.exploredFiles.add(path);
       else if (event.result) stats.exploredCount += 1;
       else stats.others += 1;
@@ -884,7 +883,7 @@ function toolEventHasTarget(event: Extract<ProcessEvent, { kind: "tool_use" }>):
   const input = recordObject(event.tool.input);
   if (input._partialInput === true && toolName === "Read") return false;
   if (toolName === "Read" || toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
-    return Boolean(stringValue(input.file_path ?? input.filePath ?? input.path, "").trim());
+    return Boolean(getToolInputPath(input).trim());
   }
   if (toolName === "Glob" || toolName === "Grep") return Boolean(stringValue(input.pattern, "").trim());
   if (toolName === "Bash") return Boolean(stringValue(input.command, "").trim());
@@ -899,14 +898,14 @@ function runningToolLabel(event: Extract<ProcessEvent, { kind: "tool_use" }>): s
   const input = recordObject(event.tool.input);
   if (toolName === "Read") {
     if (input._partialInput === true) return "正在读取文件";
-    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, ""));
+    const path = shortPathLabel(getToolInputPath(input));
     if (!path) return "正在读取文件";
     return `正在读取 ${path}`;
   }
   if (toolName === "Glob") return `正在搜索 ${stringValue(input.pattern, "文件")}`;
   if (toolName === "Grep") return `正在搜索 ${stringValue(input.pattern, "内容")}`;
   if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
-    const path = shortPathLabel(stringValue(input.file_path ?? input.filePath ?? input.path, ""));
+    const path = shortPathLabel(getToolInputPath(input));
     if (!path) return "正在编辑文件";
     return `正在编辑 ${path}`;
   }

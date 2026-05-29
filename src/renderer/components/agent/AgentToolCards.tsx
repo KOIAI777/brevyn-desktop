@@ -8,10 +8,10 @@ import { DeferredToolDetails } from "@/components/agent/tool-cards/shared";
 import {
   getToolErrorSummary,
   getToolSearchLinks,
+  getToolInputPath,
   getToolPhrase,
   getToolTarget,
   recordObject,
-  stringValue,
 } from "@/components/agent/tool-cards/toolModel";
 import { hasToolResultDiffSource } from "@/components/agent/tool-cards/toolDiffModel";
 export { ToolInputPreview } from "@/components/agent/tool-cards/ToolInputPreview";
@@ -177,7 +177,7 @@ function fileTarget(toolUse: ToolUseBlock): string {
   const input = recordObject(toolUse.input);
   if (input._partialInput === true && toolUse.name === "Read") return "";
   if (toolUse.name === "Read" || toolUse.name === "Write" || toolUse.name === "Edit" || toolUse.name === "MultiEdit") {
-    return stringValue(input.file_path ?? input.filePath ?? input.path ?? input.notebook_path, "");
+    return getToolInputPath(input);
   }
   return "";
 }

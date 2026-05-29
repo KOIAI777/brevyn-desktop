@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
-import { getReadFileResult, getToolResultText, recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
+import { getReadFileResult, getToolInputPath, getToolResultText, recordObject } from "@/components/agent/tool-cards/toolModel";
 
 export function ReadResultDetails({
   toolUse,
@@ -12,7 +12,7 @@ export function ReadResultDetails({
   const fileResult = getReadFileResult(result);
   const content = fileResult?.content ?? (result ? getToolResultText(result) : "");
   const input = recordObject(toolUse.input);
-  const sourcePath = fileResult?.filePath || stringValue(input.file_path ?? input.path, "");
+  const sourcePath = fileResult?.filePath || getToolInputPath(input);
   return <ReadSourcePreview content={content} sourcePath={sourcePath} startLine={fileResult?.startLine ?? 1} totalLines={fileResult?.totalLines} />;
 }
 

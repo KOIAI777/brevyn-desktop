@@ -10,9 +10,21 @@ export type ToolDiffSource =
   | { kind: "patch"; patch: string; filePath: string; additions: number; deletions: number }
   | { kind: "files"; filePath: string; oldContent: string; newContent: string; patch?: string; additions: number; deletions: number; disableLineNumbers?: boolean };
 
+const diffStatsCache = new WeakMap<object, ToolDiffStats | null>();
+const diffSourceCache = new WeakMap<object, ToolDiffSource | null>();
+
 export function getToolResultDiffStats(result?: ToolResultBlock, toolName?: string): ToolDiffStats | null {
   if (!result || result.isError) return null;
-  const raw = recordObject(result.toolUseResult ?? result.rawResult);
+  const rawValue = result.toolUseResult ?? result.rawResult;
+  const raw = recordObject(rawValue);
+  const cacheKey = rawValue && typeof rawValue === "object" ? rawValue : null;
+  if (cacheKey && diffStatsCache.has(cacheKey)) return diffStatsCache.get(cacheKey) ?? null;
+  const stats = computeToolResultDiffStats(raw, toolName);
+  if (cacheKey) diffStatsCache.set(cacheKey, stats);
+  return stats;
+}
+
+function computeToolResultDiffStats(raw: Record<string, unknown>, toolName?: string): ToolDiffStats | null {
   const gitDiff = recordObject(raw.gitDiff);
   const gitAdditions = nonNegativeInteger(gitDiff.additions);
   const gitDeletions = nonNegativeInteger(gitDiff.deletions);
@@ -31,7 +43,16 @@ export function getToolResultDiffStats(result?: ToolResultBlock, toolName?: stri
 
 export function getToolResultDiffSource(toolName: string, result?: ToolResultBlock): ToolDiffSource | null {
   if (!result || result.isError) return null;
-  const raw = recordObject(result.toolUseResult ?? result.rawResult);
+  const rawValue = result.toolUseResult ?? result.rawResult;
+  const raw = recordObject(rawValue);
+  const cacheKey = rawValue && typeof rawValue === "object" ? rawValue : null;
+  if (cacheKey && diffSourceCache.has(cacheKey)) return diffSourceCache.get(cacheKey) ?? null;
+  const source = computeToolResultDiffSource(toolName, raw);
+  if (cacheKey) diffSourceCache.set(cacheKey, source);
+  return source;
+}
+
+function computeToolResultDiffSource(toolName: string, raw: Record<string, unknown>): ToolDiffSource | null {
   const filePath = filePathFrom(raw);
   const gitDiff = recordObject(raw.gitDiff);
   const gitPatch = stringValue(gitDiff.patch, "");

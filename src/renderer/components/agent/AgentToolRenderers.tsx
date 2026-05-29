@@ -5,11 +5,11 @@ import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { FilePathChip } from "@/components/chat/FilePathChip";
 import {
   formatDiffStats,
+  getToolInputPath,
   getToolDiffStatsForDisplay,
   getToolTitle,
   isCreatedFileWriteResult,
   recordObject,
-  stringValue,
   truncatePreview,
   type ToolResultBlock,
   type ToolUseBlock,
@@ -41,7 +41,7 @@ export function ToolUseCard({
 export function ToolTitle({ toolName, input, result, isError = false }: { toolName: string; input: unknown; result?: ToolResultBlock; isError?: boolean }) {
   const threadId = useContext(AgentThreadIdContext);
   const data = recordObject(input);
-  const path = stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
+  const path = getToolInputPath(data);
   const diff = getToolDiffStatsForDisplay(toolName, input, result);
   const diffLabel = diff && !isError ? formatDiffStats(diff) : "";
 

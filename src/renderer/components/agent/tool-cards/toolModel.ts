@@ -127,6 +127,11 @@ export function getToolTarget(toolName: string, input: unknown): string {
   if (toolName === "TaskGet" || toolName === "TaskUpdate") return singleLine(stringValue(data.subject ?? data.taskId, "task"));
   if (toolName === "TaskList") return "";
   if (toolName === "mcp__brevyn__rag_search") return singleLine(stringValue(data.query, "query"));
+  return getToolInputPath(data);
+}
+
+export function getToolInputPath(input: unknown): string {
+  const data = recordObject(input);
   return stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
 }
 
@@ -203,7 +208,7 @@ export function getReadFileResult(result?: ToolResultBlock): ReadFileResult | nu
   const content = typeof file.content === "string" ? file.content : "";
   if (!content && !file.filePath) return null;
   return {
-    filePath: stringValue(file.filePath ?? file.path, ""),
+    filePath: getToolInputPath(file),
     content,
     startLine: numericValue(file.startLine) ?? 1,
     totalLines: numericValue(file.totalLines) ?? undefined,

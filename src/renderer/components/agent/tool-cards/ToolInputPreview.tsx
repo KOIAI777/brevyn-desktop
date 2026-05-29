@@ -1,6 +1,6 @@
 import type { ToolCardHelpers } from "./types";
 import { PreviewBlock, PreviewPill } from "./shared";
-import { formatUnknown, recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
+import { formatUnknown, getToolInputPath, recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
 
 export function ToolInputPreview({
   toolName,
@@ -13,7 +13,7 @@ export function ToolInputPreview({
   compact?: boolean;
 } & ToolCardHelpers) {
   const data = recordObject(input);
-  const path = stringValue(data.file_path ?? data.path, "");
+  const path = getToolInputPath(data);
   const command = stringValue(data.command, "");
   const url = stringValue(data.url, "");
   const query = stringValue(data.query, "");
