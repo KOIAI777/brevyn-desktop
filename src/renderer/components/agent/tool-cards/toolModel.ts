@@ -3,51 +3,21 @@ import {
   getToolResultDiffStats,
   type ToolDiffStats,
 } from "@/components/agent/tool-cards/toolDiffModel";
+import { getToolInputPath } from "@/components/agent/tool-cards/toolPathModel";
+import type {
+  AgentTaskSummary,
+  ReadFileResult,
+  ToolResultBlock,
+  ToolUseBlock,
+  WebSearchLink,
+} from "@/components/agent/tool-cards/toolTypes";
 export {
   formatDiffStats,
   getToolResultDiffStats,
 };
 export type { ToolDiffStats } from "@/components/agent/tool-cards/toolDiffModel";
-
-export interface ToolUseBlock {
-  type: "tool_use";
-  id: string;
-  name: string;
-  input: unknown;
-}
-
-export interface ToolResultBlock {
-  type: "tool_result";
-  toolUseId: string;
-  content: unknown;
-  isError: boolean;
-  contentText?: string;
-  rawResult?: unknown;
-  toolUseResult?: unknown;
-}
-
-export interface ReadFileResult {
-  filePath: string;
-  content: string;
-  startLine: number;
-  totalLines?: number;
-  numLines?: number;
-}
-
-export interface WebSearchLink {
-  title: string;
-  url: string;
-}
-
-export interface AgentTaskSummary {
-  id: string;
-  subject: string;
-  description?: string;
-  status?: string;
-  owner?: string;
-  blocks?: string[];
-  blockedBy?: string[];
-}
+export { getToolInputPath } from "@/components/agent/tool-cards/toolPathModel";
+export type { AgentTaskSummary, ReadFileResult, ToolResultBlock, ToolUseBlock, WebSearchLink } from "@/components/agent/tool-cards/toolTypes";
 
 export interface ToolPhrase {
   label: string;
@@ -130,11 +100,6 @@ export function getToolTarget(toolName: string, input: unknown): string {
   return getToolInputPath(data);
 }
 
-export function getToolInputPath(input: unknown): string {
-  const data = recordObject(input);
-  return stringValue(data.file_path ?? data.filePath ?? data.path ?? data.notebook_path, "");
-}
-
 export function getToolDiffStatsForDisplay(toolName: string, _input: unknown, result?: ToolResultBlock): ToolDiffStats | null {
   if (!result || result.isError) return null;
   return getToolResultDiffStats(result, toolName);
@@ -206,9 +171,10 @@ export function getReadFileResult(result?: ToolResultBlock): ReadFileResult | nu
   const raw = recordObject(result?.toolUseResult ?? result?.rawResult);
   const file = recordObject(raw.file);
   const content = typeof file.content === "string" ? file.content : "";
-  if (!content && !file.filePath) return null;
+  const filePath = getToolInputPath(file);
+  if (!content && !filePath) return null;
   return {
-    filePath: getToolInputPath(file),
+    filePath,
     content,
     startLine: numericValue(file.startLine) ?? 1,
     totalLines: numericValue(file.totalLines) ?? undefined,

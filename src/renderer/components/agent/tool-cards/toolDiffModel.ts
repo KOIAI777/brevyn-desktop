@@ -1,5 +1,6 @@
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
-import type { ToolResultBlock } from "@/components/agent/tool-cards/toolModel";
+import { getToolInputPath } from "@/components/agent/tool-cards/toolPathModel";
+import type { ToolResultBlock } from "@/components/agent/tool-cards/toolTypes";
 
 export interface ToolDiffStats {
   additions: number;
@@ -10,17 +11,23 @@ export type ToolDiffSource =
   | { kind: "patch"; patch: string; filePath: string; additions: number; deletions: number }
   | { kind: "files"; filePath: string; oldContent: string; newContent: string; patch?: string; additions: number; deletions: number; disableLineNumbers?: boolean };
 
-const diffStatsCache = new WeakMap<object, ToolDiffStats | null>();
-const diffSourceCache = new WeakMap<object, ToolDiffSource | null>();
+const diffStatsCache = new WeakMap<object, Map<string, ToolDiffStats | null>>();
+const diffSourceCache = new WeakMap<object, Map<string, ToolDiffSource | null>>();
 
 export function getToolResultDiffStats(result?: ToolResultBlock, toolName?: string): ToolDiffStats | null {
   if (!result || result.isError) return null;
   const rawValue = result.toolUseResult ?? result.rawResult;
   const raw = recordObject(rawValue);
   const cacheKey = rawValue && typeof rawValue === "object" ? rawValue : null;
-  if (cacheKey && diffStatsCache.has(cacheKey)) return diffStatsCache.get(cacheKey) ?? null;
+  const cacheToolName = toolName || "";
+  const cachedByTool = cacheKey ? diffStatsCache.get(cacheKey) : undefined;
+  if (cachedByTool?.has(cacheToolName)) return cachedByTool.get(cacheToolName) ?? null;
   const stats = computeToolResultDiffStats(raw, toolName);
-  if (cacheKey) diffStatsCache.set(cacheKey, stats);
+  if (cacheKey) {
+    const nextCache = cachedByTool ?? new Map<string, ToolDiffStats | null>();
+    nextCache.set(cacheToolName, stats);
+    diffStatsCache.set(cacheKey, nextCache);
+  }
   return stats;
 }
 
@@ -46,9 +53,14 @@ export function getToolResultDiffSource(toolName: string, result?: ToolResultBlo
   const rawValue = result.toolUseResult ?? result.rawResult;
   const raw = recordObject(rawValue);
   const cacheKey = rawValue && typeof rawValue === "object" ? rawValue : null;
-  if (cacheKey && diffSourceCache.has(cacheKey)) return diffSourceCache.get(cacheKey) ?? null;
+  const cachedByTool = cacheKey ? diffSourceCache.get(cacheKey) : undefined;
+  if (cachedByTool?.has(toolName)) return cachedByTool.get(toolName) ?? null;
   const source = computeToolResultDiffSource(toolName, raw);
-  if (cacheKey) diffSourceCache.set(cacheKey, source);
+  if (cacheKey) {
+    const nextCache = cachedByTool ?? new Map<string, ToolDiffSource | null>();
+    nextCache.set(toolName, source);
+    diffSourceCache.set(cacheKey, nextCache);
+  }
   return source;
 }
 
@@ -230,7 +242,7 @@ function filePathFromPatch(patch: string): string {
 
 function filePathFrom(raw: Record<string, unknown>): string {
   const gitDiff = recordObject(raw.gitDiff);
-  return stringValue(raw.filePath ?? raw.file_path ?? gitDiff.filename, "");
+  return getToolInputPath(raw) || stringValue(gitDiff.filename, "");
 }
 
 function normalizeGitPatch(patch: string, filePath: string, status: string): string {

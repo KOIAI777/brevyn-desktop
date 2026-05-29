@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import type { ToolResultBlock } from "@/components/agent/tool-cards/toolModel";
-export type { ReadFileResult, ToolResultBlock, ToolUseBlock, WebSearchLink } from "@/components/agent/tool-cards/toolModel";
+import type { ToolResultBlock } from "@/components/agent/tool-cards/toolTypes";
+export type { ReadFileResult, ToolResultBlock, ToolUseBlock, WebSearchLink } from "@/components/agent/tool-cards/toolTypes";
 
 export interface ToolCardHelpers {
   truncatePreview: (value: string) => string;
