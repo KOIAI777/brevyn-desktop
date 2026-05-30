@@ -2,6 +2,7 @@ import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
+import { CourseDashboard } from "@/components/courses/CourseDashboard";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { CourseFilesUploadDialog } from "@/components/files/CourseFilesUploadDialog";
 import { FileBrowserRail } from "@/components/files/FileBrowserRail";
@@ -184,7 +185,7 @@ function App() {
               </div>
             )}
 
-            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
+            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread || (workspace.activeCourse?.workspaceKind === "course" && !workspace.activeTask) ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
               {workspace.activeThread ? (
                 <AgentThreadPanel
                   thread={workspace.activeThread}
@@ -205,6 +206,18 @@ function App() {
                   files={fileState.fileTree}
                   skills={workspace.skills}
                   onPreviewFilePath={previewInlineFilePath}
+                />
+              ) : workspace.activeCourse?.workspaceKind === "course" && !workspace.activeTask ? (
+                <CourseDashboard
+                  course={workspace.activeCourse}
+                  semester={workspace.semester}
+                  tasks={workspace.tasksByCourse[workspace.activeCourse.id] || []}
+                  threads={workspace.threads}
+                  stats={fileState.fileStats}
+                  files={fileState.fileTree}
+                  onOpenTasks={dialogs.openCourses}
+                  onSelectTask={workspace.selectTask}
+                  onCreateThread={workspace.createThread}
                 />
               ) : (
                 <div className="flex flex-col items-center gap-3 text-center">
