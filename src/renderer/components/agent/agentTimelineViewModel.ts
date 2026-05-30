@@ -658,20 +658,14 @@ function assistantTurnRenderEntries(items: AgentTimelineViewItem[]): AgentTimeli
 
   function flushTools() {
     if (pendingTools.length === 0) return;
-    const runningToolGroup = pendingTools.some((item) => item.assistantStreaming === true || item.processSummary?.running);
-    if (pendingTools.length === 1 && !runningToolGroup) {
-      const item = pendingTools[0]!;
-      entries.push({ type: "item", key: assistantTurnItemKey(item), item });
-    } else {
-      const toolEvents = toolEventsFromItems(pendingTools);
-      entries.push({
-        type: "tool-group",
-        key: assistantTurnItemKey(pendingTools[0]!),
-        items: pendingTools,
-        toolEvents,
-        summary: summarizeToolGroup(toolEvents),
-      });
-    }
+    const toolEvents = toolEventsFromItems(pendingTools);
+    entries.push({
+      type: "tool-group",
+      key: assistantTurnItemKey(pendingTools[0]!),
+      items: pendingTools,
+      toolEvents,
+      summary: summarizeToolGroup(toolEvents),
+    });
     pendingTools = [];
   }
 
@@ -758,11 +752,27 @@ function summarizeRunningToolGroup(events: Extract<ProcessEvent, { kind: "tool_u
 }
 
 function summarizeCompletedToolGroup(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): AgentTimelineToolGroupSummary {
+  if (events.length === 1) return summarizeSingleCompletedTool(events[0]!);
   const stats = toolGroupStats(events);
   const parts = completedToolGroupSummaryParts(stats);
   return {
     iconToolName: toolGroupIconName(stats, events),
     parts: parts.length > 0 ? parts : [`已使用 ${events.length} 个工具`],
+    running: false,
+  };
+}
+
+function summarizeSingleCompletedTool(event: Extract<ProcessEvent, { kind: "tool_use" }>): AgentTimelineToolGroupSummary {
+  if (event.result?.isError) {
+    return {
+      iconToolName: event.tool.name,
+      parts: ["1 个失败"],
+      running: false,
+    };
+  }
+  return {
+    iconToolName: event.tool.name,
+    parts: [completedSingleToolLabel(event)],
     running: false,
   };
 }
@@ -791,7 +801,10 @@ function toolGroupStats(events: Extract<ProcessEvent, { kind: "tool_use" }>[]): 
   for (const event of events) {
     const toolName = event.tool.name;
     const input = recordObject(event.tool.input);
-    if (event.result?.isError) stats.failed += 1;
+    if (event.result?.isError) {
+      stats.failed += 1;
+      continue;
+    }
 
     if (isEditTool(toolName)) {
       const path = getToolInputPath(input);
@@ -844,6 +857,32 @@ function completedToolGroupSummaryParts(stats: ReturnType<typeof toolGroupStats>
   if (stats.others > 0) parts.push(`已使用 ${stats.others} 个工具`);
   if (stats.failed > 0) parts.push(`${stats.failed} 个失败`);
   return parts;
+}
+
+function completedSingleToolLabel(event: Extract<ProcessEvent, { kind: "tool_use" }>): string {
+  const toolName = event.tool.name;
+  const input = recordObject(event.tool.input);
+  if (toolName === "Read") {
+    const path = shortPathLabel(getToolInputPath(input));
+    return path ? `已读取 ${path}` : "已读取文件";
+  }
+  if (toolName === "Glob" || toolName === "Grep") {
+    return `已搜索 ${stringValue(input.pattern, "内容")}`;
+  }
+  if (toolName === "Write") {
+    const path = shortPathLabel(getToolInputPath(input));
+    return path ? `已创建 ${path}` : "已创建文件";
+  }
+  if (toolName === "Edit" || toolName === "MultiEdit") {
+    const path = shortPathLabel(getToolInputPath(input));
+    return path ? `已编辑 ${path}` : "已编辑文件";
+  }
+  if (toolName === "Bash") return "已运行命令";
+  if (toolName === "WebSearch") return `已搜索 ${webSearchLabel(input)}`;
+  if (toolName === "WebFetch") return `已打开 ${stringValue(input.url, "网页")}`;
+  if (toolName === "mcp__brevyn__rag_search") return `已检索 ${stringValue(input.query, "课程材料")}`;
+  if (toolName === "Skill") return `已使用技能 ${stringValue(input.skill ?? input.name ?? input.skillName, "skill")}`;
+  return `已使用 ${toolName}`;
 }
 
 function isEditTool(toolName: string): boolean {

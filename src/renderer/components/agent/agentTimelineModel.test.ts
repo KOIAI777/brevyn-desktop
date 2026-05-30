@@ -337,6 +337,50 @@ assert.deepEqual(hostedSearchTool?.kind === "tool_use" ? (hostedSearchTool.resul
 }]);
 assert.equal(hostedSearchItems[2]?.assistantContent, "Here are the latest AI stories.");
 
+const singleReadToolRecords: AgentTimelineRecord[] = [
+  userText("Read one file.", "user_single_read_tool"),
+  assistant([
+    { type: "tool_use", id: "tool_single_read", name: "Read", input: { file_path: "notes/week-1.md" } },
+    { type: "text", text: "I read it." },
+  ], "assistant_single_read_tool"),
+  toolResult("tool_single_read", "notes", "tool_single_read_result"),
+  result("result_single_read_tool"),
+];
+const singleReadToolGroups = buildTimelineViewGroups(singleReadToolRecords, singleReadToolRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+const singleReadToolTurn = singleReadToolGroups[1]?.type === "assistant-turn" ? singleReadToolGroups[1] : undefined;
+assert.deepEqual(singleReadToolTurn?.entries.map((entry) => entry.type), ["tool-group", "item"]);
+assert.equal(singleReadToolTurn?.entries[0]?.type === "tool-group" ? singleReadToolTurn.entries[0].summary.parts.join(" ") : "", "已读取 week-1.md");
+
+const failedReadToolRecords: AgentTimelineRecord[] = [
+  userText("Read a missing file.", "user_failed_read_tool"),
+  assistant([
+    { type: "tool_use", id: "tool_failed_read", name: "Read", input: { file_path: "missing.md" } },
+    { type: "tool_use", id: "tool_success_read", name: "Read", input: { file_path: "ok.md" } },
+    { type: "text", text: "One file was missing." },
+  ], "assistant_failed_read_tool"),
+  {
+    type: "user",
+    message: {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "tool_failed_read",
+        content: "ENOENT",
+        is_error: true,
+      }],
+    },
+    parent_tool_use_id: null,
+    session_id: "session_fixture",
+    uuid: "tool_failed_read_result",
+    _createdAt: 3,
+  } as unknown as SDKMessage,
+  toolResult("tool_success_read", "ok", "tool_success_read_result"),
+  result("result_failed_read_tool"),
+];
+const failedReadToolGroups = buildTimelineViewGroups(failedReadToolRecords, failedReadToolRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
+const failedReadToolTurn = failedReadToolGroups[1]?.type === "assistant-turn" ? failedReadToolGroups[1] : undefined;
+assert.equal(failedReadToolTurn?.entries[0]?.type === "tool-group" ? failedReadToolTurn.entries[0].summary.parts.join(" ") : "", "已探索 1 个文件 1 个失败");
+
 const consecutiveToolRecords: AgentTimelineRecord[] = [
   userText("Inspect with several tools.", "user_consecutive_tools"),
   assistant([

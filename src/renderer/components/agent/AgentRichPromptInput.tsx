@@ -147,6 +147,9 @@ export function AgentRichPromptInput({
     editorProps: {
       attributes: {
         class: "brevyn-rich-prompt-editor min-h-12 max-h-[15rem] overflow-y-auto px-1 py-0.5 text-sm leading-6 outline-none brevyn-scrollbar",
+        spellcheck: "false",
+        autocorrect: "off",
+        autocapitalize: "off",
       },
       handleDOMEvents: {
         compositionstart: () => {

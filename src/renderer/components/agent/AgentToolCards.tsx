@@ -53,7 +53,7 @@ export function ToolUseCard({
         expandable={expandable}
         glyph={helpers.renderToolGlyph(block.name, "h-3.5 w-3.5 shrink-0", result)}
       />
-      {!failed && expandable && (
+      {expandable && (
         <div className={`${effectiveCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"} grid overflow-hidden transition-[grid-template-rows,opacity] duration-[260ms] ease-[cubic-bezier(0.2,0,0,1)]`}>
           <div className="min-h-0 overflow-hidden px-1 py-0.5">
             <DeferredToolDetails collapsed={effectiveCollapsed} defer={!running}>
@@ -149,7 +149,7 @@ function ToolCardHeader({
 }
 
 function isToolExpandable(toolUse: ToolUseBlock, result?: ToolResultBlock): boolean {
-  if (toolUse.name === "Read") return false;
+  if (toolUse.name === "Read") return result?.isError === true;
   if (!result && isFileWriteTool(toolUse.name)) return false;
   if (!result) return toolUse.name !== "WebSearch";
   if (toolUse.name === "WebSearch") return getToolSearchLinks(result).length > 0;

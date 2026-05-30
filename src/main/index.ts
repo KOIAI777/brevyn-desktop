@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerIpcHandlers } from "./ipc";
+import { IPC_CHANNELS } from "../types/ipc";
 import { IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
 import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
@@ -32,6 +33,7 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow: BrowserWindow | null = null;
 let store: LocalStore | null = null;
 let indexingQueue: IndexingQueueService | null = null;
+let indexingFilesChangedTimer: NodeJS.Timeout | null = null;
 let shuttingDown = false;
 
 function createWindow(): void {
@@ -125,7 +127,9 @@ app.whenReady().then(() => {
   try {
     configureClaudeSdk(dataRoot);
     store = createLocalStore(dataRoot);
-    indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor());
+    indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor(), {
+      onTaskChanged: scheduleIndexingFilesChangedBroadcast,
+    });
     registerIpcHandlers({ store, indexingQueue });
     storeReady = true;
   } catch (error) {
@@ -205,6 +209,16 @@ app.on("before-quit", (event) => {
     }
   })();
 });
+
+function scheduleIndexingFilesChangedBroadcast(): void {
+  if (indexingFilesChangedTimer) return;
+  indexingFilesChangedTimer = setTimeout(() => {
+    indexingFilesChangedTimer = null;
+    const window = mainWindow;
+    if (!window || window.isDestroyed()) return;
+    window.webContents.send(IPC_CHANNELS.filesChanged);
+  }, 250);
+}
 
 function createUnavailableStore(error: unknown): LocalStore {
   const message = error instanceof Error ? error.message : String(error || "Unknown startup error");

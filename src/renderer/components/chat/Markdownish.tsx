@@ -110,7 +110,7 @@ const StreamingBlockMarkdownishRenderer = memo(function StreamingBlockMarkdownis
       {blocks.map((block, index) => {
         const streaming = index === blocks.length - 1;
         return (
-          <div key={streaming ? `streaming:${block.startOffset}` : block.key} className="markdownish-stream-block">
+          <div key={block.key} className="markdownish-stream-block">
             {streaming ? (
               <StreamingPlainTextBlock
                 content={block.content}
@@ -217,7 +217,7 @@ function splitStreamingMarkdownBlocks(content: string): StreamingMarkdownBlock[]
     const blockContent = current.join("\n").trimEnd();
     if (blockContent.trim()) {
       blocks.push({
-        key: `${currentStartOffset}:${hashString(blockContent.slice(0, 80))}`,
+        key: `block:${currentStartOffset}`,
         content: blockContent,
         startOffset: currentStartOffset,
       });
@@ -499,12 +499,4 @@ function lineCount(value: string): number {
     if (value.charCodeAt(index) === 10) count += 1;
   }
   return count;
-}
-
-function hashString(value: string): string {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return (hash >>> 0).toString(36);
 }

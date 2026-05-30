@@ -2866,12 +2866,11 @@ function SkillSettingsPage({
   onToggleSkill: (skill: SkillItem) => void;
 }) {
   const groupedSkills = useMemo(() => {
-    const byName = (a: SkillItem, b: SkillItem) => a.name.localeCompare(b.name);
-    return {
-      enabled: skills.filter((skill) => skill.enabled).sort(byName),
-      disabled: skills.filter((skill) => !skill.enabled).sort(byName),
-    };
+    return groupSkillsForSettings(skills);
   }, [skills]);
+  const [expandedSkillGroups, setExpandedSkillGroups] = useState<Record<string, boolean>>(() => (
+    Object.fromEntries(groupedSkills.filter((group) => group.skills.length > 0).map((group) => [group.id, true]))
+  ));
   const selectedSkill = skills.find((skill) => skill.id === selectedSkillId);
   return (
     <div className="grid h-full min-h-0 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -2888,22 +2887,21 @@ function SkillSettingsPage({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar-thin">
-          <SkillListGroup
-            title="已启用"
-            count={groupedSkills.enabled.length}
-            skills={groupedSkills.enabled}
-            selectedSkillId={selectedSkillId}
-            onSelectSkill={onSelectSkill}
-            onToggleSkill={onToggleSkill}
-          />
-          <SkillListGroup
-            title="已停用"
-            count={groupedSkills.disabled.length}
-            skills={groupedSkills.disabled}
-            selectedSkillId={selectedSkillId}
-            onSelectSkill={onSelectSkill}
-            onToggleSkill={onToggleSkill}
-          />
+          {groupedSkills.map((group) => (
+            <SkillListGroup
+              key={group.id}
+              title={group.title}
+              description={group.description}
+              count={group.skills.length}
+              skills={group.skills}
+              emptyText={group.emptyText}
+              expanded={expandedSkillGroups[group.id] ?? group.skills.length > 0}
+              onToggleExpanded={() => setExpandedSkillGroups((current) => ({ ...current, [group.id]: !(current[group.id] ?? group.skills.length > 0) }))}
+              selectedSkillId={selectedSkillId}
+              onSelectSkill={onSelectSkill}
+              onToggleSkill={onToggleSkill}
+            />
+          ))}
         </div>
       </section>
 
@@ -3015,40 +3013,189 @@ function SkillSettingsPage({
 
 function SkillListGroup({
   title,
+  description,
   count,
   skills,
+  emptyText,
+  expanded,
+  onToggleExpanded,
   selectedSkillId,
   onSelectSkill,
   onToggleSkill,
 }: {
   title: string;
+  description?: string;
   count: number;
   skills: SkillItem[];
+  emptyText?: string;
+  expanded: boolean;
+  onToggleExpanded: () => void;
   selectedSkillId: string;
   onSelectSkill: (skillId: string) => void;
   onToggleSkill: (skill: SkillItem) => void;
 }) {
   return (
     <div>
-      <div className="flex h-8 items-center justify-between border-b border-border/55 bg-muted/35 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        <span>{title}</span>
-        <span className="tabular-nums">{count}</span>
-      </div>
-      {skills.length === 0 ? (
-        <div className="px-3 py-5 text-center text-[11px] text-muted-foreground">暂无</div>
-      ) : (
-        skills.map((skill) => (
-          <SkillListItem
-            key={skill.id}
-            skill={skill}
-            selected={skill.id === selectedSkillId}
-            onSelect={() => onSelectSkill(skill.id)}
-            onToggle={() => onToggleSkill(skill)}
-          />
-        ))
+      <button
+        type="button"
+        className="flex w-full items-start gap-2 border-b border-border/55 bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted/45"
+        onClick={onToggleExpanded}
+      >
+        <ChevronRight className={cx("mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span>{title}</span>
+            <span className="tabular-nums">{count}</span>
+          </span>
+          {description && <span className="mt-1 block truncate text-[10px] leading-4 text-muted-foreground/75">{description}</span>}
+        </span>
+      </button>
+      {expanded && (
+        <div>
+          {skills.length === 0 ? (
+            <div className="px-3 py-4 text-[11px] leading-5 text-muted-foreground">{emptyText || "暂无"}</div>
+          ) : (
+            skills.map((skill) => (
+              <SkillListItem
+                key={skill.id}
+                skill={skill}
+                selected={skill.id === selectedSkillId}
+                onSelect={() => onSelectSkill(skill.id)}
+                onToggle={() => onToggleSkill(skill)}
+              />
+            ))
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+interface SkillSettingsGroup {
+  id: SkillSettingsCategoryId | "featured";
+  title: string;
+  description?: string;
+  emptyText?: string;
+  skills: SkillItem[];
+}
+
+type SkillSettingsCategoryId =
+  | "assignment"
+  | "course"
+  | "writing"
+  | "documents"
+  | "research"
+  | "other";
+
+const skillSettingsCategories: Array<{
+  id: SkillSettingsCategoryId;
+  title: string;
+  description: string;
+  emptyText: string;
+}> = [
+  {
+    id: "assignment",
+    title: "作业技能",
+    description: "拆要求、对 rubric、找证据、做提交清单。",
+    emptyText: "还没有安装作业类技能。后续 assignment-brief、rubric-checker 会显示在这里。",
+  },
+  {
+    id: "course",
+    title: "课程学习",
+    description: "课件精读、周复习、考试复习、课堂材料整理。",
+    emptyText: "还没有安装课程学习类技能。",
+  },
+  {
+    id: "writing",
+    title: "学术写作",
+    description: "Essay、report、引用格式、结构和语言修改。",
+    emptyText: "还没有安装学术写作类技能。",
+  },
+  {
+    id: "documents",
+    title: "展示与文档",
+    description: "PDF、Word、PPT、表格等基础文件能力。",
+    emptyText: "还没有安装文件处理类技能。",
+  },
+  {
+    id: "research",
+    title: "研究进阶",
+    description: "文献综述、论文精读、Nature 风格、审稿回复等。",
+    emptyText: "还没有安装研究进阶类技能。",
+  },
+  {
+    id: "other",
+    title: "我的技能",
+    description: "用户导入或暂未归类的技能。",
+    emptyText: "暂无其他技能。",
+  },
+];
+
+function groupSkillsForSettings(skills: SkillItem[]): SkillSettingsGroup[] {
+  const byName = (a: SkillItem, b: SkillItem) => a.name.localeCompare(b.name);
+  const enabled = skills.filter((skill) => skill.enabled);
+  const buckets = new Map<SkillSettingsCategoryId, SkillItem[]>(skillSettingsCategories.map((category) => [category.id, []]));
+
+  for (const skill of enabled) {
+    const category = skillSettingsCategoryForSkill(skill);
+    buckets.get(category)?.push(skill);
+  }
+
+  const featured = enabled
+    .filter((skill) => {
+      const category = skillSettingsCategoryForSkill(skill);
+      return category === "assignment" || category === "course" || category === "writing";
+    })
+    .sort(byName)
+    .slice(0, 6);
+
+  return [
+    {
+      id: "featured",
+      title: "推荐",
+      description: "优先展示适合大学作业和课程学习的技能。",
+      emptyText: "当前还没有作业/课程/写作类技能。先从“展示与文档”使用基础文件能力。",
+      skills: featured,
+    },
+    ...skillSettingsCategories.map((category) => ({
+      ...category,
+      skills: (buckets.get(category.id) || []).sort(byName),
+    })),
+  ];
+}
+
+function skillSettingsCategoryForSkill(skill: SkillItem): SkillSettingsCategoryId {
+  const category = normalizedSkillText(skill.category);
+  const haystack = normalizedSkillText([
+    skill.slug,
+    skill.id,
+    skill.name,
+    skill.description,
+    skill.category,
+    ...(skill.tags || []),
+    ...(skill.triggers || []),
+  ].filter(Boolean).join(" "));
+
+  if (matchesAny(category, ["assignment", "homework", "作业", "rubric"])) return "assignment";
+  if (matchesAny(category, ["course", "study", "lecture", "exam", "课程", "学习", "复习"])) return "course";
+  if (matchesAny(category, ["writing", "essay", "academic writing", "写作", "论文"])) return "writing";
+  if (matchesAny(category, ["document", "presentation", "spreadsheet", "file", "文档", "展示"])) return "documents";
+  if (matchesAny(category, ["research", "paper", "literature", "nature", "研究", "文献"])) return "research";
+
+  if (matchesAny(haystack, ["assignment", "homework", "rubric", "submission", "brief", "作业", "评分", "提交"])) return "assignment";
+  if (matchesAny(haystack, ["week-review", "lecture", "course", "exam", "study", "课件", "课程", "复习", "考试"])) return "course";
+  if (matchesAny(haystack, ["essay", "report", "apa", "mla", "citation", "write", "writing", "polish", "humanizer", "写作", "引用", "润色"])) return "writing";
+  if (matchesAny(haystack, ["pdf", "docx", "pptx", "xlsx", "slides", "deck", "presentation", "spreadsheet", "word", "powerpoint", "文档", "幻灯片", "表格"])) return "documents";
+  if (matchesAny(haystack, ["research", "paper", "literature", "reviewer", "response", "nature", "journal", "pubmed", "arxiv", "研究", "文献", "期刊", "审稿"])) return "research";
+  return "other";
+}
+
+function normalizedSkillText(value?: string): string {
+  return (value || "").toLowerCase();
+}
+
+function matchesAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
 }
 
 function SkillListItem({ skill, selected, onSelect, onToggle }: { skill: SkillItem; selected: boolean; onSelect: () => void; onToggle: () => void }) {

@@ -94,7 +94,7 @@ export function useAgentTimelineState({
     timelineRecords,
   } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
   const scrollWasRunningRef = useRef(effectiveRunning);
-  const needsInstantResize = !effectiveRunning && liveRunning;
+  const needsInstantResize = !running && liveRunning;
   const scrollTransitioning = needsInstantResize || scrollTransitioningCooldown;
   const forceProcessOpen = effectiveRunning && !hasRenderableAssistantContent(timelineRecords);
   const runSummary = useMemo(() => latestRunSummary(timelineRecords, Date.now(), effectiveRunning), [effectiveRunning, timelineRecords]);

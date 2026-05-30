@@ -33,7 +33,9 @@ export function useAgentQueueState({
   const wasRunningRef = useRef(false);
   const lastAutoSentRunIdRef = useRef("");
   const lastAutoSentRunIdByThreadRef = useRef<Record<string, string>>({});
-  const autoSendTimersRef = useRef<number[]>([]);
+  const autoSendTimerRef = useRef<number | null>(null);
+  const autoSendTimersByThreadRef = useRef<Record<string, number>>({});
+  const threadIdRef = useRef(threadId);
   const currentPermissionModeRef = useRef(currentPermissionMode);
   const currentProviderSelectionRef = useRef(currentProviderSelection);
   const [queuedMessagesByThread, setQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});
@@ -41,6 +43,7 @@ export function useAgentQueueState({
 
   const queuedMessages = queuedMessagesByThread[threadId] || [];
   const sendingQueuedMessageIds = sendingQueuedMessageIdsByThread[threadId] || [];
+  threadIdRef.current = threadId;
 
   useEffect(() => {
     queuedMessagesRef.current = queuedMessages;
@@ -68,25 +71,14 @@ export function useAgentQueueState({
     const unsubscribe = window.brevyn.agent.onEvent((event) => {
       const completed = completedRunEvent(event);
       if (!completed) return;
-      const timer = window.setTimeout(() => {
-        autoSendTimersRef.current = autoSendTimersRef.current.filter((item) => item !== timer);
-        const nextMessage = queuedMessagesByThreadRef.current[completed.threadId]?.[0];
-        if (!nextMessage) return;
-        if (lastAutoSentRunIdByThreadRef.current[completed.threadId] === completed.runId) return;
-        void sendQueuedMessageAsNewRun(completed.threadId, nextMessage, "auto").then((started) => {
-          if (!started) return;
-          lastAutoSentRunIdByThreadRef.current = {
-            ...lastAutoSentRunIdByThreadRef.current,
-            [completed.threadId]: completed.runId,
-          };
-        });
-      }, 0);
-      autoSendTimersRef.current.push(timer);
+      scheduleQueuedMessageAsNewRun(completed.threadId, completed.runId, "event");
     });
     return () => {
       unsubscribe();
-      for (const timer of autoSendTimersRef.current) window.clearTimeout(timer);
-      autoSendTimersRef.current = [];
+      for (const timer of Object.values(autoSendTimersByThreadRef.current)) {
+        window.clearTimeout(timer);
+      }
+      autoSendTimersByThreadRef.current = {};
     };
   }, []);
 
@@ -99,15 +91,54 @@ export function useAgentQueueState({
     if (lastAutoSentRunIdByThreadRef.current[threadId] === runSummary.runId) return;
     const nextMessage = queuedMessagesRef.current[0];
     if (!nextMessage) return;
-    void sendQueuedMessageAsNewRun(threadId, nextMessage, "auto").then((started) => {
-      if (!started || !runSummary.runId) return;
-      lastAutoSentRunIdRef.current = runSummary.runId;
-      lastAutoSentRunIdByThreadRef.current = {
-        ...lastAutoSentRunIdByThreadRef.current,
-        [threadId]: runSummary.runId,
-      };
-    });
+    if (autoSendTimerRef.current !== null) window.clearTimeout(autoSendTimerRef.current);
+    autoSendTimerRef.current = window.setTimeout(() => {
+      autoSendTimerRef.current = null;
+      if (lastAutoSentRunIdRef.current === runSummary.runId) return;
+      if (lastAutoSentRunIdByThreadRef.current[threadId] === runSummary.runId) return;
+      const queuedMessage = queuedMessagesRef.current[0];
+      if (!queuedMessage) return;
+      void sendQueuedMessageAsNewRun(threadId, queuedMessage, "auto").then((started) => {
+        if (!started || !runSummary.runId) return;
+        lastAutoSentRunIdRef.current = runSummary.runId;
+        lastAutoSentRunIdByThreadRef.current = {
+          ...lastAutoSentRunIdByThreadRef.current,
+          [threadId]: runSummary.runId,
+        };
+      });
+    }, 180);
+    return () => {
+      if (autoSendTimerRef.current !== null) {
+        window.clearTimeout(autoSendTimerRef.current);
+        autoSendTimerRef.current = null;
+      }
+    };
   }, [effectiveRunning, runSummary?.runId, runSummary?.status]);
+
+  function scheduleQueuedMessageAsNewRun(targetThreadId: string, completedRunId: string, source: "event"): void {
+    if (!targetThreadId || !completedRunId) return;
+    if (lastAutoSentRunIdByThreadRef.current[targetThreadId] === completedRunId) return;
+    const existingTimer = autoSendTimersByThreadRef.current[targetThreadId];
+    if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+    autoSendTimersByThreadRef.current = {
+      ...autoSendTimersByThreadRef.current,
+      [targetThreadId]: window.setTimeout(() => {
+        const { [targetThreadId]: _timer, ...rest } = autoSendTimersByThreadRef.current;
+        autoSendTimersByThreadRef.current = rest;
+        if (lastAutoSentRunIdByThreadRef.current[targetThreadId] === completedRunId) return;
+        const queuedMessage = queuedMessagesByThreadRef.current[targetThreadId]?.[0];
+        if (!queuedMessage) return;
+        void sendQueuedMessageAsNewRun(targetThreadId, queuedMessage, "auto").then((started) => {
+          if (!started) return;
+          lastAutoSentRunIdByThreadRef.current = {
+            ...lastAutoSentRunIdByThreadRef.current,
+            [targetThreadId]: completedRunId,
+          };
+          if (targetThreadId === threadIdRef.current) lastAutoSentRunIdRef.current = completedRunId;
+        });
+      }, source === "event" ? 220 : 180),
+    };
+  }
 
   const queueMessage = useCallback((message: QueuedAgentMessage) => {
     setQueuedMessagesByThread((current) => ({
@@ -203,5 +234,5 @@ export function useAgentQueueState({
 function completedRunEvent(event: BrevynAgentEvent): { threadId: string; runId: string } | null {
   if (event.kind !== "brevyn_event" || event.event.type !== "run_completed") return null;
   const threadId = agentRuntimeEventThreadId(event.event);
-  return threadId ? { threadId, runId: event.event.runId } : null;
+  return threadId && event.event.runId ? { threadId, runId: event.event.runId } : null;
 }
