@@ -128,7 +128,7 @@ app.whenReady().then(() => {
     configureClaudeSdk(dataRoot);
     store = createLocalStore(dataRoot);
     indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor(), {
-      onTaskChanged: scheduleIndexingFilesChangedBroadcast,
+      onQueueChanged: scheduleIndexingFilesChangedBroadcast,
     });
     registerIpcHandlers({ store, indexingQueue });
     storeReady = true;

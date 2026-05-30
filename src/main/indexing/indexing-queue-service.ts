@@ -7,7 +7,7 @@ export interface IndexingQueueOptions {
   concurrency?: number;
   pollMs?: number;
   lockMs?: number;
-  onTaskChanged?: (task: IndexingTaskRecord) => void;
+  onQueueChanged?: () => void;
 }
 
 export class IndexingQueueService {
@@ -61,7 +61,7 @@ export class IndexingQueueService {
         const task = this.store.claimNextIndexingTask(this.workerId, this.lockMs);
         if (!task) break;
         this.active.add(task.id);
-        this.options.onTaskChanged?.(task);
+        this.options.onQueueChanged?.();
         void this.runTask(task).finally(() => {
           this.active.delete(task.id);
           this.poke();
@@ -79,7 +79,7 @@ export class IndexingQueueService {
     } catch (error) {
       this.store.failIndexingTask(task.id, error instanceof Error ? error.message : String(error), this.workerId, task.lockedUntil);
     } finally {
-      this.options.onTaskChanged?.(task);
+      this.options.onQueueChanged?.();
     }
   }
 

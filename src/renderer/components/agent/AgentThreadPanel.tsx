@@ -64,7 +64,6 @@ export function AgentThreadPanel({
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
   const [timelineReady, setTimelineReady] = useState(false);
-  const [timelineScrollbarWidth, setTimelineScrollbarWidth] = useState(0);
   const scrollApiRef = useRef({
     isFollowingOutput: true,
     scrollToBottom: (_behavior: ScrollBehavior) => {},
@@ -164,7 +163,6 @@ export function AgentThreadPanel({
         onResolveExitPlan={onResolveExitPlan}
         onCompact={handleCompactRequest}
         onScrollApiReady={handleScrollApiReady}
-        onScrollbarWidthChange={setTimelineScrollbarWidth}
       />
 
       {error && <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">{error}</div>}
@@ -191,7 +189,6 @@ export function AgentThreadPanel({
         onSelectProvider={onSelectProvider}
         files={files}
         skills={skills}
-        scrollbarWidth={timelineScrollbarWidth}
       />
     </section>
     </FilePathPreviewProvider>
@@ -214,7 +211,6 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onResolveExitPlan,
   onCompact,
   onScrollApiReady,
-  onScrollbarWidthChange,
 }: {
   thread: Thread;
   loading: boolean;
@@ -230,7 +226,6 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
   onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
-  onScrollbarWidthChange: (width: number) => void;
 }) {
   const {
     scrollRef,
@@ -252,30 +247,9 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
     onScrollApiReady({ isFollowingOutput, scrollToBottom });
   }, [isFollowingOutput, onScrollApiReady, scrollToBottom]);
 
-  useEffect(() => {
-    const element = scrollElementRef.current;
-    if (!element) return;
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      onScrollbarWidthChange(Math.max(0, element.offsetWidth - element.clientWidth));
-    };
-    const schedule = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(measure);
-    };
-    schedule();
-    const observer = new ResizeObserver(schedule);
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-      if (frame) window.cancelAnimationFrame(frame);
-    };
-  }, [onScrollbarWidthChange]);
-
   return (
     <>
-      <div ref={handleScrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 pb-[10.5rem] pt-5 [overflow-anchor:none]">
+      <div ref={handleScrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 pb-[10.5rem] pt-5 [overflow-anchor:none] [scrollbar-gutter:stable] brevyn-scrollbar">
         <div
           ref={contentRef}
           className={`min-h-full min-w-0 max-w-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}

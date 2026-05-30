@@ -33,6 +33,7 @@ export function useAgentQueueState({
   const wasRunningRef = useRef(false);
   const lastAutoSentRunIdRef = useRef("");
   const lastAutoSentRunIdByThreadRef = useRef<Record<string, string>>({});
+  const autoSendInFlightRunIdByThreadRef = useRef<Record<string, string>>({});
   const autoSendTimerRef = useRef<number | null>(null);
   const autoSendTimersByThreadRef = useRef<Record<string, number>>({});
   const threadIdRef = useRef(threadId);
@@ -98,13 +99,9 @@ export function useAgentQueueState({
       if (lastAutoSentRunIdByThreadRef.current[threadId] === runSummary.runId) return;
       const queuedMessage = queuedMessagesRef.current[0];
       if (!queuedMessage) return;
+      if (!beginAutoSend(threadId, runSummary.runId)) return;
       void sendQueuedMessageAsNewRun(threadId, queuedMessage, "auto").then((started) => {
-        if (!started || !runSummary.runId) return;
-        lastAutoSentRunIdRef.current = runSummary.runId;
-        lastAutoSentRunIdByThreadRef.current = {
-          ...lastAutoSentRunIdByThreadRef.current,
-          [threadId]: runSummary.runId,
-        };
+        finishAutoSend(threadId, runSummary.runId, started);
       });
     }, 180);
     return () => {
@@ -128,16 +125,33 @@ export function useAgentQueueState({
         if (lastAutoSentRunIdByThreadRef.current[targetThreadId] === completedRunId) return;
         const queuedMessage = queuedMessagesByThreadRef.current[targetThreadId]?.[0];
         if (!queuedMessage) return;
+        if (!beginAutoSend(targetThreadId, completedRunId)) return;
         void sendQueuedMessageAsNewRun(targetThreadId, queuedMessage, "auto").then((started) => {
-          if (!started) return;
-          lastAutoSentRunIdByThreadRef.current = {
-            ...lastAutoSentRunIdByThreadRef.current,
-            [targetThreadId]: completedRunId,
-          };
-          if (targetThreadId === threadIdRef.current) lastAutoSentRunIdRef.current = completedRunId;
+          finishAutoSend(targetThreadId, completedRunId, started);
         });
       }, source === "event" ? 220 : 180),
     };
+  }
+
+  function beginAutoSend(targetThreadId: string, completedRunId: string): boolean {
+    if (lastAutoSentRunIdByThreadRef.current[targetThreadId] === completedRunId) return false;
+    if (autoSendInFlightRunIdByThreadRef.current[targetThreadId] === completedRunId) return false;
+    autoSendInFlightRunIdByThreadRef.current = {
+      ...autoSendInFlightRunIdByThreadRef.current,
+      [targetThreadId]: completedRunId,
+    };
+    return true;
+  }
+
+  function finishAutoSend(targetThreadId: string, completedRunId: string, started: boolean): void {
+    const { [targetThreadId]: _inFlightRunId, ...rest } = autoSendInFlightRunIdByThreadRef.current;
+    autoSendInFlightRunIdByThreadRef.current = rest;
+    if (!started) return;
+    lastAutoSentRunIdByThreadRef.current = {
+      ...lastAutoSentRunIdByThreadRef.current,
+      [targetThreadId]: completedRunId,
+    };
+    if (targetThreadId === threadIdRef.current) lastAutoSentRunIdRef.current = completedRunId;
   }
 
   const queueMessage = useCallback((message: QueuedAgentMessage) => {
@@ -179,16 +193,28 @@ export function useAgentQueueState({
     if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return false;
     setQueuedMessageSending(targetThreadId, message.id, true);
     try {
-      const started = await onRunForThread(
-        targetThreadId,
-        message.prompt,
-        message.permissionMode ?? currentPermissionModeRef.current,
-        undefined,
-        message.providerSelection ?? currentProviderSelectionRef.current,
-        message.mentionedSkills,
-      );
-      if (started) removeQueuedMessage(targetThreadId, message.id);
-      return started;
+      const maxAttempts = source === "auto" ? 5 : 1;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          const started = await onRunForThread(
+            targetThreadId,
+            message.prompt,
+            message.permissionMode ?? currentPermissionModeRef.current,
+            undefined,
+            message.providerSelection ?? currentProviderSelectionRef.current,
+            message.mentionedSkills,
+          );
+          if (started) removeQueuedMessage(targetThreadId, message.id);
+          return started;
+        } catch (error) {
+          if (source === "auto" && isAgentRunStillActiveError(error) && attempt < maxAttempts) {
+            await delay(180 + attempt * 120);
+            continue;
+          }
+          throw error;
+        }
+      }
+      return false;
     } catch (error) {
       console.error(source === "auto" ? "[AgentThreadPanel] Failed to auto-send queued message:" : "[AgentThreadPanel] Failed to start queued message:", error);
       return false;
@@ -235,4 +261,12 @@ function completedRunEvent(event: BrevynAgentEvent): { threadId: string; runId: 
   if (event.kind !== "brevyn_event" || event.event.type !== "run_completed") return null;
   const threadId = agentRuntimeEventThreadId(event.event);
   return threadId && event.event.runId ? { threadId, runId: event.event.runId } : null;
+}
+
+function isAgentRunStillActiveError(error: unknown): boolean {
+  return String(error instanceof Error ? error.message : error || "").includes("An agent run is already active for this thread");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

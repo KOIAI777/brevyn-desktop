@@ -35,7 +35,6 @@ interface AgentComposerProps {
   activeProviderId: string;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
-  scrollbarWidth?: number;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
@@ -60,7 +59,6 @@ export const AgentComposer = memo(function AgentComposer({
   activeProviderId,
   files,
   skills,
-  scrollbarWidth = 0,
   onSetPermissionMode,
   onRun,
   onQueueMessage,
@@ -139,7 +137,7 @@ export const AgentComposer = memo(function AgentComposer({
     <form
       ref={formRef}
       className="pointer-events-none absolute inset-x-0 bottom-0 z-20 min-w-0 overflow-x-hidden px-5 pb-6 pt-3"
-      style={{ paddingRight: `calc(1.25rem + ${scrollbarWidth}px)` }}
+      style={{ paddingRight: "calc(1.25rem + 10px)" }}
       onSubmit={handleSubmit}
     >
       <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
@@ -280,7 +278,6 @@ function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentCom
     && previous.activeProviderId === next.activeProviderId
     && previous.files === next.files
     && previous.skills === next.skills
-    && previous.scrollbarWidth === next.scrollbarWidth
     && previous.onSetPermissionMode === next.onSetPermissionMode
     && previous.onRun === next.onRun
     && previous.onQueueMessage === next.onQueueMessage
