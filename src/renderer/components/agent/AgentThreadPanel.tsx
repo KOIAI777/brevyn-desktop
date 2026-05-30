@@ -64,10 +64,16 @@ export function AgentThreadPanel({
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
   const [timelineReady, setTimelineReady] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(168);
   const scrollApiRef = useRef({
     isFollowingOutput: true,
     scrollToBottom: (_behavior: ScrollBehavior) => {},
   });
+  const handleAutoQueuedRunStarted = useCallback((targetThreadId: string) => {
+    if (targetThreadId !== thread.id) return;
+    if (!scrollApiRef.current.isFollowingOutput) return;
+    window.requestAnimationFrame(() => scrollApiRef.current.scrollToBottom("auto"));
+  }, [thread.id]);
   const {
     permissionMode,
     timelineRecords,
@@ -96,6 +102,7 @@ export function AgentThreadPanel({
     activeProviderId,
     onRun,
     onRunForThread,
+    onAutoQueuedRunStarted: handleAutoQueuedRunStarted,
   });
   useEffect(() => {
     setTimelineReady(false);
@@ -163,6 +170,8 @@ export function AgentThreadPanel({
         onResolveExitPlan={onResolveExitPlan}
         onCompact={handleCompactRequest}
         onScrollApiReady={handleScrollApiReady}
+        bottomPadding={composerHeight + 24}
+        scrollToBottomButtonBottom={composerHeight + 40}
       />
 
       {error && <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">{error}</div>}
@@ -189,6 +198,7 @@ export function AgentThreadPanel({
         onSelectProvider={onSelectProvider}
         files={files}
         skills={skills}
+        onHeightChange={setComposerHeight}
       />
     </section>
     </FilePathPreviewProvider>
@@ -211,6 +221,8 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onResolveExitPlan,
   onCompact,
   onScrollApiReady,
+  bottomPadding,
+  scrollToBottomButtonBottom,
 }: {
   thread: Thread;
   loading: boolean;
@@ -226,6 +238,8 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
   onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
+  bottomPadding: number;
+  scrollToBottomButtonBottom: number;
 }) {
   const {
     scrollRef,
@@ -249,7 +263,11 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
 
   return (
     <>
-      <div ref={handleScrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 pb-[10.5rem] pt-5 [overflow-anchor:none] [scrollbar-gutter:stable] brevyn-scrollbar">
+      <div
+        ref={handleScrollRef}
+        className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 pt-5 [overflow-anchor:none] [scrollbar-gutter:stable] brevyn-scrollbar"
+        style={{ paddingBottom: bottomPadding }}
+      >
         <div
           ref={contentRef}
           className={`min-h-full min-w-0 max-w-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}
@@ -288,7 +306,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
         <button
           type="button"
           className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-card/95 text-muted-foreground shadow-[0_10px_28px_rgba(64,55,38,0.14)] ring-1 ring-border/50 transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
-          style={{ bottom: 208 }}
+          style={{ bottom: scrollToBottomButtonBottom }}
           onClick={() => scrollToBottom("smooth")}
           title="回到底部"
           aria-label="回到底部"

@@ -35,6 +35,7 @@ interface AgentComposerProps {
   activeProviderId: string;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
+  onHeightChange?: (height: number) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
@@ -59,6 +60,7 @@ export const AgentComposer = memo(function AgentComposer({
   activeProviderId,
   files,
   skills,
+  onHeightChange,
   onSetPermissionMode,
   onRun,
   onQueueMessage,
@@ -88,6 +90,27 @@ export const AgentComposer = memo(function AgentComposer({
   const promptText = promptValue.trim();
   const hasMentionedSkills = mentionedSkills.length > 0;
   const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills);
+
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form || !onHeightChange) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      onHeightChange(Math.ceil(form.getBoundingClientRect().height));
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(form);
+    return () => {
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [onHeightChange]);
 
   useEffect(() => {
     setPromptValue("");
@@ -278,6 +301,7 @@ function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentCom
     && previous.activeProviderId === next.activeProviderId
     && previous.files === next.files
     && previous.skills === next.skills
+    && previous.onHeightChange === next.onHeightChange
     && previous.onSetPermissionMode === next.onSetPermissionMode
     && previous.onRun === next.onRun
     && previous.onQueueMessage === next.onQueueMessage

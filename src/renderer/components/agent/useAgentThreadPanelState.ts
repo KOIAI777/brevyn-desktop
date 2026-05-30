@@ -38,6 +38,7 @@ interface UseAgentThreadPanelStateArgs {
   activeProviderId: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
+  onAutoQueuedRunStarted?: (threadId: string) => void;
 }
 
 export function useAgentThreadPanelState({
@@ -50,6 +51,7 @@ export function useAgentThreadPanelState({
   activeProviderId,
   onRun,
   onRunForThread,
+  onAutoQueuedRunStarted,
 }: UseAgentThreadPanelStateArgs): AgentThreadPanelState {
   const timelineState = useAgentTimelineState({
     thread,
@@ -67,6 +69,7 @@ export function useAgentThreadPanelState({
     currentPermissionMode: preferencesState.permissionMode,
     currentProviderSelection: parseProviderModelValue(activeProviderId),
     onRunForThread,
+    onAutoRunStarted: onAutoQueuedRunStarted,
   });
 
   useAgentAutoCompactState({

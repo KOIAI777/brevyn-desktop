@@ -19,6 +19,7 @@ export function useAgentQueueState({
   currentPermissionMode,
   currentProviderSelection,
   onRunForThread,
+  onAutoRunStarted,
 }: {
   threadId: string;
   effectiveRunning: boolean;
@@ -26,6 +27,7 @@ export function useAgentQueueState({
   currentPermissionMode: AgentPermissionMode;
   currentProviderSelection?: { providerId?: string; modelId?: string };
   onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
+  onAutoRunStarted?: (threadId: string) => void;
 }): AgentQueueState {
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
   const queuedMessagesByThreadRef = useRef<Record<string, QueuedAgentMessage[]>>({});
@@ -205,6 +207,7 @@ export function useAgentQueueState({
             message.mentionedSkills,
           );
           if (started) removeQueuedMessage(targetThreadId, message.id);
+          if (started && source === "auto") onAutoRunStarted?.(targetThreadId);
           return started;
         } catch (error) {
           if (source === "auto" && isAgentRunStillActiveError(error) && attempt < maxAttempts) {
