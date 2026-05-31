@@ -1,9 +1,16 @@
 import { ArrowRight, BarChart3, BookOpen, CalendarClock, FileText, FolderOpen, Plus, Sparkles } from "lucide-react";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 import type { BrevynTask, Course, FileStats, SemesterWorkspace, Thread, WorkspaceFileNode } from "@/types/domain";
 import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
 import { cx } from "@/lib/cn";
+import {
+  buildActivityWeeks,
+  buildCourseDashboardStats,
+  type ActivityDay,
+  type TaskCard,
+} from "@/components/courses/courseDashboardStats";
 
 export function CourseDashboard({
   course,
@@ -26,21 +33,32 @@ export function CourseDashboard({
   onSelectTask: (courseId: string, taskId: string) => void;
   onCreateThread: (courseId?: string, taskId?: string) => void;
 }) {
-  const courseThreads = threads.filter((thread) => thread.courseId === course.id && !thread.archivedAt);
-  const courseFiles = flattenFiles(files);
-  const taskCards = buildTaskCards(tasks, courseThreads, courseFiles);
-  const recentTask = taskCards[0];
-  const activityDays = buildActivityDays(courseThreads, courseFiles);
-  const draftFiles = courseFiles.filter(isDraftFile);
-  const lectureFiles = courseFiles.filter((file) => file.sectionKind === "lecture");
-  const lectureWeeks = buildLectureWeeks(lectureFiles);
-  const filesTouchedThisWeek = courseFiles.filter((file) => isWithinDays(file.updatedAt, 7)).length;
-  const activeTasks = taskCards.filter((task) => task.threadCount > 0 || task.fileCount > 0).length;
+  const dashboardStats = useMemo(
+    () => buildCourseDashboardStats({ course, tasks, threads, files, stats }),
+    [course, files, stats, tasks, threads],
+  );
+  const {
+    activeTasks,
+    activityDays,
+    activityScore,
+    courseFileCount,
+    courseThreads,
+    draftFiles,
+    filesTouchedThisWeek,
+    lectureFiles,
+    lectureWeeks,
+    recentTask,
+    sectionCount,
+    submittedCount,
+    taskCards,
+    taskMaterialCount,
+    threadsWithMessages,
+  } = dashboardStats;
   const courseColor = course.color || "#2563eb";
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_22%_8%,rgba(37,99,235,0.07),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,247,242,0.96))] p-5 text-sm text-foreground brevyn-scrollbar">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+      <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
         <section className="overflow-hidden rounded-2xl border bg-card/90 shadow-sm ring-1 ring-border/60">
           <div className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -85,15 +103,15 @@ export function CourseDashboard({
 
             <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <MetricCard label="活跃任务" value={activeTasks.toString()} hint={`共 ${tasks.length} 个`} />
-              <MetricCard label="会话" value={courseThreads.length.toString()} hint={`${courseThreads.filter((thread) => !thread.isDraft).length} 个已有消息`} />
-              <MetricCard label="课程文件" value={(stats?.totalFiles ?? courseFiles.length).toString()} hint={`${stats?.sectionCount ?? 0} 个分区`} />
+              <MetricCard label="会话" value={courseThreads.length.toString()} hint={`${threadsWithMessages} 个已有消息`} />
+              <MetricCard label="课程文件" value={courseFileCount.toString()} hint={`${sectionCount} 个分区`} />
               <MetricCard label="草稿文件" value={draftFiles.length.toString()} hint={`本周更新 ${filesTouchedThisWeek} 个`} />
             </div>
           </div>
         </section>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
-          <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+          <section className="min-w-0 rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -103,13 +121,13 @@ export function CourseDashboard({
                 <p className="mt-1 text-xs text-muted-foreground">最近 26 周的文件更新和会话活动。</p>
               </div>
               <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                {activityDays.reduce((sum, day) => sum + day.score, 0)} 活动
+                {activityScore} 活动
               </span>
             </div>
             <ActivityHeatmap days={activityDays} />
           </section>
 
-          <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
+          <section className="min-w-[21rem] rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="h-4 w-4" />
               建议下一步
@@ -237,69 +255,29 @@ export function CourseDashboard({
         </section>
 
         <section className="grid gap-3 md:grid-cols-3">
-          <FileKindCard icon={<FolderOpen className="h-4 w-4" />} label="任务材料" value={countSectionFiles(courseFiles, "materials").toString()} />
+          <FileKindCard icon={<FolderOpen className="h-4 w-4" />} label="任务材料" value={taskMaterialCount.toString()} />
           <FileKindCard icon={<FileText className="h-4 w-4" />} label="草稿" value={draftFiles.length.toString()} />
-          <FileKindCard icon={<FileText className="h-4 w-4" />} label="已提交" value={countSectionFiles(courseFiles, "submitted").toString()} />
+          <FileKindCard icon={<FileText className="h-4 w-4" />} label="已提交" value={submittedCount.toString()} />
         </section>
       </div>
     </div>
   );
 }
 
-type TaskCard = {
-  task: BrevynTask;
-  fileCount: number;
-  threadCount: number;
-  lastTouchedTime: number;
-  sortTime: number;
-  lastTouchedLabel: string;
-};
-
-type ActivityDay = {
-  dateKey: string;
-  label: string;
-  weekdayLabel: string;
-  monthLabel: string;
-  shortMonthLabel: string;
-  fileEvents: number;
-  sessionEvents: number;
-  score: number;
-};
-
-type ActivityWeek = {
-  id: string;
-  label: string;
-  weekLabel: string;
-  monthLabel: string;
-  shortMonthLabel: string;
-  days: ActivityDay[];
-};
-
-type LectureWeek = {
-  id: string;
-  label: string;
-  files: WorkspaceFileNode[];
-  indexedCount: number;
-  latestTime: number;
-  latestLabel: string;
-};
-
-const ACTIVITY_WEEK_COUNT = 26;
-
-function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
+export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   const weeks = buildActivityWeeks(days);
   return (
     <div className="mt-4">
       <div className="overflow-visible pb-1">
         <div className="min-w-0">
-          <div className="mb-1 grid gap-1 pl-9" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)`, justifyContent: "space-between" }}>
+          <div className="mb-1 grid gap-[0.32rem] pl-9" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)` }}>
             {weeks.map((week) => (
               <div key={week.id} className="truncate text-center text-[8px] font-medium text-muted-foreground" title={`${week.label} · ${week.monthLabel}`}>
                 {week.weekLabel}
               </div>
             ))}
           </div>
-          <div className="mb-1 grid gap-1 pl-9" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)`, justifyContent: "space-between" }}>
+          <div className="mb-1 grid gap-[0.32rem] pl-9" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)` }}>
             {weeks.map((week, index) => (
               <div key={`${week.id}-month`} className="truncate text-center text-[8px] text-muted-foreground/70">
                 {index === 0 || week.monthLabel !== weeks[index - 1]?.monthLabel ? week.shortMonthLabel : ""}
@@ -312,7 +290,7 @@ function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
                 <div key={`${label}-${index}`}>{label}</div>
               ))}
             </div>
-            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)`, justifyContent: "space-between" }}>
+            <div className="grid gap-[0.32rem]" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)` }}>
               {weeks.map((week) => (
                 <div key={week.id} className="grid grid-rows-7 gap-1">
                   {week.days.map((day) => (
@@ -348,7 +326,7 @@ function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   );
 }
 
-function MetricCard({ label, value, hint }: { label: string; value: string; hint: string }) {
+export function MetricCard({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div className="rounded-xl border bg-background/65 px-3 py-3">
       <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
@@ -358,7 +336,7 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
-function FileKindCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+export function FileKindCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border bg-card/82 p-4 shadow-sm ring-1 ring-border/45">
       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground">{icon}</div>
@@ -368,128 +346,6 @@ function FileKindCard({ icon, label, value }: { icon: ReactNode; label: string; 
       </div>
     </div>
   );
-}
-
-function buildTaskCards(tasks: BrevynTask[], threads: Thread[], files: WorkspaceFileNode[]): TaskCard[] {
-  return tasks
-    .map((task) => {
-      const taskThreads = threads.filter((thread) => thread.taskId === task.id);
-      const taskFiles = files.filter((file) => file.taskId === task.id);
-      const latestThread = [...taskThreads].sort((a, b) => safeTime(b.updatedAt) - safeTime(a.updatedAt))[0];
-      const latestFileTime = Math.max(0, ...taskFiles.map((file) => safeTime(file.updatedAt)));
-      const dueTime = task.dueAt ? safeTime(task.dueAt) : 0;
-      const lastTouchedTime = Math.max(safeTime(latestThread?.updatedAt), latestFileTime);
-      return {
-        task,
-        fileCount: taskFiles.length,
-        threadCount: taskThreads.length,
-        lastTouchedTime,
-        sortTime: lastTouchedTime || dueTime,
-        lastTouchedLabel: lastTouchedTime > 0 ? formatRelativeZh(new Date(lastTouchedTime).toISOString()) : dueTime > 0 ? `截止 ${formatShortDate(task.dueAt || "")}` : "未开始",
-      };
-    })
-    .sort((a, b) => b.sortTime - a.sortTime || a.task.title.localeCompare(b.task.title));
-}
-
-function buildActivityDays(threads: Thread[], files: WorkspaceFileNode[]): ActivityDay[] {
-  const days = lastNDays(ACTIVITY_WEEK_COUNT * 7);
-  const byDay = new Map(days.map((day) => [day.dateKey, { ...day, fileEvents: 0, sessionEvents: 0, score: 0 }]));
-  for (const file of files) {
-    const key = dateKey(file.updatedAt);
-    const day = byDay.get(key);
-    if (!day) continue;
-    day.fileEvents += 1;
-    day.score += isDraftFile(file) ? 2 : 1;
-  }
-  for (const thread of threads) {
-    const key = dateKey(thread.updatedAt);
-    const day = byDay.get(key);
-    if (!day) continue;
-    day.sessionEvents += 1;
-    day.score += thread.isDraft ? 1 : 2;
-  }
-  return days.map((day) => byDay.get(day.dateKey) || day);
-}
-
-function buildActivityWeeks(days: ActivityDay[]): ActivityWeek[] {
-  const weeks: ActivityWeek[] = [];
-  for (let index = 0; index < days.length; index += 7) {
-    const weekDays = days.slice(index, index + 7);
-    if (weekDays.length === 0) continue;
-    weeks.push({
-      id: weekDays[0].dateKey,
-      label: index + 7 >= days.length ? "本周" : `第 ${Math.floor(index / 7) + 1} 周`,
-      weekLabel: `${Math.floor(index / 7) + 1}`,
-      monthLabel: weekDays[0].monthLabel,
-      shortMonthLabel: weekDays[0].shortMonthLabel,
-      days: weekDays,
-    });
-  }
-  return weeks;
-}
-
-function lastNDays(count: number): ActivityDay[] {
-  const today = startOfLocalDay(new Date());
-  const currentWeekStart = startOfWeek(today);
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(currentWeekStart);
-    date.setDate(currentWeekStart.getDate() - (count - 7) + index);
-    return {
-      dateKey: dateKey(date.toISOString()),
-      label: formatShortDate(date.toISOString()),
-      weekdayLabel: formatWeekdayZh(date),
-      monthLabel: `${date.getMonth() + 1}月`,
-      shortMonthLabel: `${date.getMonth() + 1}`,
-      fileEvents: 0,
-      sessionEvents: 0,
-      score: 0,
-    };
-  });
-}
-
-function buildLectureWeeks(files: WorkspaceFileNode[]): LectureWeek[] {
-  const groups = new Map<string, WorkspaceFileNode[]>();
-  for (const file of files) {
-    const key = typeof file.weekNumber === "number" ? `week-${file.weekNumber}` : "unsorted";
-    groups.set(key, [...(groups.get(key) || []), file]);
-  }
-  return Array.from(groups.entries())
-    .map(([id, groupFiles]) => {
-      const weekNumber = id.startsWith("week-") ? Number(id.replace("week-", "")) : null;
-      const latestTime = Math.max(0, ...groupFiles.map((file) => safeTime(file.updatedAt)));
-      return {
-        id,
-        label: typeof weekNumber === "number" && Number.isFinite(weekNumber) ? `第 ${weekNumber} 周` : "未分周课件",
-        files: groupFiles,
-        indexedCount: groupFiles.filter((file) => file.indexedAt || file.indexingStatus === "indexed").length,
-        latestTime,
-        latestLabel: latestTime > 0 ? formatRelativeZh(new Date(latestTime).toISOString()) : "暂无活动",
-      };
-    })
-    .sort((a, b) => lectureWeekSortValue(a.id) - lectureWeekSortValue(b.id));
-}
-
-function flattenFiles(nodes: WorkspaceFileNode[]): WorkspaceFileNode[] {
-  const result: WorkspaceFileNode[] = [];
-  for (const node of nodes) {
-    if (node.kind !== "folder") result.push(node);
-    if (node.children) result.push(...flattenFiles(node.children));
-  }
-  return result;
-}
-
-function countSectionFiles(files: WorkspaceFileNode[], bucket: "materials" | "drafts" | "submitted"): number {
-  return files.filter((file) => file.taskFileBucket === bucket || file.path.toLowerCase().includes(`/${bucket}/`)).length;
-}
-
-function isDraftFile(file: WorkspaceFileNode): boolean {
-  return file.taskFileBucket === "drafts" || file.path.toLowerCase().includes("/drafts/");
-}
-
-function isWithinDays(value: string, days: number): boolean {
-  const time = safeTime(value);
-  if (!time) return false;
-  return Date.now() - time <= days * 24 * 60 * 60 * 1000;
 }
 
 function heatCellClass(score: number): string {
@@ -506,58 +362,4 @@ function openTask(task: TaskCard, courseId: string, onSelectTask: (courseId: str
     return;
   }
   onCreateThread(courseId, task.task.id);
-}
-
-function dateKey(value: string): string {
-  const date = startOfLocalDay(new Date(value));
-  if (!Number.isFinite(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function startOfWeek(date: Date): Date {
-  const result = startOfLocalDay(date);
-  const day = result.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  result.setDate(result.getDate() + mondayOffset);
-  return result;
-}
-
-function safeTime(value?: string): number {
-  const time = value ? Date.parse(value) : 0;
-  return Number.isFinite(time) ? time : 0;
-}
-
-function formatShortDate(value: string): string {
-  const time = safeTime(value);
-  if (!time) return "";
-  return new Date(time).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-}
-
-function lectureWeekSortValue(id: string): number {
-  if (id === "unsorted") return Number.MAX_SAFE_INTEGER;
-  const value = Number(id.replace("week-", ""));
-  return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
-}
-
-function formatRelativeZh(value: string): string {
-  const timestamp = Date.parse(value || "");
-  if (!Number.isFinite(timestamp)) return "";
-  const delta = Math.max(0, Date.now() - timestamp);
-  const minutes = Math.floor(delta / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
-}
-
-function formatWeekdayZh(date: Date): string {
-  return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][date.getDay()] || "";
 }

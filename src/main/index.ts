@@ -47,7 +47,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 1040,
+    minWidth: 1440,
     minHeight: 720,
     show: false,
     title: "Brevyn",

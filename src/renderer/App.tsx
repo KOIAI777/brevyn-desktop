@@ -4,6 +4,7 @@ import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseDashboard } from "@/components/courses/CourseDashboard";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
+import { SemesterDashboard } from "@/components/courses/SemesterDashboard";
 import { CourseFilesUploadDialog } from "@/components/files/CourseFilesUploadDialog";
 import { FileBrowserRail } from "@/components/files/FileBrowserRail";
 import { FilePreviewRail } from "@/components/files/FilePreviewRail";
@@ -118,6 +119,17 @@ function App() {
     agentSession.selectProvider(providerSelection);
   }
 
+  const openHomeSession = useCallback(() => {
+    const homeThread = [...workspace.threads]
+      .filter((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID && !thread.taskId)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+    if (homeThread) {
+      workspace.selectThread(homeThread);
+      return;
+    }
+    void workspace.createThread(SEMESTER_HOME_COURSE_ID);
+  }, [workspace.createThread, workspace.selectThread, workspace.threads]);
+
   const previewInlineFilePath = useCallback(async (filePath: string): Promise<void> => {
     previewCoordinator.revealSelectedFile("file");
     await fileState.previewWorkspacePath(filePath);
@@ -185,7 +197,7 @@ function App() {
               </div>
             )}
 
-            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread || (workspace.activeCourse?.workspaceKind === "course" && !workspace.activeTask) ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
+            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread || (workspace.activeCourse && !workspace.activeTask) ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
               {workspace.activeThread ? (
                 <AgentThreadPanel
                   thread={workspace.activeThread}
@@ -206,6 +218,20 @@ function App() {
                   files={fileState.fileTree}
                   skills={workspace.skills}
                   onPreviewFilePath={previewInlineFilePath}
+                />
+              ) : workspace.activeCourse?.workspaceKind === "semester_home" ? (
+                <SemesterDashboard
+                  semester={workspace.semester}
+                  homeCourse={workspace.activeCourse}
+                  courses={workspace.courses}
+                  tasksByCourse={workspace.tasksByCourse}
+                  threads={workspace.threads}
+                  stats={fileState.fileStats}
+                  files={fileState.fileTree}
+                  onOpenHomeSession={openHomeSession}
+                  onOpenCourses={dialogs.openCourses}
+                  onSelectCourse={workspace.selectCourseHome}
+                  onSelectTask={workspace.selectTask}
                 />
               ) : workspace.activeCourse?.workspaceKind === "course" && !workspace.activeTask ? (
                 <CourseDashboard
@@ -260,7 +286,7 @@ function App() {
                       <button
                         type="button"
                         className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!workspace.needsSemesterSelection && ((!workspace.activeCourse?.id && !workspace.semester?.id) || Boolean(workspace.activeCourse && workspace.activeCourse.workspaceKind !== "semester_home" && !workspace.activeTask))}
+                        disabled={!workspace.needsSemesterSelection && ((!workspace.activeCourse?.id && !workspace.semester?.id) || Boolean(workspace.activeCourse && !workspace.activeTask))}
                         onClick={() => {
                           if (workspace.needsSemesterSelection) {
                             dialogs.openTimetable();
@@ -269,7 +295,7 @@ function App() {
                           void workspace.createThread(workspace.activeCourse?.id || SEMESTER_HOME_COURSE_ID, workspace.activeTask?.id);
                         }}
                       >
-                        {workspace.needsSemesterSelection ? "Select semester" : workspace.activeTask ? "Create task session" : workspace.activeCourse?.workspaceKind === "semester_home" || !workspace.activeCourse ? "Create Home session" : "Select a task to create session"}
+                        {workspace.needsSemesterSelection ? "Select semester" : workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "Create Home session" : "Select a task to create session"}
                       </button>
                     </>
                   )}

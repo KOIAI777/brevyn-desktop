@@ -302,9 +302,8 @@ export function useWorkspaceSessionController({
   const selectCourseHome = useCallback((courseId: string) => {
     commitActiveCourseId(courseId);
     setActiveTaskId(undefined);
-    const thread = courseId === SEMESTER_HOME_COURSE_ID ? threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && !item.taskId) : undefined;
-    commitActiveThreadId(thread?.id || "", semester?.id);
-  }, [commitActiveCourseId, commitActiveThreadId, semester?.id, threads]);
+    commitActiveThreadId("", semester?.id);
+  }, [commitActiveCourseId, commitActiveThreadId, semester?.id]);
 
   const selectTask = useCallback((courseId: string, taskId: string) => {
     commitActiveCourseId(courseId);
@@ -482,9 +481,6 @@ function pickWorkspaceSelection(
     }
     if (!current.taskId) return { courseId: current.courseId, taskId: undefined, threadId: "" };
   }
-
-  const homeThread = validThreadSelection(threads.find((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID && !thread.taskId), courses, tasksByCourse);
-  if (homeThread) return homeThread;
 
   if (courses.some((course) => course.id === SEMESTER_HOME_COURSE_ID)) {
     return { courseId: SEMESTER_HOME_COURSE_ID, taskId: undefined, threadId: "" };

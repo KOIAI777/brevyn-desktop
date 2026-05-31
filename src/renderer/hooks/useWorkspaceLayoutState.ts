@@ -16,7 +16,7 @@ interface UseWorkspaceLayoutStateArgs {
 
 export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutStateArgs) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [fileRailCollapsed, setFileRailCollapsed] = useState(false);
+  const [fileRailCollapsed, setFileRailCollapsed] = useState(true);
   const [previewRailCollapsed, setPreviewRailCollapsed] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readStoredSidebarWidth());
   const [fileRailWidth, setFileRailWidth] = useState<number>(RAIL_WIDTHS.files.default);
