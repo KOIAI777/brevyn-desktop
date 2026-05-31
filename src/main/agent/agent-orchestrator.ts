@@ -25,7 +25,7 @@ import type {
 import { SkillFileStore } from "../skills/skill-file-store";
 import { SQLiteBusinessStore } from "../storage";
 import { ProviderService, envApiKeyForProvider } from "../services/provider-service";
-import { SEMESTER_HOME_COURSE_ID, workspacePathForThread } from "../services/workspace-paths";
+import { ensureAgentProjectScaffold, SEMESTER_HOME_COURSE_ID, workspacePathForThread } from "../services/workspace-paths";
 import { AgentEventBus } from "./agent-event-bus";
 import { AgentSessionStore } from "./agent-session-store";
 import { AskUserService } from "./ask-user-service";
@@ -188,6 +188,7 @@ export class AgentOrchestrator {
         throw new Error(`Agent provider "${provider.name}" is missing an API key.`);
       }
 
+      const projectScaffold = ensureAgentProjectScaffold(context.cwd, context.thread.id);
       const systemPromptAppend = [
         this.options.promptBuilder.buildSystemPrompt({
           semester: context.semester,
@@ -195,6 +196,7 @@ export class AgentOrchestrator {
           task: context.task,
           thread: context.thread,
           cwd: context.cwd,
+          sessionContextDir: projectScaffold.sessionContextDir,
         }),
         permissionInstructions(active),
       ].join("\n\n");
@@ -246,6 +248,9 @@ export class AgentOrchestrator {
             model: provider.selectedModel,
             env,
             systemPrompt,
+            settings: {
+              plansDirectory: projectScaffold.sessionPlanRelativeDir,
+            },
             resumeSessionId,
             abortController: attemptAbort.controller,
             mcpServers,

@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, realpathSync, readdirSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, writeFileSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 import type {
   Course,
   FileImportInput,
@@ -22,6 +22,14 @@ const TASK_FILE_BUCKET_LABELS: Record<TaskFileBucket, string> = {
 };
 
 export const TASK_FILE_BUCKETS: TaskFileBucket[] = ["materials", "drafts", "submitted"];
+
+export interface AgentProjectScaffold {
+  sessionDir: string;
+  sessionContextDir: string;
+  sessionPlanDir: string;
+  sessionPlanRelativeDir: string;
+  projectSettingsPath: string;
+}
 
 /**
  * Render a user-defined task type as a folder-safe label.
@@ -202,6 +210,45 @@ export function ensureThreadSessionDir(
   const dir = threadSessionDirForThread(rootDataDir, thread, resolveTask);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+export function ensureAgentProjectScaffold(cwd: string, threadId: string): AgentProjectScaffold {
+  const sessionDir = join(cwd, ".brevyn", "sessions", idPathSegment(threadId));
+  const sessionContextDir = join(sessionDir, ".context");
+  const sessionPlanDir = join(sessionContextDir, "plan");
+  const projectSettingsDir = join(cwd, ".claude");
+  const projectSettingsPath = join(projectSettingsDir, "settings.json");
+  mkdirSync(sessionPlanDir, { recursive: true });
+  mkdirSync(projectSettingsDir, { recursive: true });
+
+  const existingSettings = readJsonObject(projectSettingsPath);
+  const sessionPlanRelativeDir = relative(cwd, sessionPlanDir).split(sep).join("/");
+  writeFileSync(projectSettingsPath, `${JSON.stringify({
+    ...existingSettings,
+    skipWebFetchPreflight: true,
+  }, null, 2)}\n`, "utf8");
+
+  return {
+    sessionDir,
+    sessionContextDir,
+    sessionPlanDir,
+    sessionPlanRelativeDir,
+    projectSettingsPath,
+  };
+}
+
+function readJsonObject(filePath: string): Record<string, unknown> {
+  if (!existsSync(filePath)) return {};
+  try {
+    const value = JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("expected a JSON object");
+    }
+    return value as Record<string, unknown>;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid Claude project settings at ${filePath}: ${reason}`);
+  }
 }
 
 export function ensureImportTargetDir(

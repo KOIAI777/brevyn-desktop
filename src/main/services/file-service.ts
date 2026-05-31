@@ -73,6 +73,7 @@ const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
+const AGENT_WORKSPACE_MEMORY_FILE = "CLAUDE.md";
 export const WORKSPACE_FILE_PREVIEW_PROTOCOL = "brevyn-file";
 
 export interface FileServiceOptions {
@@ -81,6 +82,8 @@ export interface FileServiceOptions {
   providers: ProviderService;
   ragIndex: RagIndexService;
 }
+
+type ImportedIndexingResult = { job: IndexingJob | null; notice?: string; error?: string };
 
 export class FileService {
   constructor(private readonly options: FileServiceOptions) {}
@@ -347,6 +350,8 @@ export class FileService {
           path: `${targetFolder.path}/${name}`,
           kind: kindForPath(managedPath),
           sizeLabel: formatSize(source.size),
+          ragEligible: true,
+          sourceKind: "user_import",
           updatedAt: timestamp,
         };
         targetFolder.children = [...(targetFolder.children || []), file];
@@ -356,8 +361,12 @@ export class FileService {
       const sectionId = this.sectionIdForImport(targetInput);
       let indexingJob: IndexingJob | null = null;
       let indexingError: string | undefined;
+      let indexingNotice: string | undefined;
       try {
-        indexingJob = this.indexImportedFiles(input.courseId, sectionId, importedFiles);
+        const indexingResult = this.indexImportedFiles(input.courseId, sectionId, importedFiles);
+        indexingJob = indexingResult.job;
+        indexingError = indexingResult.error;
+        indexingNotice = indexingResult.notice;
       } catch (error) {
         indexingError = errorMessage(error);
         console.warn("[indexing] Failed to create indexing job after import", error);
@@ -367,6 +376,7 @@ export class FileService {
         tree: this.listFiles(input.courseId),
         indexingJob,
         indexingError,
+        indexingNotice,
       };
     } catch (error) {
       for (const copiedPath of copiedPaths) this.safeRm(copiedPath, `[files] Failed to clean copied file ${copiedPath}`);
@@ -554,7 +564,7 @@ export class FileService {
     const sections = this.courseFileSections(courseId);
     const files = sectionId ? sections.find((section) => section.id === sectionId)?.files || [] : sections.flatMap((section) => section.files);
     const provider = this.embeddingProvider();
-    const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
+    const localFiles = flattenFiles(files).filter(isIndexableWorkspaceFile);
     return this.createIndexingJobForFiles({
       semesterId,
       courseId,
@@ -564,31 +574,49 @@ export class FileService {
     });
   }
 
-  private indexImportedFiles(courseId: string, sectionId: string | undefined, files: WorkspaceFileNode[]): IndexingJob {
+  private indexImportedFiles(courseId: string, sectionId: string | undefined, files: WorkspaceFileNode[]): ImportedIndexingResult {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("请先选择学期，再索引文件。");
     activeCourseScopeOrThrow(this.options.businessStore, courseId, semesterId);
     const provider = this.embeddingProvider();
-    const localFiles = flattenFiles(files).filter((file) => Boolean(file.sourcePath));
+    const localFiles = flattenFiles(files).filter(isIndexableWorkspaceFile);
     const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, courseId, sectionId);
-    if (activeJob && localFiles.length > 0 && embeddingJobMatchesProvider(activeJob, provider)) {
-      const tasks = this.indexingTasksForFiles({
-        jobId: activeJob.id,
+    if (activeJob) {
+      if (localFiles.length === 0) {
+        return {
+          job: activeJob,
+          notice: "这个分区已有索引任务在进行中；本次导入没有新的可索引文件。",
+        };
+      }
+      if (embeddingJobMatchesProvider(activeJob, provider)) {
+        const tasks = this.indexingTasksForFiles({
+          jobId: activeJob.id,
+          semesterId,
+          courseId,
+          sectionId,
+          files: localFiles,
+          provider,
+        });
+        const appendedJob = this.options.businessStore.appendIndexingTasksToJob(activeJob.id, tasks) || activeJob;
+        return {
+          job: appendedJob,
+          notice: `这个分区已有索引任务在进行中，已把 ${localFiles.length} 个新文件追加到当前队列。`,
+        };
+      }
+      return {
+        job: activeJob,
+        error: "这个分区已有索引任务在进行中，但当前选择的向量服务商或模型和该任务不一致。文件已导入，但不会自动排队；请等待当前任务完成后再重新索引。",
+      };
+    }
+    return {
+      job: this.createIndexingJobForFiles({
         semesterId,
         courseId,
         sectionId,
         files: localFiles,
         provider,
-      });
-      return this.options.businessStore.appendIndexingTasksToJob(activeJob.id, tasks) || activeJob;
-    }
-    return this.createIndexingJobForFiles({
-      semesterId,
-      courseId,
-      sectionId,
-      files: localFiles,
-      provider,
-    });
+      }),
+    };
   }
 
   private createIndexingJobForFiles(input: {
@@ -599,7 +627,7 @@ export class FileService {
     provider?: ModelProviderConfig;
   }): IndexingJob {
     const { semesterId, courseId, sectionId, provider } = input;
-    const localFiles = input.files.filter((file) => Boolean(file.sourcePath));
+    const localFiles = input.files.filter(isIndexableWorkspaceFile);
     const timestamp = now();
     const hasFiles = localFiles.length > 0;
     const hasProvider = Boolean(provider?.selectedModel);
@@ -700,6 +728,8 @@ export class FileService {
     const { file, semesterId } = this.guardFileAccess(fileId, "re-indexing");
     if (file.kind === "folder") throw new Error("Folders cannot be indexed directly. Choose a file instead.");
     if (!file.sourcePath) throw new Error("No local source path is available for this file. Re-import the file before indexing.");
+    if (isAgentWorkspaceControlFile(file)) throw new Error("Brevyn workspace memory files are visible to the Agent but are not indexed by RAG.");
+    if (!isRagEligibleWorkspaceFile(file)) throw new Error("这个文件还没有加入课程资料库，不能进入 RAG 索引。请通过上传入口导入，或先显式加入索引。");
     if (!existsSync(file.sourcePath)) throw new Error("文件源路径不可用。请重新导入这个文件。");
     this.assertFileSourceInsideWorkspace(file, semesterId);
     if (this.options.businessStore.hasActiveFileIndexing(file.id)) {
@@ -912,6 +942,15 @@ export class FileService {
             sectionKind: "task",
           }, timestamp) || changed;
         }
+        const taskFolder = findTaskFolderNode(root, task.id);
+        if (taskFolder) {
+          changed = this.syncAgentWorkspaceMemoryFile(taskFolder, join(taskDir, AGENT_WORKSPACE_MEMORY_FILE), {
+            courseId,
+            taskId: task.id,
+            taskType: task.taskType,
+            sectionKind: "task",
+          }, timestamp) || changed;
+        }
       }
     }
 
@@ -986,11 +1025,59 @@ export class FileService {
         parent.children.push({
           id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
           ...next,
+          ragEligible: false,
+          sourceKind: "disk_discovered",
         });
         changed = true;
       }
     }
     return changed;
+  }
+
+  private syncAgentWorkspaceMemoryFile(
+    parent: WorkspaceFileNode,
+    sourcePath: string,
+    metadata: Pick<WorkspaceFileNode, "courseId" | "taskId" | "taskType" | "taskFileBucket" | "sectionKind" | "weekNumber">,
+    timestamp: string,
+  ): boolean {
+    parent.children ||= [];
+    const existingIndex = parent.children.findIndex((child) => child.kind !== "folder" && child.name === AGENT_WORKSPACE_MEMORY_FILE);
+    if (!existsSync(sourcePath)) {
+      if (existingIndex < 0) return false;
+      parent.children.splice(existingIndex, 1);
+      return true;
+    }
+    let size = 0;
+    let updatedAt = timestamp;
+    try {
+      const stats = statSync(sourcePath);
+      if (!stats.isFile()) return false;
+      size = stats.size;
+      updatedAt = stats.mtime.toISOString();
+    } catch {
+      return false;
+    }
+    const next = {
+      semesterId: parent.semesterId,
+      ...metadata,
+      sourcePath,
+      name: AGENT_WORKSPACE_MEMORY_FILE,
+      path: `${parent.path}/${AGENT_WORKSPACE_MEMORY_FILE}`,
+      kind: kindForPath(sourcePath),
+      sizeLabel: formatSize(size),
+      updatedAt,
+    };
+    if (existingIndex >= 0) {
+      const existing = parent.children[existingIndex];
+      const before = JSON.stringify(existing);
+      Object.assign(existing, next);
+      return before !== JSON.stringify(existing);
+    }
+    parent.children.push({
+      id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      ...next,
+    });
+    return true;
   }
 
   private metadataForDiskChild(
@@ -1138,6 +1225,34 @@ function findFileNodeById(nodes: WorkspaceFileNode[], fileId: string): Workspace
     if (child) return child;
   }
   return undefined;
+}
+
+function findTaskFolderNode(root: WorkspaceFileNode, taskId: string): WorkspaceFileNode | undefined {
+  if (root.kind === "folder" && root.taskId === taskId && root.sectionKind === "task" && !root.taskFileBucket) return root;
+  for (const child of root.children || []) {
+    const match = findTaskFolderNode(child, taskId);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function isIndexableWorkspaceFile(file: WorkspaceFileNode): boolean {
+  return Boolean(file.sourcePath) && isRagEligibleWorkspaceFile(file) && !isAgentWorkspaceControlFile(file);
+}
+
+function isRagEligibleWorkspaceFile(file: WorkspaceFileNode): boolean {
+  if (file.ragEligible === true) return true;
+  if (file.ragEligible === false) return false;
+  return Boolean(file.indexedAt || (file.indexingStatus && file.indexingStatus !== "idle"));
+}
+
+function isAgentWorkspaceControlFile(file: WorkspaceFileNode): boolean {
+  const values = [file.name, file.path, file.sourcePath].filter((value): value is string => Boolean(value));
+  if (values.some((value) => basename(value).toLowerCase() === AGENT_WORKSPACE_MEMORY_FILE.toLowerCase())) return true;
+  return values.some((value) => {
+    const segments = value.replace(/\\/g, "/").split("/").filter(Boolean);
+    return segments.some((segment) => segment === ".brevyn" || segment === ".context" || segment === ".claude");
+  });
 }
 
 function readPreviewSource(sourcePath?: string): string {

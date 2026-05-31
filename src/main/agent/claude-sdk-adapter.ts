@@ -15,6 +15,7 @@ export interface ClaudeSdkRunInput {
   model: string;
   env: Record<string, string>;
   systemPrompt: ClaudeSdkOptions["systemPrompt"];
+  settings?: ClaudeSdkOptions["settings"];
   resumeSessionId?: string;
   abortController: AbortController;
   canUseTool?: CanUseTool;
@@ -77,7 +78,8 @@ export class ClaudeSdkAdapter {
         },
         resume: input.resumeSessionId,
         systemPrompt: input.systemPrompt,
-        settingSources: [],
+        ...(input.settings ? { settings: input.settings } : {}),
+        settingSources: ["project"],
         // Keep partial SDK events in the live stream so the renderer can reveal
         // assistant text progressively. The orchestrator emits them without
         // persisting, so JSONL timelines stay compact on replay.

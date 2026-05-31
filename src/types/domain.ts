@@ -244,6 +244,12 @@ export interface WorkspaceFileNode {
   path: string;
   kind: WorkspaceFileKind;
   sizeLabel?: string;
+  /**
+   * Only files explicitly imported or user-approved for course knowledge should
+   * enter RAG. Disk-discovered / Agent-created files can still be visible.
+   */
+  ragEligible?: boolean;
+  sourceKind?: "user_import" | "disk_discovered" | "agent_generated" | "system";
   indexingStatus?: FileIndexingStatus;
   indexingProgress?: number;
   indexingError?: string;
@@ -449,6 +455,7 @@ export interface FileImportResult {
   tree: WorkspaceFileNode[];
   indexingJob: IndexingJob | null;
   indexingError?: string;
+  indexingNotice?: string;
 }
 
 export type ProviderPurpose = "agent" | "embedding" | "vision";

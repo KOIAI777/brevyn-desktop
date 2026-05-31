@@ -41,6 +41,7 @@ export function CourseFilesUploadDialog({
   const [lectureWeekNumber, setLectureWeekNumber] = useState(() => defaultLectureWeekNumber(semester));
   const [lastResult, setLastResult] = useState<FileImportResult | null>(null);
   const [importError, setImportError] = useState("");
+  const [importNotice, setImportNotice] = useState("");
 
   useEffect(() => {
     if (importing) return;
@@ -51,6 +52,7 @@ export function CourseFilesUploadDialog({
     setLectureWeekNumber(defaultLectureWeekNumber(semester));
     setLastResult(null);
     setImportError("");
+    setImportNotice("");
   }, [activeTaskId, course?.id, importing, initialCourseId, initialTaskId, semester?.endsAt, semester?.startsAt]);
 
   const selectedCourse = courses.find((item) => item.id === selectedCourseId);
@@ -77,6 +79,7 @@ export function CourseFilesUploadDialog({
     if (!canImport) return;
     setImporting(true);
     setImportError("");
+    setImportNotice("");
     setLastResult(null);
     try {
       const result = await onImportFiles({
@@ -89,6 +92,10 @@ export function CourseFilesUploadDialog({
       setLastResult(result);
       if (result?.indexingError) {
         setImportError(`已导入 ${result.files.length} 个文件，但索引未排队：${result.indexingError}`);
+        return;
+      }
+      if (result?.indexingNotice) {
+        setImportNotice(result.indexingNotice);
         return;
       }
       if (result?.files.length) onClose();
@@ -139,11 +146,12 @@ export function CourseFilesUploadDialog({
                 <Upload className="h-3.5 w-3.5" />
                 {importing ? "正在导入..." : "导入文件"}
               </button>
-              {lastResult?.indexingJob && (
+              {lastResult?.indexingJob && !lastResult.indexingError && !lastResult.indexingNotice && (
                 <div className="mt-4 rounded-md bg-muted/55 px-3 py-2 text-[11px] text-muted-foreground">
                   已将 {lastResult.indexingJob.totalFiles ?? lastResult.indexingJob.indexedFiles} 个文件加入索引队列 · {lastResult.indexingJob.embeddingModel}
                 </div>
               )}
+              {importNotice && <div className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-900">{importNotice}</div>}
               {importError && <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700">{importError}</div>}
             </div>
           </section>

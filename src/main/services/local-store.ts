@@ -68,7 +68,7 @@ import { RagIndexService } from "./rag-index-service";
 import { VisionRecognitionService } from "./vision-recognition-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
-import { ensureThreadSessionDir, isPathInside, sanitizeFsSegment, workspacePathForThread } from "./workspace-paths";
+import { ensureAgentProjectScaffold, isPathInside, sanitizeFsSegment, workspacePathForThread } from "./workspace-paths";
 import { formatSize, kindForPath } from "./workspace-file-tree";
 
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
@@ -495,8 +495,7 @@ export class LocalStore {
   }
 
   async saveAgentAttachmentPaths(threadId: string, sourcePaths: string[]): Promise<AgentAttachment[]> {
-    const thread = this.requireThread(threadId);
-    const targetDir = ensureThreadSessionDir(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    const targetDir = this.threadSessionDir(threadId);
     const attachments: AgentAttachment[] = [];
     for (const sourcePath of sourcePaths) {
       if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) continue;
@@ -508,8 +507,7 @@ export class LocalStore {
   }
 
   saveAgentAttachmentData(input: AgentAttachmentDataInput): AgentAttachment {
-    const thread = this.requireThread(input.threadId);
-    const targetDir = ensureThreadSessionDir(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    const targetDir = this.threadSessionDir(input.threadId);
     const targetPath = uniqueAttachmentPath(targetDir, input.name);
     writeFileSync(targetPath, Buffer.from(input.data, "base64"));
     return this.attachmentForPath(input.threadId, targetPath, input.mediaType);
@@ -581,7 +579,8 @@ export class LocalStore {
 
   private threadSessionDir(threadId: string): string {
     const thread = this.requireThread(threadId);
-    return ensureThreadSessionDir(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    const cwd = workspacePathForThread(this.rootDataDir, thread, (taskId) => this.businessStore.getTask(taskId) || undefined);
+    return ensureAgentProjectScaffold(cwd, thread.id).sessionDir;
   }
 
   private attachmentForPath(threadId: string, filePath: string, mediaType?: string): AgentAttachment {

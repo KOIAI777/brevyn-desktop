@@ -9,6 +9,7 @@ const DEBOUNCE_MS = 300;
 
 let watcher: FSWatcher | null = null;
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function startWorkspaceFileWatcher(rootDataDir: string, store: LocalStore, window: BrowserWindow): void {
   stopWorkspaceFileWatcher();
@@ -27,7 +28,13 @@ export function startWorkspaceFileWatcher(rootDataDir: string, store: LocalStore
 
   try {
     watcher = watch(semestersDir, { recursive: true }, (_eventType, filename) => {
-      if (window.isDestroyed() || shouldIgnoreFileEvent(filename)) return;
+      if (window.isDestroyed()) return;
+      const eventKind = workspaceFileEventKind(filename);
+      if (eventKind === "ignore") return;
+      if (eventKind === "session") {
+        scheduleNotify(window);
+        return;
+      }
       scheduleSync(store, window);
     });
   } catch (error) {
@@ -39,6 +46,10 @@ export function stopWorkspaceFileWatcher(): void {
   if (syncTimer) {
     clearTimeout(syncTimer);
     syncTimer = null;
+  }
+  if (notifyTimer) {
+    clearTimeout(notifyTimer);
+    notifyTimer = null;
   }
   if (watcher) {
     watcher.close();
@@ -60,16 +71,27 @@ function scheduleSync(store: LocalStore, window: BrowserWindow): void {
   }, DEBOUNCE_MS);
 }
 
+function scheduleNotify(window: BrowserWindow): void {
+  if (notifyTimer) clearTimeout(notifyTimer);
+  notifyTimer = setTimeout(() => {
+    notifyTimer = null;
+    if (!window.isDestroyed()) notifyFilesChanged(window);
+  }, DEBOUNCE_MS);
+}
+
 function notifyFilesChanged(window: BrowserWindow): void {
   if (!window.webContents.isDestroyed()) {
     window.webContents.send(IPC_CHANNELS.filesChanged);
   }
 }
 
-function shouldIgnoreFileEvent(filename: string | Buffer | null): boolean {
-  if (!filename) return true;
+function workspaceFileEventKind(filename: string | Buffer | null): "sync" | "session" | "ignore" {
+  if (!filename) return "ignore";
   const normalized = String(filename).replace(/\\/g, "/");
-  if (!normalized || normalized.includes("/threads/") || normalized.includes("/.brevyn/")) return true;
+  if (!normalized || normalized.includes("/threads/") || normalized.includes("/.claude/")) return "ignore";
+  if (normalized.includes("/.brevyn/sessions/")) return "session";
+  if (normalized.includes("/.brevyn/")) return "ignore";
   const basename = normalized.split("/").pop() || "";
-  return basename === ".DS_Store" || basename.endsWith(".tmp");
+  if (basename === ".DS_Store" || basename.endsWith(".tmp")) return "ignore";
+  return "sync";
 }

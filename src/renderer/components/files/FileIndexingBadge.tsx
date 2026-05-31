@@ -4,6 +4,7 @@ import { cx } from "@/lib/cn";
 
 export function FileIndexingBadge({ file, compact = false }: { file: WorkspaceFileNode; compact?: boolean }) {
   if (file.kind === "folder") return null;
+  if (!isRagEligibleFile(file)) return null;
   const status = file.indexingStatus || "idle";
   if (status === "idle" && compact) return null;
   const label = statusLabel(status);
@@ -21,6 +22,12 @@ export function FileIndexingBadge({ file, compact = false }: { file: WorkspaceFi
       {!compact && <span>{label}</span>}
     </span>
   );
+}
+
+function isRagEligibleFile(file: WorkspaceFileNode): boolean {
+  if (file.ragEligible === true) return true;
+  if (file.ragEligible === false) return false;
+  return Boolean(file.indexedAt || (file.indexingStatus && file.indexingStatus !== "idle"));
 }
 
 function statusIcon(status: FileIndexingStatus) {

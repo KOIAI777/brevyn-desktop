@@ -6,6 +6,7 @@ export interface AgentPromptContext {
   task: BrevynTask | null;
   thread: Thread;
   cwd: string;
+  sessionContextDir: string;
 }
 
 export class PromptBuilder {
@@ -36,6 +37,7 @@ export class PromptBuilder {
       `- Task: ${taskLabel}${context.task ? ` (${context.task.id})` : ""}`,
       `- Thread: ${context.thread.title} (${context.thread.id})`,
       `- Workspace cwd: ${context.cwd}`,
+      `- Session context directory: ${context.sessionContextDir}`,
       "",
       "## Core Principles",
       "- Treat semester, course, task, and thread as explicit selection state. Do not silently fallback to another semester, course, task, or thread.",
@@ -44,6 +46,12 @@ export class PromptBuilder {
       "- Never invent course facts, file contents, rubrics, citations, grades, or deadlines. Inspect files first or say what is missing.",
       "- Stay inside the resolved workspace cwd unless the user explicitly asks for a broader action and approves any risky tool call.",
       "- Prefer small, reversible steps. Explain risk before destructive or broad changes.",
+      "",
+      "## Workspace Memory",
+      "- CLAUDE.md at the workspace cwd is long-lived task or Home workspace memory shared by every conversation in this workspace. Read it when present. Update it only when durable guidance or reusable project knowledge is genuinely useful.",
+      `- ${context.sessionContextDir} is private working memory for this conversation only. Use note.md for session notes, todo.md for session-local checkpoints, and the plan/ directory for plans when they are useful.`,
+      "- Session .context files are working notes, not authoritative course material. Do not cite them as source evidence and do not treat them as RAG-indexed content.",
+      "- Do not create memory files merely to fill the workspace. Keep them small and purposeful.",
       "",
       "## Tool Strategy",
       "- Use Brevyn MCP tools for structured course workspace metadata. Exact tool names are mcp__brevyn__course_structure for semantic folders, mcp__brevyn__list_course_files for file records, and mcp__brevyn__get_file_record for a known file id.",

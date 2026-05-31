@@ -152,6 +152,13 @@ function managedFolderDisplayName(name: string): string {
 }
 
 function shouldOfferIndexRetry(file: WorkspaceFileNode): boolean {
+  if (!isRagEligibleFile(file)) return false;
   const status = file.indexingStatus || "idle";
   return status === "failed" || status === "warning" || status === "skipped" || status === "cancelled" || status === "idle";
+}
+
+function isRagEligibleFile(file: WorkspaceFileNode): boolean {
+  if (file.ragEligible === true) return true;
+  if (file.ragEligible === false) return false;
+  return Boolean(file.indexedAt || (file.indexingStatus && file.indexingStatus !== "idle"));
 }

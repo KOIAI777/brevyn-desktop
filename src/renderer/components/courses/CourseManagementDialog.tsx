@@ -323,12 +323,18 @@ export function CourseManagementDialog({
       return;
     }
     if (activeCourseArchived) return;
+    const existingActiveJob = findActiveIndexingJob(indexingJobs, sectionId);
     setIndexingSectionId(indicatorId);
     setCourseActionError("");
     try {
       await window.brevyn.files.index(activeCourse.id, sectionId);
       setRagError("");
       await loadCourseView(activeCourse.id);
+      if (existingActiveJob) {
+        setCourseActionError(sectionId
+          ? "这个分区已有索引任务在进行中，已打开现有进度，不会重复创建任务。"
+          : "这门课已有整课索引任务在进行中，已打开现有进度，不会重复创建任务。");
+      }
     } catch (error) {
       setCourseActionError(errorMessage(error, "启动索引失败。"));
     } finally {
@@ -358,6 +364,8 @@ export function CourseManagementDialog({
       }
       if (result.indexingError) {
         setCourseActionError(`已导入 ${result.files.length} 个文件，但索引未排队：${result.indexingError}`);
+      } else if (result.indexingNotice) {
+        setCourseActionError(result.indexingNotice);
       }
     } catch (error) {
       setCourseActionError(errorMessage(error, "导入文件失败。"));
@@ -1001,6 +1009,13 @@ function latestIndexingJobsBySection(jobs: IndexingJob[]): IndexingJob[] {
   return Array.from(latest.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
+function findActiveIndexingJob(jobs: IndexingJob[], sectionId?: string): IndexingJob | undefined {
+  return jobs.find((job) => {
+    if (job.status !== "queued" && job.status !== "indexing") return false;
+    return sectionId ? job.sectionId === sectionId : !job.sectionId;
+  });
+}
+
 function RagDebugPanel({
   query,
   results,
@@ -1156,7 +1171,9 @@ function SectionCard({
   const [retryingFileId, setRetryingFileId] = useState("");
   const [fileActionError, setFileActionError] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
-  const lectureWeekGroups = useMemo(() => section.kind === "lecture" ? groupLectureFilesByWeek(section.files) : [], [section.files, section.kind]);
+  const visibleFiles = useMemo(() => section.files.filter(isRagEligibleFile), [section.files]);
+  const lectureWeekGroups = useMemo(() => section.kind === "lecture" ? groupLectureFilesByWeek(visibleFiles) : [], [visibleFiles, section.kind]);
+  const hasVisibleFiles = visibleFiles.length > 0;
 
   useEffect(() => {
     if (section.kind !== "lecture") return;
@@ -1226,7 +1243,7 @@ function SectionCard({
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">{displaySectionTitle(section)}</div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {section.files.length} 个文件 · {section.embeddingModel || "未配置向量服务商"}
+              {visibleFiles.length} 个课程资料 · {section.embeddingModel || "未配置向量服务商"}
             </div>
           </div>
         </button>
@@ -1259,19 +1276,19 @@ function SectionCard({
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={onIndex}
-            disabled={disabled}
-            title="重新索引此分区"
+            disabled={disabled || !hasVisibleFiles}
+            title={hasVisibleFiles ? "重新索引此分区" : "此分区暂无可索引课程资料"}
           >
             {indexing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
-      {open && section.files.length === 0 && (
+      {open && !hasVisibleFiles && (
         <div className="mt-3 rounded-md border border-dashed bg-background px-3 py-3 text-center text-[11px] text-muted-foreground">
-          暂无文件。点击上传按钮添加文件。
+          暂无可索引课程资料。点击上传按钮添加文件。
         </div>
       )}
-      {open && section.files.length > 0 && (
+      {open && hasVisibleFiles && (
         <div className="mt-3 space-y-1">
           {section.kind === "lecture" ? (
             lectureWeekGroups.map((group) => {
@@ -1307,7 +1324,7 @@ function SectionCard({
               );
             })
           ) : (
-            section.files.map((file) => (
+            visibleFiles.map((file) => (
               <SectionFileRow
                 key={file.id}
                 file={file}
@@ -1402,8 +1419,15 @@ function SectionFileRow({
 
 function shouldOfferIndexRetry(file: WorkspaceFileNode): boolean {
   if (file.kind === "folder" || !file.sourcePath) return false;
+  if (!isRagEligibleFile(file)) return false;
   const status = file.indexingStatus || "idle";
   return status === "failed" || status === "warning" || status === "skipped" || status === "cancelled" || status === "idle";
+}
+
+function isRagEligibleFile(file: WorkspaceFileNode): boolean {
+  if (file.ragEligible === true) return true;
+  if (file.ragEligible === false) return false;
+  return Boolean(file.indexedAt || (file.indexingStatus && file.indexingStatus !== "idle"));
 }
 
 function groupLectureFilesByWeek(files: WorkspaceFileNode[]): Array<{ id: string; title: string; weekNumber?: number; files: WorkspaceFileNode[] }> {
