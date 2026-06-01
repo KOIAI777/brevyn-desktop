@@ -4,6 +4,7 @@ import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import type { RunSummary } from "@/components/agent/agentTimelineModel";
 import { agentRuntimeEventThreadId } from "@/lib/agent-live-store";
 import type { AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
+import { deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
 
 export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
@@ -196,7 +197,7 @@ export function useAgentQueueState({
 
   async function deleteQueuedMessageAttachments(message?: QueuedAgentMessage): Promise<void> {
     if (!message?.attachments?.length) return;
-    await Promise.all(message.attachments.map((attachment) =>
+    await Promise.all(message.attachments.filter((attachment) => !attachment.pending).map((attachment) =>
       window.brevyn.attachments.delete({ threadId: attachment.threadId || threadIdRef.current, path: attachment.path }).catch((error) => {
         console.error("[AgentThreadPanel] Failed to delete queued attachment:", error);
       }),
@@ -209,20 +210,31 @@ export function useAgentQueueState({
     try {
       const maxAttempts = source === "auto" ? 5 : 1;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        let persistedAttachments: AgentAttachment[] = [];
         try {
+          persistedAttachments = await persistAgentAttachments(targetThreadId, message.attachments);
           const started = await onRunForThread(
             targetThreadId,
             message.prompt,
             message.permissionMode ?? currentPermissionModeRef.current,
-            message.attachments,
+            persistedAttachments,
             message.providerSelection ?? currentProviderSelectionRef.current,
             message.mentionedSkills,
             { suppressActiveRunError: source === "auto" && attempt < maxAttempts },
           );
+          if (!started) {
+            if (persistedAttachments.length > 0) await deletePersistedAgentAttachments(persistedAttachments);
+            if (source === "auto" && attempt < maxAttempts) {
+              await delay(300 + attempt * 180);
+              continue;
+            }
+            return false;
+          }
           if (started) removeQueuedMessage(targetThreadId, message.id);
           if (started && source === "auto") onAutoRunStarted?.(targetThreadId);
           return started;
         } catch (error) {
+          if (persistedAttachments.length > 0) void deletePersistedAgentAttachments(persistedAttachments);
           if (source === "auto" && isAgentRunStillActiveError(error) && attempt < maxAttempts) {
             await delay(300 + attempt * 180);
             continue;
@@ -244,6 +256,7 @@ export function useAgentQueueState({
     if (!message) return;
     if (sendingQueuedMessageIdsByThread[threadId]?.includes(messageId)) return;
     if (effectiveRunning) {
+      if (message.attachments?.length) return;
       setQueuedMessageSending(threadId, messageId, true);
       try {
         await window.brevyn.agent.queueMessage({

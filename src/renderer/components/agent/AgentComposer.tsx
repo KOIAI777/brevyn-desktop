@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Plus, Send, Square } from "lucide-react";
 import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, SkillItem, WorkspaceFileNode } from "@/types/domain";
 import type { AgentTodoItem, ContextUsage } from "@/components/agent/agentTimelineModel";
@@ -20,6 +20,7 @@ import { QueuedMessageDock } from "@/components/agent/AgentQueuedMessageDock";
 import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
+import { deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
 
 interface AgentComposerProps {
   todos: AgentTodoItem[];
@@ -45,6 +46,18 @@ interface AgentComposerProps {
   onCompact: () => void;
   onSelectProvider: (providerId: string) => Promise<void>;
 }
+
+interface ComposerDraft {
+  promptValue: string;
+  mentionedFiles: WorkspaceFileNode[];
+  mentionedSkills: MentionedSkill[];
+}
+
+const emptyComposerDraft: ComposerDraft = {
+  promptValue: "",
+  mentionedFiles: [],
+  mentionedSkills: [],
+};
 
 export const AgentComposer = memo(function AgentComposer({
   todos,
@@ -76,6 +89,8 @@ export const AgentComposer = memo(function AgentComposer({
   const formRef = useRef<HTMLFormElement>(null);
   const promptValueRef = useRef(promptValue);
   const threadIdRef = useRef(threadId);
+  const draftThreadIdRef = useRef(threadId);
+  const composerDraftsRef = useRef<Record<string, ComposerDraft>>({});
   const {
     pendingAttachments,
     draggingFiles,
@@ -116,10 +131,18 @@ export const AgentComposer = memo(function AgentComposer({
     };
   }, [onHeightChange]);
 
-  useEffect(() => {
-    setPromptValue("");
-    setMentionedFiles([]);
-    setMentionedSkills([]);
+  useLayoutEffect(() => {
+    const previousThreadId = draftThreadIdRef.current;
+    if (previousThreadId === threadId) return;
+    composerDraftsRef.current = {
+      ...composerDraftsRef.current,
+      [previousThreadId]: { promptValue, mentionedFiles, mentionedSkills },
+    };
+    const draft = composerDraftsRef.current[threadId] || emptyComposerDraft;
+    draftThreadIdRef.current = threadId;
+    setPromptValue(draft.promptValue);
+    setMentionedFiles(draft.mentionedFiles);
+    setMentionedSkills(draft.mentionedSkills);
   }, [threadId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -154,9 +177,12 @@ export const AgentComposer = memo(function AgentComposer({
     setMentionedFiles([]);
     setMentionedSkills([]);
     const attachments = clearAttachments();
+    let persistedAttachments: AgentAttachment[] = [];
     try {
-      await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, attachments, parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
+      persistedAttachments = await persistAgentAttachments(submittedThreadId, attachments);
+      await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, persistedAttachments, parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
     } catch (error) {
+      if (persistedAttachments.length > 0) void deletePersistedAgentAttachments(persistedAttachments);
       if (threadIdRef.current === submittedThreadId) {
         restoreAttachments(attachments);
         if (!promptValueRef.current.trim()) {
@@ -164,6 +190,16 @@ export const AgentComposer = memo(function AgentComposer({
           setMentionedFiles(submittedMentionedFiles);
           setMentionedSkills(submittedMentionedSkills);
         }
+      } else {
+        composerDraftsRef.current = {
+          ...composerDraftsRef.current,
+          [submittedThreadId]: {
+            promptValue: submittedPromptValue,
+            mentionedFiles: submittedMentionedFiles,
+            mentionedSkills: submittedMentionedSkills,
+          },
+        };
+        restoreAttachments(attachments, submittedThreadId);
       }
       console.error("[AgentComposer] Failed to start agent run:", error);
     }

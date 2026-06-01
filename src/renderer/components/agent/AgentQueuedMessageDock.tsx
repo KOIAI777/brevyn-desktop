@@ -34,6 +34,7 @@ export function QueuedMessageDock({
       <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
         {messages.map((message, index) => {
           const sending = sendingMessageIds.includes(message.id);
+          const canSendNow = !sending && !(running && Boolean(message.attachments?.length));
           return (
             <div
               key={message.id}
@@ -57,8 +58,8 @@ export function QueuedMessageDock({
                   type="button"
                   className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => onSend(message.id)}
-                  disabled={sending}
-                  title={sendTitle}
+                  disabled={!canSendNow}
+                  title={running && message.attachments?.length ? "带附件的消息会在当前运行结束后作为下一轮发送" : sendTitle}
                   aria-label="Send queued message"
                 >
                   <Send className="h-3.5 w-3.5" />

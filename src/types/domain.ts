@@ -758,6 +758,10 @@ export interface AgentAttachment {
   sizeLabel: string;
   path: string;
   createdAt: string;
+  pending?: boolean;
+  sourcePath?: string;
+  data?: string;
+  persistedFromPending?: boolean;
 }
 
 export interface AgentAttachmentDataInput {
