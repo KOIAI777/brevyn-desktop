@@ -76,6 +76,7 @@ interface ActiveRun {
   suppressUntilInterruptResult?: boolean;
   terminalResultWritten: boolean;
   terminalLifecycleWritten: boolean;
+  terminalLifecycleEvent?: BrevynAgentRuntimeEvent;
   assistantErrorWritten: boolean;
   compactCommand: boolean;
   compactBoundaryWritten: boolean;
@@ -136,6 +137,7 @@ export class AgentOrchestrator {
       modelId: input.modelId,
       terminalResultWritten: false,
       terminalLifecycleWritten: false,
+      terminalLifecycleEvent: undefined,
       assistantErrorWritten: false,
       compactCommand,
       compactBoundaryWritten: false,
@@ -397,14 +399,7 @@ export class AgentOrchestrator {
     } finally {
       const active = this.activeRuns.get(context.thread.id);
       if (active?.runId !== runId) return;
-      if (active?.gatewayToken) {
-        this.options.gateway?.unregisterSession(active.gatewayToken);
-        active.gatewayToken = undefined;
-      }
-      this.options.permissions.clearThread(context.thread.id);
-      this.options.askUsers.clearThread(context.thread.id);
-      this.options.exitPlans.clearThread(context.thread.id);
-      this.activeRuns.delete(context.thread.id);
+      this.finishActiveRun(active);
     }
   }
 
@@ -517,9 +512,7 @@ export class AgentOrchestrator {
     active.query?.close();
     this.writeTerminalResult(active, "stopped_by_user", "Agent run stopped.");
     this.writeTerminalLifecycle(active, "stopped", "Agent run stopped.");
-    this.options.permissions.clearThread(threadId);
-    this.options.askUsers.clearThread(threadId);
-    this.options.exitPlans.clearThread(threadId);
+    this.clearActiveRunInteractions(active);
     return true;
   }
 
@@ -531,18 +524,19 @@ export class AgentOrchestrator {
       throw new Error("No active Claude SDK input channel is available for this thread.");
     }
     const uuid = input.uuid || entityId("msg");
+    const attachments = input.attachments || [];
     if (input.interrupt !== false) {
       active.ignoreNextResult = true;
       active.suppressUntilInterruptResult = true;
     }
     try {
-      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, [], uuid));
       await this.options.sdk.queueMessage(
         context.thread.id,
-        promptWithMentionedSkills(input.prompt, input.mentionedSkills, this.options.skillFiles.listSkills()),
+        promptWithAttachments(promptWithMentionedSkills(input.prompt, input.mentionedSkills, this.options.skillFiles.listSkills()), attachments),
         uuid,
         input.interrupt ?? true,
       );
+      this.appendAndEmitSdkMessage(context.thread, userSdkMessage(input.prompt, attachments, uuid));
     } catch (error) {
       if (input.interrupt !== false) {
         active.ignoreNextResult = false;
@@ -669,37 +663,61 @@ export class AgentOrchestrator {
     this.appendAndEmitSdkMessage(active.context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
   }
 
+  private finishActiveRun(active: ActiveRun): void {
+    if (this.activeRuns.get(active.threadId)?.runId !== active.runId) return;
+    const terminalLifecycleEvent = active.terminalLifecycleEvent;
+    this.releaseActiveRun(active);
+    if (terminalLifecycleEvent) {
+      this.appendAndEmitRuntimeEvent(active.context.thread, terminalLifecycleEvent);
+    }
+  }
+
+  private releaseActiveRun(active: ActiveRun): void {
+    if (active.gatewayToken) {
+      this.options.gateway?.unregisterSession(active.gatewayToken);
+      active.gatewayToken = undefined;
+    }
+    this.clearActiveRunInteractions(active);
+    this.activeRuns.delete(active.threadId);
+  }
+
+  private clearActiveRunInteractions(active: ActiveRun): void {
+    this.options.permissions.clearThread(active.threadId);
+    this.options.askUsers.clearThread(active.threadId);
+    this.options.exitPlans.clearThread(active.threadId);
+  }
+
   private writeTerminalLifecycle(active: ActiveRun, status: "completed" | "stopped" | "failed", message?: string): void {
     if (active.terminalLifecycleWritten) return;
     active.terminalLifecycleWritten = true;
     const createdAt = now();
     this.emitRetryCleared(active);
     if (status === "completed") {
-      this.appendAndEmitRuntimeEvent(active.context.thread, {
+      active.terminalLifecycleEvent = {
         type: "run_completed",
         runId: active.runId,
         threadId: active.threadId,
         createdAt,
-      });
+      };
       return;
     }
     if (status === "stopped") {
-      this.appendAndEmitRuntimeEvent(active.context.thread, {
+      active.terminalLifecycleEvent = {
         type: "run_stopped",
         runId: active.runId,
         threadId: active.threadId,
         reason: message,
         createdAt,
-      });
+      };
       return;
     }
-    this.appendAndEmitRuntimeEvent(active.context.thread, {
+    active.terminalLifecycleEvent = {
       type: "run_failed",
       runId: active.runId,
       threadId: active.threadId,
       error: message || "Agent run failed.",
       createdAt,
-    });
+    };
   }
 
   private withActiveRunUsageMetadata(threadId: string, message: SDKMessage): SDKMessage {

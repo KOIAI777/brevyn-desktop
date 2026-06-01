@@ -233,6 +233,7 @@ export function normalizeAgentQueueMessageInput(value: unknown): AgentQueueMessa
     prompt: requireString(input.prompt, "Prompt"),
     uuid: optionalString(input.uuid),
     interrupt: input.interrupt === undefined ? undefined : Boolean(input.interrupt),
+    attachments: normalizeAgentAttachments(input.attachments),
     mentionedSkills: normalizeStringArray(input.mentionedSkills),
   };
 }

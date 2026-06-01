@@ -203,7 +203,7 @@ export function useAgentQueueState({
             targetThreadId,
             message.prompt,
             message.permissionMode ?? currentPermissionModeRef.current,
-            undefined,
+            message.attachments,
             message.providerSelection ?? currentProviderSelectionRef.current,
             message.mentionedSkills,
             { suppressActiveRunError: source === "auto" && attempt < maxAttempts },
@@ -240,6 +240,7 @@ export function useAgentQueueState({
           prompt: message.prompt,
           uuid: message.id,
           interrupt: true,
+          attachments: message.attachments,
           mentionedSkills: message.mentionedSkills,
         });
         removeQueuedMessage(threadId, messageId);

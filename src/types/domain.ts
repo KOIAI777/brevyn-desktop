@@ -783,6 +783,7 @@ export interface AgentQueueMessageInput {
   prompt: string;
   uuid?: string;
   interrupt?: boolean;
+  attachments?: AgentAttachment[];
   mentionedSkills?: string[];
 }
 

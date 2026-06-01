@@ -1,10 +1,11 @@
-import type { AgentPermissionMode } from "@/types/domain";
+import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
 
 export interface QueuedAgentMessage {
   id: string;
   prompt: string;
   permissionMode?: AgentPermissionMode;
   providerSelection?: { providerId?: string; modelId?: string };
+  attachments?: AgentAttachment[];
   mentionedSkills?: string[];
   createdAt: number;
 }

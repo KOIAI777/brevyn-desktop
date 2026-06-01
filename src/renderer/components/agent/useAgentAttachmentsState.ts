@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ClipboardEvent, DragEvent } from "react";
 import type { AgentAttachment } from "@/types/domain";
 
-export function useAgentAttachmentsState({ threadId, running }: { threadId: string; running: boolean }) {
+export function useAgentAttachmentsState({ threadId }: { threadId: string; running: boolean }) {
   const [pendingAttachments, setPendingAttachments] = useState<AgentAttachment[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
 
@@ -12,13 +12,12 @@ export function useAgentAttachmentsState({ threadId, running }: { threadId: stri
   }, [threadId]);
 
   async function pickAttachments() {
-    if (running) return;
     const next = await window.brevyn.attachments.pick(threadId);
     if (next.length) setPendingAttachments((current) => mergeAttachments(current, next));
   }
 
   async function addDroppedFiles(files: File[]) {
-    if (running || files.length === 0) return;
+    if (files.length === 0) return;
     const pathItems: string[] = [];
     const dataItems: Promise<AgentAttachment>[] = [];
     for (const file of files) {

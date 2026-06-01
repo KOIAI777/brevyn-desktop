@@ -130,10 +130,13 @@ export const AgentComposer = memo(function AgentComposer({
     if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0) return;
 
     if (running) {
-      if ((!prompt && mentionedSkillSlugs.length === 0) || pendingAttachments.length > 0) return;
+      const attachments = clearAttachments();
       onQueueMessage({
         id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        prompt: prompt || "请使用已选择的 Skill。",
+        prompt: prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"),
+        permissionMode,
+        providerSelection: parseProviderModelValue(activeProviderId),
+        attachments,
         mentionedSkills: mentionedSkillSlugs,
         createdAt: Date.now(),
       });
@@ -189,6 +192,7 @@ export const AgentComposer = memo(function AgentComposer({
             onDelete={onDeleteQueuedMessage}
             onEdit={(message) => {
               onDeleteQueuedMessage(message.id);
+              if (message.attachments?.length) restoreAttachments(message.attachments);
               setPromptValue(promptWithSkillTokens(message.prompt, message.mentionedSkills));
               setMentionedSkills(skillMentionsFromSlugs(message.mentionedSkills, mentionableSkills));
             }}
@@ -201,7 +205,6 @@ export const AgentComposer = memo(function AgentComposer({
               : "border-white/70 bg-[#f5f0e6]"
           }`}
           onDragOver={(event) => {
-            if (running) return;
             event.preventDefault();
             setDraggingFiles(true);
           }}
@@ -214,7 +217,7 @@ export const AgentComposer = memo(function AgentComposer({
                 <AttachmentChip
                   key={attachment.id}
                   attachment={attachment}
-                  removable={!running}
+                  removable
                   onRemove={() => void removeAttachment(attachment)}
                 />
               ))}
@@ -238,11 +241,10 @@ export const AgentComposer = memo(function AgentComposer({
             <div className="flex min-w-0 shrink items-center gap-1.5">
               <button
                 type="button"
-                disabled={running}
                 onClick={() => void pickAttachments()}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 aria-label="Add context"
-                title="Add attachment"
+                title={running ? "添加到待确认消息" : "Add attachment"}
               >
                 <Plus className="h-4.5 w-4.5" />
               </button>
@@ -270,8 +272,7 @@ export const AgentComposer = memo(function AgentComposer({
                     type="submit"
                     className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
                     aria-label="Queue message"
-                    title={pendingAttachments.length > 0 ? "运行中暂不支持待确认附件" : "加入待确认"}
-                    disabled={pendingAttachments.length > 0}
+                    title="加入待确认"
                   >
                     <Send className="h-4 w-4" />
                   </button>

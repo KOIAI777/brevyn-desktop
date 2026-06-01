@@ -1,4 +1,4 @@
-import { Loader2, Pencil, Send, Trash2 } from "lucide-react";
+import { Loader2, Paperclip, Pencil, Send, Trash2 } from "lucide-react";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export function QueuedMessageDock({
@@ -45,6 +45,12 @@ export function QueuedMessageDock({
               <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
                 {message.prompt}
               </span>
+              {message.attachments?.length ? (
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <Paperclip className="h-2.5 w-2.5" />
+                  {message.attachments.length}
+                </span>
+              ) : null}
               {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{sendingLabel}</span>}
               <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">
                 <button
