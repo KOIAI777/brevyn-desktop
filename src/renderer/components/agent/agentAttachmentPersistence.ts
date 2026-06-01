@@ -1,4 +1,5 @@
 import type { AgentAttachment } from "@/types/domain";
+import { clearPendingAttachmentData, getPendingAttachmentData } from "@/components/agent/pendingAttachmentData";
 
 export async function persistAgentAttachments(threadId: string, attachments?: AgentAttachment[]): Promise<AgentAttachment[]> {
   if (!attachments?.length) return [];
@@ -31,12 +32,15 @@ export function agentAttachmentsForRun(attachments: AgentAttachment[]): AgentAtt
     const {
       pending: _pending,
       sourcePath: _sourcePath,
-      data: _data,
       persistedFromPending: _persistedFromPending,
       ...runAttachment
     } = attachment;
     return runAttachment;
   });
+}
+
+export function clearPendingAgentAttachmentData(attachments: AgentAttachment[]): void {
+  clearPendingAttachmentData(attachments);
 }
 
 async function persistAgentAttachment(threadId: string, attachment: AgentAttachment): Promise<AgentAttachment> {
@@ -46,12 +50,13 @@ async function persistAgentAttachment(threadId: string, attachment: AgentAttachm
     if (!saved) throw new Error(`附件不可用：${attachment.name}`);
     return { ...saved, persistedFromPending: true };
   }
-  if (attachment.data) {
+  const data = getPendingAttachmentData(attachment.id);
+  if (data) {
     const saved = await window.brevyn.attachments.saveData({
       threadId,
       name: attachment.name,
       mediaType: attachment.mimeType,
-      data: attachment.data,
+      data,
     });
     return { ...saved, persistedFromPending: true };
   }

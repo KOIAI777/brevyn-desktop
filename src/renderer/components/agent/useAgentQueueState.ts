@@ -8,6 +8,7 @@ import type { AgentRunForThreadOptions } from "@/hooks/useAgentSessionController
 export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
+  queueToastMessage: string;
   queueMessage: (message: QueuedAgentMessage) => void;
   deleteQueuedMessage: (messageId: string) => void;
   sendQueuedMessage: (messageId: string) => Promise<void>;
@@ -39,11 +40,13 @@ export function useAgentQueueState({
   const autoSendInFlightRunIdByThreadRef = useRef<Record<string, string>>({});
   const autoSendTimerRef = useRef<number | null>(null);
   const autoSendTimersByThreadRef = useRef<Record<string, number>>({});
+  const queueToastTimerRef = useRef<number | null>(null);
   const threadIdRef = useRef(threadId);
   const currentPermissionModeRef = useRef(currentPermissionMode);
   const currentProviderSelectionRef = useRef(currentProviderSelection);
   const [queuedMessagesByThread, setQueuedMessagesByThread] = useState<Record<string, QueuedAgentMessage[]>>({});
   const [sendingQueuedMessageIdsByThread, setSendingQueuedMessageIdsByThread] = useState<Record<string, string[]>>({});
+  const [queueToastMessage, setQueueToastMessage] = useState("");
 
   const queuedMessages = queuedMessagesByThread[threadId] || [];
   const sendingQueuedMessageIds = sendingQueuedMessageIdsByThread[threadId] || [];
@@ -83,6 +86,10 @@ export function useAgentQueueState({
         window.clearTimeout(timer);
       }
       autoSendTimersByThreadRef.current = {};
+      if (queueToastTimerRef.current !== null) {
+        window.clearTimeout(queueToastTimerRef.current);
+        queueToastTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -157,6 +164,18 @@ export function useAgentQueueState({
     if (targetThreadId === threadIdRef.current) lastAutoSentRunIdRef.current = completedRunId;
   }
 
+  function showQueueToast(message: string): void {
+    if (queueToastTimerRef.current !== null) {
+      window.clearTimeout(queueToastTimerRef.current);
+      queueToastTimerRef.current = null;
+    }
+    setQueueToastMessage(message);
+    queueToastTimerRef.current = window.setTimeout(() => {
+      setQueueToastMessage("");
+      queueToastTimerRef.current = null;
+    }, 3800);
+  }
+
   const queueMessage = useCallback((message: QueuedAgentMessage) => {
     setQueuedMessagesByThread((current) => ({
       ...current,
@@ -213,6 +232,9 @@ export function useAgentQueueState({
               await delay(300 + attempt * 180);
               continue;
             }
+            if (source === "auto" && targetThreadId === threadIdRef.current) {
+              showQueueToast("待确认消息暂时没有发出，已保留在队列中。");
+            }
             return false;
           }
           if (started) removeQueuedMessage(targetThreadId, message.id);
@@ -229,6 +251,9 @@ export function useAgentQueueState({
       return false;
     } catch (error) {
       console.error(source === "auto" ? "[AgentThreadPanel] Failed to auto-send queued message:" : "[AgentThreadPanel] Failed to start queued message:", error);
+      if (targetThreadId === threadIdRef.current) {
+        showQueueToast(source === "auto" ? "待确认消息自动发送失败，已保留在队列中。" : "待确认消息发送失败，请稍后再试。");
+      }
       return false;
     } finally {
       setQueuedMessageSending(targetThreadId, message.id, false);
@@ -252,6 +277,7 @@ export function useAgentQueueState({
         removeQueuedMessage(threadId, messageId);
       } catch (error) {
         console.error("[AgentThreadPanel] Failed to send queued message:", error);
+        showQueueToast("待确认消息发送失败，请稍后再试。");
       } finally {
         setQueuedMessageSending(threadId, messageId, false);
       }
@@ -263,6 +289,7 @@ export function useAgentQueueState({
   return {
     queuedMessages,
     sendingQueuedMessageIds,
+    queueToastMessage,
     queueMessage,
     deleteQueuedMessage,
     sendQueuedMessage,

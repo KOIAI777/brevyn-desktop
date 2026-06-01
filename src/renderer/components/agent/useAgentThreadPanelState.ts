@@ -19,6 +19,7 @@ export interface AgentThreadPanelState {
   effectiveCompacting: boolean;
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
+  queueToastMessage: string;
   autoCompactThresholdPercent: number;
   scrollTransitioning: boolean;
   setPermissionMode: (mode: AgentPermissionMode) => void;

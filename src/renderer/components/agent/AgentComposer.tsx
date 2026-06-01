@@ -20,12 +20,13 @@ import { QueuedMessageDock } from "@/components/agent/AgentQueuedMessageDock";
 import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
-import { agentAttachmentsForRun, deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
+import { agentAttachmentsForRun, clearPendingAgentAttachmentData, deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
 
 interface AgentComposerProps {
   todos: AgentTodoItem[];
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
+  queueToastMessage: string;
   running: boolean;
   permissionMode: AgentPermissionMode;
   contextUsage: ContextUsage | null;
@@ -63,6 +64,7 @@ export const AgentComposer = memo(function AgentComposer({
   todos,
   queuedMessages,
   sendingQueuedMessageIds,
+  queueToastMessage,
   running,
   permissionMode,
   contextUsage,
@@ -94,6 +96,7 @@ export const AgentComposer = memo(function AgentComposer({
   const {
     pendingAttachments,
     draggingFiles,
+    attachmentToastMessage,
     setDraggingFiles,
     pickAttachments,
     removeAttachment,
@@ -181,6 +184,7 @@ export const AgentComposer = memo(function AgentComposer({
     try {
       persistedAttachments = await persistAgentAttachments(submittedThreadId, attachments);
       await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, agentAttachmentsForRun(persistedAttachments), parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
+      clearPendingAgentAttachmentData(attachments);
     } catch (error) {
       if (persistedAttachments.length > 0) void deletePersistedAgentAttachments(persistedAttachments);
       if (threadIdRef.current === submittedThreadId) {
@@ -218,6 +222,7 @@ export const AgentComposer = memo(function AgentComposer({
       onSubmit={handleSubmit}
     >
       <div className={`${CHAT_BODY_WIDTH_CLASS} flex min-w-0 flex-col gap-2`}>
+        {(queueToastMessage || attachmentToastMessage) && <QueueToast message={queueToastMessage || attachmentToastMessage} />}
         {todos.length > 0 && <TodoDock todos={todos} running={running} />}
         {queuedMessages.length > 0 && (
           <QueuedMessageDock
@@ -345,10 +350,21 @@ export const AgentComposer = memo(function AgentComposer({
   );
 }, areAgentComposerPropsEqual);
 
+function QueueToast({ message }: { message: string }) {
+  return (
+    <div className="pointer-events-none flex justify-center">
+      <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-900 shadow-[0_8px_22px_rgba(120,88,40,0.14)]">
+        {message}
+      </div>
+    </div>
+  );
+}
+
 function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentComposerProps): boolean {
   return previous.todos === next.todos
     && previous.queuedMessages === next.queuedMessages
     && previous.sendingQueuedMessageIds === next.sendingQueuedMessageIds
+    && previous.queueToastMessage === next.queueToastMessage
     && previous.running === next.running
     && previous.permissionMode === next.permissionMode
     && previous.contextUsage === next.contextUsage

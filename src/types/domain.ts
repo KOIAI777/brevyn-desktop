@@ -760,7 +760,6 @@ export interface AgentAttachment {
   createdAt: string;
   pending?: boolean;
   sourcePath?: string;
-  data?: string;
   persistedFromPending?: boolean;
 }
 

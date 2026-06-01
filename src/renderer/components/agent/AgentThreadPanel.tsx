@@ -85,6 +85,7 @@ export function AgentThreadPanel({
     effectiveCompacting,
     queuedMessages,
     sendingQueuedMessageIds,
+    queueToastMessage,
     autoCompactThresholdPercent,
     scrollTransitioning,
     setPermissionMode,
@@ -181,6 +182,7 @@ export function AgentThreadPanel({
         todos={todos}
         queuedMessages={queuedMessages}
         sendingQueuedMessageIds={sendingQueuedMessageIds}
+        queueToastMessage={queueToastMessage}
         running={effectiveRunning}
         permissionMode={permissionMode}
         contextUsage={contextUsage}

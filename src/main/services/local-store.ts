@@ -73,6 +73,8 @@ import { formatSize, kindForPath } from "./workspace-file-tree";
 
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
+const MAX_AGENT_ATTACHMENT_DATA_BYTES = 100 * 1024 * 1024;
+
 export class LocalStore {
   private readonly rootDataDir: string;
   private readonly ragIndex: RagIndexService;
@@ -515,6 +517,10 @@ export class LocalStore {
   }
 
   saveAgentAttachmentData(input: AgentAttachmentDataInput): AgentAttachment {
+    const estimatedBytes = Math.floor(input.data.length * 0.75);
+    if (estimatedBytes > MAX_AGENT_ATTACHMENT_DATA_BYTES) {
+      throw new Error(`"${input.name}" is ${formatSize(estimatedBytes)}. Agent attachments are limited to ${formatSize(MAX_AGENT_ATTACHMENT_DATA_BYTES)} per file.`);
+    }
     const targetDir = this.threadSessionDir(input.threadId);
     const targetPath = uniqueAttachmentPath(targetDir, input.name);
     writeFileSync(targetPath, Buffer.from(input.data, "base64"));

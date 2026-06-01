@@ -1,15 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent } from "react";
 import type { AgentAttachment, WorkspaceFileKind } from "@/types/domain";
+import {
+  deletePendingAttachmentData,
+  LONG_TEXT_ATTACHMENT_THRESHOLD,
+  MAX_PENDING_ATTACHMENT_BYTES,
+  setPendingAttachmentData,
+} from "@/components/agent/pendingAttachmentData";
+
+const ATTACHMENT_TOAST_MS = 3_800;
 
 export function useAgentAttachmentsState({ threadId }: { threadId: string; running: boolean }) {
   const [pendingAttachmentsByThread, setPendingAttachmentsByThread] = useState<Record<string, AgentAttachment[]>>({});
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const [attachmentToastMessage, setAttachmentToastMessage] = useState("");
+  const attachmentToastTimerRef = useRef<number | null>(null);
   const pendingAttachments = pendingAttachmentsByThread[threadId] || [];
 
   useEffect(() => {
     setDraggingFiles(false);
   }, [threadId]);
+
+  useEffect(() => () => {
+    if (attachmentToastTimerRef.current) window.clearTimeout(attachmentToastTimerRef.current);
+  }, []);
 
   function setPendingAttachmentsForThread(targetThreadId: string, updater: (current: AgentAttachment[]) => AgentAttachment[]) {
     setPendingAttachmentsByThread((currentByThread) => {
@@ -26,16 +40,37 @@ export function useAgentAttachmentsState({ threadId }: { threadId: string; runni
     if (next.length) setPendingAttachmentsForThread(threadId, (current) => mergeAttachments(current, next));
   }
 
-  async function addDroppedFiles(files: File[]) {
-    if (files.length === 0) return;
+  async function addDroppedFiles(files: File[]): Promise<number> {
+    if (files.length === 0) return 0;
     const targetThreadId = threadId;
-    const attachments = await Promise.all(files.map((file) => pendingAttachmentForFile(targetThreadId, file)));
-    setPendingAttachmentsForThread(targetThreadId, (current) => mergeAttachments(current, attachments));
+    const attachments: AgentAttachment[] = [];
+    const rejectedLargeFiles: string[] = [];
+    for (const file of files) {
+      try {
+        const sourcePath = safePathForFile(file);
+        if (!sourcePath && file.size > MAX_PENDING_ATTACHMENT_BYTES) {
+          rejectedLargeFiles.push(file.name || "未命名文件");
+          continue;
+        }
+        attachments.push(await pendingAttachmentForFile(targetThreadId, file, sourcePath));
+      } catch (error) {
+        console.error("[AgentComposer] Failed to add attachment:", error);
+        showAttachmentToast(`附件添加失败：${file.name || "未命名文件"}`);
+      }
+    }
+    if (attachments.length > 0) setPendingAttachmentsForThread(targetThreadId, (current) => mergeAttachments(current, attachments));
+    if (rejectedLargeFiles.length > 0) {
+      showAttachmentToast(`文件过大，请从文件选择器添加：${rejectedLargeFiles.slice(0, 2).join("、")}`);
+    }
+    return attachments.length;
   }
 
   async function removeAttachment(attachment: AgentAttachment) {
     setPendingAttachmentsForThread(threadId, (current) => current.filter((item) => item.id !== attachment.id));
-    if (attachment.pending) return;
+    if (attachment.pending) {
+      deletePendingAttachmentData(attachment.id);
+      return;
+    }
     try {
       await window.brevyn.attachments.delete({ threadId: attachment.threadId || threadId, path: attachment.path });
     } catch (error) {
@@ -55,9 +90,16 @@ export function useAgentAttachmentsState({ threadId }: { threadId: string; runni
 
   function handlePaste(event: ClipboardEvent<HTMLElement>) {
     const files = Array.from(event.clipboardData.files || []);
-    if (files.length === 0) return;
+    if (files.length > 0) {
+      event.preventDefault();
+      void addDroppedFiles(files);
+      return;
+    }
+
+    const plainText = event.clipboardData.getData("text/plain") || "";
+    if (plainText.length < LONG_TEXT_ATTACHMENT_THRESHOLD) return;
     event.preventDefault();
-    void addDroppedFiles(files);
+    void addClipboardTextAttachment(plainText);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
@@ -69,6 +111,7 @@ export function useAgentAttachmentsState({ threadId }: { threadId: string; runni
   return {
     pendingAttachments,
     draggingFiles,
+    attachmentToastMessage,
     setDraggingFiles,
     pickAttachments,
     removeAttachment,
@@ -77,6 +120,21 @@ export function useAgentAttachmentsState({ threadId }: { threadId: string; runni
     handlePaste,
     handleDrop,
   };
+
+  async function addClipboardTextAttachment(text: string) {
+    const file = clipboardTextFile(text);
+    const added = await addDroppedFiles([file]);
+    if (added > 0) showAttachmentToast(`已将超长文本转为附件：${file.name}`);
+  }
+
+  function showAttachmentToast(message: string): void {
+    if (attachmentToastTimerRef.current) window.clearTimeout(attachmentToastTimerRef.current);
+    setAttachmentToastMessage(message);
+    attachmentToastTimerRef.current = window.setTimeout(() => {
+      setAttachmentToastMessage("");
+      attachmentToastTimerRef.current = null;
+    }, ATTACHMENT_TOAST_MS);
+  }
 }
 
 function mergeAttachments(current: AgentAttachment[], next: AgentAttachment[]): AgentAttachment[] {
@@ -89,11 +147,9 @@ function mergeAttachments(current: AgentAttachment[], next: AgentAttachment[]): 
   })];
 }
 
-async function pendingAttachmentForFile(threadId: string, file: File): Promise<AgentAttachment> {
-  const sourcePath = window.brevyn.attachments.pathForFile(file);
+async function pendingAttachmentForFile(threadId: string, file: File, sourcePath: string): Promise<AgentAttachment> {
   const name = file.name || `pasted-file-${Date.now()}`;
-  const data = sourcePath ? undefined : await fileToBase64(file);
-  return {
+  const attachment: AgentAttachment = {
     id: `pending-att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     threadId,
     name,
@@ -103,13 +159,17 @@ async function pendingAttachmentForFile(threadId: string, file: File): Promise<A
     sizeLabel: formatSize(file.size),
     path: sourcePath || name,
     sourcePath: sourcePath || undefined,
-    data,
     pending: true,
     createdAt: new Date().toISOString(),
   };
+  if (!sourcePath) {
+    setPendingAttachmentData(attachment.id, await fileToBase64(file));
+  }
+  return attachment;
 }
 
 function attachmentIdentity(attachment: AgentAttachment): string {
+  if (attachment.pending && !attachment.sourcePath) return attachment.id;
   return attachment.sourcePath || attachment.path || attachment.id;
 }
 
@@ -143,4 +203,38 @@ function fileToBase64(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+function safePathForFile(file: File): string {
+  try {
+    return window.brevyn.attachments.pathForFile(file) || "";
+  } catch {
+    return "";
+  }
+}
+
+function clipboardTextFile(text: string): File {
+  const isMarkdown = looksLikeMarkdown(text);
+  const extension = isMarkdown ? "md" : "txt";
+  const mediaType = isMarkdown ? "text/markdown" : "text/plain";
+  return new File([text], `clipboard-${formatClipboardTimestamp()}.${extension}`, { type: mediaType });
+}
+
+function formatClipboardTimestamp(): string {
+  const date = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function looksLikeMarkdown(text: string): boolean {
+  return [
+    /^#{1,6}\s+\S/m,
+    /```[\s\S]*?```/,
+    /^\s*\|.+\|\s*\n\s*\|[\s:-]+\|/m,
+    /^---\n[\s\S]*?\n---\n/,
+    /^\s*> .+/m,
+    /^\s*[-*+]\s+\S/m,
+    /^\s*\d+\.\s+\S/m,
+    /\[[^\]]+\]\([^)]+\)/,
+  ].some((pattern) => pattern.test(text));
 }
