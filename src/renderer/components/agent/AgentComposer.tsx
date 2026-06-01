@@ -20,7 +20,7 @@ import { QueuedMessageDock } from "@/components/agent/AgentQueuedMessageDock";
 import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
-import { deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
+import { agentAttachmentsForRun, deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
 
 interface AgentComposerProps {
   todos: AgentTodoItem[];
@@ -41,7 +41,7 @@ interface AgentComposerProps {
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
   onSendQueuedMessage: (messageId: string) => void;
-  onDeleteQueuedMessage: (messageId: string, options?: { preserveAttachments?: boolean }) => void;
+  onDeleteQueuedMessage: (messageId: string) => void;
   onStop: () => Promise<void>;
   onCompact: () => void;
   onSelectProvider: (providerId: string) => Promise<void>;
@@ -107,6 +107,7 @@ export const AgentComposer = memo(function AgentComposer({
   const promptText = promptValue.trim();
   const hasMentionedSkills = mentionedSkills.length > 0;
   const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills);
+  const canQueueWhileRunning = canSubmit && pendingAttachments.length === 0;
   promptValueRef.current = promptValue;
   threadIdRef.current = threadId;
 
@@ -153,13 +154,12 @@ export const AgentComposer = memo(function AgentComposer({
     if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0) return;
 
     if (running) {
-      const attachments = clearAttachments();
+      if (pendingAttachments.length > 0) return;
       onQueueMessage({
         id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         prompt: prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"),
         permissionMode,
         providerSelection: parseProviderModelValue(activeProviderId),
-        attachments,
         mentionedSkills: mentionedSkillSlugs,
         createdAt: Date.now(),
       });
@@ -180,7 +180,7 @@ export const AgentComposer = memo(function AgentComposer({
     let persistedAttachments: AgentAttachment[] = [];
     try {
       persistedAttachments = await persistAgentAttachments(submittedThreadId, attachments);
-      await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, persistedAttachments, parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
+      await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, agentAttachmentsForRun(persistedAttachments), parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
     } catch (error) {
       if (persistedAttachments.length > 0) void deletePersistedAgentAttachments(persistedAttachments);
       if (threadIdRef.current === submittedThreadId) {
@@ -227,8 +227,7 @@ export const AgentComposer = memo(function AgentComposer({
             onSend={onSendQueuedMessage}
             onDelete={onDeleteQueuedMessage}
             onEdit={(message) => {
-              if (message.attachments?.length) restoreAttachments(message.attachments);
-              onDeleteQueuedMessage(message.id, { preserveAttachments: true });
+              onDeleteQueuedMessage(message.id);
               setPromptValue(promptWithSkillTokens(message.prompt, message.mentionedSkills));
               setMentionedSkills(skillMentionsFromSlugs(message.mentionedSkills, mentionableSkills));
             }}
@@ -248,15 +247,22 @@ export const AgentComposer = memo(function AgentComposer({
           onDrop={handleDrop}
         >
           {pendingAttachments.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {pendingAttachments.map((attachment) => (
-                <AttachmentChip
-                  key={attachment.id}
-                  attachment={attachment}
-                  removable
-                  onRemove={() => void removeAttachment(attachment)}
-                />
-              ))}
+            <div className="mb-2">
+              <div className="flex flex-wrap gap-1.5">
+                {pendingAttachments.map((attachment) => (
+                  <AttachmentChip
+                    key={attachment.id}
+                    attachment={attachment}
+                    removable
+                    onRemove={() => void removeAttachment(attachment)}
+                  />
+                ))}
+              </div>
+              {running && (
+                <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+                  当前回复完成后即可发送附件。
+                </p>
+              )}
             </div>
           )}
           <AgentRichPromptInput
@@ -280,7 +286,7 @@ export const AgentComposer = memo(function AgentComposer({
                 onClick={() => void pickAttachments()}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 aria-label="Add context"
-                title={running ? "添加到待确认消息" : "Add attachment"}
+                title={running ? "添加附件；当前回复完成后可发送" : "Add attachment"}
               >
                 <Plus className="h-4.5 w-4.5" />
               </button>
@@ -303,7 +309,7 @@ export const AgentComposer = memo(function AgentComposer({
                 onSelectProvider={onSelectProvider}
               />
               {running ? (
-                canSubmit ? (
+                canQueueWhileRunning ? (
                   <button
                     type="submit"
                     className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"

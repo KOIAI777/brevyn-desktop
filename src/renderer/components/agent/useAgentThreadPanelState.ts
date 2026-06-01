@@ -24,7 +24,7 @@ export interface AgentThreadPanelState {
   setPermissionMode: (mode: AgentPermissionMode) => void;
   handleCompact: () => Promise<void>;
   queueMessage: (message: QueuedAgentMessage) => void;
-  deleteQueuedMessage: (messageId: string, options?: { preserveAttachments?: boolean }) => void;
+  deleteQueuedMessage: (messageId: string) => void;
   sendQueuedMessage: (messageId: string) => Promise<void>;
   toggleProcessCollapsed: (key: string, defaultCollapsed: boolean, lockedOpen: boolean) => void;
 }

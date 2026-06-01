@@ -1,4 +1,4 @@
-import { Loader2, Paperclip, Pencil, Send, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Send, Trash2 } from "lucide-react";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 
 export function QueuedMessageDock({
@@ -34,7 +34,6 @@ export function QueuedMessageDock({
       <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
         {messages.map((message, index) => {
           const sending = sendingMessageIds.includes(message.id);
-          const canSendNow = !sending && !(running && Boolean(message.attachments?.length));
           return (
             <div
               key={message.id}
@@ -46,20 +45,14 @@ export function QueuedMessageDock({
               <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
                 {message.prompt}
               </span>
-              {message.attachments?.length ? (
-                <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  <Paperclip className="h-2.5 w-2.5" />
-                  {message.attachments.length}
-                </span>
-              ) : null}
               {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{sendingLabel}</span>}
               <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => onSend(message.id)}
-                  disabled={!canSendNow}
-                  title={running && message.attachments?.length ? "带附件的消息会在当前运行结束后作为下一轮发送" : sendTitle}
+                  disabled={sending}
+                  title={sendTitle}
                   aria-label="Send queued message"
                 >
                   <Send className="h-3.5 w-3.5" />

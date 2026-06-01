@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BrevynTask, Course, SemesterWorkspace, Thread } from "../../types/domain";
+import type { BrevynTask, Course, IndexingJob, SemesterWorkspace, Thread } from "../../types/domain";
+import type { IndexingTaskInsert } from "../indexing";
 import { SQLiteBusinessStore } from "./sqlite-business-store";
 
 const tempDir = mkdtempSync(join(tmpdir(), "brevyn-business-store-"));
@@ -51,6 +52,15 @@ try {
     }),
     null,
   );
+
+  const indexingJob = testIndexingJob();
+  store.createIndexingJob(indexingJob, [testIndexingTask("idx-task-1", indexingJob.id, "file-a")]);
+  const appendedJob = store.appendIndexingTasksToJob(indexingJob.id, [
+    testIndexingTask("idx-task-duplicate-existing", indexingJob.id, "file-a"),
+    testIndexingTask("idx-task-2", indexingJob.id, "file-b"),
+    testIndexingTask("idx-task-duplicate-incoming", indexingJob.id, "file-b"),
+  ]);
+  assert.equal(appendedJob?.totalFiles, 2);
 } finally {
   store.close();
   rmSync(tempDir, { recursive: true, force: true });
@@ -105,5 +115,45 @@ function testTask(): BrevynTask {
     taskType: "作业",
     status: "not_started",
     summary: "",
+  };
+}
+
+function testIndexingJob(): IndexingJob {
+  return {
+    id: "index_test",
+    semesterId: "semester_test",
+    courseId: "course_test",
+    sectionId: "course_test:shared",
+    status: "queued",
+    stage: "queued",
+    embeddingModel: "text-embedding-test",
+    indexedFiles: 0,
+    totalFiles: 1,
+    completedFiles: 0,
+    progress: 0,
+    createdAt: "2026-05-25T00:00:00.000Z",
+    updatedAt: "2026-05-25T00:00:00.000Z",
+  };
+}
+
+function testIndexingTask(id: string, jobId: string, fileId: string): IndexingTaskInsert {
+  return {
+    id,
+    jobId,
+    semesterId: "semester_test",
+    courseId: "course_test",
+    sectionId: "course_test:shared",
+    fileId,
+    kind: "parse_chunk",
+    payload: {
+      semesterId: "semester_test",
+      courseId: "course_test",
+      sectionId: "course_test:shared",
+      fileId,
+      name: `${fileId}.pdf`,
+      path: `/course/${fileId}.pdf`,
+      sourcePath: `/tmp/${fileId}.pdf`,
+      kind: "pdf",
+    },
   };
 }

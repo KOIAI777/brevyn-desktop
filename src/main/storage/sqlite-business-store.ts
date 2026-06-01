@@ -710,7 +710,12 @@ export class SQLiteBusinessStore {
         this.db.exec("commit;");
         return job;
       }
-      for (const task of tasks) this.insertIndexingTask({ ...task, jobId });
+      const existingActiveFileIds = this.activeIndexingFileIdsForJob(jobId);
+      for (const task of tasks) {
+        if (existingActiveFileIds.has(task.fileId)) continue;
+        existingActiveFileIds.add(task.fileId);
+        this.insertIndexingTask({ ...task, jobId });
+      }
       const updated = this.refreshIndexingJob(jobId);
       this.db.exec("commit;");
       return updated;
@@ -718,6 +723,19 @@ export class SQLiteBusinessStore {
       this.db.exec("rollback;");
       throw error;
     }
+  }
+
+  private activeIndexingFileIdsForJob(jobId: string): Set<string> {
+    return new Set(this.all(
+      `select distinct file_id as fileId
+       from indexing_tasks
+       where job_id = ?
+         and status in ('queued', 'running')`,
+      jobId,
+    ).flatMap((row) => {
+      const fileId = typeof row.fileId === "string" ? row.fileId : "";
+      return fileId ? [fileId] : [];
+    }));
   }
 
   getIndexingTask(taskId: string): IndexingTaskRecord | null {

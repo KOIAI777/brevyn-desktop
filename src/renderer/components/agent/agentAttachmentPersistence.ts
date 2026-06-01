@@ -26,6 +26,19 @@ export async function deletePersistedAgentAttachments(attachments: AgentAttachme
   }));
 }
 
+export function agentAttachmentsForRun(attachments: AgentAttachment[]): AgentAttachment[] {
+  return attachments.map((attachment) => {
+    const {
+      pending: _pending,
+      sourcePath: _sourcePath,
+      data: _data,
+      persistedFromPending: _persistedFromPending,
+      ...runAttachment
+    } = attachment;
+    return runAttachment;
+  });
+}
+
 async function persistAgentAttachment(threadId: string, attachment: AgentAttachment): Promise<AgentAttachment> {
   if (!attachment.pending) return attachment;
   if (attachment.sourcePath) {

@@ -4,13 +4,12 @@ import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import type { RunSummary } from "@/components/agent/agentTimelineModel";
 import { agentRuntimeEventThreadId } from "@/lib/agent-live-store";
 import type { AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
-import { deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
 
 export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
   queueMessage: (message: QueuedAgentMessage) => void;
-  deleteQueuedMessage: (messageId: string, options?: { preserveAttachments?: boolean }) => void;
+  deleteQueuedMessage: (messageId: string) => void;
   sendQueuedMessage: (messageId: string) => Promise<void>;
 }
 
@@ -165,13 +164,11 @@ export function useAgentQueueState({
     }));
   }, [threadId]);
 
-  const deleteQueuedMessage = useCallback((messageId: string, options?: { preserveAttachments?: boolean }) => {
-    const message = queuedMessagesByThreadRef.current[threadId]?.find((item) => item.id === messageId);
+  const deleteQueuedMessage = useCallback((messageId: string) => {
     setQueuedMessagesByThread((current) => ({
       ...current,
       [threadId]: (current[threadId] || []).filter((message) => message.id !== messageId),
     }));
-    if (!options?.preserveAttachments) void deleteQueuedMessageAttachments(message);
   }, [threadId]);
 
   function setQueuedMessageSending(targetThreadId: string, messageId: string, sending: boolean) {
@@ -195,35 +192,23 @@ export function useAgentQueueState({
     return message;
   }
 
-  async function deleteQueuedMessageAttachments(message?: QueuedAgentMessage): Promise<void> {
-    if (!message?.attachments?.length) return;
-    await Promise.all(message.attachments.filter((attachment) => !attachment.pending).map((attachment) =>
-      window.brevyn.attachments.delete({ threadId: attachment.threadId || threadIdRef.current, path: attachment.path }).catch((error) => {
-        console.error("[AgentThreadPanel] Failed to delete queued attachment:", error);
-      }),
-    ));
-  }
-
   async function sendQueuedMessageAsNewRun(targetThreadId: string, message: QueuedAgentMessage, source: "manual" | "auto"): Promise<boolean> {
     if (sendingQueuedMessageIdsByThreadRef.current[targetThreadId]?.includes(message.id)) return false;
     setQueuedMessageSending(targetThreadId, message.id, true);
     try {
       const maxAttempts = source === "auto" ? 5 : 1;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        let persistedAttachments: AgentAttachment[] = [];
         try {
-          persistedAttachments = await persistAgentAttachments(targetThreadId, message.attachments);
           const started = await onRunForThread(
             targetThreadId,
             message.prompt,
             message.permissionMode ?? currentPermissionModeRef.current,
-            persistedAttachments,
+            undefined,
             message.providerSelection ?? currentProviderSelectionRef.current,
             message.mentionedSkills,
             { suppressActiveRunError: source === "auto" && attempt < maxAttempts },
           );
           if (!started) {
-            if (persistedAttachments.length > 0) await deletePersistedAgentAttachments(persistedAttachments);
             if (source === "auto" && attempt < maxAttempts) {
               await delay(300 + attempt * 180);
               continue;
@@ -234,7 +219,6 @@ export function useAgentQueueState({
           if (started && source === "auto") onAutoRunStarted?.(targetThreadId);
           return started;
         } catch (error) {
-          if (persistedAttachments.length > 0) void deletePersistedAgentAttachments(persistedAttachments);
           if (source === "auto" && isAgentRunStillActiveError(error) && attempt < maxAttempts) {
             await delay(300 + attempt * 180);
             continue;
@@ -256,7 +240,6 @@ export function useAgentQueueState({
     if (!message) return;
     if (sendingQueuedMessageIdsByThread[threadId]?.includes(messageId)) return;
     if (effectiveRunning) {
-      if (message.attachments?.length) return;
       setQueuedMessageSending(threadId, messageId, true);
       try {
         await window.brevyn.agent.queueMessage({
@@ -264,7 +247,6 @@ export function useAgentQueueState({
           prompt: message.prompt,
           uuid: message.id,
           interrupt: true,
-          attachments: message.attachments,
           mentionedSkills: message.mentionedSkills,
         });
         removeQueuedMessage(threadId, messageId);
