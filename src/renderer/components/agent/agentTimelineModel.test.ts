@@ -1007,6 +1007,28 @@ assert.equal(permissionDeniedRecords.some((record) => (record as SDKMessage & { 
 const permissionDeniedGroups = groupIntoTurns(permissionDeniedRecords);
 assert.equal(permissionDeniedGroups.some((group) => group.type === "system"), true);
 
+const permissionDeniedTurnRecords: AgentTimelineRecord[] = [
+  userText("Run a risky command.", "user_permission_denied_turn"),
+  assistant([{ type: "tool_use", id: "tool_permission_denied_turn", name: "Bash", input: { command: "cat secret" } }], "assistant_permission_denied_tool"),
+  systemPermissionDenied("permission_denied_turn"),
+  toolResult("tool_permission_denied_turn", "Permission denied.", "permission_denied_tool_result"),
+  assistant([{ type: "text", text: "I'll continue with a safer approach." }], "assistant_permission_denied_recovery"),
+];
+const permissionDeniedTurnItems = buildTimelineViewItems(permissionDeniedTurnRecords, {
+  forceProcessOpen: false,
+  ownerUserIndexByRecordIndex: permissionDeniedTurnRecords.map((_, index) => index === 0 ? -1 : 0),
+  processCollapsedByKey: {},
+  resolvedApprovals: new Map(),
+  resolvedExitPlans: new Map(),
+  resolvedQuestions: new Map(),
+  runSummary: null,
+  runSummaryByUserIndex: new Map(),
+});
+const permissionDeniedTurnGroups = buildTimelineViewGroups(permissionDeniedTurnRecords, permissionDeniedTurnItems);
+assert.deepEqual(permissionDeniedTurnGroups.map((group) => group.type), ["user", "assistant-turn"]);
+const permissionDeniedTurn = permissionDeniedTurnGroups[1]?.type === "assistant-turn" ? permissionDeniedTurnGroups[1] : undefined;
+assert.deepEqual(permissionDeniedTurn?.entries.map((entry) => entry.type === "item" ? entry.item.displayKind : entry.type), ["tool-group", "permission-denied", "assistant-final"]);
+
 const runModelRecords: AgentTimelineRecord[] = [
   userText("Use the selected model for this turn.", "user_run_model"),
   runStarted("claude-opus-4.7", "run_model_stable"),

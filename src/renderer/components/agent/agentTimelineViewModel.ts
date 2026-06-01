@@ -544,6 +544,15 @@ function assistantTurnViewItems(
       continue;
     }
 
+    if (!isRuntimeRecord(record) && (record as SDKMessage).type === "system") {
+      const message = record as SDKMessage;
+      const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
+      if (subtype === "permission_denied") {
+        setSlot(`permission-denied:${index}`, (assistantSegment * 10000) - 1 + (index / 100000), item);
+      }
+      continue;
+    }
+
     if (isRuntimeRecord(record)) setSlot(`runtime:${index}`, slotOrderValue(assistantSegment, 900 + index, "tool"), item);
   }
 

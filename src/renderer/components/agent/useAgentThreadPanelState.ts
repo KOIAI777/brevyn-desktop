@@ -6,6 +6,7 @@ import { useAgentTimelineState } from "@/components/agent/useAgentTimelineState"
 import { parseProviderModelValue } from "@/components/agent/AgentProviderPicker";
 import type { AgentTimelineRecord, AgentTodoItem, ContextUsage, RunSummary } from "@/components/agent/agentTimelineModel";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
+import type { AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
 
 export interface AgentThreadPanelState {
   permissionMode: AgentPermissionMode;
@@ -37,7 +38,7 @@ interface UseAgentThreadPanelStateArgs {
   agentProviders: ModelProviderConfig[];
   activeProviderId: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
-  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[], options?: AgentRunForThreadOptions) => Promise<boolean>;
   onAutoQueuedRunStarted?: (threadId: string) => void;
 }
 

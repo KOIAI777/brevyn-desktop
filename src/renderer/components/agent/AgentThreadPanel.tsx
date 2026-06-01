@@ -16,6 +16,7 @@ import {
 import { useAgentThreadPanelState } from "@/components/agent/useAgentThreadPanelState";
 import { useAgentScrollState } from "@/components/agent/useAgentScrollState";
 import type { AgentTimelineTurnEntry, AgentTimelineViewItem } from "@/components/agent/useAgentTimelineState";
+import type { AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
 import { AgentThreadIdContext } from "@/components/agent/AgentThreadContext";
 import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/AgentRuntimeCards";
 import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
@@ -29,7 +30,7 @@ interface AgentThreadPanelProps {
   running: boolean;
   error?: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
-  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[], options?: AgentRunForThreadOptions) => Promise<boolean>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -859,6 +860,10 @@ function AssistantTurnEntry({
 
   if (displayKind === "compact-compacting" || displayKind === "compact-complete") {
     return <SystemTimelineGroup item={item} />;
+  }
+
+  if (displayKind === "permission-denied") {
+    return <PermissionDeniedNotice record={record as SDKMessage} />;
   }
 
   if (isRuntimeRecord(record)) {

@@ -1,8 +1,9 @@
 import { AlertCircle, CheckCircle2, Clock3, Loader2, MinusCircle, XCircle } from "lucide-react";
+import { memo } from "react";
 import type { FileIndexingStatus, WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
-export function FileIndexingBadge({ file, compact = false }: { file: WorkspaceFileNode; compact?: boolean }) {
+export const FileIndexingBadge = memo(function FileIndexingBadge({ file, compact = false }: { file: WorkspaceFileNode; compact?: boolean }) {
   if (file.kind === "folder") return null;
   if (!isRagEligibleFile(file)) return null;
   const status = file.indexingStatus || "idle";
@@ -21,6 +22,21 @@ export function FileIndexingBadge({ file, compact = false }: { file: WorkspaceFi
       <Icon className={cx("h-3 w-3", status === "indexing" && "animate-spin")} />
       {!compact && <span>{label}</span>}
     </span>
+  );
+}, areFileIndexingBadgePropsEqual);
+
+function areFileIndexingBadgePropsEqual(
+  a: { file: WorkspaceFileNode; compact?: boolean },
+  b: { file: WorkspaceFileNode; compact?: boolean },
+): boolean {
+  return (
+    a.compact === b.compact &&
+    a.file.kind === b.file.kind &&
+    a.file.ragEligible === b.file.ragEligible &&
+    a.file.indexedAt === b.file.indexedAt &&
+    a.file.indexingStatus === b.file.indexingStatus &&
+    a.file.indexingError === b.file.indexingError &&
+    a.file.indexingWarning === b.file.indexingWarning
   );
 }
 

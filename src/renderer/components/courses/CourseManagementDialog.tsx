@@ -20,7 +20,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, BrevynTask, WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -34,7 +34,7 @@ const DEFAULT_TASK_TYPE = "作业";
 const RAG_RESULTS_PAGE_SIZE = 5;
 const MAX_LECTURE_WEEK_OPTIONS = 30;
 const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
-type CoursePanel = "files" | "tasks" | "indexing" | "search";
+type CoursePanel = "files" | "indexing" | "search";
 type AutoOpenLectureWeek = { sectionId: string; weekNumber: number; token: number };
 
 export function CourseManagementDialog({
@@ -119,6 +119,9 @@ export function CourseManagementDialog({
     }
     return Array.from(seen);
   }, [sections]);
+  const foundationSections = useMemo(() => sections.filter((section) => section.kind !== "task"), [sections]);
+  const taskSections = useMemo(() => sections.filter((section) => section.kind === "task"), [sections]);
+  const hasActiveIndexingJob = useMemo(() => indexingJobs.some((job) => job.status === "queued" || job.status === "indexing"), [indexingJobs]);
 
   useEffect(() => {
     void loadArchivedCourses();
@@ -147,12 +150,11 @@ export function CourseManagementDialog({
 
   useEffect(() => {
     if (!activeCourse?.id) return;
-    const hasActiveJob = indexingJobs.some((job) => job.status === "queued" || job.status === "indexing");
     const timer = window.setInterval(() => {
       void loadCourseView(activeCourse.id);
-    }, hasActiveJob ? 1600 : 5000);
+    }, hasActiveIndexingJob ? 1600 : 5000);
     return () => window.clearInterval(timer);
-  }, [activeCourse?.id, indexingJobs]);
+  }, [activeCourse?.id, hasActiveIndexingJob]);
 
   useEffect(() => {
     const courseId = activeCourse?.id || "";
@@ -193,8 +195,8 @@ export function CourseManagementDialog({
         window.brevyn.files.indexingJobs(courseId),
       ]);
       if (courseViewRequestRef.current !== requestId) return false;
-      setSections(nextSections);
-      setIndexingJobs(nextIndexingJobs);
+      setSections((current) => reconcileCourseSections(current, nextSections));
+      setIndexingJobs((current) => (areIndexingJobsEqual(current, nextIndexingJobs) ? current : nextIndexingJobs));
       return true;
     } catch (error) {
       if (courseViewRequestRef.current === requestId) {
@@ -778,7 +780,6 @@ export function CourseManagementDialog({
             <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1 rounded-lg border bg-card p-1">
                 <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="文件" onClick={() => setCoursePanel("files")} />
-                <CoursePanelButton active={coursePanel === "tasks"} icon={<Plus className="h-3.5 w-3.5" />} label="任务" onClick={() => setCoursePanel("tasks")} />
                 <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="索引" onClick={() => setCoursePanel("indexing")} />
                 <CoursePanelButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="向量搜索" onClick={() => setCoursePanel("search")} />
               </div>
@@ -791,7 +792,11 @@ export function CourseManagementDialog({
 
               {activeCourse && coursePanel === "files" && (
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
-                  {sections.map((section) => (
+                  <CourseSectionGroupHeader
+                    title="基础资料"
+                    detail="课程共享和 Lecture 是固定分区，适合放 syllabus、课件和全课共用资料。"
+                  />
+                  {foundationSections.map((section) => (
                     <SectionCard
                       key={section.id}
                       section={section}
@@ -805,66 +810,39 @@ export function CourseManagementDialog({
                       onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
                     />
                   ))}
-                </div>
-              )}
-
-              {activeCourse && coursePanel === "tasks" && (
-                <section className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-card p-3 pr-4 brevyn-scrollbar">
-                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
-                    <Plus className="h-3.5 w-3.5" />
-                    新建任务分区
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto]">
-                    <label className="block space-y-1 text-[11px] text-muted-foreground">
-                      <span>任务类型</span>
-                      <input
-                        className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
-                        value={taskType}
-                        onChange={(event) => setTaskType(event.target.value)}
-                        placeholder="作业"
-                        disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
-                      />
-                    </label>
-                    <label className="block space-y-1 text-[11px] text-muted-foreground">
-                      <span>任务名称</span>
-                      <input
-                        className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
-                        value={taskName}
-                        onChange={(event) => setTaskName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && !creatingTask) void createTask();
-                        }}
-                        placeholder="自定义任务名称"
-                        disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={createTask}
-                      disabled={!activeCourse?.id || activeCourseArchived || creatingTask || !taskName.trim()}
-                    >
-                      {creatingTask ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                      {creatingTask ? "正在创建..." : "创建"}
-                    </button>
-                  </div>
-                  {existingTaskTypes.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {existingTaskTypes.slice(0, 8).map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          className="rounded-full border bg-background px-2.5 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                          onClick={() => setTaskType(item)}
-                          disabled={!activeCourse?.id || activeCourseArchived || creatingTask}
-                        >
-                          {item}
-                        </button>
-                      ))}
+                  <CourseSectionGroupHeader
+                    title="任务分区"
+                    detail="每个任务都有自己的 Materials、Drafts 和 Submitted 工作区。"
+                  />
+                  {taskSections.length === 0 && (
+                    <div className="rounded-lg border border-dashed bg-card/70 px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
+                      还没有任务分区。下面加一个作业、presentation 或 exam，就会自动生成对应文件夹。
                     </div>
                   )}
-                  {taskError && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{taskError}</div>}
-                </section>
+                  {taskSections.map((section) => (
+                    <SectionCard
+                      key={section.id}
+                      section={section}
+                      indexing={indexingSectionId === section.id}
+                      disabled={activeCourseArchived || Boolean(indexingSectionId)}
+                      onIndex={() => void indexSection(section.id)}
+                      onUpload={(weekNumber) => uploadToSection(section, weekNumber)}
+                      uploading={uploadingSectionId === section.id}
+                      onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
+                    />
+                  ))}
+                  <InlineTaskCreateCard
+                    taskName={taskName}
+                    taskType={taskType}
+                    creating={creatingTask}
+                    error={taskError}
+                    existingTaskTypes={existingTaskTypes}
+                    disabled={!activeCourse?.id || activeCourseArchived}
+                    onTaskNameChange={setTaskName}
+                    onTaskTypeChange={setTaskType}
+                    onCreate={() => void createTask()}
+                  />
+                </div>
               )}
 
               {activeCourse && coursePanel === "indexing" && (
@@ -913,6 +891,106 @@ function CoursePanelButton({ active, icon, label, onClick }: { active: boolean; 
       {icon}
       {label}
     </button>
+  );
+}
+
+function CourseSectionGroupHeader({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 pt-2 first:pt-0">
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</div>
+        <div className="mt-0.5 truncate text-[10px] text-muted-foreground/80">{detail}</div>
+      </div>
+    </div>
+  );
+}
+
+function InlineTaskCreateCard({
+  taskName,
+  taskType,
+  creating,
+  error,
+  existingTaskTypes,
+  disabled,
+  onTaskNameChange,
+  onTaskTypeChange,
+  onCreate,
+}: {
+  taskName: string;
+  taskType: TaskType;
+  creating: boolean;
+  error: string;
+  existingTaskTypes: string[];
+  disabled?: boolean;
+  onTaskNameChange: (value: string) => void;
+  onTaskTypeChange: (value: TaskType) => void;
+  onCreate: () => void;
+}) {
+  const blocked = Boolean(disabled || creating);
+  return (
+    <section className="rounded-lg border border-dashed bg-card/78 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <Plus className="h-3.5 w-3.5" />
+            新增任务分区
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">直接在任务列表下方创建，创建后会出现在上面的任务分区里。</div>
+        </div>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-[10rem_minmax(0,1fr)_auto]">
+        <label className="block space-y-1 text-[11px] text-muted-foreground">
+          <span>类型</span>
+          <input
+            className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+            value={taskType}
+            onChange={(event) => onTaskTypeChange(event.target.value)}
+            placeholder="作业"
+            disabled={blocked}
+          />
+        </label>
+        <label className="block space-y-1 text-[11px] text-muted-foreground">
+          <span>任务名称</span>
+          <input
+            className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+            value={taskName}
+            onChange={(event) => onTaskNameChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !blocked && taskName.trim()) onCreate();
+            }}
+            placeholder="例如：debate / essay draft / presentation"
+            disabled={blocked}
+          />
+        </label>
+        <button
+          type="button"
+          className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={onCreate}
+          disabled={blocked || !taskName.trim()}
+        >
+          {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          {creating ? "创建中" : "添加"}
+        </button>
+      </div>
+
+      {existingTaskTypes.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {existingTaskTypes.slice(0, 8).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className="rounded-full border bg-background px-2.5 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={() => onTaskTypeChange(item)}
+              disabled={blocked}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      )}
+      {error && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
+    </section>
   );
 }
 
@@ -1144,17 +1222,7 @@ function compactRagCitation(citation: string): string {
   return [localizePathSegment(compactPath), ...rest].filter(Boolean).join(" · ");
 }
 
-function SectionCard({
-  section,
-  indexing,
-  disabled,
-  onIndex,
-  onUpload,
-  uploading,
-  lectureWeekOptions = [],
-  autoOpenWeek,
-  onFileDeleted,
-}: {
+type SectionCardProps = {
   section: CourseFileSection;
   indexing: boolean;
   disabled?: boolean;
@@ -1164,8 +1232,21 @@ function SectionCard({
   lectureWeekOptions?: DropdownOption[];
   autoOpenWeek?: AutoOpenLectureWeek | null;
   onFileDeleted: () => void;
-}) {
+};
+
+const SectionCard = memo(function SectionCard({
+  section,
+  indexing,
+  disabled,
+  onIndex,
+  onUpload,
+  uploading,
+  lectureWeekOptions = [],
+  autoOpenWeek,
+  onFileDeleted,
+}: SectionCardProps) {
   const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "lecture" ? BookOpen : FileText;
+  const sectionLabel = section.kind === "course_shared" ? "课程共享" : section.kind === "lecture" ? "Lecture" : "任务";
   const [open, setOpen] = useState(false);
   const [openLectureWeeks, setOpenLectureWeeks] = useState<Record<string, boolean>>({});
   const [lectureWeekValue, setLectureWeekValue] = useState(lectureWeekOptions[0]?.value || "");
@@ -1243,7 +1324,21 @@ function SectionCard({
           <ChevronRight className={cx("mt-1 h-3.5 w-3.5 shrink-0 transition-transform text-muted-foreground", open && "rotate-90")} />
           <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{displaySectionTitle(section)}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="truncate text-sm font-semibold">{displaySectionTitle(section)}</div>
+              <span
+                className={cx(
+                  "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                  section.kind === "course_shared"
+                    ? "bg-slate-100 text-slate-700"
+                    : section.kind === "lecture"
+                      ? "bg-blue-50 text-blue-700"
+                      : "bg-amber-50 text-amber-700",
+                )}
+              >
+                {sectionLabel}
+              </span>
+            </div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
               {visibleFiles.length} 个课程资料 · {section.embeddingModel || "未配置向量服务商"}
             </div>
@@ -1343,7 +1438,7 @@ function SectionCard({
       {fileActionError && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-900">{fileActionError}</div>}
     </div>
   );
-}
+}, areSectionCardPropsEqual);
 
 function statusTone(status: IndexingJob["status"]): string {
   if (status === "indexed") return "bg-emerald-50 text-emerald-800";
@@ -1365,21 +1460,164 @@ function displaySectionTitle(section: CourseFileSection): string {
   return section.title;
 }
 
-function SectionFileRow({
-  file,
-  deleting,
-  retrying,
-  onReveal,
-  onRetryIndex,
-  onDelete,
-}: {
+function reconcileCourseSections(current: CourseFileSection[], next: CourseFileSection[]): CourseFileSection[] {
+  if (current.length === 0) return next;
+  const previousById = new Map(current.map((section) => [section.id, section]));
+  let changed = current.length !== next.length;
+  const reconciled = next.map((nextSection, index) => {
+    if (current[index]?.id !== nextSection.id) changed = true;
+    const previousSection = previousById.get(nextSection.id);
+    if (!previousSection) {
+      changed = true;
+      return nextSection;
+    }
+    const files = reconcileWorkspaceFiles(previousSection.files, nextSection.files);
+    const section = files === nextSection.files ? nextSection : { ...nextSection, files };
+    if (areCourseSectionsEqual(previousSection, section)) return previousSection;
+    changed = true;
+    return section;
+  });
+  return changed ? reconciled : current;
+}
+
+function reconcileWorkspaceFiles(current: WorkspaceFileNode[], next: WorkspaceFileNode[]): WorkspaceFileNode[] {
+  if (current.length === 0) return next;
+  const previousById = new Map(current.map((file) => [file.id, file]));
+  let changed = current.length !== next.length;
+  const reconciled = next.map((nextFile, index) => {
+    if (current[index]?.id !== nextFile.id) changed = true;
+    const previousFile = previousById.get(nextFile.id);
+    if (!previousFile) {
+      changed = true;
+      return nextFile;
+    }
+    if (areWorkspaceFileNodesEqual(previousFile, nextFile)) return previousFile;
+    changed = true;
+    return nextFile;
+  });
+  return changed ? reconciled : current;
+}
+
+function areCourseSectionsEqual(a: CourseFileSection, b: CourseFileSection): boolean {
+  return (
+    a.id === b.id &&
+    a.courseId === b.courseId &&
+    a.kind === b.kind &&
+    a.title === b.title &&
+    a.taskType === b.taskType &&
+    a.taskFileBucket === b.taskFileBucket &&
+    a.weekNumber === b.weekNumber &&
+    a.taskId === b.taskId &&
+    a.indexingStatus === b.indexingStatus &&
+    a.embeddingModel === b.embeddingModel &&
+    a.files === b.files
+  );
+}
+
+function areWorkspaceFileNodesEqual(a: WorkspaceFileNode, b: WorkspaceFileNode): boolean {
+  return (
+    a.id === b.id &&
+    a.semesterId === b.semesterId &&
+    a.courseId === b.courseId &&
+    a.taskId === b.taskId &&
+    a.taskType === b.taskType &&
+    a.taskFileBucket === b.taskFileBucket &&
+    a.sectionKind === b.sectionKind &&
+    a.weekNumber === b.weekNumber &&
+    a.sourcePath === b.sourcePath &&
+    a.name === b.name &&
+    a.displayName === b.displayName &&
+    a.path === b.path &&
+    a.kind === b.kind &&
+    a.sizeLabel === b.sizeLabel &&
+    a.ragEligible === b.ragEligible &&
+    a.sourceKind === b.sourceKind &&
+    a.indexingStatus === b.indexingStatus &&
+    a.indexingProgress === b.indexingProgress &&
+    a.indexingError === b.indexingError &&
+    a.indexingWarning === b.indexingWarning &&
+    a.indexingUpdatedAt === b.indexingUpdatedAt &&
+    a.indexedAt === b.indexedAt &&
+    a.updatedAt === b.updatedAt &&
+    a.children === b.children
+  );
+}
+
+function areIndexingJobsEqual(a: IndexingJob[], b: IndexingJob[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (!areIndexingJobEqual(a[index], b[index])) return false;
+  }
+  return true;
+}
+
+function areIndexingJobEqual(a: IndexingJob, b: IndexingJob): boolean {
+  return (
+    a.id === b.id &&
+    a.semesterId === b.semesterId &&
+    a.courseId === b.courseId &&
+    a.sectionId === b.sectionId &&
+    a.status === b.status &&
+    a.stage === b.stage &&
+    a.embeddingModel === b.embeddingModel &&
+    a.embeddingProviderFingerprint === b.embeddingProviderFingerprint &&
+    a.indexedFiles === b.indexedFiles &&
+    a.totalFiles === b.totalFiles &&
+    a.completedFiles === b.completedFiles &&
+    a.progress === b.progress &&
+    a.error === b.error &&
+    a.createdAt === b.createdAt &&
+    a.updatedAt === b.updatedAt
+  );
+}
+
+function areSectionCardPropsEqual(a: SectionCardProps, b: SectionCardProps): boolean {
+  return (
+    a.section === b.section &&
+    a.indexing === b.indexing &&
+    Boolean(a.disabled) === Boolean(b.disabled) &&
+    a.uploading === b.uploading &&
+    areDropdownOptionsEqual(a.lectureWeekOptions || [], b.lectureWeekOptions || []) &&
+    areAutoOpenLectureWeeksEqual(a.autoOpenWeek || null, b.autoOpenWeek || null)
+  );
+}
+
+function areSectionFileRowPropsEqual(a: SectionFileRowProps, b: SectionFileRowProps): boolean {
+  return a.file === b.file && a.deleting === b.deleting && a.retrying === b.retrying;
+}
+
+function areDropdownOptionsEqual(a: DropdownOption[], b: DropdownOption[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index].value !== b[index].value || a[index].label !== b[index].label) return false;
+  }
+  return true;
+}
+
+function areAutoOpenLectureWeeksEqual(a: AutoOpenLectureWeek | null, b: AutoOpenLectureWeek | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.sectionId === b.sectionId && a.weekNumber === b.weekNumber && a.token === b.token;
+}
+
+type SectionFileRowProps = {
   file: WorkspaceFileNode;
   deleting: boolean;
   retrying: boolean;
   onReveal: () => void;
   onRetryIndex: () => void;
   onDelete: () => void;
-}) {
+};
+
+const SectionFileRow = memo(function SectionFileRow({
+  file,
+  deleting,
+  retrying,
+  onReveal,
+  onRetryIndex,
+  onDelete,
+}: SectionFileRowProps) {
   const canRetryIndex = shouldOfferIndexRetry(file);
   return (
     <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
@@ -1417,7 +1655,7 @@ function SectionFileRow({
       </button>
     </div>
   );
-}
+}, areSectionFileRowPropsEqual);
 
 function shouldOfferIndexRetry(file: WorkspaceFileNode): boolean {
   if (file.kind === "folder" || !file.sourcePath) return false;

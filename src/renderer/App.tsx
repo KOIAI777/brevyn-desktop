@@ -13,7 +13,7 @@ import { AppTitleBar } from "@/components/shell/AppTitleBar";
 import { TopBar } from "@/components/shell/TopBar";
 import { WorkspaceSidebar } from "@/components/shell/WorkspaceSidebar";
 import { TimetableDialog } from "@/components/timetable/TimetableDialog";
-import { useAgentSessionController } from "@/hooks/useAgentSessionController";
+import { useAgentSessionController, type AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
 import { useWorkspaceLayoutState } from "@/hooks/useWorkspaceLayoutState";
 import { useWorkspaceFilesState } from "@/hooks/useWorkspaceFilesState";
 import { SEMESTER_HOME_COURSE_ID, useWorkspaceSessionController } from "@/hooks/useWorkspaceSessionController";
@@ -91,8 +91,8 @@ function App() {
     await agentSession.run(prompt, permissionMode, attachments, providerSelection, mentionedSkills);
   }
 
-  async function runAgentForThread(threadId: string, prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<boolean> {
-    return agentSession.runForThread(threadId, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
+  async function runAgentForThread(threadId: string, prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[], options?: AgentRunForThreadOptions): Promise<boolean> {
+    return agentSession.runForThread(threadId, prompt, permissionMode, attachments, providerSelection, mentionedSkills, options);
   }
 
   async function stopAgent(): Promise<void> {

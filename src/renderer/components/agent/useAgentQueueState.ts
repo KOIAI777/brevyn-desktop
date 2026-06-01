@@ -3,6 +3,7 @@ import type { AgentAttachment, AgentPermissionMode, BrevynAgentEvent } from "@/t
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import type { RunSummary } from "@/components/agent/agentTimelineModel";
 import { agentRuntimeEventThreadId } from "@/lib/agent-live-store";
+import type { AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
 
 export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
@@ -26,7 +27,7 @@ export function useAgentQueueState({
   runSummary: RunSummary | null;
   currentPermissionMode: AgentPermissionMode;
   currentProviderSelection?: { providerId?: string; modelId?: string };
-  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<boolean>;
+  onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[], options?: AgentRunForThreadOptions) => Promise<boolean>;
   onAutoRunStarted?: (threadId: string) => void;
 }): AgentQueueState {
   const queuedMessagesRef = useRef<QueuedAgentMessage[]>([]);
@@ -205,13 +206,14 @@ export function useAgentQueueState({
             undefined,
             message.providerSelection ?? currentProviderSelectionRef.current,
             message.mentionedSkills,
+            { suppressActiveRunError: source === "auto" && attempt < maxAttempts },
           );
           if (started) removeQueuedMessage(targetThreadId, message.id);
           if (started && source === "auto") onAutoRunStarted?.(targetThreadId);
           return started;
         } catch (error) {
           if (source === "auto" && isAgentRunStillActiveError(error) && attempt < maxAttempts) {
-            await delay(180 + attempt * 120);
+            await delay(300 + attempt * 180);
             continue;
           }
           throw error;

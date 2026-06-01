@@ -32,6 +32,10 @@ export interface AgentProviderSelection {
   modelId?: string;
 }
 
+export interface AgentRunForThreadOptions {
+  suppressActiveRunError?: boolean;
+}
+
 export function useAgentSessionController({
   activeThreadId,
   onThreadHasMessages,
@@ -119,6 +123,7 @@ export function useAgentSessionController({
     attachments?: AgentAttachment[],
     providerSelection?: AgentProviderSelection,
     mentionedSkills?: string[],
+    options?: AgentRunForThreadOptions,
   ): Promise<boolean> => {
     if (!threadId) return false;
     const isActiveThread = threadId === activeThreadIdRef.current;
@@ -158,7 +163,8 @@ export function useAgentSessionController({
       runInFlightByThreadRef.current.delete(threadId);
       setAgentLiveRunning(threadId, false);
       const message = errorMessage(runError, "Failed to start agent run.");
-      if (isActiveThread) setError(message);
+      const suppressError = options?.suppressActiveRunError && isAgentRunStillActiveMessage(message);
+      if (isActiveThread && !suppressError) setError(message);
       throw new Error(message);
     } finally {
       runInFlightByThreadRef.current.delete(threadId);
@@ -344,6 +350,10 @@ function errorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error || "");
   const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
   return message.trim() || fallback;
+}
+
+function isAgentRunStillActiveMessage(message: string): boolean {
+  return message.includes("An agent run is already active for this thread");
 }
 
 function resultErrorMessage(message: BrevynAgentSessionRecord): string {

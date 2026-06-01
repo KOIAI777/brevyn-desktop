@@ -158,7 +158,9 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
 
     if (message.type === "system") {
       const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
-      if (subtype === "compact_boundary" || subtype === "compacting" || subtype === "permission_denied") {
+      if (subtype === "permission_denied" && currentTurn) {
+        currentTurn.turnRecords.push({ record: message, index });
+      } else if (subtype === "compact_boundary" || subtype === "compacting" || subtype === "permission_denied") {
         flushTurn();
         groups.push({ type: "system", record: message, index });
       } else if (currentTurn) {
