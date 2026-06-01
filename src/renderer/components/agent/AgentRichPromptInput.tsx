@@ -6,6 +6,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Mention from "@tiptap/extension-mention";
 import type { WorkspaceFileNode } from "@/types/domain";
 import type { MentionedSkill } from "@/components/agent/AgentMentionPicker";
+import { clipboardHtmlToMarkdown } from "@/lib/markdown-rich-text";
 
 interface AgentRichPromptInputProps {
   value: string;
@@ -14,7 +15,7 @@ interface AgentRichPromptInputProps {
   placeholder: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
-  onPaste: (event: ClipboardEvent<HTMLElement>) => void;
+  onPaste: (event: ClipboardEvent<HTMLElement>, pastedText?: string) => void;
   onMentionFile: (file: WorkspaceFileNode) => void;
 }
 
@@ -161,7 +162,11 @@ export function AgentRichPromptInput({
           return false;
         },
         paste: (_view, event) => {
-          onPasteRef.current(event as unknown as ClipboardEvent<HTMLElement>);
+          const files = Array.from(event.clipboardData?.files || []);
+          const plainText = event.clipboardData?.getData("text/plain") || "";
+          const html = event.clipboardData?.getData("text/html") || "";
+          const pastedText = files.length === 0 ? clipboardHtmlToMarkdown(html, plainText) : undefined;
+          onPasteRef.current(event as unknown as ClipboardEvent<HTMLElement>, pastedText);
           return event.defaultPrevented;
         },
       },

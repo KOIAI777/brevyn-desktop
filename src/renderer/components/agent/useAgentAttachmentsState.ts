@@ -88,7 +88,7 @@ export function useAgentAttachmentsState({ threadId }: { threadId: string; runni
     return attachments;
   }
 
-  function handlePaste(event: ClipboardEvent<HTMLElement>) {
+  function handlePaste(event: ClipboardEvent<HTMLElement>, pastedText?: string) {
     const files = Array.from(event.clipboardData.files || []);
     if (files.length > 0) {
       event.preventDefault();
@@ -97,9 +97,10 @@ export function useAgentAttachmentsState({ threadId }: { threadId: string; runni
     }
 
     const plainText = event.clipboardData.getData("text/plain") || "";
-    if (plainText.length < LONG_TEXT_ATTACHMENT_THRESHOLD) return;
+    const text = pastedText || plainText;
+    if (plainText.length < LONG_TEXT_ATTACHMENT_THRESHOLD && text.length < LONG_TEXT_ATTACHMENT_THRESHOLD) return;
     event.preventDefault();
-    void addClipboardTextAttachment(plainText);
+    void addClipboardTextAttachment(text);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {

@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { copyFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
@@ -71,6 +71,7 @@ const now = () => new Date().toISOString();
 const INDEXING_INGEST_LOCK_MS = 5 * 60_000;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_TEXT_PREVIEW_BYTES = 256 * 1024;
 const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
 const AGENT_WORKSPACE_MEMORY_FILE = "CLAUDE.md";
@@ -1280,10 +1281,28 @@ function isAgentWorkspaceControlFile(file: WorkspaceFileNode): boolean {
 function readPreviewSource(sourcePath?: string): string {
   if (!sourcePath || !existsSync(sourcePath)) return "";
   try {
-    const content = readFileSync(sourcePath, "utf8");
-    return truncatePreviewText(content, 12000);
+    const stats = statSync(sourcePath);
+    const bytesToRead = Math.min(stats.size, MAX_TEXT_PREVIEW_BYTES);
+    const content = readFilePrefix(sourcePath, bytesToRead).toString("utf8");
+    const preview = truncatePreviewText(content, 12000);
+    return stats.size > MAX_TEXT_PREVIEW_BYTES
+      ? `${preview}\n\n[仅预览前 ${formatSize(MAX_TEXT_PREVIEW_BYTES)}]`
+      : preview;
   } catch {
     return "";
+  }
+}
+
+function readFilePrefix(sourcePath: string, bytesToRead: number): Buffer {
+  if (bytesToRead <= 0) return Buffer.alloc(0);
+  const buffer = Buffer.allocUnsafe(bytesToRead);
+  let fd: number | undefined;
+  try {
+    fd = openSync(sourcePath, "r");
+    const bytesRead = readSync(fd, buffer, 0, bytesToRead, 0);
+    return bytesRead === bytesToRead ? buffer : buffer.subarray(0, bytesRead);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
