@@ -81,14 +81,15 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
     removeLiveRetryRecord(threadId, event.runId);
     return threadId;
   }
-  appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
   if (isTerminalRuntimeEvent(event)) {
     removeLiveRetryRecord(threadId, "runId" in event ? event.runId : undefined, { silent: true });
-    if (terminalEventMatchesLiveRun(threadId, event.runId)) {
-      setAgentLiveRunning(threadId, false);
-      flushAgentLiveRecords(threadId);
-    }
+    if (!terminalEventMatchesLiveRun(threadId, event.runId)) return threadId;
+    appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
+    setAgentLiveRunning(threadId, false);
+    flushAgentLiveRecords(threadId);
+    return threadId;
   }
+  appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
   return threadId;
 }
 

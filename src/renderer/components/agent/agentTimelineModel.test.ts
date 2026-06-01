@@ -1084,6 +1084,8 @@ appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_live_guard", ru
 appendAgentRuntimeEvent({ type: "run_started", threadId: "thread_live_guard", runId: "run_new", permissionMode: "auto", createdAt: "2026-05-16T00:00:01.000Z" });
 appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_live_guard", runId: "run_old", resultSubtype: "success", createdAt: "2026-05-16T00:00:02.000Z" });
 assert.equal(getAgentLiveRunning("thread_live_guard"), true);
+flushAgentLiveRecords("thread_live_guard");
+assert.equal(getAgentLiveRecords("thread_live_guard").some((record) => isRuntimeRecord(record) && record.event.type === "run_completed" && record.event.runId === "run_old"), false);
 appendAgentRuntimeEvent({ type: "run_completed", threadId: "thread_live_guard", runId: "run_new", resultSubtype: "success", createdAt: "2026-05-16T00:00:03.000Z" });
 assert.equal(getAgentLiveRunning("thread_live_guard"), false);
 

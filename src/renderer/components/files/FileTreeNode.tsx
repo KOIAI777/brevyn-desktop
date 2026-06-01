@@ -10,8 +10,10 @@ type FileTreeNodeProps = {
   level: number;
   selectedFileId: string;
   collapsedFolderIds: Set<string>;
+  expandedEmptyFolderIds?: Set<string>;
   onSelect: (file: WorkspaceFileNode) => void;
   onToggleFolder: (folderId: string) => void;
+  onToggleEmptyFolder?: (folderId: string) => void;
   onContextMenu: (event: MouseEvent, file: WorkspaceFileNode) => void;
   selectFolders?: boolean;
 };
@@ -21,16 +23,23 @@ export function FileTreeNode({
   level,
   selectedFileId,
   collapsedFolderIds,
+  expandedEmptyFolderIds,
   onSelect,
   onToggleFolder,
+  onToggleEmptyFolder,
   onContextMenu,
   selectFolders = false,
 }: FileTreeNodeProps) {
   const isFolder = node.kind === "folder";
   const hasChildren = isFolder && Boolean(node.children?.length);
-  const open = isFolder && !collapsedFolderIds.has(node.id);
+  const open = isFolder && (hasChildren ? !collapsedFolderIds.has(node.id) : Boolean(expandedEmptyFolderIds?.has(node.id)));
   const active = selectedFileId === node.id;
   const displayName = fileDisplayName(node);
+  const toggleFolder = () => {
+    if (!isFolder) return;
+    if (hasChildren) onToggleFolder(node.id);
+    else onToggleEmptyFolder?.(node.id);
+  };
 
   return (
     <div>
@@ -43,7 +52,7 @@ export function FileTreeNode({
         style={{ paddingLeft: 8 + level * 14 }}
         onClick={() => {
           if (isFolder && !selectFolders) {
-            onToggleFolder(node.id);
+            toggleFolder();
             return;
           }
           onSelect(node);
@@ -56,7 +65,7 @@ export function FileTreeNode({
             className="-ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
-              onToggleFolder(node.id);
+              toggleFolder();
             }}
           >
             <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
@@ -79,8 +88,10 @@ export function FileTreeNode({
                 level={level + 1}
                 selectedFileId={selectedFileId}
                 collapsedFolderIds={collapsedFolderIds}
+                expandedEmptyFolderIds={expandedEmptyFolderIds}
                 onSelect={onSelect}
                 onToggleFolder={onToggleFolder}
+                onToggleEmptyFolder={onToggleEmptyFolder}
                 onContextMenu={onContextMenu}
                 selectFolders={selectFolders}
               />

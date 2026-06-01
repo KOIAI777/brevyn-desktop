@@ -207,6 +207,8 @@ export function useAgentSessionController({
       await window.brevyn.agent.stop(threadId);
       runningRef.current = false;
       setRunning(false);
+      setAgentLiveRunning(threadId, false);
+      flushAgentLiveRecords(threadId);
     } catch (stopError) {
       setError(errorMessage(stopError, "Failed to stop agent run."));
     }

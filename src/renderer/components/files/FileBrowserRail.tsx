@@ -39,6 +39,7 @@ export function FileBrowserRail({
   const [renderContent, setRenderContent] = useState(!collapsed);
   const [viewMode, setViewMode] = useState<FileRailViewMode>(() => readStoredViewMode());
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
+  const [expandedEmptyFolderIds, setExpandedEmptyFolderIds] = useState<Set<string>>(() => new Set());
   const [menu, setMenu] = useState<FileContextMenuState | null>(null);
   const [renameFile, setRenameFile] = useState<WorkspaceFileNode | null>(null);
   const [actionError, setActionError] = useState("");
@@ -63,6 +64,7 @@ export function FileBrowserRail({
 
   useEffect(() => {
     setCollapsedFolderIds(readStoredCollapsedFolderIds(collapseScopeKey));
+    setExpandedEmptyFolderIds(new Set());
   }, [collapseScopeKey]);
 
   const toggleFolder = useCallback((folderId: string) => {
@@ -77,6 +79,14 @@ export function FileBrowserRail({
       return next;
     });
   }, [collapseScopeKey]);
+  const toggleEmptyFolder = useCallback((folderId: string) => {
+    setExpandedEmptyFolderIds((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
   const selectViewMode = useCallback((mode: FileRailViewMode) => {
     setViewMode(mode);
     storeViewMode(mode);
@@ -201,8 +211,10 @@ export function FileBrowserRail({
                     level={0}
                     selectedFileId={selectedFileId}
                     collapsedFolderIds={collapsedFolderIds}
+                    expandedEmptyFolderIds={expandedEmptyFolderIds}
                     onSelect={onSelectSessionFile || onSelectFile}
                     onToggleFolder={toggleFolder}
+                    onToggleEmptyFolder={toggleEmptyFolder}
                     onContextMenu={ignoreSessionContextMenu}
                   />
                 ))}
@@ -264,8 +276,10 @@ export function FileBrowserRail({
                 sections={contextSections}
                 selectedFileId={selectedFileId}
                 collapsedFolderIds={collapsedFolderIds}
+                expandedEmptyFolderIds={expandedEmptyFolderIds}
                 onSelectFile={onSelectFile}
                 onToggleFolder={toggleFolder}
+                onToggleEmptyFolder={toggleEmptyFolder}
                 onContextMenu={contextMenuForFile}
               />
             ) : (
@@ -277,8 +291,10 @@ export function FileBrowserRail({
                     level={0}
                     selectedFileId={selectedFileId}
                     collapsedFolderIds={collapsedFolderIds}
+                    expandedEmptyFolderIds={expandedEmptyFolderIds}
                     onSelect={onSelectFile}
                     onToggleFolder={toggleFolder}
+                    onToggleEmptyFolder={toggleEmptyFolder}
                     onContextMenu={contextMenuForFile}
                   />
                 ))}
@@ -325,15 +341,19 @@ function ContextFileSections({
   sections,
   selectedFileId,
   collapsedFolderIds,
+  expandedEmptyFolderIds,
   onSelectFile,
   onToggleFolder,
+  onToggleEmptyFolder,
   onContextMenu,
 }: {
   sections: ContextFileSection[];
   selectedFileId: string;
   collapsedFolderIds: Set<string>;
+  expandedEmptyFolderIds: Set<string>;
   onSelectFile: (file: WorkspaceFileNode) => void;
   onToggleFolder: (folderId: string) => void;
+  onToggleEmptyFolder: (folderId: string) => void;
   onContextMenu: (event: MouseEvent, file: WorkspaceFileNode) => void;
 }) {
   return (
@@ -361,8 +381,10 @@ function ContextFileSections({
                     level={0}
                     selectedFileId={selectedFileId}
                     collapsedFolderIds={collapsedFolderIds}
+                    expandedEmptyFolderIds={expandedEmptyFolderIds}
                     onSelect={onSelectFile}
                     onToggleFolder={onToggleFolder}
+                    onToggleEmptyFolder={onToggleEmptyFolder}
                     onContextMenu={onContextMenu}
                   />
                 ))}
