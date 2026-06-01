@@ -40,7 +40,7 @@ interface AgentComposerProps {
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
   onSendQueuedMessage: (messageId: string) => void;
-  onDeleteQueuedMessage: (messageId: string) => void;
+  onDeleteQueuedMessage: (messageId: string, options?: { preserveAttachments?: boolean }) => void;
   onStop: () => Promise<void>;
   onCompact: () => void;
   onSelectProvider: (providerId: string) => Promise<void>;
@@ -191,8 +191,8 @@ export const AgentComposer = memo(function AgentComposer({
             onSend={onSendQueuedMessage}
             onDelete={onDeleteQueuedMessage}
             onEdit={(message) => {
-              onDeleteQueuedMessage(message.id);
               if (message.attachments?.length) restoreAttachments(message.attachments);
+              onDeleteQueuedMessage(message.id, { preserveAttachments: true });
               setPromptValue(promptWithSkillTokens(message.prompt, message.mentionedSkills));
               setMentionedSkills(skillMentionsFromSlugs(message.mentionedSkills, mentionableSkills));
             }}

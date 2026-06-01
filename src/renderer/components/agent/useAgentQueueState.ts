@@ -9,7 +9,7 @@ export interface AgentQueueState {
   queuedMessages: QueuedAgentMessage[];
   sendingQueuedMessageIds: string[];
   queueMessage: (message: QueuedAgentMessage) => void;
-  deleteQueuedMessage: (messageId: string) => void;
+  deleteQueuedMessage: (messageId: string, options?: { preserveAttachments?: boolean }) => void;
   sendQueuedMessage: (messageId: string) => Promise<void>;
 }
 
@@ -164,11 +164,13 @@ export function useAgentQueueState({
     }));
   }, [threadId]);
 
-  const deleteQueuedMessage = useCallback((messageId: string) => {
+  const deleteQueuedMessage = useCallback((messageId: string, options?: { preserveAttachments?: boolean }) => {
+    const message = queuedMessagesByThreadRef.current[threadId]?.find((item) => item.id === messageId);
     setQueuedMessagesByThread((current) => ({
       ...current,
       [threadId]: (current[threadId] || []).filter((message) => message.id !== messageId),
     }));
+    if (!options?.preserveAttachments) void deleteQueuedMessageAttachments(message);
   }, [threadId]);
 
   function setQueuedMessageSending(targetThreadId: string, messageId: string, sending: boolean) {
@@ -190,6 +192,15 @@ export function useAgentQueueState({
       [targetThreadId]: (current[targetThreadId] || []).filter((item) => item.id !== messageId),
     }));
     return message;
+  }
+
+  async function deleteQueuedMessageAttachments(message?: QueuedAgentMessage): Promise<void> {
+    if (!message?.attachments?.length) return;
+    await Promise.all(message.attachments.map((attachment) =>
+      window.brevyn.attachments.delete({ threadId: attachment.threadId || threadIdRef.current, path: attachment.path }).catch((error) => {
+        console.error("[AgentThreadPanel] Failed to delete queued attachment:", error);
+      }),
+    ));
   }
 
   async function sendQueuedMessageAsNewRun(targetThreadId: string, message: QueuedAgentMessage, source: "manual" | "auto"): Promise<boolean> {
