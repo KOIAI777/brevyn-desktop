@@ -84,8 +84,10 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
   appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
   if (isTerminalRuntimeEvent(event)) {
     removeLiveRetryRecord(threadId, "runId" in event ? event.runId : undefined, { silent: true });
-    setAgentLiveRunning(threadId, false);
-    flushAgentLiveRecords(threadId);
+    if (terminalEventMatchesLiveRun(threadId, event.runId)) {
+      setAgentLiveRunning(threadId, false);
+      flushAgentLiveRecords(threadId);
+    }
   }
   return threadId;
 }
@@ -515,6 +517,11 @@ export function agentRuntimeEventThreadId(event: BrevynAgentRuntimeEvent): strin
   return event.threadId;
 }
 
-function isTerminalRuntimeEvent(event: BrevynAgentRuntimeEvent): boolean {
+function isTerminalRuntimeEvent(event: BrevynAgentRuntimeEvent): event is Extract<BrevynAgentRuntimeEvent, { type: "run_completed" | "run_stopped" | "run_failed" | "run_interrupted" }> {
   return event.type === "run_completed" || event.type === "run_stopped" || event.type === "run_failed" || event.type === "run_interrupted";
+}
+
+function terminalEventMatchesLiveRun(threadId: string, runId: string): boolean {
+  const state = liveStreamStateByThread.get(threadId);
+  return !state || state.runId === runId;
 }

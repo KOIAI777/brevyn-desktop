@@ -74,6 +74,8 @@ export const AgentComposer = memo(function AgentComposer({
   const [mentionedFiles, setMentionedFiles] = useState<WorkspaceFileNode[]>([]);
   const [mentionedSkills, setMentionedSkills] = useState<MentionedSkill[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
+  const promptValueRef = useRef(promptValue);
+  const threadIdRef = useRef(threadId);
   const {
     pendingAttachments,
     draggingFiles,
@@ -90,6 +92,8 @@ export const AgentComposer = memo(function AgentComposer({
   const promptText = promptValue.trim();
   const hasMentionedSkills = mentionedSkills.length > 0;
   const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills);
+  promptValueRef.current = promptValue;
+  threadIdRef.current = threadId;
 
   useEffect(() => {
     const form = formRef.current;
@@ -139,6 +143,10 @@ export const AgentComposer = memo(function AgentComposer({
       return;
     }
 
+    const submittedThreadId = threadId;
+    const submittedPromptValue = promptValue;
+    const submittedMentionedFiles = mentionedFiles;
+    const submittedMentionedSkills = mentionedSkills;
     setPromptValue("");
     setMentionedFiles([]);
     setMentionedSkills([]);
@@ -146,7 +154,14 @@ export const AgentComposer = memo(function AgentComposer({
     try {
       await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, attachments, parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
     } catch (error) {
-      restoreAttachments(attachments);
+      if (threadIdRef.current === submittedThreadId) {
+        restoreAttachments(attachments);
+        if (!promptValueRef.current.trim()) {
+          setPromptValue(submittedPromptValue);
+          setMentionedFiles(submittedMentionedFiles);
+          setMentionedSkills(submittedMentionedSkills);
+        }
+      }
       console.error("[AgentComposer] Failed to start agent run:", error);
     }
   }

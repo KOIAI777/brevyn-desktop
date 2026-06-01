@@ -3,6 +3,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentAttachment,
   AgentPermissionMode,
+  BrevynAgentRuntimeEvent,
   BrevynAgentSessionRecord,
   BrevynAgentTimelineRecord,
   ModelProviderConfig,
@@ -46,6 +47,7 @@ export function useAgentSessionController({
   const agentLoadRequestRef = useRef(0);
   const runningRef = useRef(false);
   const runInFlightByThreadRef = useRef<Set<string>>(new Set());
+  const activeRunIdByThreadRef = useRef<Map<string, string>>(new Map());
   const selectedAgentModelRef = useRef("");
   const runModelSelectionByThreadRef = useRef<Map<string, string>>(new Map());
   const onThreadHasMessagesRef = useRef(onThreadHasMessages);
@@ -64,7 +66,7 @@ export function useAgentSessionController({
   onThreadHasMessagesRef.current = onThreadHasMessages;
   onThreadUpdatedRef.current = onThreadUpdated;
 
-  const loadMessages = useCallback(async (threadId: string): Promise<boolean> => {
+  const loadMessages = useCallback(async (threadId: string, options: { expectedRunId?: string; skipRunStateUpdate?: boolean } = {}): Promise<boolean> => {
     const requestId = agentLoadRequestRef.current + 1;
     agentLoadRequestRef.current = requestId;
     setLoading(true);
@@ -75,11 +77,14 @@ export function useAgentSessionController({
       setRecords(nextRecords);
       setRecordsThreadId(threadId);
       const openRun = hasOpenAgentRun(nextRecords);
-      runningRef.current = openRun;
-      setRunning(openRun);
-      setAgentLiveRunning(threadId, openRun);
-      if (!openRun) {
-        clearAgentLiveRecords(threadId, { preserveStoppedRuns: true });
+      if (!options.skipRunStateUpdate && shouldApplyRunStateForLoad(activeRunIdByThreadRef.current, threadId, options.expectedRunId)) {
+        runningRef.current = openRun;
+        setRunning(openRun);
+        setAgentLiveRunning(threadId, openRun);
+        if (!openRun) {
+          activeRunIdByThreadRef.current.delete(threadId);
+          clearAgentLiveRecords(threadId, { preserveStoppedRuns: true });
+        }
       }
       return true;
     } catch (loadError) {
@@ -87,8 +92,12 @@ export function useAgentSessionController({
         setError(errorMessage(loadError, "Failed to load agent timeline."));
         setRecords([]);
         setRecordsThreadId(threadId);
-        runningRef.current = false;
-        setRunning(false);
+        if (!options.skipRunStateUpdate && shouldApplyRunStateForLoad(activeRunIdByThreadRef.current, threadId, options.expectedRunId)) {
+          activeRunIdByThreadRef.current.delete(threadId);
+          runningRef.current = false;
+          setRunning(false);
+          setAgentLiveRunning(threadId, false);
+        }
       }
       return false;
     } finally {
@@ -139,11 +148,12 @@ export function useAgentSessionController({
     const runSelection = agentModelSelectionFromProviderSelection(providerSelection) || selectedAgentModelRef.current;
     if (runSelection) runModelSelectionByThreadRef.current.set(threadId, runSelection);
     const userMessageId = createUserMessageId();
+    activeRunIdByThreadRef.current.set(threadId, `pending:${userMessageId}`);
     appendAgentLiveMessage(threadId, liveUserMessage(prompt, attachments, userMessageId));
     flushAgentLiveRecords(threadId);
     onThreadHasMessagesRef.current(threadId);
     try {
-      await window.brevyn.agent.run({
+      const result = await window.brevyn.agent.run({
         threadId,
         prompt,
         uuid: userMessageId,
@@ -153,9 +163,11 @@ export function useAgentSessionController({
         modelId: providerSelection?.modelId,
         mentionedSkills,
       });
+      if (result.runId) activeRunIdByThreadRef.current.set(threadId, result.runId);
       return true;
     } catch (runError) {
       removeAgentLiveMessage(threadId, userMessageId);
+      activeRunIdByThreadRef.current.delete(threadId);
       if (isActiveThread) {
         runningRef.current = false;
         setRunning(false);
@@ -178,7 +190,14 @@ export function useAgentSessionController({
     providerSelection?: AgentProviderSelection,
     mentionedSkills?: string[],
   ): Promise<void> => {
-    await runForThread(activeThreadIdRef.current, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
+    const started = await runForThread(activeThreadIdRef.current, prompt, permissionMode, attachments, providerSelection, mentionedSkills);
+    if (!started) {
+      const message = runningRef.current
+        ? "An agent run is already active for this thread."
+        : "Agent run did not start.";
+      setError(message);
+      throw new Error(message);
+    }
   }, [runForThread]);
 
   const stop = useCallback(async (): Promise<void> => {
@@ -238,6 +257,7 @@ export function useAgentSessionController({
     return () => {
       mountedRef.current = false;
       runInFlightByThreadRef.current.clear();
+      activeRunIdByThreadRef.current.clear();
       clearAllAgentLiveRecords();
     };
   }, []);
@@ -261,13 +281,7 @@ export function useAgentSessionController({
 
         onThreadHasMessagesRef.current(eventThreadId);
         if (event.message.type === "result" && eventThreadId === activeThreadIdRef.current) {
-          void loadMessages(eventThreadId).finally(() => {
-            if (!mountedRef.current || activeThreadIdRef.current !== eventThreadId) return;
-            runInFlightByThreadRef.current.delete(eventThreadId);
-            runningRef.current = false;
-            setRunning(false);
-            setAgentLiveRunning(eventThreadId, false);
-          });
+          void loadMessages(eventThreadId, { skipRunStateUpdate: true });
           const subtype = String((event.message as { subtype?: unknown }).subtype || "");
           if (subtype && subtype !== "success" && subtype !== "stopped_by_user" && subtype !== "interrupted") {
             setError(resultErrorMessage(event.message));
@@ -277,13 +291,17 @@ export function useAgentSessionController({
       }
 
       if (event.event.type === "run_started") {
+        activeRunIdByThreadRef.current.set(eventThreadId, event.event.runId);
         const runSelection = agentModelSelectionFromProviderSelection({ providerId: event.event.providerId, modelId: event.event.modelId });
         if (runSelection) runModelSelectionByThreadRef.current.set(eventThreadId, runSelection);
-      } else if (isTerminalRunEvent(event.event.type)) {
-        runModelSelectionByThreadRef.current.delete(eventThreadId);
-        runInFlightByThreadRef.current.delete(eventThreadId);
-        setAgentLiveRunning(eventThreadId, false);
-        flushAgentLiveRecords(eventThreadId);
+      } else if (isTerminalRuntimeEvent(event.event)) {
+        if (shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId)) {
+          activeRunIdByThreadRef.current.delete(eventThreadId);
+          runModelSelectionByThreadRef.current.delete(eventThreadId);
+          runInFlightByThreadRef.current.delete(eventThreadId);
+          setAgentLiveRunning(eventThreadId, false);
+          flushAgentLiveRecords(eventThreadId);
+        }
       }
 
       appendAgentRuntimeEvent(event.event);
@@ -293,7 +311,9 @@ export function useAgentSessionController({
         runningRef.current = true;
         setRunning(true);
         setError("");
-      } else if (isTerminalRunEvent(event.event.type)) {
+      } else if (isTerminalRuntimeEvent(event.event)) {
+        if (!shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId)) return;
+        activeRunIdByThreadRef.current.delete(eventThreadId);
         runInFlightByThreadRef.current.delete(eventThreadId);
         runningRef.current = false;
         setRunning(false);
@@ -377,6 +397,20 @@ function isLiveStreamEventMessage(message: BrevynAgentTimelineRecord): boolean {
 
 function isTerminalRunEvent(type: string): boolean {
   return type === "run_completed" || type === "run_stopped" || type === "run_failed" || type === "run_interrupted";
+}
+
+function isTerminalRuntimeEvent(event: BrevynAgentRuntimeEvent): event is Extract<BrevynAgentRuntimeEvent, { type: "run_completed" | "run_stopped" | "run_failed" | "run_interrupted" }> {
+  return isTerminalRunEvent(event.type);
+}
+
+function shouldApplyRunStateForLoad(activeRunIds: Map<string, string>, threadId: string, expectedRunId?: string): boolean {
+  if (!expectedRunId) return true;
+  return shouldApplyRunStateForRunId(activeRunIds, threadId, expectedRunId);
+}
+
+function shouldApplyRunStateForRunId(activeRunIds: Map<string, string>, threadId: string, runId: string): boolean {
+  const activeRunId = activeRunIds.get(threadId);
+  return !activeRunId || activeRunId === runId;
 }
 
 function hasOpenAgentRun(records: BrevynAgentTimelineRecord[]): boolean {

@@ -28,7 +28,7 @@ export function FileTreeNode({
 }: FileTreeNodeProps) {
   const isFolder = node.kind === "folder";
   const hasChildren = isFolder && Boolean(node.children?.length);
-  const open = hasChildren && !collapsedFolderIds.has(node.id);
+  const open = isFolder && !collapsedFolderIds.has(node.id);
   const active = selectedFileId === node.id;
   const displayName = fileDisplayName(node);
 
@@ -43,7 +43,7 @@ export function FileTreeNode({
         style={{ paddingLeft: 8 + level * 14 }}
         onClick={() => {
           if (isFolder && !selectFolders) {
-            if (hasChildren) onToggleFolder(node.id);
+            onToggleFolder(node.id);
             return;
           }
           onSelect(node);
@@ -51,7 +51,7 @@ export function FileTreeNode({
         onContextMenu={(event) => onContextMenu(event, node)}
         title={node.path}
       >
-        {hasChildren ? (
+        {isFolder ? (
           <span
             className="-ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={(event) => {
@@ -69,21 +69,30 @@ export function FileTreeNode({
         {node.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground/70">{node.sizeLabel}</span>}
       </button>
 
-      {hasChildren && open && node.children && (
+      {isFolder && open && (
         <div className="mt-0.5 space-y-0.5">
-          {node.children.map((child) => (
-            <FileTreeNode
-              key={child.id}
-              node={child}
-              level={level + 1}
-              selectedFileId={selectedFileId}
-              collapsedFolderIds={collapsedFolderIds}
-              onSelect={onSelect}
-              onToggleFolder={onToggleFolder}
-              onContextMenu={onContextMenu}
-              selectFolders={selectFolders}
-            />
-          ))}
+          {hasChildren && node.children ? (
+            node.children.map((child) => (
+              <FileTreeNode
+                key={child.id}
+                node={child}
+                level={level + 1}
+                selectedFileId={selectedFileId}
+                collapsedFolderIds={collapsedFolderIds}
+                onSelect={onSelect}
+                onToggleFolder={onToggleFolder}
+                onContextMenu={onContextMenu}
+                selectFolders={selectFolders}
+              />
+            ))
+          ) : (
+            <div
+              className="px-2 py-1 text-[11px] text-muted-foreground/60"
+              style={{ paddingLeft: 8 + (level + 1) * 14 }}
+            >
+              空文件夹
+            </div>
+          )}
         </div>
       )}
     </div>
