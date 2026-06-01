@@ -331,9 +331,7 @@ export function CourseManagementDialog({
       setRagError("");
       await loadCourseView(activeCourse.id);
       if (existingActiveJob) {
-        setCourseActionError(sectionId
-          ? "这个分区已有索引任务在进行中，已打开现有进度，不会重复创建任务。"
-          : "这门课已有整课索引任务在进行中，已打开现有进度，不会重复创建任务。");
+        setCourseActionError("这门课已有索引任务在进行中，已打开现有进度，不会重复创建任务。");
       }
     } catch (error) {
       setCourseActionError(errorMessage(error, "启动索引失败。"));
@@ -523,8 +521,8 @@ export function CourseManagementDialog({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-[360px_1fr] brevyn-scrollbar">
-          <aside className="min-h-0 space-y-3">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-[360px_1fr]">
+          <aside className="min-h-0 space-y-3 overflow-y-auto pr-1 brevyn-scrollbar">
             <section className="rounded-lg border bg-background/70 p-2">
               <button
                 type="button"
@@ -643,7 +641,7 @@ export function CourseManagementDialog({
             </section>
           </aside>
 
-          <section className="min-h-0 rounded-lg border bg-background/70 p-4">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-background/70 p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{activeCourse?.name || "未选择课程"}</div>
@@ -777,8 +775,8 @@ export function CourseManagementDialog({
               </section>
             )}
 
-            <div className="mt-4">
-              <div className="mb-3 flex flex-wrap items-center gap-1 rounded-lg border bg-card p-1">
+            <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1 rounded-lg border bg-card p-1">
                 <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="文件" onClick={() => setCoursePanel("files")} />
                 <CoursePanelButton active={coursePanel === "tasks"} icon={<Plus className="h-3.5 w-3.5" />} label="任务" onClick={() => setCoursePanel("tasks")} />
                 <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="索引" onClick={() => setCoursePanel("indexing")} />
@@ -786,13 +784,13 @@ export function CourseManagementDialog({
               </div>
 
               {!activeCourse && (
-                <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
+                <div className="min-h-0 flex-1 rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
                   请先从左侧选择课程，再查看文件、任务、索引任务或向量搜索。
                 </div>
               )}
 
               {activeCourse && coursePanel === "files" && (
-                <div className="space-y-2">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
                   {sections.map((section) => (
                     <SectionCard
                       key={section.id}
@@ -811,7 +809,7 @@ export function CourseManagementDialog({
               )}
 
               {activeCourse && coursePanel === "tasks" && (
-                <section className="rounded-lg border bg-card p-3">
+                <section className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-card p-3 pr-4 brevyn-scrollbar">
                   <div className="mb-3 flex items-center gap-2 text-xs font-semibold">
                     <Plus className="h-3.5 w-3.5" />
                     新建任务分区
@@ -870,25 +868,29 @@ export function CourseManagementDialog({
               )}
 
               {activeCourse && coursePanel === "indexing" && (
-                <IndexingProgressPanel
-                  jobs={indexingJobs}
-                  loading={loadingIndexingJobs}
-                  sections={sections}
-                  onRefresh={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
-                  onCancel={(jobId) => void cancelIndexing(jobId)}
-                />
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1 brevyn-scrollbar">
+                  <IndexingProgressPanel
+                    jobs={indexingJobs}
+                    loading={loadingIndexingJobs}
+                    sections={sections}
+                    onRefresh={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
+                    onCancel={(jobId) => void cancelIndexing(jobId)}
+                  />
+                </div>
               )}
 
               {activeCourse && coursePanel === "search" && (
-                <RagDebugPanel
-                  query={ragQuery}
-                  results={ragResults}
-                  searching={ragSearching}
-                  error={ragError}
-                  onQueryChange={setRagQuery}
-                  onSearch={() => void searchRag()}
-                  disabled={!activeCourse?.id || activeCourseArchived}
-                />
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1 brevyn-scrollbar">
+                  <RagDebugPanel
+                    query={ragQuery}
+                    results={ragResults}
+                    searching={ragSearching}
+                    error={ragError}
+                    onQueryChange={setRagQuery}
+                    onSearch={() => void searchRag()}
+                    disabled={!activeCourse?.id || activeCourseArchived}
+                  />
+                </div>
               )}
             </div>
           </section>
@@ -1009,10 +1011,10 @@ function latestIndexingJobsBySection(jobs: IndexingJob[]): IndexingJob[] {
   return Array.from(latest.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
-function findActiveIndexingJob(jobs: IndexingJob[], sectionId?: string): IndexingJob | undefined {
+function findActiveIndexingJob(jobs: IndexingJob[], _sectionId?: string): IndexingJob | undefined {
   return jobs.find((job) => {
     if (job.status !== "queued" && job.status !== "indexing") return false;
-    return sectionId ? job.sectionId === sectionId : !job.sectionId;
+    return true;
   });
 }
 

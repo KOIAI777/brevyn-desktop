@@ -179,6 +179,7 @@ export function SettingsDialog({
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
   const [visionStatusLine, setVisionStatusLine] = useState("");
   const [embeddingReindexNotice, setEmbeddingReindexNotice] = useState("");
+  const [embeddingLockedByIndexing, setEmbeddingLockedByIndexing] = useState(false);
   const [reindexingActiveSemester, setReindexingActiveSemester] = useState(false);
   const [providerToast, setProviderToast] = useState<{ id: number; message: string } | null>(null);
   const [providerBusyActions, setProviderBusyActions] = useState<Partial<Record<ProviderBusyAction, boolean>>>({});
@@ -218,8 +219,22 @@ export function SettingsDialog({
 
   useEffect(() => {
     void loadProviders();
+    void loadEmbeddingMutable();
     void loadAgentGatewayStatus();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.brevyn.files.onChanged(() => {
+      void loadEmbeddingMutable();
+    });
+    const timer = window.setInterval(() => {
+      void loadEmbeddingMutable();
+    }, embeddingLockedByIndexing ? 1600 : 5000);
+    return () => {
+      unsubscribe();
+      window.clearInterval(timer);
+    };
+  }, [embeddingLockedByIndexing]);
 
   useEffect(() => {
     setLocalSkills(skills);
@@ -371,6 +386,15 @@ export function SettingsDialog({
     }
   }
 
+  async function loadEmbeddingMutable() {
+    try {
+      setEmbeddingLockedByIndexing(!(await window.brevyn.providers.embeddingMutable()));
+    } catch (error) {
+      console.warn("[providers] Failed to load embedding mutability", error);
+      setEmbeddingLockedByIndexing(false);
+    }
+  }
+
   async function loadAgentGatewayStatus() {
     try {
       setAgentGatewayStatus(await window.brevyn.agentGateway.status());
@@ -446,6 +470,10 @@ export function SettingsDialog({
   }
 
   function newEmbeddingProvider() {
+    if (embeddingLockedByIndexing) {
+      setEmbeddingStatusLine("当前有向量索引任务正在进行。请等待完成或取消后，再新建 Embedding 配置。");
+      return;
+    }
     embeddingModelsFetchRequestRef.current += 1;
     setProviderBusy("embedding-fetch", false);
     closeProviderEditor();
@@ -595,11 +623,16 @@ export function SettingsDialog({
   }
 
   async function saveEmbeddingProvider() {
+    if (embeddingLockedByIndexing) {
+      setEmbeddingStatusLine("当前有向量索引任务正在进行。请等待完成或取消后，再保存 Embedding 配置。");
+      return;
+    }
     setProviderBusy("embedding-save", true);
     try {
       const result = await window.brevyn.providers.save({ ...embeddingDraft, purpose: "embedding", protocol: "openai_compatible" });
       const saved = result.provider;
       const next = await window.brevyn.providers.list();
+      await loadEmbeddingMutable();
       setProviders(next);
       setCreatingEmbeddingProvider(false);
       setSelectedEmbeddingProviderId(saved.id);
@@ -625,6 +658,10 @@ export function SettingsDialog({
   }
 
   async function deleteEmbeddingProvider(provider: ModelProviderConfig) {
+    if (embeddingLockedByIndexing) {
+      setEmbeddingStatusLine("当前有向量索引任务正在进行。请等待完成或取消后，再删除 Embedding 配置。");
+      return;
+    }
     const ok = await confirmProviderAction({
       title: `删除向量服务商配置“${provider.name}”？`,
       message: "这会删除已保存的配置和本地元数据。",
@@ -663,6 +700,10 @@ export function SettingsDialog({
   }
 
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
+    if (embeddingLockedByIndexing) {
+      setEmbeddingStatusLine("当前有向量索引任务正在进行。请等待完成或取消后，再启用或关闭 Embedding 配置。");
+      return;
+    }
     setProviderBusy("embedding-toggle", true);
     try {
       const result = await window.brevyn.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
@@ -1004,6 +1045,7 @@ export function SettingsDialog({
                 embeddingStatusLine={embeddingStatusLine}
                 visionStatusLine={visionStatusLine}
                 embeddingReindexNotice={embeddingReindexNotice}
+                embeddingLockedByIndexing={embeddingLockedByIndexing}
                 reindexingActiveSemester={reindexingActiveSemester}
                 busyActions={providerBusyActions}
                 agentGatewayStatus={agentGatewayStatus}
@@ -1107,6 +1149,7 @@ function ProviderSettingsPage({
   embeddingStatusLine,
   visionStatusLine,
   embeddingReindexNotice,
+  embeddingLockedByIndexing,
   reindexingActiveSemester,
   busyActions,
   agentGatewayStatus,
@@ -1158,6 +1201,7 @@ function ProviderSettingsPage({
   embeddingStatusLine: string;
   visionStatusLine: string;
   embeddingReindexNotice: string;
+  embeddingLockedByIndexing: boolean;
   reindexingActiveSemester: boolean;
   busyActions: Partial<Record<ProviderBusyAction, boolean>>;
   agentGatewayStatus: AgentGatewayStatus | null;
@@ -1209,7 +1253,7 @@ function ProviderSettingsPage({
     return Object.entries(busyActions).some(([action, busy]) => Boolean(busy) && action.startsWith(`${prefix}-`) && action !== `${prefix}-toggle`);
   };
   const agentBusy = isPurposeBlockingBusy("agent");
-  const embeddingBusy = isPurposeBlockingBusy("embedding");
+  const embeddingBusy = isPurposeBlockingBusy("embedding") || embeddingLockedByIndexing;
   const visionBusy = isPurposeBlockingBusy("vision");
   const agentToggleBusy = isBusy("agent-toggle");
   const embeddingToggleBusy = isBusy("embedding-toggle");
@@ -1397,13 +1441,18 @@ function ProviderSettingsPage({
               这个 Embedding 配置还没有保存。保存后会加入 Embedding 列表。
             </div>
           )}
+          {embeddingLockedByIndexing && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+              当前有向量索引任务正在进行。完成或取消后，才可以切换、保存、删除 Embedding 配置，避免同一批课程资料混用不同向量模型。
+            </div>
+          )}
 
           <div className="grid gap-2 md:grid-cols-2">
-            <Field label="配置名称" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} />
+            <Field label="配置名称" value={embeddingDraft.name} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, name: value })} disabled={embeddingLockedByIndexing} />
             <ReadOnlyField label="用途" value="向量" />
-            <ProviderKindField purpose="embedding" value={embeddingDraft.providerKind as EmbeddingProviderKind} onChange={(value) => onEmbeddingDraftChange(applyProviderPreset(embeddingDraft, value))} />
+            <ProviderKindField purpose="embedding" value={embeddingDraft.providerKind as EmbeddingProviderKind} onChange={(value) => onEmbeddingDraftChange(applyProviderPreset(embeddingDraft, value))} disabled={embeddingLockedByIndexing} />
             <ReadOnlyField label="适配器" value={adapterLabel(embeddingDraft.providerKind)} />
-            <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} />
+            <Field label="Base URL" value={embeddingDraft.baseUrl} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, baseUrl: value })} disabled={embeddingLockedByIndexing} />
             <Field
               label="API Key"
               value={embeddingDraft.apiKey}
@@ -1411,8 +1460,9 @@ function ProviderSettingsPage({
               type="password"
               placeholder={selectedEmbeddingProviderId ? "留空则不更新" : "输入 API Key"}
               icon={<KeyRound className="h-3 w-3" />}
+              disabled={embeddingLockedByIndexing}
             />
-            <Field label="模型" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} />
+            <Field label="模型" value={embeddingDraft.selectedModel} onChange={(value) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: value })} disabled={embeddingLockedByIndexing} />
           </div>
 
           {(embeddingDraft.models?.length ?? 0) > 0 && (
@@ -1422,6 +1472,7 @@ function ProviderSettingsPage({
               selectedModel={embeddingDraft.selectedModel}
               models={embeddingDraft.models ?? []}
               onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id })}
+              disabled={embeddingLockedByIndexing}
             />
           )}
 
@@ -1587,6 +1638,11 @@ function ProviderSettingsPage({
             </div>
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Embedding" onClick={onNewEmbeddingProvider} disabled={embeddingBusy} />
           </div>
+          {embeddingLockedByIndexing && (
+            <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+              向量索引任务进行中，Embedding 配置已临时锁定。
+            </div>
+          )}
 
           <div className={cx(PROVIDER_PROFILE_LIST_HEIGHT_CLASS, "space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {embeddingProviders.map((provider) => (
@@ -3446,6 +3502,7 @@ function Field({
   type = "text",
   placeholder,
   icon,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -3453,6 +3510,7 @@ function Field({
   type?: string;
   placeholder?: string;
   icon?: ReactNode;
+  disabled?: boolean;
 }) {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const isPassword = type === "password";
@@ -3464,10 +3522,11 @@ function Field({
       <div className="flex h-8 items-center gap-1 rounded-md border bg-card px-2">
         {icon}
         <input
-          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/55"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:text-muted-foreground"
           type={inputType}
           value={value}
           placeholder={placeholder}
+          disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         />
         {isPassword && (
@@ -3475,6 +3534,7 @@ function Field({
             type="button"
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={() => setPasswordVisible((visible) => !visible)}
+            disabled={disabled}
             aria-label={passwordVisible ? "隐藏 API Key" : "显示 API Key"}
             title={passwordVisible ? "隐藏 API Key" : "显示 API Key"}
           >
@@ -3499,10 +3559,12 @@ function ProviderKindField({
   purpose,
   value,
   onChange,
+  disabled,
 }: {
   purpose: ProviderPurpose;
   value: ProviderKind;
   onChange: (value: ProviderKind) => void;
+  disabled?: boolean;
 }) {
   const options = purpose === "agent" ? agentProviderKinds : purpose === "vision" ? visionProviderKinds : embeddingProviderKinds;
   return (
@@ -3518,6 +3580,7 @@ function ProviderKindField({
         placeholder="选择服务商"
         ariaLabel="选择服务商类型"
         onChange={(next) => onChange(next as ProviderKind)}
+        disabled={disabled}
         renderValue={(option) => (
           option ? (
             <span className="flex min-w-0 items-center gap-1.5">
@@ -3558,12 +3621,14 @@ function ModelPicker({
   models,
   selectedModel,
   onPick,
+  disabled,
 }: {
   providerKind: ProviderKind;
   baseUrl: string;
   models: ProviderModel[];
   selectedModel: string;
   onPick: (model: ProviderModel) => void;
+  disabled?: boolean;
 }) {
   if (models.length === 0) return null;
   return (
@@ -3581,10 +3646,13 @@ function ModelPicker({
               type="button"
               className={cx(
                 "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left text-[11px] transition-colors",
-                selected
-                  ? "border-foreground/25 bg-foreground text-background shadow-sm"
-                  : "border-border/55 bg-background text-muted-foreground hover:border-border/80 hover:text-foreground",
+                disabled
+                  ? "cursor-not-allowed border-border/45 bg-muted/35 text-muted-foreground/70"
+                  : selected
+                    ? "border-foreground/25 bg-foreground text-background shadow-sm"
+                    : "border-border/55 bg-background text-muted-foreground hover:border-border/80 hover:text-foreground",
               )}
+              disabled={disabled}
               onClick={() => onPick(model)}
             >
               <span className={cx("relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", selected ? "border-background/20 bg-background/16" : "border-border/55 bg-background")}>

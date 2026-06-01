@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
   providersDecryptApiKey: "brevyn:providers:decrypt-api-key",
   providersModels: "brevyn:providers:models",
   providersTest: "brevyn:providers:test",
+  providersEmbeddingMutable: "brevyn:providers:embedding-mutable",
   visionRecognizeAcademicCalendar: "brevyn:vision:recognize-academic-calendar",
   visionRecognizeCourseTimetable: "brevyn:vision:recognize-course-timetable",
   visionImportAcademicCalendar: "brevyn:vision:import-academic-calendar",

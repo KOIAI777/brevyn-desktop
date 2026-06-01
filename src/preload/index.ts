@@ -112,6 +112,7 @@ const api: BrevynAPI = {
     decryptApiKey: (providerId: string) => ipcRenderer.invoke(IPC_CHANNELS.providersDecryptApiKey, providerId),
     models: (input: string | ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersModels, input),
     test: (input: string | ProviderDraftInput) => ipcRenderer.invoke(IPC_CHANNELS.providersTest, input),
+    embeddingMutable: () => ipcRenderer.invoke(IPC_CHANNELS.providersEmbeddingMutable),
   },
   vision: {
     pickImage: () => ipcRenderer.invoke(IPC_CHANNELS.visionPickImage),

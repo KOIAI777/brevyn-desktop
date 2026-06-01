@@ -559,7 +559,7 @@ export class FileService {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("请先选择学期，再索引文件。");
     activeCourseScopeOrThrow(this.options.businessStore, courseId, semesterId);
-    const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, courseId, sectionId);
+    const activeJob = this.activeIndexingJobForCourse(semesterId, courseId);
     if (activeJob) return { ...activeJob };
     const sections = this.courseFileSections(courseId);
     const files = sectionId ? sections.find((section) => section.id === sectionId)?.files || [] : sections.flatMap((section) => section.files);
@@ -606,6 +606,13 @@ export class FileService {
       return {
         job: activeJob,
         error: "这个分区已有索引任务在进行中，但当前选择的向量服务商或模型和该任务不一致。文件已导入，但不会自动排队；请等待当前任务完成后再重新索引。",
+      };
+    }
+    const courseActiveJob = this.activeIndexingJobForCourse(semesterId, courseId);
+    if (courseActiveJob) {
+      return {
+        job: courseActiveJob,
+        error: "这门课已有其他索引任务在进行中。文件已导入，但不会自动排队；请等待当前任务完成后再重新索引。",
       };
     }
     return {
@@ -738,7 +745,10 @@ export class FileService {
     const provider = this.embeddingProvider();
     const sectionId = sectionIdForFile(file);
     const activeJob = this.options.businessStore.activeIndexingJobForSection(semesterId, file.courseId, sectionId);
-    if (activeJob && embeddingJobMatchesProvider(activeJob, provider)) {
+    if (activeJob) {
+      if (!embeddingJobMatchesProvider(activeJob, provider)) {
+        throw new Error("这个分区已有索引任务在进行中，但当前选择的向量服务商或模型和该任务不一致。请等待当前任务完成后再重新索引。");
+      }
       const tasks = this.indexingTasksForFiles({
         jobId: activeJob.id,
         semesterId,
@@ -748,6 +758,10 @@ export class FileService {
         provider,
       });
       return this.options.businessStore.appendIndexingTasksToJob(activeJob.id, tasks) || activeJob;
+    }
+    const courseActiveJob = this.activeIndexingJobForCourse(semesterId, file.courseId);
+    if (courseActiveJob) {
+      throw new Error("这门课已有其他索引任务在进行中。请等待当前任务完成后再重新索引这个文件。");
     }
     return this.createIndexingJobForFiles({
       semesterId,
@@ -1152,6 +1166,10 @@ export class FileService {
     return this.options.providers.embeddingProvider();
   }
 
+  private activeIndexingJobForCourse(semesterId: string, courseId: string): IndexingJob | null {
+    return this.options.businessStore.listIndexingJobs(semesterId, courseId).find(isActiveIndexingJob) || null;
+  }
+
   private refreshIndexingJobs(): IndexingJob[] {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     return semesterId ? this.options.businessStore.listIndexingJobs(semesterId) : [];
@@ -1238,6 +1256,10 @@ function findTaskFolderNode(root: WorkspaceFileNode, taskId: string): WorkspaceF
 
 function isIndexableWorkspaceFile(file: WorkspaceFileNode): boolean {
   return Boolean(file.sourcePath) && isRagEligibleWorkspaceFile(file) && !isAgentWorkspaceControlFile(file);
+}
+
+function isActiveIndexingJob(job: IndexingJob): boolean {
+  return job.status === "queued" || job.status === "indexing";
 }
 
 function isRagEligibleWorkspaceFile(file: WorkspaceFileNode): boolean {

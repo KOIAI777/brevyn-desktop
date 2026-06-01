@@ -17,4 +17,5 @@ export function registerProvidersIpc({ store }: IpcContext): void {
     if (typeof input === "string") return store.testProvider(requireString(input, "Provider id"));
     return store.testProviderDraft(input as ProviderDraftInput);
   });
+  ipcMain.handle(IPC_CHANNELS.providersEmbeddingMutable, () => !store.hasActiveIndexingJobs());
 }

@@ -399,10 +399,13 @@ export class LocalStore {
   }
 
   saveProvider(input: ProviderDraftInput): ProviderSaveResult {
+    this.assertEmbeddingProviderMutable(input.purpose);
     return this.providers.save(input);
   }
 
   deleteProvider(providerId: string): boolean {
+    const provider = this.providers.list().find((item) => item.id === providerId);
+    this.assertEmbeddingProviderMutable(provider?.purpose);
     return this.providers.delete(providerId);
   }
 
@@ -420,6 +423,11 @@ export class LocalStore {
 
   testProviderDraft(input: ProviderDraftInput): Promise<ProviderTestResult> {
     return this.providers.testDraft(input);
+  }
+
+  hasActiveIndexingJobs(): boolean {
+    const semesterId = currentActiveSemesterId(this.businessStore);
+    return semesterId ? this.businessStore.hasActiveSemesterIndexing(semesterId) : false;
   }
 
   recognizeAcademicCalendar(input: VisionRecognitionInput): Promise<RecognizedAcademicCalendar> {
@@ -571,6 +579,13 @@ export class LocalStore {
     const thread = this.businessStore.getThread(threadId);
     if (!thread) throw new Error(`Thread not found: ${threadId}`);
     return thread;
+  }
+
+  private assertEmbeddingProviderMutable(purpose?: string): void {
+    if (purpose !== "embedding") return;
+    if (this.hasActiveIndexingJobs()) {
+      throw new Error("当前有向量索引任务正在进行。请等待完成或取消后，再切换、保存或删除 Embedding 配置。");
+    }
   }
 
   private threadAttachmentDir(threadId: string): string {

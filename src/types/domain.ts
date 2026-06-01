@@ -1021,6 +1021,7 @@ export interface BrevynAPI {
     decryptApiKey: (providerId: string) => Promise<string>;
     models: (input: string | ProviderDraftInput) => Promise<ProviderModel[]>;
     test: (input: string | ProviderDraftInput) => Promise<ProviderTestResult>;
+    embeddingMutable: () => Promise<boolean>;
   };
   vision: {
     pickImage: () => Promise<string | null>;
