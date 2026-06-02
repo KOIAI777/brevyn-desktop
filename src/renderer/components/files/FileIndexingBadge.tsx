@@ -51,6 +51,7 @@ function statusIcon(status: FileIndexingStatus) {
   if (status === "indexing") return Loader2;
   if (status === "queued") return Clock3;
   if (status === "failed") return XCircle;
+  if (status === "partial") return AlertCircle;
   if (status === "warning") return AlertCircle;
   if (status === "skipped") return MinusCircle;
   if (status === "cancelled") return MinusCircle;
@@ -62,6 +63,7 @@ function statusLabel(status: FileIndexingStatus): string {
   if (status === "indexing") return "索引中";
   if (status === "queued") return "排队中";
   if (status === "failed") return "失败";
+  if (status === "partial") return "部分索引";
   if (status === "warning") return "警告";
   if (status === "skipped") return "已跳过";
   if (status === "cancelled") return "已取消";
@@ -73,6 +75,7 @@ function statusTone(status: FileIndexingStatus): string {
   if (status === "indexing") return "border-blue-200 bg-blue-50 text-blue-700";
   if (status === "queued") return "border-amber-200 bg-amber-50 text-amber-700";
   if (status === "failed") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "partial") return "border-orange-200 bg-orange-50 text-orange-700";
   if (status === "warning") return "border-orange-200 bg-orange-50 text-orange-700";
   if (status === "skipped") return "border-slate-200 bg-slate-50 text-slate-600";
   return "border-border bg-muted text-muted-foreground";

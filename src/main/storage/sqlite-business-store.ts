@@ -1798,8 +1798,10 @@ function fileIndexingStatusFromRow(row: Row): {
     return { status: "idle" };
   }
   const taskStatus = nullableString(row.indexing_task_status);
-  const result = rawJson<{ result?: { chunkCount?: number; warnings?: string[] } }>(row.indexing_task_payload_json, {});
+  const result = rawJson<{ result?: { chunkCount?: number; warnings?: string[]; metadata?: Record<string, unknown> } }>(row.indexing_task_payload_json, {});
   const warnings = Array.isArray(result.result?.warnings) ? result.result.warnings.filter(Boolean) : [];
+  const metadata = result.result?.metadata || {};
+  const coverageStatus = typeof metadata.coverageStatus === "string" ? metadata.coverageStatus : "";
   const progress = numberValue(row.indexing_task_progress);
   const updatedAt = nullableString(row.indexing_task_updated_at) || nullableString(row.indexed_at);
   if (taskStatus === "queued") return { status: "queued", progress, updatedAt };
@@ -1807,15 +1809,33 @@ function fileIndexingStatusFromRow(row: Row): {
   if (taskStatus === "failed") return { status: "failed", progress, error: nullableString(row.indexing_task_error), updatedAt };
   if (taskStatus === "cancelled") return { status: "cancelled", progress, updatedAt };
   if (taskStatus === "done") {
-    if ((result.result?.chunkCount || 0) === 0 && warnings.length > 0) {
+    const chunkCount = result.result?.chunkCount || 0;
+    const message = coverageWarningMessage(metadata, warnings);
+    if (chunkCount === 0 && warnings.length > 0) {
       return { status: "skipped", progress: 100, warning: warnings[0], updatedAt };
     }
-    if (warnings.length > 0) {
-      return { status: "warning", progress: 100, warning: warnings[0], updatedAt };
+    if (coverageStatus === "partial") {
+      return { status: "partial", progress: 100, warning: message || warnings[0], updatedAt };
     }
-    return { status: "indexed", progress: 100, updatedAt };
+    return { status: "indexed", progress: 100, warning: message, updatedAt };
   }
   return nullableString(row.indexed_at) ? { status: "indexed", progress: 100, updatedAt } : { status: "idle" };
+}
+
+function coverageWarningMessage(metadata: Record<string, unknown>, warnings: string[]): string | undefined {
+  const total = numberValue(metadata.sectionsTotal) || 0;
+  const indexed = numberValue(metadata.sectionsIndexed) || 0;
+  const empty = numberValue(metadata.sectionsEmpty) || 0;
+  const failed = numberValue(metadata.sectionsFailed) || 0;
+  const unit = typeof metadata.sectionUnit === "string" && metadata.sectionUnit.trim() ? metadata.sectionUnit.trim() : "个部分";
+  const parts: string[] = [];
+  if (total > 0 && indexed > 0) parts.push(`已索引 ${indexed}/${total} ${unit}`);
+  if (failed > 0) parts.push(`${failed} ${unit}解析失败`);
+  if (empty > 0) parts.push(`${empty} ${unit}没有可提取文字`);
+  const truncated = metadata.truncated === true;
+  if (truncated) parts.push("文本超过上限，已截断");
+  if (parts.length > 0) return parts.join(" · ");
+  return warnings[0];
 }
 
 function shouldRetryIndexingError(message: string): boolean {

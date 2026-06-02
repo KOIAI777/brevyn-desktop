@@ -396,7 +396,7 @@ export interface RecognizedCourseTimetable {
 
 export type CourseFileSectionKind = "course_shared" | "lecture" | "task";
 export type IndexingStatus = "idle" | "queued" | "indexing" | "indexed" | "failed" | "cancelled";
-export type FileIndexingStatus = IndexingStatus | "warning" | "skipped";
+export type FileIndexingStatus = IndexingStatus | "partial" | "warning" | "skipped";
 
 export interface CourseFileSection {
   id: string;

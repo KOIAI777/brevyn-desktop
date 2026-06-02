@@ -61,5 +61,15 @@ export interface IndexingWorkerResult {
   sample: string;
   warnings: string[];
   chunks: string[];
+  chunkMetadata?: IndexingChunkMetadata[];
   metadata?: Record<string, string | number | boolean>;
+}
+
+export interface IndexingChunkMetadata {
+  sourceLabel?: string;
+  title?: string;
+  sectionType?: string;
+  sectionIndex?: number;
+  chunkInSection?: number;
+  chunksInSection?: number;
 }

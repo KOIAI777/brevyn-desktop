@@ -472,7 +472,12 @@ export class RagIndexService {
   }
 
   private toRow(task: IndexingTaskRecord, result: IndexingWorkerResult, chunkIndex: number, text: string, vector: number[], providerMeta: EmbeddingMeta): RagChunkRow {
-    const citationParts = [result.sourcePath || task.payload.path, `chunk ${chunkIndex + 1}/${result.chunks.length}`];
+    const metadata = result.chunkMetadata?.[chunkIndex];
+    const sourceLabel = metadata?.sourceLabel;
+    const sectionChunkLabel = metadata?.chunksInSection && metadata.chunksInSection > 1
+      ? `${sourceLabel || "section"} ${metadata.chunkInSection || 1}/${metadata.chunksInSection}`
+      : sourceLabel;
+    const citationParts = [result.sourcePath || task.payload.path, sectionChunkLabel || `chunk ${chunkIndex + 1}/${result.chunks.length}`];
     return {
       id: `${task.payload.fileId}:${chunkIndex}`,
       semester_id: task.semesterId || task.payload.semesterId || "",
@@ -488,7 +493,7 @@ export class RagIndexService {
       chunk_index: chunkIndex,
       chunk_count: result.chunks.length,
       text,
-      title: task.payload.name,
+      title: metadata?.title ? `${task.payload.name} · ${metadata.title}` : task.payload.name,
       citation: citationParts.filter(Boolean).join(" · "),
       vector,
       embedding_provider_id: providerMeta.providerId,

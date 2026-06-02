@@ -269,7 +269,7 @@ function buildLectureWeeks(files: WorkspaceFileNode[]): LectureWeek[] {
         id,
         label: typeof weekNumber === "number" && Number.isFinite(weekNumber) ? `第 ${weekNumber} 周` : "未分周课件",
         files: groupFiles,
-        indexedCount: groupFiles.filter((file) => file.indexedAt || file.indexingStatus === "indexed").length,
+        indexedCount: groupFiles.filter((file) => file.indexedAt || file.indexingStatus === "indexed" || file.indexingStatus === "partial").length,
         latestTime,
         latestLabel: latestTime > 0 ? formatRelativeZh(new Date(latestTime).toISOString()) : "暂无活动",
       };
