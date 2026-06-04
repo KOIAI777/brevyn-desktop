@@ -56,6 +56,7 @@ import {
   type CloudAccountStatus,
   type CloudAuthMode,
   type CloudBalanceGroupEntitlement,
+  type CloudGatewayEntitlementGroup,
   type CloudGatewayGroup,
   type CloudProviderModel,
   type CloudQuotaWindow,
@@ -560,6 +561,7 @@ export function SettingsDialog({
       const status = await window.brevyn.cloud.refresh();
       setCloudStatus(status);
       setCloudRedeemResult(null);
+      await loadProviders();
       setCloudStatusLine(status.lastError || "账号、余额和套餐信息已刷新。");
     } catch (error) {
       setCloudStatusLine(`刷新账号失败：${errorMessage(error)}`);
@@ -595,9 +597,12 @@ export function SettingsDialog({
       const result = await window.brevyn.cloud.activateOfficialProvider({ externalGroupId });
       setCloudStatus(result.cloud);
       setCloudStatusLine(cloudActivateResultLine(result.provider?.name, result.detail));
-      if (result.status === "synced" && result.provider) {
-        cacheCloudGroupModelsFromProvider(externalGroupId, result.provider);
-        void refreshActivatedOfficialProvider(result.provider);
+      if (result.status === "synced") {
+        const activatedProviders = result.providers?.length ? result.providers : result.provider ? [result.provider] : [];
+        for (const provider of activatedProviders) {
+          cacheCloudGroupModelsFromProvider(externalGroupId, provider);
+        }
+        void refreshActivatedOfficialProviders(activatedProviders);
       }
     } catch (error) {
       setCloudStatusLine(`切换官方分组失败：${errorMessage(error)}`);
@@ -606,11 +611,16 @@ export function SettingsDialog({
     }
   }
 
-  async function refreshActivatedOfficialProvider(provider: ModelProviderConfig) {
+  async function refreshActivatedOfficialProviders(providers: ModelProviderConfig[]) {
     try {
       await loadProviders();
-      await onAgentProviderChanged?.(agentProviderSelectionValue(provider.id, provider.selectedModel));
-      showProviderToast(`当前官方分组已切换到 ${provider.name}。`);
+      const agentProvider = providers.find((provider) => provider.purpose === "agent");
+      if (agentProvider) {
+        await onAgentProviderChanged?.(agentProviderSelectionValue(agentProvider.id, agentProvider.selectedModel));
+        showProviderToast(`当前官方分组已切换到 ${agentProvider.name}。`);
+        return;
+      }
+      showProviderToast(providers.length > 0 ? `已同步 ${providers.length} 个官方能力配置。` : "官方配置已刷新。");
     } catch (error) {
       setCloudStatusLine(`套餐已切换，本地模型刷新失败：${errorMessage(error)}`);
     }
@@ -623,12 +633,12 @@ export function SettingsDialog({
         id: model.id,
         name: model.name || model.id,
         displayName: model.name || model.id,
-        providerFamily: "",
+        providerFamily: provider.purpose,
         externalGroupId,
         groupName: provider.name,
         billingMode: "",
-        capabilities: model.supportsVision ? ["vision_input"] : [],
-        supportsVision: model.supportsVision === true,
+        capabilities: officialProviderModelCapabilities(provider, model),
+        supportsVision: provider.purpose === "vision" || model.supportsVision === true,
         supportsStreaming: true,
         enabled: model.enabled !== false,
       }));
@@ -636,10 +646,37 @@ export function SettingsDialog({
       ...current,
       [externalGroupId]: {
         status: "ready",
-        models,
-        total: models.length,
+        models: mergeCloudGroupModels(current[externalGroupId]?.models ?? [], models),
+        total: mergeCloudGroupModels(current[externalGroupId]?.models ?? [], models).length,
       },
     }));
+  }
+
+  function officialProviderModelCapabilities(provider: ModelProviderConfig, model: ProviderModel): string[] {
+    const capabilities = new Set<string>();
+    if (provider.purpose === "embedding") capabilities.add("embedding");
+    if (provider.purpose === "vision" || model.supportsVision) capabilities.add("vision_input");
+    return [...capabilities];
+  }
+
+  function mergeCloudGroupModels(existing: CloudProviderModel[], incoming: CloudProviderModel[]): CloudProviderModel[] {
+    const byId = new Map<string, CloudProviderModel>();
+    for (const model of [...existing, ...incoming]) {
+      const key = model.id.toLowerCase();
+      const previous = byId.get(key);
+      if (!previous) {
+        byId.set(key, { ...model, capabilities: [...(model.capabilities ?? [])] });
+        continue;
+      }
+      byId.set(key, {
+        ...previous,
+        ...model,
+        capabilities: [...new Set([...(previous.capabilities ?? []), ...(model.capabilities ?? [])])],
+        supportsVision: previous.supportsVision || model.supportsVision,
+        enabled: previous.enabled !== false || model.enabled !== false,
+      });
+    }
+    return [...byId.values()].sort((a, b) => cloudModelDisplayName(a).localeCompare(cloudModelDisplayName(b)));
   }
 
   async function redeemCloudCode() {
@@ -659,7 +696,8 @@ export function SettingsDialog({
       setCloudStatusLine(cloudRedeemResultLine(result));
       if (result.providerSyncStatus === "synced") {
         await loadProviders();
-        if (result.provider) await onAgentProviderChanged?.(agentProviderSelectionValue(result.provider.id, result.provider.selectedModel));
+        const agentProvider = (result.providers ?? []).find((provider) => provider.purpose === "agent") || (result.provider?.purpose === "agent" ? result.provider : undefined);
+        if (agentProvider) await onAgentProviderChanged?.(agentProviderSelectionValue(agentProvider.id, agentProvider.selectedModel));
         showProviderToast(result.provider ? `已同步 ${result.provider.name}。` : "兑换分组已同步到本地 Provider。");
       }
       void confirmCloudRedeem({
@@ -1376,6 +1414,7 @@ export function SettingsDialog({
                 redeemCode={cloudRedeemCode}
                 redeemResult={cloudRedeemResult}
                 groupModels={cloudGroupModels}
+                providers={providers}
                 onModeChange={setCloudMode}
                 onFormChange={setCloudForm}
                 onRedeemCodeChange={setCloudRedeemCode}
@@ -1480,6 +1519,7 @@ function AccountSettingsPage({
   redeemCode,
   redeemResult,
   groupModels,
+  providers,
   onModeChange,
   onFormChange,
   onRedeemCodeChange,
@@ -1498,6 +1538,7 @@ function AccountSettingsPage({
   redeemCode: string;
   redeemResult: CloudRedeemCodeResult | null;
   groupModels: Record<number, CloudGroupModelCatalogState>;
+  providers: ModelProviderConfig[];
   onModeChange: (mode: CloudAuthMode) => void;
   onFormChange: (form: CloudAccountForm) => void;
   onRedeemCodeChange: (code: string) => void;
@@ -1514,6 +1555,13 @@ function AccountSettingsPage({
   const entitlements = cloudStatus?.entitlements ?? null;
   const balanceGroups = entitlements?.balanceGroups ?? [];
   const subscriptionGroups = entitlements?.subscriptionGroups ?? [];
+  const capabilityBalanceGroups = balanceGroups.filter((group) => isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const capabilitySubscriptionGroups = subscriptionGroups.filter((group) => isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const conversationBalanceGroups = balanceGroups.filter((group) => !isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const conversationSubscriptionGroups = subscriptionGroups.filter((group) => !isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const fallbackCapabilityGroups = !entitlements ? groups.filter((group) => isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? [])) : [];
+  const fallbackConversationGroups = !entitlements ? groups.filter((group) => !isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? [])) : [];
+  const capabilityGroupCount = capabilityBalanceGroups.length + capabilitySubscriptionGroups.length + fallbackCapabilityGroups.length;
   const currentGroupId = cloudStatus?.currentGroup?.externalGroupId || cloudStatus?.gateway?.defaultGroupId || 0;
   const walletRemaining = entitlements?.wallet.remaining ?? cloudStatus?.wallet?.balance ?? 0;
   const walletStatus = entitlements?.wallet.status || "";
@@ -1596,9 +1644,9 @@ function AccountSettingsPage({
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                 <UserRound className="h-4 w-4" />
               </div>
-              <div className="mt-3 text-xs font-semibold text-foreground">登录后自动准备默认套餐</div>
+              <div className="mt-3 text-xs font-semibold text-foreground">登录后自动准备官方套餐</div>
               <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-	                成功后会拉取账号、余额和套餐，并把默认套餐写成可用的官方模型配置。
+	                成功后会拉取账号、余额和套餐，并写入可用的官方模型配置。
               </div>
             </div>
           </div>
@@ -1707,9 +1755,9 @@ function AccountSettingsPage({
 	                />
 	              </div>
 
-	              <PlanSection title="余额套餐" detail={`${balanceGroups.length} 个分组`}>
+	              <PlanSection title="余额套餐" detail={`${conversationBalanceGroups.length} 个对话分组`}>
 	                <div className="grid gap-2 lg:grid-cols-2">
-	                  {balanceGroups.map((group) => (
+	                  {conversationBalanceGroups.map((group) => (
 	                    <BalanceEntitlementCard
 	                      key={group.externalGroupId}
 	                      group={group}
@@ -1720,14 +1768,14 @@ function AccountSettingsPage({
 	                      onActivateGroup={onActivateGroup}
 	                    />
 	                  ))}
-	                  {balanceGroups.length === 0 && <EmptyPlanCard label="暂无余额套餐。" />}
+	                  {conversationBalanceGroups.length === 0 && <EmptyPlanCard label="暂无余额对话套餐。" />}
 	                </div>
 	              </PlanSection>
 
-	              <PlanSection title="订阅套餐" detail={`${subscriptionGroups.length} 个分组`}>
+	              <PlanSection title="订阅套餐" detail={`${conversationSubscriptionGroups.length} 个对话分组`}>
 	                <SubscriptionPlanNotice />
 	                <div className="grid gap-2 lg:grid-cols-2">
-	                  {subscriptionGroups.map((group) => (
+	                  {conversationSubscriptionGroups.map((group) => (
 	                    <SubscriptionEntitlementCard
 	                      key={group.externalGroupId}
 	                      group={group}
@@ -1738,14 +1786,57 @@ function AccountSettingsPage({
 	                      onActivateGroup={onActivateGroup}
 	                    />
 	                  ))}
-	                  {subscriptionGroups.length === 0 && <EmptyPlanCard label="暂无订阅套餐。" />}
+	                  {conversationSubscriptionGroups.length === 0 && <EmptyPlanCard label="暂无订阅对话套餐。" />}
 	                </div>
 	              </PlanSection>
 
-	              {!entitlements && groups.length > 0 && (
+	              {capabilityGroupCount > 0 && (
+	                <PlanSection title="官方能力" detail={`${capabilityGroupCount} 个能力分组`}>
+	                  <div className="grid gap-2 lg:grid-cols-2">
+	                    {capabilityBalanceGroups.map((group) => (
+	                      <CapabilityEntitlementCard
+	                        key={`balance-${group.externalGroupId}`}
+	                        group={group}
+	                        busyAction={busyAction}
+	                        isBusy={isBusy}
+	                        modelCatalog={groupModels[group.externalGroupId]}
+	                        providers={providers}
+	                        providerRefs={cloudStatus?.providerRefs ?? []}
+	                        onActivateGroup={onActivateGroup}
+	                      />
+	                    ))}
+	                    {capabilitySubscriptionGroups.map((group) => (
+	                      <CapabilityEntitlementCard
+	                        key={`subscription-${group.externalGroupId}`}
+	                        group={group}
+	                        busyAction={busyAction}
+	                        isBusy={isBusy}
+	                        modelCatalog={groupModels[group.externalGroupId]}
+	                        providers={providers}
+	                        providerRefs={cloudStatus?.providerRefs ?? []}
+	                        onActivateGroup={onActivateGroup}
+	                      />
+	                    ))}
+	                    {fallbackCapabilityGroups.map((group) => (
+	                      <CapabilityEntitlementCard
+	                        key={`local-${group.externalGroupId}`}
+	                        group={group}
+	                        busyAction={busyAction}
+	                        isBusy={isBusy}
+	                        modelCatalog={groupModels[group.externalGroupId]}
+	                        providers={providers}
+	                        providerRefs={cloudStatus?.providerRefs ?? []}
+	                        onActivateGroup={onActivateGroup}
+	                      />
+	                    ))}
+	                  </div>
+	                </PlanSection>
+	              )}
+
+	              {!entitlements && fallbackConversationGroups.length > 0 && (
 	                <PlanSection title="本地分组" detail="等待实时余额">
 	                  <div className="grid gap-2 lg:grid-cols-2">
-	                    {groups.map((group) => (
+	                    {fallbackConversationGroups.map((group) => (
 	                      <FallbackGroupCard
 	                        key={group.externalGroupId}
 	                        group={group}
@@ -1945,6 +2036,94 @@ function FallbackGroupCard({
   );
 }
 
+function CapabilityEntitlementCard({
+  group,
+  busyAction,
+  isBusy,
+  modelCatalog,
+  providers,
+  providerRefs,
+  onActivateGroup,
+}: {
+  group: CloudGatewayEntitlementGroup | CloudGatewayGroup;
+  busyAction: CloudBusyAction;
+  isBusy: boolean;
+  modelCatalog?: CloudGroupModelCatalogState;
+  providers: ModelProviderConfig[];
+  providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>;
+  onActivateGroup: (externalGroupId: number) => void;
+}) {
+  const activating = busyAction === `activate:${group.externalGroupId}`;
+  const kinds = groupCapabilityKinds(group, modelCatalog, providers, providerRefs);
+  const activeKinds = activeCapabilityKinds(group.externalGroupId, providers, kinds);
+  const active = kinds.length > 0 && activeKinds.length === kinds.length;
+  const partial = activeKinds.length > 0 && !active;
+  const usable = cloudEntitlementUsable(group.status || "");
+  return (
+    <div className={planCardClass(active || partial, usable)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <PlanTitle name={group.name} current={false} status={group.status || ""} />
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span>官方能力</span>
+            <span>·</span>
+            <span>{capabilityGroupBillingLabel(group)}</span>
+            <span>·</span>
+            <span>{formatMultiplier(group.rateMultiplier)}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {kinds.map((kind) => (
+              <span
+                key={kind}
+                className={cx(
+                  "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                  kind === "embedding" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-sky-200 bg-sky-50 text-sky-800",
+                )}
+              >
+                {kind === "embedding" ? <Database className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                {kind === "embedding" ? "Embedding" : "Vision"}
+              </span>
+            ))}
+            {partial && <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">部分启用</span>}
+            {active && <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">常开</span>}
+          </div>
+          <div className="mt-3 space-y-2">
+            {isBalanceEntitlementGroup(group) ? (
+              <PlanPointsBar
+                label="能力额度"
+                value={`${formatCompactPoints(group.remaining)} / ${formatCompactPoints(balanceEntitlementLimit(group))}`}
+                percent={balanceRemainingPercent(group.remaining, balanceEntitlementLimit(group))}
+                percentLabel={`剩余 ${formatPercent(balanceRemainingPercent(group.remaining, balanceEntitlementLimit(group)))}`}
+                tone={!usable || balanceRemainingPercent(group.remaining, balanceEntitlementLimit(group)) <= 15 ? "warning" : "default"}
+              />
+            ) : isSubscriptionEntitlementGroup(group) ? (
+              group.unlimited ? (
+                <PlanPointsBar label="能力额度" value="不限额" percent={100} percentLabel="不限额" />
+              ) : group.daily || group.weekly || group.monthly ? (
+                <>
+                  {group.daily ? <QuotaProgressRow label="日额度" window={group.daily} /> : null}
+                  {group.weekly ? <QuotaProgressRow label="周额度" window={group.weekly} /> : null}
+                  {group.monthly ? <QuotaProgressRow label="月额度" window={group.monthly} /> : null}
+                </>
+              ) : (
+                <PlanPointsBar label="剩余积分" value={formatCloudPoints(group.remaining)} percent={usable && group.remaining > 0 ? 100 : 0} percentLabel={cloudEntitlementStatusLabel(group.status)} tone={usable ? "default" : "warning"} />
+              )
+            ) : null}
+          </div>
+        </div>
+        <PlanCapabilityButton
+          active={active}
+          partial={partial}
+          activating={activating}
+          disabled={isBusy || active || !usable}
+          onClick={() => onActivateGroup(group.externalGroupId)}
+        />
+      </div>
+      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+    </div>
+  );
+}
+
 function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupModelCatalogState; fallbackCount: number }) {
   const models = catalog?.models ?? [];
   const visibleModels = models.slice(0, 5);
@@ -1967,17 +2146,22 @@ function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupMode
           </span>
         </div>
         <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-          {visibleModels.map((model) => (
-            <span
-              key={model.id}
-              className={cx(
-                "max-w-[180px] truncate rounded-md border px-1.5 py-0.5 text-[10px] leading-5",
-                model.supportsVision ? "border-sky-200 bg-sky-50 text-sky-800" : "border-border/55 bg-background/80 text-muted-foreground",
-              )}
-            >
-              {cloudModelDisplayName(model)}
-            </span>
-          ))}
+          {visibleModels.map((model) => {
+            const embedding = isEmbeddingCloudModel(model);
+            return (
+              <span
+                key={model.id}
+                className={cx(
+                  "max-w-[180px] truncate rounded-md border px-1.5 py-0.5 text-[10px] leading-5",
+                  embedding
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : model.supportsVision ? "border-sky-200 bg-sky-50 text-sky-800" : "border-border/55 bg-background/80 text-muted-foreground",
+                )}
+              >
+                {cloudModelDisplayName(model)}
+              </span>
+            );
+          })}
           {models.length > visibleModels.length && (
             <span className="rounded-md border border-border/55 bg-background/80 px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground">
               +{models.length - visibleModels.length}
@@ -2069,6 +2253,32 @@ function PlanActivateButton({ current, activating, disabled, onClick }: { curren
             ? "border-sky-600 bg-sky-600 text-white shadow-sky-950/[0.08]"
             : "border-border/70 bg-background/85 text-muted-foreground shadow-black/[0.02] hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700",
           !current && disabled && "opacity-45",
+        )}
+        disabled={disabled}
+        onClick={onClick}
+        title={label}
+        aria-label={label}
+      >
+        <Check className={cx("h-3.5 w-3.5", activating && "animate-pulse")} />
+      </button>
+    </div>
+  );
+}
+
+function PlanCapabilityButton({ active, partial, activating, disabled, onClick }: { active: boolean; partial: boolean; activating: boolean; disabled: boolean; onClick: () => void }) {
+  const label = active ? "已启用" : activating ? "启用中" : partial ? "补全能力" : "启用能力";
+  return (
+    <div className="flex shrink-0 justify-end">
+      <button
+        type="button"
+        className={cx(
+          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs shadow-sm transition disabled:cursor-not-allowed",
+          active
+            ? "border-emerald-600 bg-emerald-600 text-white shadow-emerald-950/[0.08]"
+            : partial
+              ? "border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
+              : "border-border/70 bg-background/85 text-muted-foreground shadow-black/[0.02] hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700",
+          !active && disabled && "opacity-45",
         )}
         disabled={disabled}
         onClick={onClick}
@@ -2306,20 +2516,106 @@ function ProviderSettingsPage({
             providerKind={draft.providerKind}
             baseUrl={draft.baseUrl}
             models={draft.models ?? []}
-            selectedModel={draft.selectedModel}
-            onPick={(model) => onDraftChange({ ...draft, selectedModel: model.id })}
           />
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton
-              icon={<Save className={cx("h-3.5 w-3.5", isBusy("agent-save") && "animate-pulse")} />}
-              label="保存模型"
-              onClick={onSaveProvider}
-              primary
-              disabled={agentBusy || !draft.selectedModel}
-            />
-          </div>
           {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
+        </section>
+      </div>
+    );
+  }
+
+  if (selectedEmbeddingProvider && isOfficialProvider(selectedEmbeddingProvider) && !creatingEmbeddingProvider) {
+    return (
+      <div className="space-y-4">
+        {runtimeBanner}
+        <section className="rounded-lg border bg-background/70 p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={onCloseEmbeddingEditor}
+                disabled={embeddingBusy}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                返回配置列表
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ShieldCheck className="h-4 w-4" />
+                官方向量配置
+              </div>
+              <div className="mt-1 truncate text-[11px] text-muted-foreground" title={officialProviderGroupLabel(selectedEmbeddingProvider)}>
+                {officialProviderGroupLabel(selectedEmbeddingProvider)}
+              </div>
+            </div>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", embeddingDraft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+              {embeddingDraft.enabled ? "已启用" : "已关闭"}
+            </span>
+          </div>
+
+          {(embeddingDraft.models?.length ?? 0) > 0 && (
+            <ModelPicker
+              providerKind={embeddingDraft.providerKind}
+              baseUrl={embeddingDraft.baseUrl}
+              selectedModel={embeddingDraft.selectedModel}
+              models={embeddingDraft.models ?? []}
+              onPick={(model) => onEmbeddingDraftChange({ ...embeddingDraft, selectedModel: model.id })}
+              disabled={embeddingLockedByIndexing}
+            />
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("embedding-save") && "animate-pulse")} />} label="保存模型选择" onClick={onSaveEmbeddingProvider} primary disabled={embeddingBusy} />
+          </div>
+          {embeddingStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{embeddingStatusLine}</div>}
+        </section>
+      </div>
+    );
+  }
+
+  if (selectedVisionProvider && isOfficialProvider(selectedVisionProvider) && !creatingVisionProvider) {
+    return (
+      <div className="space-y-4">
+        {runtimeBanner}
+        <section className="rounded-lg border bg-background/70 p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={onCloseVisionEditor}
+                disabled={visionBusy}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                返回配置列表
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ShieldCheck className="h-4 w-4" />
+                官方识别配置
+              </div>
+              <div className="mt-1 truncate text-[11px] text-muted-foreground" title={officialProviderGroupLabel(selectedVisionProvider)}>
+                {officialProviderGroupLabel(selectedVisionProvider)}
+              </div>
+            </div>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", visionDraft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+              {visionDraft.enabled ? "已启用" : "已关闭"}
+            </span>
+          </div>
+
+          {(visionDraft.models?.length ?? 0) > 0 && (
+            <ModelPicker
+              providerKind={visionDraft.providerKind}
+              baseUrl={visionDraft.baseUrl}
+              selectedModel={visionDraft.selectedModel}
+              models={visionDraft.models ?? []}
+              onPick={(model) => onVisionDraftChange({ ...visionDraft, selectedModel: model.id })}
+            />
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("vision-save") && "animate-pulse")} />} label="保存模型选择" onClick={onSaveVisionProvider} primary disabled={visionBusy} />
+          </div>
+          {visionStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{visionStatusLine}</div>}
         </section>
       </div>
     );
@@ -2797,7 +3093,7 @@ function OfficialProviderPanel({
 }) {
   const primaryProvider = activeProvider || providers[0];
   const enabled = Boolean(activeProvider);
-  const selectedModel = activeProvider?.selectedModel || primaryProvider?.selectedModel || "-";
+  const modelCount = primaryProvider?.models?.length ?? 0;
   const statusLabel = enabled ? "官方模型已启用" : "官方模型已关闭";
   const groups = providers.map((provider) => ({
     provider,
@@ -2818,8 +3114,8 @@ function OfficialProviderPanel({
                 {enabled ? "已启用" : "已关闭"}
               </span>
             </div>
-            <div className="mt-1 truncate text-[11px] text-muted-foreground" title={primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${selectedModel}` : "未同步 Cloud 官方模型"}>
-              {primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${selectedModel}` : "未同步 Cloud 官方模型"}
+            <div className="mt-1 truncate text-[11px] text-muted-foreground" title={primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${modelCount} 个模型` : "未同步 Cloud 官方模型"}>
+              {primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${modelCount} 个模型` : "未同步 Cloud 官方模型"}
             </div>
           </div>
         </div>
@@ -2831,11 +3127,11 @@ function OfficialProviderPanel({
           <img src={getProviderProfileLogo(primaryProvider)} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
           <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onEdit(primaryProvider)} disabled={busy}>
             <span className="block truncate text-xs font-semibold text-foreground" title={providerDisplayName(primaryProvider)}>{providerDisplayName(primaryProvider)}</span>
-            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={selectedModel}>
-              默认模型 · {selectedModel}
+            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+              {modelCount} 个模型
             </span>
           </button>
-          <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label="编辑官方配置" onClick={() => onEdit(primaryProvider)} disabled={busy} />
+          <IconActionButton icon={<Eye className="h-3.5 w-3.5" />} label="查看官方模型" onClick={() => onEdit(primaryProvider)} disabled={busy} />
         </div>
       ) : (
         <div className="mt-3 rounded-lg border border-dashed border-sky-200/80 bg-white/55 px-3 py-6 text-center text-xs text-muted-foreground">
@@ -2853,7 +3149,7 @@ function OfficialProviderPanel({
                 "inline-flex max-w-[190px] items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-60",
                 provider.enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-white/80 bg-white/55 text-muted-foreground hover:bg-white/80 hover:text-foreground",
               )}
-              title={`${label} · ${provider.selectedModel || "未选择模型"}`}
+              title={`${label} · ${(provider.models ?? []).length} 个模型`}
               disabled={busy}
               onClick={() => onEdit(provider)}
             >
@@ -2871,52 +3167,36 @@ function OfficialModelList({
   providerKind,
   baseUrl,
   models,
-  selectedModel,
-  onPick,
 }: {
   providerKind: ProviderKind;
   baseUrl: string;
   models: ProviderModel[];
-  selectedModel: string;
-  onPick: (model: ProviderModel) => void;
 }) {
-  const availableModels = models.filter((model) => model.enabled !== false);
+  const visibleModels = models;
   return (
     <div className="rounded-lg border bg-card/80 p-2">
       <div className="mb-2 flex items-center justify-between gap-2 px-1">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">可用模型</div>
-        {selectedModel && <div className="max-w-[220px] truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" title={selectedModel}>当前：{selectedModel}</div>}
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">模型列表</div>
+        <div className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{visibleModels.length} 个</div>
       </div>
       <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
-        {availableModels.map((model) => {
-          const selected = model.id === selectedModel;
-          return (
-            <button
-              key={model.id}
-              type="button"
-              className={cx(
-                "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors",
-                selected ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-border/55 bg-background text-muted-foreground hover:border-border/80 hover:text-foreground",
-              )}
-              onClick={() => onPick(model)}
-            >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">
-                <img src={resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind })} alt="" className="h-5 w-5 object-contain" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-xs font-medium text-foreground" title={model.name || model.id}>{model.name || model.id}</span>
-                  {selected && <span className="shrink-0 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] text-white">默认</span>}
-                </span>
-                <span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={model.id}>{model.id}</span>
-              </span>
-              {selected ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-700" /> : <Circle className="h-2.5 w-2.5 shrink-0 text-muted-foreground/60" />}
-            </button>
-          );
-        })}
-        {availableModels.length === 0 && (
+        {visibleModels.map((model) => (
+          <div
+            key={model.id}
+            className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border/55 bg-background px-2 py-2 text-left text-muted-foreground"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">
+              <img src={resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind })} alt="" className="h-5 w-5 object-contain" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium text-foreground" title={model.name || model.id}>{model.name || model.id}</span>
+              <span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={model.id}>{model.id}</span>
+            </span>
+          </div>
+        ))}
+        {visibleModels.length === 0 && (
           <div className="rounded-md border border-dashed px-3 py-10 text-center text-xs text-muted-foreground">
-            还没有同步到可用模型。
+            还没有同步到模型。
           </div>
         )}
       </div>
@@ -4625,6 +4905,7 @@ function ProviderProfileRow({
   const enabledModels = provider.models.filter((model) => model.enabled !== false);
   const displayName = providerDisplayName(provider);
   const logo = getProviderProfileLogo(provider);
+  const official = isOfficialProvider(provider);
   return (
     <div className={cx("group flex items-center gap-2 rounded-lg border p-2 transition-colors", PROVIDER_PROFILE_ROW_HEIGHT_CLASS, active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
       <img src={logo} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
@@ -4640,8 +4921,8 @@ function ProviderProfileRow({
       </button>
       <div className="ml-auto flex items-center gap-1.5">
         <div className="flex w-[72px] shrink-0 items-center justify-end gap-1">
-          <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label={`编辑 ${displayName}`} onClick={onEdit} disabled={actionsDisabled} />
-          <IconActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label={`删除 ${displayName}`} onClick={onDelete} disabled={actionsDisabled} danger />
+          <IconActionButton icon={official ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} label={`${official ? "查看" : "编辑"} ${displayName}`} onClick={onEdit} disabled={actionsDisabled} />
+          {!official && <IconActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label={`删除 ${displayName}`} onClick={onDelete} disabled={actionsDisabled} danger />}
         </div>
         <ProviderSwitch enabled={statusOn} label={statusLabel} onClick={onToggle} disabled={toggleDisabled} />
       </div>
@@ -5313,7 +5594,11 @@ function providerKindLabel(providerKind: ProviderKind): string {
 }
 
 function isOfficialAgentProvider(provider: ModelProviderConfig): boolean {
-  return provider.purpose === "agent" && provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX);
+  return provider.purpose === "agent" && isOfficialProvider(provider);
+}
+
+function isOfficialProvider(provider: ModelProviderConfig): boolean {
+  return provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX);
 }
 
 function officialProviderGroupLabel(provider: ModelProviderConfig): string {
@@ -5321,8 +5606,9 @@ function officialProviderGroupLabel(provider: ModelProviderConfig): string {
   const parts = displayName.split("·").map((part) => part.trim()).filter(Boolean);
   if (parts.length > 1) return parts.slice(1).join(" · ");
   const suffix = provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
-  if (!suffix || suffix === "default") return "默认分组";
-  return `分组 #${suffix}`;
+  if (!suffix || suffix === "default") return "官方分组";
+  const groupId = suffix.replace(/^(embedding|vision)-/, "");
+  return groupId === "default" ? "官方分组" : `分组 #${groupId}`;
 }
 
 function cloudSyncResultLine(status: "synced" | "provisioning", detail?: string, providerName?: string): string {
@@ -5410,6 +5696,94 @@ function redeemedPlanLabel(result: CloudRedeemCodeResult, groups: CloudGatewayGr
   const externalGroupId = result.result.redemption.externalGroupId;
   if (!externalGroupId) return "默认套餐";
   return groups.find((group) => group.externalGroupId === externalGroupId)?.name || "已兑换套餐";
+}
+
+type CapabilityKind = "embedding" | "vision";
+
+function isBalanceEntitlementGroup(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): group is CloudBalanceGroupEntitlement {
+  return "billingKind" in group && group.billingKind === "balance";
+}
+
+function isSubscriptionEntitlementGroup(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): group is CloudSubscriptionGroupEntitlement {
+  return "billingKind" in group && group.billingKind === "subscription";
+}
+
+function capabilityGroupBillingLabel(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): string {
+  if (isBalanceEntitlementGroup(group)) return "余额能力";
+  if (isSubscriptionEntitlementGroup(group)) return "订阅能力";
+  return planTypeLabel(group);
+}
+
+function isCapabilityGroup(
+  group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
+  catalog: CloudGroupModelCatalogState | undefined,
+  providers: ModelProviderConfig[],
+  providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
+): boolean {
+  return groupCapabilityKinds(group, catalog, providers, providerRefs).length > 0;
+}
+
+function groupCapabilityKinds(
+  group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
+  catalog: CloudGroupModelCatalogState | undefined,
+  providers: ModelProviderConfig[],
+  providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
+): CapabilityKind[] {
+  const kinds = new Set<CapabilityKind>();
+  const groupId = group.externalGroupId;
+  for (const ref of providerRefs) {
+    if (ref.externalGroupId !== groupId) continue;
+    if (ref.purpose === "embedding" || ref.purpose === "vision") kinds.add(ref.purpose);
+  }
+  for (const provider of providers) {
+    if (!isOfficialProvider(provider) || officialProviderExternalGroupId(provider) !== groupId) continue;
+    if (provider.purpose === "embedding" || provider.purpose === "vision") kinds.add(provider.purpose);
+  }
+  const models = catalog?.models ?? [];
+  if (models.some(isEmbeddingCloudModel)) kinds.add("embedding");
+  const text = `${group.name} ${"description" in group ? group.description ?? "" : ""}`.toLowerCase();
+  const namedVisionGroup = /vision|视觉|识别|ocr|image|图片/.test(text);
+  if (models.some((model) => model.supportsVision || hasCloudModelCapability(model, "vision_input")) && (namedVisionGroup || kinds.has("embedding"))) {
+    kinds.add("vision");
+  }
+  if (/embedding|embed|向量|知识库|rag/.test(text)) kinds.add("embedding");
+  if (namedVisionGroup) kinds.add("vision");
+  return [...kinds].sort((a, b) => (a === "embedding" ? -1 : 1) - (b === "embedding" ? -1 : 1));
+}
+
+function activeCapabilityKinds(groupId: number, providers: ModelProviderConfig[], kinds: CapabilityKind[]): CapabilityKind[] {
+  return kinds.filter((kind) =>
+    providers.some((provider) =>
+      provider.enabled &&
+      provider.purpose === kind &&
+      isOfficialProvider(provider) &&
+      officialProviderExternalGroupId(provider) === groupId,
+    ),
+  );
+}
+
+function officialProviderExternalGroupId(provider: ModelProviderConfig): number {
+  const suffix = provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
+  const parts = suffix.split("-");
+  const raw = parts[0] === "embedding" || parts[0] === "vision" ? parts.slice(1).join("-") : suffix;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function isEmbeddingCloudModel(model: CloudProviderModel): boolean {
+  const id = `${model.id} ${model.name} ${model.displayName}`.toLowerCase();
+  return hasCloudModelCapability(model, "embedding") ||
+    id.includes("embedding") ||
+    id.includes("embed") ||
+    id.includes("bge") ||
+    id.includes("gte") ||
+    id.includes("e5") ||
+    id.includes("jina") ||
+    id.includes("voyage");
+}
+
+function hasCloudModelCapability(model: CloudProviderModel, capability: string): boolean {
+  return (model.capabilities ?? []).some((item) => item.toLowerCase() === capability.toLowerCase());
 }
 
 function planTypeLabel(group: CloudGatewayGroup): string {

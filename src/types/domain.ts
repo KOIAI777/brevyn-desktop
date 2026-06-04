@@ -1155,6 +1155,7 @@ export interface CloudRedeemResult {
 
 export interface CloudOfficialProviderRef {
   providerId: string;
+  purpose?: ProviderPurpose;
   externalGroupId: number;
   groupName: string;
   selectedModel: string;
@@ -1202,6 +1203,7 @@ export interface CloudOfficialProviderSyncResult {
   detail?: string;
   retryAfterSeconds?: number;
   provider?: ModelProviderConfig;
+  providers?: ModelProviderConfig[];
   cloud: CloudAccountStatus;
 }
 
@@ -1211,6 +1213,7 @@ export interface CloudRedeemCodeResult {
   result: CloudRedeemResult;
   cloud: CloudAccountStatus;
   provider?: ModelProviderConfig;
+  providers?: ModelProviderConfig[];
   providerSyncStatus?: "synced" | "provisioning" | "failed";
   providerSyncDetail?: string;
 }

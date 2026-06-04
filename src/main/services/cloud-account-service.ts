@@ -22,7 +22,9 @@ import type {
   CloudWallet,
   ModelProviderConfig,
   ProviderDraftInput,
+  ProviderKind,
   ProviderModel,
+  ProviderPurpose,
 } from "../../types/domain";
 import { readJsonFileSafe, writeJsonFileAtomic } from "./safe-json-file";
 import type { ProviderService } from "./provider-service";
@@ -69,6 +71,7 @@ interface GroupsResult {
 
 interface OfficialProviderResult {
   provider?: CloudProviderConfig;
+  providers?: CloudProviderConfig[];
   gateway?: CloudGatewayAccount;
   apiKey?: {
     externalGroupId?: number;
@@ -174,6 +177,12 @@ export class CloudAccountService {
       lastSyncedAt: new Date().toISOString(),
       lastError: entitlementError,
     });
+    const providerSyncErrors = await this.refreshKnownOfficialProviders();
+    if (entitlementError || providerSyncErrors.length > 0) {
+      this.patchData({
+        lastError: [entitlementError, ...providerSyncErrors].filter(Boolean).join("；"),
+      });
+    }
     return this.status();
   }
 
@@ -195,7 +204,8 @@ export class CloudAccountService {
     const requestedGroupId = positiveInteger(input.externalGroupId) || this.defaultExternalGroupId();
     const query = requestedGroupId > 0 ? `?externalGroupId=${encodeURIComponent(String(requestedGroupId))}` : "";
     const result = await this.request<OfficialProviderResult>(`/api/v1/provider/official${query}`);
-    if (!result.provider) {
+    const cloudProviders = normalizedOfficialCloudProviders(result);
+    if (cloudProviders.length === 0) {
       this.patchData({
         lastError: result.detail || result.error || "官方配置正在后台配置。",
         lastSyncedAt: new Date().toISOString(),
@@ -210,15 +220,21 @@ export class CloudAccountService {
 
     const externalGroupId = positiveInteger(result.apiKey?.externalGroupId) || requestedGroupId || this.defaultExternalGroupId();
     const group = this.groupForExternalId(externalGroupId);
-    const provider = this.saveOfficialProvider(result.provider, externalGroupId, group);
-    this.upsertProviderRef({
-      providerId: provider.id,
-      externalGroupId,
-      groupName: group?.name || result.apiKey?.groupName || result.provider.name || `group #${externalGroupId}`,
-      selectedModel: provider.selectedModel,
-      modelCount: provider.models.filter((model) => model.enabled !== false).length,
-      syncedAt: new Date().toISOString(),
+    const providers = cloudProviders.flatMap((cloudProvider) => {
+      const saved = this.saveOfficialProvider(cloudProvider, externalGroupId, group);
+      if (!saved) return [];
+      this.upsertProviderRef({
+        providerId: saved.id,
+        purpose: saved.purpose,
+        externalGroupId,
+        groupName: group?.name || result.apiKey?.groupName || cloudProvider.name || `group #${externalGroupId}`,
+        selectedModel: saved.selectedModel,
+        modelCount: saved.models.filter((model) => model.enabled !== false).length,
+        syncedAt: new Date().toISOString(),
+      });
+      return [saved];
     });
+    const provider = providers[0];
     this.patchData({
       gateway: result.gateway ?? this.data.gateway ?? null,
       lastSyncedAt: new Date().toISOString(),
@@ -227,6 +243,7 @@ export class CloudAccountService {
     return {
       status: "synced",
       provider,
+      providers,
       cloud: this.status(),
     };
   }
@@ -236,19 +253,25 @@ export class CloudAccountService {
     const externalGroupId = positiveInteger(input.externalGroupId);
     if (externalGroupId <= 0) throw new Error("请选择要使用的 Cloud 分组。");
 
-    let provider = this.providers.list().find((item) => item.id === officialProviderId(externalGroupId));
+    let groupProviders = this.officialProvidersForGroup(externalGroupId);
     let detail = "";
-    if (!provider) {
+    try {
       const synced = await this.syncOfficialProvider({ externalGroupId });
-      if (synced.status !== "synced" || !synced.provider) {
+      if (synced.status !== "synced" || !(synced.providers?.length || synced.provider)) {
         return synced;
       }
-      provider = synced.provider;
+      groupProviders = synced.providers?.length ? synced.providers : synced.provider ? [synced.provider] : [];
       detail = synced.detail || "";
+    } catch (error) {
+      if (groupProviders.length === 0) throw error;
+      detail = `官方配置刷新失败，已使用本地缓存：${errorMessage(error)}`;
     }
 
-    const activated = this.activateLocalOfficialProvider(provider.id, externalGroupId);
-    const group = this.setCurrentLocalGroup(externalGroupId);
+    const activatedProviders = this.activateLocalOfficialProviders(externalGroupId);
+    const activated = activatedProviders.find((provider) => provider.purpose === "agent") ?? activatedProviders[0];
+    const group = activatedProviders.some((provider) => provider.purpose === "agent")
+      ? this.setCurrentLocalGroup(externalGroupId)
+      : this.groupForExternalId(externalGroupId);
     this.patchData({
       lastSyncedAt: new Date().toISOString(),
       lastError: "",
@@ -256,8 +279,11 @@ export class CloudAccountService {
 
     return {
       status: "synced",
-      detail: detail || `已切换到 ${group?.name || `group #${externalGroupId}`}。`,
+      detail: detail || (activated?.purpose === "agent"
+        ? `已切换到 ${group?.name || `group #${externalGroupId}`}。`
+        : `已启用 ${group?.name || `group #${externalGroupId}`} 官方能力。`),
       provider: activated,
+      providers: activatedProviders,
       cloud: this.status(),
     };
   }
@@ -275,6 +301,7 @@ export class CloudAccountService {
 
     let cloud = await this.refresh();
     let provider: ModelProviderConfig | undefined;
+    let providers: ModelProviderConfig[] | undefined;
     let providerSyncStatus: CloudRedeemCodeResult["providerSyncStatus"];
     let providerSyncDetail = "";
     const externalGroupId = positiveInteger(redeemed.result.redemption.externalGroupId);
@@ -284,6 +311,7 @@ export class CloudAccountService {
         const synced = await this.activateOfficialProvider({ externalGroupId });
         cloud = synced.cloud;
         provider = synced.provider;
+        providers = synced.providers;
         providerSyncStatus = synced.status;
         providerSyncDetail = synced.detail || "";
       } catch (error) {
@@ -298,30 +326,38 @@ export class CloudAccountService {
       result: sanitizeRedeemResult(redeemed.result),
       cloud,
       provider,
+      providers,
       providerSyncStatus,
       providerSyncDetail,
     };
   }
 
-  private activateLocalOfficialProvider(providerId: string, externalGroupId: number): ModelProviderConfig {
+  private activateLocalOfficialProviders(externalGroupId: number): ModelProviderConfig[] {
     const providers = this.providers.list();
-    let activated: ModelProviderConfig | undefined;
+    const targetProviders = this.officialProvidersForGroup(externalGroupId);
+    if (targetProviders.length === 0) throw new Error(`本地官方分组配置不存在：${externalGroupId}`);
+    const targetPurposes = new Set<ProviderPurpose>(targetProviders.map((provider) => provider.purpose));
+    const activated: ModelProviderConfig[] = [];
     for (const provider of providers) {
       if (!isOfficialProviderId(provider.id)) continue;
-      const enabled = provider.id === providerId;
+      if (!targetPurposes.has(provider.purpose)) continue;
+      const enabled = this.officialProviderExternalGroupId(provider.id) === externalGroupId;
       const saved = this.providers.save(providerToDraft(provider, { enabled })).provider;
-      if (enabled) activated = saved;
+      if (enabled) activated.push(saved);
     }
-    if (!activated) throw new Error(`本地官方分组配置不存在：${externalGroupId}`);
-    const ref = (this.data.providerRefs ?? []).find((item) => item.externalGroupId === externalGroupId || item.providerId === providerId);
-    this.upsertProviderRef({
-      providerId: activated.id,
-      externalGroupId,
-      groupName: ref?.groupName || this.groupForExternalId(externalGroupId)?.name || activated.name,
-      selectedModel: activated.selectedModel,
-      modelCount: activated.models.filter((model) => model.enabled !== false).length,
-      syncedAt: new Date().toISOString(),
-    });
+    if (activated.length === 0) throw new Error(`本地官方分组配置不存在：${externalGroupId}`);
+    for (const provider of activated) {
+      const ref = (this.data.providerRefs ?? []).find((item) => item.providerId === provider.id || (item.externalGroupId === externalGroupId && item.purpose === provider.purpose));
+      this.upsertProviderRef({
+        providerId: provider.id,
+        purpose: provider.purpose,
+        externalGroupId,
+        groupName: ref?.groupName || this.groupForExternalId(externalGroupId)?.name || provider.name,
+        selectedModel: provider.selectedModel,
+        modelCount: provider.models.filter((model) => model.enabled !== false).length,
+        syncedAt: new Date().toISOString(),
+      });
+    }
     return activated;
   }
 
@@ -372,25 +408,62 @@ export class CloudAccountService {
     return this.status();
   }
 
-  private saveOfficialProvider(provider: CloudProviderConfig, externalGroupId: number, group?: CloudGatewayGroup): ModelProviderConfig {
+  private saveOfficialProvider(provider: CloudProviderConfig, externalGroupId: number, group?: CloudGatewayGroup): ModelProviderConfig | undefined {
+    const purpose = officialProviderPurpose(provider);
+    if (!purpose) return undefined;
     const models = normalizeCloudProviderModels(provider.models, provider.selectedModel);
-    const selectedModel = selectedEnabledModel(provider.selectedModel, models);
+    if (models.length === 0) return undefined;
+    const providerId = officialProviderId(externalGroupId, purpose);
+    const existing = this.providers.list().find((item) => item.id === providerId);
+    const selectedModel = selectedEnabledModel(existing?.selectedModel || provider.selectedModel, models);
     const nameSuffix = group?.name || (externalGroupId > 0 ? `group #${externalGroupId}` : "");
     const draft: ProviderDraftInput = {
-      id: officialProviderId(externalGroupId),
-      purpose: "agent",
-      providerKind: "custom-anthropic",
-      name: nameSuffix ? `Brevyn Official · ${nameSuffix}` : provider.name || "Brevyn Official",
-      protocol: "anthropic_messages",
+      id: providerId,
+      purpose,
+      providerKind: officialProviderKind(provider, purpose),
+      name: nameSuffix ? `${provider.name || officialProviderDefaultName(purpose)} · ${nameSuffix}` : provider.name || officialProviderDefaultName(purpose),
+      protocol: officialProviderProtocol(provider, purpose),
       baseUrl: stringValue(provider.baseUrl).trim(),
       apiKey: stringValue(provider.apiKey).trim(),
       clearApiKey: false,
-      authMode: "api_key",
+      authMode: officialProviderAuthMode(provider, purpose),
       models,
       selectedModel,
-      enabled: provider.enabled !== false,
+      enabled: existing?.enabled ?? provider.enabled !== false,
     };
     return this.providers.save(draft).provider;
+  }
+
+  private officialProvidersForGroup(externalGroupId: number): ModelProviderConfig[] {
+    return this.providers.list().filter((provider) =>
+      isOfficialProviderId(provider.id) && this.officialProviderExternalGroupId(provider.id) === externalGroupId,
+    );
+  }
+
+  private officialProviderExternalGroupId(providerId: string): number {
+    const ref = (this.data.providerRefs ?? []).find((item) => item.providerId === providerId);
+    return positiveInteger(ref?.externalGroupId) || officialProviderIdGroup(providerId);
+  }
+
+  private async refreshKnownOfficialProviders(): Promise<string[]> {
+    const groupIds = new Set<number>();
+    const addGroupId = (value: unknown) => {
+      const id = positiveInteger(value);
+      if (id > 0) groupIds.add(id);
+    };
+    for (const ref of this.data.providerRefs ?? []) addGroupId(ref.externalGroupId);
+    addGroupId(this.data.currentGroup?.externalGroupId);
+    addGroupId(this.data.gateway?.defaultGroupId);
+
+    const errors: string[] = [];
+    for (const externalGroupId of groupIds) {
+      try {
+        await this.syncOfficialProvider({ externalGroupId });
+      } catch (error) {
+        errors.push(`官方配置同步失败 group #${externalGroupId}：${errorMessage(error)}`);
+      }
+    }
+    return errors;
   }
 
   private async request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
@@ -488,7 +561,10 @@ export class CloudAccountService {
 
   private upsertProviderRef(ref: CloudOfficialProviderRef): void {
     const refs = cloneProviderRefs(this.data.providerRefs ?? []);
-    const index = refs.findIndex((item) => item.externalGroupId === ref.externalGroupId || item.providerId === ref.providerId);
+    const index = refs.findIndex((item) =>
+      item.providerId === ref.providerId ||
+      (item.externalGroupId === ref.externalGroupId && item.purpose === ref.purpose && Boolean(ref.purpose)),
+    );
     if (index >= 0) refs[index] = ref;
     else refs.push(ref);
     this.patchData({ providerRefs: refs });
@@ -597,12 +673,89 @@ function selectedEnabledModel(selectedModel: string, models: ProviderModel[]): s
   return models.find((model) => model.enabled !== false)?.id || "";
 }
 
-function officialProviderId(externalGroupId: number): string {
-  return `provider-brevyn-cloud-official-${externalGroupId > 0 ? externalGroupId : "default"}`;
+function normalizedOfficialCloudProviders(result: OfficialProviderResult): CloudProviderConfig[] {
+  const providers = Array.isArray(result.providers)
+    ? result.providers.filter((provider) => provider && typeof provider === "object")
+    : [];
+  if (providers.length > 0) return providers;
+  return result.provider ? [result.provider] : [];
+}
+
+function officialProviderId(externalGroupId: number, purpose: ProviderPurpose = "agent"): string {
+  const suffix = externalGroupId > 0 ? String(externalGroupId) : "default";
+  if (purpose === "agent") return `provider-brevyn-cloud-official-${suffix}`;
+  return `provider-brevyn-cloud-official-${purpose}-${suffix}`;
 }
 
 function isOfficialProviderId(providerId: string): boolean {
   return providerId.startsWith("provider-brevyn-cloud-official-");
+}
+
+function officialProviderIdGroup(providerId: string): number {
+  const suffix = providerId.slice("provider-brevyn-cloud-official-".length);
+  const parts = suffix.split("-");
+  const raw = parts[0] === "embedding" || parts[0] === "vision" ? parts.slice(1).join("-") : suffix;
+  return positiveInteger(raw);
+}
+
+function officialProviderPurpose(provider: CloudProviderConfig): ProviderPurpose | undefined {
+  const purpose = stringValue(provider.purpose);
+  if (purpose === "agent" || purpose === "embedding" || purpose === "vision") return purpose;
+  if (provider.protocol === "openai_compatible") return "embedding";
+  if (provider.protocol === "openai_responses") return "vision";
+  if (provider.protocol === "anthropic_messages") return "agent";
+  return undefined;
+}
+
+function officialProviderKind(provider: CloudProviderConfig, purpose: ProviderPurpose): ProviderKind {
+  const kind = stringValue(provider.providerKind);
+  if (purpose === "embedding") return kind === "openai" || kind === "qwen" || kind === "doubao" || kind === "zhipu" || kind === "minimax" || kind === "custom-openai"
+    ? kind
+    : "custom-openai";
+  if (purpose === "vision") {
+    if (
+      kind === "vision-bailian-openai" ||
+      kind === "vision-custom-openai" ||
+      kind === "vision-custom-anthropic" ||
+      kind === "vision-openai-responses" ||
+      kind === "vision-custom-openai-responses"
+    ) return kind;
+    return provider.protocol === "anthropic_messages" ? "vision-custom-anthropic" : "vision-custom-openai";
+  }
+  if (
+    kind === "anthropic" ||
+    kind === "deepseek" ||
+    kind === "bailian-anthropic" ||
+    kind === "kimi-api" ||
+    kind === "kimi-coding" ||
+    kind === "custom-anthropic" ||
+    kind === "openai-responses-agent"
+  ) return kind;
+  return "custom-anthropic";
+}
+
+function officialProviderProtocol(provider: CloudProviderConfig, purpose: ProviderPurpose): ProviderDraftInput["protocol"] {
+  const protocol = stringValue(provider.protocol);
+  if (purpose === "embedding") return "openai_compatible";
+  if (purpose === "vision") {
+    if (protocol === "anthropic_messages" || protocol === "openai_responses") return protocol;
+    return "openai_compatible";
+  }
+  if (protocol === "openai_responses") return "openai_responses";
+  return "anthropic_messages";
+}
+
+function officialProviderAuthMode(provider: CloudProviderConfig, purpose: ProviderPurpose): ProviderDraftInput["authMode"] {
+  void purpose;
+  const authMode = stringValue(provider.authMode);
+  if (authMode === "api_key" || authMode === "auth_token" || authMode === "bearer") return authMode;
+  return "api_key";
+}
+
+function officialProviderDefaultName(purpose: ProviderPurpose): string {
+  if (purpose === "embedding") return "Brevyn Official Embedding";
+  if (purpose === "vision") return "Brevyn Official Vision";
+  return "Brevyn Official";
 }
 
 function providerToDraft(provider: ModelProviderConfig, overrides: Partial<ProviderDraftInput> = {}): ProviderDraftInput {
@@ -771,6 +924,7 @@ function cloneProviderRefs(refs: unknown): CloudOfficialProviderRef[] {
     if (!providerId || externalGroupId <= 0) return [];
     return [{
       providerId,
+      purpose: item.purpose === "agent" || item.purpose === "embedding" || item.purpose === "vision" ? item.purpose : undefined,
       externalGroupId,
       groupName: stringValue(item.groupName),
       selectedModel: stringValue(item.selectedModel),
