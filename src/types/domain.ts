@@ -948,6 +948,273 @@ export interface AgentGatewayStatus {
   error?: string;
 }
 
+export interface CloudUser {
+  id: string;
+  email: string;
+  displayName: string;
+  status: string;
+}
+
+export interface CloudTokenPair {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  expiresIn: number;
+}
+
+export interface CloudWallet {
+  balance: number;
+}
+
+export interface CloudGatewayAccount {
+  provider: string;
+  externalUserId: number;
+  externalEmail: string;
+  defaultGroupId: number;
+  concurrency: number;
+  status: string;
+  lastSyncedAt: string | null;
+}
+
+export interface CloudGatewayGroup {
+  externalGroupId: number;
+  name: string;
+  description: string;
+  platform: string;
+  subscriptionType: string;
+  rateMultiplier: number;
+  dailyLimitUsd?: number;
+  weeklyLimitUsd?: number;
+  monthlyLimitUsd?: number;
+  defaultValidityDays: number;
+  rpmLimit: number;
+  status: string;
+  modelCount: number;
+  source?: string;
+  isCurrent: boolean;
+}
+
+export interface CloudEntitlementWallet {
+  source: string;
+  scope: string;
+  remaining: number;
+  unit: string;
+  status: string;
+}
+
+export interface CloudQuotaWindow {
+  limit: number;
+  used: number;
+  remaining: number;
+  unit: string;
+  windowStart?: string | null;
+}
+
+export interface CloudBalanceGroupEntitlement {
+  externalGroupId: number;
+  name: string;
+  description?: string;
+  platform: string;
+  billingKind: "balance";
+  subscriptionType: "standard";
+  balanceScope: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  unit: string;
+  rateMultiplier: number;
+  status: string;
+  groupStatus?: string;
+  modelCount: number;
+  source?: string;
+  isCurrent: boolean;
+}
+
+export interface CloudSubscriptionGroupEntitlement {
+  externalGroupId: number;
+  name: string;
+  description?: string;
+  platform: string;
+  billingKind: "subscription";
+  subscriptionType: "subscription";
+  rateMultiplier: number;
+  status: string;
+  groupStatus?: string;
+  modelCount: number;
+  source?: string;
+  isCurrent: boolean;
+  subscriptionId?: number;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  remaining: number;
+  unit: string;
+  unlimited: boolean;
+  constrainingWindow?: string;
+  depletedWindow?: string;
+  daily?: CloudQuotaWindow;
+  weekly?: CloudQuotaWindow;
+  monthly?: CloudQuotaWindow;
+  defaultValidityDays: number;
+}
+
+export type CloudGatewayEntitlementGroup = CloudBalanceGroupEntitlement | CloudSubscriptionGroupEntitlement;
+
+export interface CloudGatewayEntitlements {
+  externalUserId: number;
+  wallet: CloudEntitlementWallet;
+  balanceGroups: CloudBalanceGroupEntitlement[];
+  subscriptionGroups: CloudSubscriptionGroupEntitlement[];
+  updatedAt: string;
+  stale: boolean;
+}
+
+export interface CloudModelCatalogInput {
+  externalGroupId?: number;
+}
+
+export interface CloudProviderModel {
+  id: string;
+  name: string;
+  displayName: string;
+  providerFamily: string;
+  platform?: string;
+  externalGroupId?: number;
+  groupName?: string;
+  billingMode?: string;
+  capabilities: string[];
+  supportsVision: boolean;
+  supportsStreaming: boolean;
+  enabled: boolean;
+}
+
+export interface CloudProviderConfig {
+  purpose: string;
+  providerKind: string;
+  adapterKind: string;
+  protocol: string;
+  name: string;
+  baseUrl: string;
+  authMode: string;
+  apiKey: string;
+  selectedModel: string;
+  enabled: boolean;
+  models: CloudProviderModel[];
+}
+
+export interface CloudModelCatalogResult {
+  items: CloudProviderModel[];
+  total: number;
+  externalGroupId: number;
+}
+
+export interface CloudAPIKey {
+  id: string;
+  provider: string;
+  externalKeyId: number;
+  externalGroupId: number;
+  groupName?: string;
+  groupType?: string;
+  platform?: string;
+  maskedApiKey: string;
+  status: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+export interface CloudAPIError {
+  code: string;
+  message: string;
+}
+
+export interface CloudRedemption {
+  id: string;
+  codeId: string;
+  productName: string;
+  kind: string;
+  value: number;
+  validityDays: number;
+  externalUserId: number;
+  externalGroupId: number;
+  gatewayOperation: string;
+  status: string;
+  errorMessage: string;
+  errorCode: string;
+  errorClass: string;
+  errorStage: string;
+  errorRetryable: boolean;
+  errorDetail: string;
+  createdAt: string;
+}
+
+export interface CloudRedeemResult {
+  redemption: CloudRedemption;
+  wallet: CloudWallet;
+  gateway: CloudGatewayAccount;
+  apiKey?: CloudAPIKey;
+}
+
+export interface CloudOfficialProviderRef {
+  providerId: string;
+  externalGroupId: number;
+  groupName: string;
+  selectedModel: string;
+  modelCount: number;
+  syncedAt: string;
+}
+
+export interface CloudAccountStatus {
+  baseUrl: string;
+  authenticated: boolean;
+  user: CloudUser | null;
+  wallet: CloudWallet | null;
+  gateway: CloudGatewayAccount | null;
+  currentGroup: CloudGatewayGroup | null;
+  groups: CloudGatewayGroup[];
+  entitlements: CloudGatewayEntitlements | null;
+  providerRefs: CloudOfficialProviderRef[];
+  lastSyncedAt?: string;
+  lastError?: string;
+}
+
+export type CloudAuthMode = "login" | "register";
+
+export interface CloudAuthInput {
+  baseUrl?: string;
+  email: string;
+  password: string;
+  displayName?: string;
+}
+
+export interface CloudSyncOfficialProviderInput {
+  externalGroupId?: number;
+}
+
+export interface CloudActivateOfficialProviderInput {
+  externalGroupId: number;
+}
+
+export interface CloudRedeemCodeInput {
+  code: string;
+}
+
+export interface CloudOfficialProviderSyncResult {
+  status: "synced" | "provisioning";
+  detail?: string;
+  retryAfterSeconds?: number;
+  provider?: ModelProviderConfig;
+  cloud: CloudAccountStatus;
+}
+
+export interface CloudRedeemCodeResult {
+  status: string;
+  error?: CloudAPIError;
+  result: CloudRedeemResult;
+  cloud: CloudAccountStatus;
+  provider?: ModelProviderConfig;
+  providerSyncStatus?: "synced" | "provisioning" | "failed";
+  providerSyncDetail?: string;
+}
+
 export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
@@ -1052,6 +1319,17 @@ export interface BrevynAPI {
   agentGateway: {
     status: () => Promise<AgentGatewayStatus>;
     setEnabled: (enabled: boolean) => Promise<AgentGatewayStatus>;
+  };
+  cloud: {
+    status: () => Promise<CloudAccountStatus>;
+    login: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
+    register: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
+    refresh: () => Promise<CloudAccountStatus>;
+    modelsCatalog: (input?: CloudModelCatalogInput) => Promise<CloudModelCatalogResult>;
+    syncOfficialProvider: (input?: CloudSyncOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
+    activateOfficialProvider: (input: CloudActivateOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
+    redeemCode: (input: CloudRedeemCodeInput) => Promise<CloudRedeemCodeResult>;
+    logout: () => Promise<CloudAccountStatus>;
   };
   attachments: {
     pick: (threadId: string) => Promise<AgentAttachment[]>;

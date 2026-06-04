@@ -8,9 +8,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  CircleAlert,
+  Cloud,
   Database,
   Eye,
   EyeOff,
+  ExternalLink,
   FileText,
   FolderOpen,
   GitBranch,
@@ -18,6 +21,7 @@ import {
   KeyRound,
   Languages,
   Layers3,
+  LogOut,
   MessageSquare,
   Minus,
   PlugZap,
@@ -28,12 +32,15 @@ import {
   Save,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   TerminalSquare,
   ToggleLeft,
   ToggleRight,
   Upload,
   Trash2,
+  UserRound,
+  Wallet,
   Wrench,
   X,
 } from "lucide-react";
@@ -46,6 +53,14 @@ import { getProviderKindLogo, getProviderProfileLogo, resolveModelProviderLogo }
 import { withInferredContextWindow } from "../../../shared/model-context-window";
 import {
   AGENT_PROVIDER_PRESETS,
+  type CloudAccountStatus,
+  type CloudAuthMode,
+  type CloudBalanceGroupEntitlement,
+  type CloudGatewayGroup,
+  type CloudProviderModel,
+  type CloudQuotaWindow,
+  type CloudRedeemCodeResult,
+  type CloudSubscriptionGroupEntitlement,
   DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
   EMBEDDING_PROVIDER_PRESETS,
   PROVIDER_PRESETS,
@@ -72,13 +87,14 @@ import {
 } from "../../../types/domain";
 import { cx } from "@/lib/cn";
 
-type SettingsPage = "general" | "providers" | "archive" | "skills" | "about";
+type SettingsPage = "account" | "general" | "providers" | "archive" | "skills" | "about";
 type VisionTestKind = "calendar" | "timetable";
 type VisionTestResult = RecognizedAcademicCalendar | RecognizedCourseTimetable;
 type ProviderBusyAction =
   | "agent-save"
   | "agent-delete"
   | "agent-toggle"
+  | "agent-official-toggle"
   | "agent-fetch"
   | "agent-test"
   | "embedding-save"
@@ -91,6 +107,19 @@ type ProviderBusyAction =
   | "vision-toggle"
   | "vision-fetch"
   | "vision-test";
+type CloudBusyAction = "" | "status" | "login" | "register" | "refresh" | "redeem" | "logout" | `sync:${number}` | `activate:${number}`;
+interface CloudAccountForm {
+  baseUrl: string;
+  email: string;
+  password: string;
+  displayName: string;
+}
+interface CloudGroupModelCatalogState {
+  status: "loading" | "ready" | "error";
+  models: CloudProviderModel[];
+  total: number;
+  error?: string;
+}
 
 const agentProviderKinds = Object.keys(AGENT_PROVIDER_PRESETS) as AgentProviderKind[];
 const embeddingProviderKinds = Object.keys(EMBEDDING_PROVIDER_PRESETS) as EmbeddingProviderKind[];
@@ -99,6 +128,8 @@ const visionProviderKinds = Object.keys(VISION_PROVIDER_PRESETS) as VisionProvid
 const SEMESTER_HOME_COURSE_ID = "semester-home";
 const PROVIDER_PROFILE_ROW_HEIGHT_CLASS = "h-[72px]";
 const PROVIDER_PROFILE_LIST_HEIGHT_CLASS = "max-h-[312px]";
+const OFFICIAL_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-official-";
+const CLOUD_SHOP_URL = "https://pay.ldxp.cn/shop/6B9RTIVH";
 
 const emptyDraft: ProviderDraftInput = {
   purpose: "agent",
@@ -151,6 +182,7 @@ export function SettingsDialog({
   gitStatus,
   onSkillsChange,
   onWorkspaceChanged,
+  onAgentProviderChanged,
   onClose,
 }: {
   initialPage?: SettingsPage;
@@ -160,6 +192,7 @@ export function SettingsDialog({
   gitStatus: GitStatus | null;
   onSkillsChange: (skills: SkillItem[]) => void;
   onWorkspaceChanged?: () => Promise<void> | void;
+  onAgentProviderChanged?: (providerSelection: string) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [activePage, setActivePage] = useState<SettingsPage>(initialPage);
@@ -185,15 +218,30 @@ export function SettingsDialog({
   const [providerBusyActions, setProviderBusyActions] = useState<Partial<Record<ProviderBusyAction, boolean>>>({});
   const [agentGatewayStatus, setAgentGatewayStatus] = useState<AgentGatewayStatus | null>(null);
   const [agentGatewayBusy, setAgentGatewayBusy] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<CloudAccountStatus | null>(null);
+  const [cloudMode, setCloudMode] = useState<CloudAuthMode>("login");
+  const [cloudBusyAction, setCloudBusyAction] = useState<CloudBusyAction>("status");
+  const [cloudStatusLine, setCloudStatusLine] = useState("");
+  const [cloudRedeemCode, setCloudRedeemCode] = useState("");
+  const [cloudRedeemResult, setCloudRedeemResult] = useState<CloudRedeemCodeResult | null>(null);
+  const [cloudGroupModels, setCloudGroupModels] = useState<Record<number, CloudGroupModelCatalogState>>({});
+  const [cloudForm, setCloudForm] = useState<CloudAccountForm>({
+    baseUrl: "http://127.0.0.1:4000",
+    email: "",
+    password: "",
+    displayName: "",
+  });
   const [localSkills, setLocalSkills] = useState(skills);
   const [selectedSkillId, setSelectedSkillId] = useState("");
   const [skillContent, setSkillContent] = useState("");
   const [skillStatusLine, setSkillStatusLine] = useState("");
   const [skillBusy, setSkillBusy] = useState(false);
   const { confirm: confirmProviderAction, confirmDialog: providerConfirmDialog } = useConfirmDialog();
+  const { confirm: confirmCloudRedeem, confirmDialog: cloudRedeemConfirmDialog } = useConfirmDialog();
   const providerApiKeyLoadRequestRef = useRef(0);
   const embeddingApiKeyLoadRequestRef = useRef(0);
   const visionApiKeyLoadRequestRef = useRef(0);
+  const cloudModelCatalogRequestsRef = useRef<Set<number>>(new Set());
   const agentModelsFetchRequestRef = useRef(0);
   const embeddingModelsFetchRequestRef = useRef(0);
   const visionModelsFetchRequestRef = useRef(0);
@@ -216,12 +264,46 @@ export function SettingsDialog({
   const visionProviderDetail = activeVisionProviders.length > 1
     ? "多个 Vision"
     : activeVisionProviders[0]?.selectedModel || "未配置视觉模型";
+  const cloudNavDetail = cloudStatus?.authenticated
+    ? cloudStatus.user?.email || "已登录"
+    : "登录后自动配置官方模型";
+  const cloudPlanGroupIds = useMemo(() => {
+    const ids = new Set<number>();
+    const addId = (value?: number | null) => {
+      const id = Number(value || 0);
+      if (Number.isFinite(id) && id > 0) ids.add(Math.floor(id));
+    };
+    for (const group of cloudStatus?.entitlements?.balanceGroups ?? []) addId(group.externalGroupId);
+    for (const group of cloudStatus?.entitlements?.subscriptionGroups ?? []) addId(group.externalGroupId);
+    for (const group of cloudStatus?.groups ?? []) addId(group.externalGroupId);
+    return [...ids].sort((a, b) => a - b);
+  }, [cloudStatus?.entitlements, cloudStatus?.groups]);
+  const cloudPlanGroupIdsKey = cloudPlanGroupIds.join(",");
 
   useEffect(() => {
     void loadProviders();
     void loadEmbeddingMutable();
     void loadAgentGatewayStatus();
+    void loadCloudStatus();
   }, []);
+
+  useEffect(() => {
+    if (!cloudStatus?.authenticated) {
+      cloudModelCatalogRequestsRef.current.clear();
+      setCloudGroupModels({});
+      return;
+    }
+    if (activePage !== "account") return;
+    for (const externalGroupId of cloudPlanGroupIds) {
+      if (cloudModelCatalogRequestsRef.current.has(externalGroupId)) continue;
+      cloudModelCatalogRequestsRef.current.add(externalGroupId);
+      setCloudGroupModels((current) => ({
+        ...current,
+        [externalGroupId]: current[externalGroupId] ?? { status: "loading", models: [], total: 0 },
+      }));
+      void loadCloudGroupModels(externalGroupId);
+    }
+  }, [activePage, cloudStatus?.authenticated, cloudPlanGroupIdsKey]);
 
   useEffect(() => {
     const unsubscribe = window.brevyn.files.onChanged(() => {
@@ -400,6 +482,224 @@ export function SettingsDialog({
       setAgentGatewayStatus(await window.brevyn.agentGateway.status());
     } catch (error) {
       console.warn("[agent-gateway] Failed to load status", error);
+    }
+  }
+
+  async function loadCloudStatus() {
+    setCloudBusyAction((current) => current || "status");
+    try {
+      const status = await window.brevyn.cloud.status();
+      setCloudStatus(status);
+      setCloudForm((current) => ({
+        ...current,
+        baseUrl: status.baseUrl || current.baseUrl,
+        email: current.email || status.user?.email || "",
+      }));
+      setCloudStatusLine(status.lastError || "");
+    } catch (error) {
+      setCloudStatusLine(`加载账号状态失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction((current) => (current === "status" ? "" : current));
+    }
+  }
+
+  async function loadCloudGroupModels(externalGroupId: number) {
+    try {
+      const result = await window.brevyn.cloud.modelsCatalog({ externalGroupId });
+      const models = (result.items ?? []).filter((model) => model.enabled !== false);
+      setCloudGroupModels((current) => ({
+        ...current,
+        [externalGroupId]: {
+          status: "ready",
+          models,
+          total: Number.isFinite(result.total) ? result.total : models.length,
+        },
+      }));
+    } catch (error) {
+      setCloudGroupModels((current) => ({
+        ...current,
+        [externalGroupId]: {
+          status: "error",
+          models: current[externalGroupId]?.models ?? [],
+          total: current[externalGroupId]?.total ?? 0,
+          error: errorMessage(error),
+        },
+      }));
+    }
+  }
+
+  async function submitCloudAuth(mode: CloudAuthMode) {
+    setCloudBusyAction(mode);
+    setCloudStatusLine("");
+    try {
+      const input = {
+        baseUrl: cloudForm.baseUrl,
+        email: cloudForm.email,
+        password: cloudForm.password,
+        displayName: cloudForm.displayName,
+      };
+      const result = mode === "register"
+        ? await window.brevyn.cloud.register(input)
+        : await window.brevyn.cloud.login(input);
+      setCloudStatus(result.cloud);
+      setCloudForm((current) => ({ ...current, password: "" }));
+      setCloudRedeemResult(null);
+      setCloudStatusLine(cloudSyncResultLine(result.status, result.detail, result.provider?.name));
+      await loadProviders();
+    } catch (error) {
+      setCloudStatusLine(errorMessage(error, mode === "register" ? "注册失败。" : "登录失败。"));
+    } finally {
+      setCloudBusyAction("");
+    }
+  }
+
+  async function refreshCloudAccount() {
+    setCloudBusyAction("refresh");
+    setCloudStatusLine("");
+    try {
+      const status = await window.brevyn.cloud.refresh();
+      setCloudStatus(status);
+      setCloudRedeemResult(null);
+      setCloudStatusLine(status.lastError || "账号、余额和套餐信息已刷新。");
+    } catch (error) {
+      setCloudStatusLine(`刷新账号失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction("");
+    }
+  }
+
+  async function syncCloudOfficialProvider(externalGroupId?: number) {
+    const action: CloudBusyAction = externalGroupId ? `sync:${externalGroupId}` : "refresh";
+    setCloudBusyAction(action);
+    setCloudStatusLine("");
+    try {
+      const result = await window.brevyn.cloud.syncOfficialProvider(externalGroupId ? { externalGroupId } : undefined);
+      setCloudStatus(result.cloud);
+      setCloudRedeemResult(null);
+      setCloudStatusLine(cloudSyncResultLine(result.status, result.detail, result.provider?.name));
+      if (result.status === "synced") {
+        await loadProviders();
+        showProviderToast(result.provider ? `已同步 ${result.provider.name}。` : "官方模型配置已同步。");
+      }
+    } catch (error) {
+      setCloudStatusLine(`同步官方配置失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction("");
+    }
+  }
+
+  async function activateCloudOfficialProvider(externalGroupId: number) {
+    const action: CloudBusyAction = `activate:${externalGroupId}`;
+    setCloudBusyAction(action);
+    try {
+      const result = await window.brevyn.cloud.activateOfficialProvider({ externalGroupId });
+      setCloudStatus(result.cloud);
+      setCloudStatusLine(cloudActivateResultLine(result.provider?.name, result.detail));
+      if (result.status === "synced" && result.provider) {
+        cacheCloudGroupModelsFromProvider(externalGroupId, result.provider);
+        void refreshActivatedOfficialProvider(result.provider);
+      }
+    } catch (error) {
+      setCloudStatusLine(`切换官方分组失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction("");
+    }
+  }
+
+  async function refreshActivatedOfficialProvider(provider: ModelProviderConfig) {
+    try {
+      await loadProviders();
+      await onAgentProviderChanged?.(agentProviderSelectionValue(provider.id, provider.selectedModel));
+      showProviderToast(`当前官方分组已切换到 ${provider.name}。`);
+    } catch (error) {
+      setCloudStatusLine(`套餐已切换，本地模型刷新失败：${errorMessage(error)}`);
+    }
+  }
+
+  function cacheCloudGroupModelsFromProvider(externalGroupId: number, provider: ModelProviderConfig) {
+    const models = provider.models
+      .filter((model) => model.enabled !== false)
+      .map((model): CloudProviderModel => ({
+        id: model.id,
+        name: model.name || model.id,
+        displayName: model.name || model.id,
+        providerFamily: "",
+        externalGroupId,
+        groupName: provider.name,
+        billingMode: "",
+        capabilities: model.supportsVision ? ["vision_input"] : [],
+        supportsVision: model.supportsVision === true,
+        supportsStreaming: true,
+        enabled: model.enabled !== false,
+      }));
+    setCloudGroupModels((current) => ({
+      ...current,
+      [externalGroupId]: {
+        status: "ready",
+        models,
+        total: models.length,
+      },
+    }));
+  }
+
+  async function redeemCloudCode() {
+    const code = cloudRedeemCode.trim();
+    if (!code) {
+      setCloudStatusLine("请输入兑换码。");
+      return;
+    }
+    setCloudBusyAction("redeem");
+    setCloudStatusLine("");
+    setCloudRedeemResult(null);
+    try {
+      const result = await window.brevyn.cloud.redeemCode({ code });
+      setCloudStatus(result.cloud);
+      setCloudRedeemResult(result);
+      setCloudRedeemCode("");
+      setCloudStatusLine(cloudRedeemResultLine(result));
+      if (result.providerSyncStatus === "synced") {
+        await loadProviders();
+        if (result.provider) await onAgentProviderChanged?.(agentProviderSelectionValue(result.provider.id, result.provider.selectedModel));
+        showProviderToast(result.provider ? `已同步 ${result.provider.name}。` : "兑换分组已同步到本地 Provider。");
+      }
+      void confirmCloudRedeem({
+        title: redeemConfirmationTitle(result),
+        message: <RedeemConfirmationMessage result={result} groups={result.cloud.groups ?? cloudStatus?.groups ?? []} />,
+        confirmLabel: "知道了",
+        cancelLabel: "关闭",
+      });
+    } catch (error) {
+      setCloudStatusLine(`兑换失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction("");
+    }
+  }
+
+  async function openCloudShop() {
+    setCloudStatusLine("");
+    try {
+      await window.brevyn.app.openExternal(CLOUD_SHOP_URL);
+      setCloudStatusLine("已在外部浏览器打开购买页面。");
+    } catch (error) {
+      setCloudStatusLine(`打开购买页面失败：${errorMessage(error)}`);
+    }
+  }
+
+  async function logoutCloudAccount() {
+    setCloudBusyAction("logout");
+    setCloudStatusLine("");
+    try {
+      const status = await window.brevyn.cloud.logout();
+      setCloudStatus(status);
+      setCloudForm((current) => ({ ...current, password: "" }));
+      setCloudRedeemCode("");
+      setCloudRedeemResult(null);
+      setCloudStatusLine("已退出 Cloud，并清理本地官方模型配置。");
+      await loadProviders();
+    } catch (error) {
+      setCloudStatusLine(`退出失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction("");
     }
   }
 
@@ -699,6 +999,39 @@ export function SettingsDialog({
     }
   }
 
+  async function toggleOfficialProviders() {
+    const officialProviders = providers.filter(isOfficialAgentProvider);
+    const enabledOfficialProvider = officialProviders.find((provider) => provider.enabled);
+    const nextEnabled = !enabledOfficialProvider;
+    const targetProvider = enabledOfficialProvider || officialProviders[0];
+    if (!targetProvider) {
+      setStatusLine("还没有官方模型配置。请先在账号页登录 Cloud 并同步分组。");
+      return;
+    }
+
+    setProviderBusy("agent-official-toggle", true);
+    try {
+      for (const provider of officialProviders) {
+        const shouldEnable = nextEnabled && provider.id === targetProvider.id;
+        if (provider.enabled === shouldEnable) continue;
+        await window.brevyn.providers.save(toProviderDraft(provider, { enabled: shouldEnable }));
+      }
+
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      const savedTarget = next.find((provider) => provider.id === targetProvider.id);
+      if (savedTarget && selectedProviderId === savedTarget.id) selectProvider(savedTarget);
+      if (nextEnabled && savedTarget?.selectedModel) {
+        await onAgentProviderChanged?.(agentProviderSelectionValue(savedTarget.id, savedTarget.selectedModel));
+      }
+      setStatusLine(nextEnabled ? `官方模型配置已启用：${providerDisplayName(targetProvider)}。` : "官方模型配置已关闭。");
+    } catch (error) {
+      setStatusLine(`更新官方模型配置失败：${errorMessage(error)}`);
+    } finally {
+      setProviderBusy("agent-official-toggle", false);
+    }
+  }
+
   async function toggleEmbeddingProvider(provider: ModelProviderConfig) {
     if (embeddingLockedByIndexing) {
       setEmbeddingStatusLine("当前有向量索引任务正在进行。请等待完成或取消后，再启用或关闭 Embedding 配置。");
@@ -959,6 +1292,7 @@ export function SettingsDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6">
       {providerConfirmDialog}
+      {cloudRedeemConfirmDialog}
       {providerToast && (
         <div className="pointer-events-none absolute top-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-lg ring-1 ring-border/60">
           <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -986,6 +1320,13 @@ export function SettingsDialog({
         <div className="grid min-h-0 flex-1 md:grid-cols-[220px_1fr]">
           <aside className="border-r bg-background/45 p-3">
             <div className="space-y-1.5">
+              <SettingsNavButton
+                active={activePage === "account"}
+                icon={<UserRound className="h-4 w-4" />}
+                title="账号"
+                detail={cloudNavDetail}
+                onClick={() => setActivePage("account")}
+              />
               <SettingsNavButton
                 active={activePage === "general"}
                 icon={<Languages className="h-4 w-4" />}
@@ -1025,7 +1366,27 @@ export function SettingsDialog({
           </aside>
 
           <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar")}>
-            {activePage === "general" ? (
+            {activePage === "account" ? (
+              <AccountSettingsPage
+                cloudStatus={cloudStatus}
+                cloudMode={cloudMode}
+                cloudForm={cloudForm}
+                busyAction={cloudBusyAction}
+                statusLine={cloudStatusLine}
+                redeemCode={cloudRedeemCode}
+                redeemResult={cloudRedeemResult}
+                groupModels={cloudGroupModels}
+                onModeChange={setCloudMode}
+                onFormChange={setCloudForm}
+                onRedeemCodeChange={setCloudRedeemCode}
+                onSubmitAuth={() => void submitCloudAuth(cloudMode)}
+                onRefresh={() => void refreshCloudAccount()}
+                onActivateGroup={(externalGroupId) => void activateCloudOfficialProvider(externalGroupId)}
+                onRedeem={() => void redeemCloudCode()}
+                onOpenShop={() => void openCloudShop()}
+                onLogout={() => void logoutCloudAccount()}
+              />
+            ) : activePage === "general" ? (
               <GeneralSettingsPage />
             ) : activePage === "providers" ? (
               <ProviderSettingsPage
@@ -1060,6 +1421,7 @@ export function SettingsDialog({
                 onCloseEmbeddingEditor={closeEmbeddingEditor}
                 onCloseVisionEditor={closeVisionEditor}
                 onToggleProvider={toggleProvider}
+                onToggleOfficialProviders={toggleOfficialProviders}
                 onToggleEmbeddingProvider={toggleEmbeddingProvider}
                 onToggleVisionProvider={toggleVisionProvider}
                 onDeleteProvider={(provider) => void deleteProvider(provider)}
@@ -1105,6 +1467,616 @@ export function SettingsDialog({
           </main>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AccountSettingsPage({
+  cloudStatus,
+  cloudMode,
+  cloudForm,
+  busyAction,
+  statusLine,
+  redeemCode,
+  redeemResult,
+  groupModels,
+  onModeChange,
+  onFormChange,
+  onRedeemCodeChange,
+  onSubmitAuth,
+  onRefresh,
+  onActivateGroup,
+  onRedeem,
+  onOpenShop,
+  onLogout,
+}: {
+  cloudStatus: CloudAccountStatus | null;
+  cloudMode: CloudAuthMode;
+  cloudForm: CloudAccountForm;
+  busyAction: CloudBusyAction;
+  statusLine: string;
+  redeemCode: string;
+  redeemResult: CloudRedeemCodeResult | null;
+  groupModels: Record<number, CloudGroupModelCatalogState>;
+  onModeChange: (mode: CloudAuthMode) => void;
+  onFormChange: (form: CloudAccountForm) => void;
+  onRedeemCodeChange: (code: string) => void;
+  onSubmitAuth: () => void;
+  onRefresh: () => void;
+  onActivateGroup: (externalGroupId: number) => void;
+  onRedeem: () => void;
+  onOpenShop: () => void;
+  onLogout: () => void;
+}) {
+  const authenticated = cloudStatus?.authenticated === true;
+  const isBusy = Boolean(busyAction);
+  const groups = cloudStatus?.groups ?? [];
+  const entitlements = cloudStatus?.entitlements ?? null;
+  const balanceGroups = entitlements?.balanceGroups ?? [];
+  const subscriptionGroups = entitlements?.subscriptionGroups ?? [];
+  const currentGroupId = cloudStatus?.currentGroup?.externalGroupId || cloudStatus?.gateway?.defaultGroupId || 0;
+  const walletRemaining = entitlements?.wallet.remaining ?? cloudStatus?.wallet?.balance ?? 0;
+  const walletStatus = entitlements?.wallet.status || "";
+  const statusMessage = statusLine || cloudStatus?.lastError || "";
+
+  return (
+    <div className="mx-auto flex max-w-4xl flex-col gap-4">
+      <section className="rounded-lg border bg-background/70 p-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Cloud className="h-4 w-4" />
+              Brevyn Cloud 账号
+            </div>
+            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+              登录后自动准备官方模型配置；套餐切换会同步到当前对话可用的模型服务。
+            </div>
+          </div>
+          {authenticated && (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <ActionButton
+                icon={<RefreshCw className={cx("h-3.5 w-3.5", busyAction === "refresh" && "animate-spin")} />}
+                label="刷新"
+                onClick={onRefresh}
+                disabled={isBusy}
+              />
+              <ActionButton
+                icon={<LogOut className="h-3.5 w-3.5" />}
+                label="退出"
+                onClick={onLogout}
+                disabled={isBusy}
+              />
+            </div>
+          )}
+        </div>
+
+        {!authenticated ? (
+          <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
+            <div className="space-y-3">
+              <div className="inline-flex rounded-md border bg-card p-1">
+                <button
+                  type="button"
+                  className={cx("h-7 rounded px-3 text-xs transition", cloudMode === "login" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+                  onClick={() => onModeChange("login")}
+                  disabled={isBusy}
+                >
+                  登录
+                </button>
+                <button
+                  type="button"
+                  className={cx("h-7 rounded px-3 text-xs transition", cloudMode === "register" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+                  onClick={() => onModeChange("register")}
+                  disabled={isBusy}
+                >
+                  注册
+                </button>
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-2">
+                <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder="http://127.0.0.1:4000" />
+                <Field label="邮箱" value={cloudForm.email} onChange={(value) => onFormChange({ ...cloudForm, email: value })} placeholder="you@example.com" />
+                {cloudMode === "register" && (
+                  <Field label="昵称" value={cloudForm.displayName} onChange={(value) => onFormChange({ ...cloudForm, displayName: value })} placeholder="Brevyn 用户" />
+                )}
+                <Field label="密码" value={cloudForm.password} onChange={(value) => onFormChange({ ...cloudForm, password: value })} type="password" placeholder="Cloud 密码" />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <ActionButton
+                  icon={<ShieldCheck className={cx("h-3.5 w-3.5", (busyAction === "login" || busyAction === "register") && "animate-pulse")} />}
+                  label={cloudMode === "register" ? "注册并同步" : "登录并同步"}
+                  onClick={onSubmitAuth}
+                  primary
+                  disabled={isBusy || !cloudForm.email.trim() || !cloudForm.password.trim()}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-card p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <UserRound className="h-4 w-4" />
+              </div>
+              <div className="mt-3 text-xs font-semibold text-foreground">登录后自动准备默认套餐</div>
+              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+	                成功后会拉取账号、余额和套餐，并把默认套餐写成可用的官方模型配置。
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]">
+              <div className="rounded-lg border bg-card p-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <UserRound className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-medium text-muted-foreground">当前账号</div>
+                    <div className="mt-1 truncate text-sm font-semibold text-foreground" title={cloudStatus.user?.email || ""}>{cloudStatus.user?.email || "-"}</div>
+                    <div className="mt-1 truncate text-[11px] text-muted-foreground" title={cloudStatus.user?.displayName || ""}>{cloudStatus.user?.displayName || "已登录"}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                      <Wallet className="h-3.5 w-3.5" />
+                      账户积分
+                    </div>
+                    <div className="mt-1 truncate text-base font-semibold text-foreground">{formatCloudPoints(walletRemaining)}</div>
+                  </div>
+                  {entitlements?.stale && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">旧数据</span>}
+                </div>
+                {walletStatus && <div className="mt-2 text-[10px] text-muted-foreground">{cloudEntitlementStatusLabel(walletStatus)}</div>}
+              </div>
+            </div>
+
+            <form
+              className="rounded-lg border bg-card p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onRedeem();
+              }}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    兑换卡密
+                  </div>
+                  <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+	                    兑换后会自动更新余额或套餐。
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <ActionButton
+                    icon={<ExternalLink className="h-3.5 w-3.5" />}
+                    label="购买套餐"
+                    onClick={onOpenShop}
+                  />
+                  {redeemResult ? (
+                    <span className={cx("rounded px-2 py-1 text-[10px] font-medium", redeemResult.status === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
+                      {redeemResult.status === "ok" ? "已兑换" : redeemResult.status}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background/80 px-2">
+                  <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    className="min-w-0 flex-1 bg-transparent text-xs font-medium tracking-[0.04em] text-foreground outline-none placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:text-muted-foreground"
+                    value={redeemCode}
+                    disabled={isBusy}
+                    onChange={(event) => onRedeemCodeChange(event.target.value)}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={isBusy || !redeemCode.trim()}
+                >
+                  <RefreshCw className={cx("h-3.5 w-3.5", busyAction === "redeem" && "animate-spin")} />
+                  {busyAction === "redeem" ? "兑换中" : "立即兑换"}
+                </button>
+              </div>
+
+              {redeemResult ? (
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  <MiniMetric label="商品" value={redeemResult.result.redemption.productName || redeemKindLabel(redeemResult.result.redemption.kind)} />
+                  <MiniMetric label="到账" value={redeemValueLabel(redeemResult)} />
+                  <MiniMetric label="套餐" value={redeemedPlanLabel(redeemResult, groups)} />
+                </div>
+              ) : null}
+            </form>
+
+	            <div className="space-y-4">
+	              <div className="flex items-center justify-between gap-3">
+	                <div className="min-w-0">
+	                  <div className="text-xs font-semibold text-foreground">套餐</div>
+	                  <div className="mt-1 text-[11px] text-muted-foreground">选择当前要使用的官方模型套餐。</div>
+	                </div>
+	                <ActionButton
+	                  icon={<RefreshCw className={cx("h-3.5 w-3.5", busyAction === "refresh" && "animate-spin")} />}
+	                  label="刷新"
+	                  onClick={onRefresh}
+	                  disabled={isBusy}
+	                />
+	              </div>
+
+	              <PlanSection title="余额套餐" detail={`${balanceGroups.length} 个分组`}>
+	                <div className="grid gap-2 lg:grid-cols-2">
+	                  {balanceGroups.map((group) => (
+	                    <BalanceEntitlementCard
+	                      key={group.externalGroupId}
+	                      group={group}
+	                      currentGroupId={currentGroupId}
+	                      busyAction={busyAction}
+	                      isBusy={isBusy}
+	                      modelCatalog={groupModels[group.externalGroupId]}
+	                      onActivateGroup={onActivateGroup}
+	                    />
+	                  ))}
+	                  {balanceGroups.length === 0 && <EmptyPlanCard label="暂无余额套餐。" />}
+	                </div>
+	              </PlanSection>
+
+	              <PlanSection title="订阅套餐" detail={`${subscriptionGroups.length} 个分组`}>
+	                <SubscriptionPlanNotice />
+	                <div className="grid gap-2 lg:grid-cols-2">
+	                  {subscriptionGroups.map((group) => (
+	                    <SubscriptionEntitlementCard
+	                      key={group.externalGroupId}
+	                      group={group}
+	                      currentGroupId={currentGroupId}
+	                      busyAction={busyAction}
+	                      isBusy={isBusy}
+	                      modelCatalog={groupModels[group.externalGroupId]}
+	                      onActivateGroup={onActivateGroup}
+	                    />
+	                  ))}
+	                  {subscriptionGroups.length === 0 && <EmptyPlanCard label="暂无订阅套餐。" />}
+	                </div>
+	              </PlanSection>
+
+	              {!entitlements && groups.length > 0 && (
+	                <PlanSection title="本地分组" detail="等待实时余额">
+	                  <div className="grid gap-2 lg:grid-cols-2">
+	                    {groups.map((group) => (
+	                      <FallbackGroupCard
+	                        key={group.externalGroupId}
+	                        group={group}
+	                        currentGroupId={currentGroupId}
+	                        busyAction={busyAction}
+	                        isBusy={isBusy}
+	                        modelCatalog={groupModels[group.externalGroupId]}
+	                        onActivateGroup={onActivateGroup}
+	                      />
+	                    ))}
+	                  </div>
+	                </PlanSection>
+	              )}
+	            </div>
+          </div>
+        )}
+
+        <div
+          className={cx(
+            "mt-4 min-h-9 rounded-md bg-muted/55 px-2 py-2 text-[11px] leading-5 text-muted-foreground transition-opacity",
+            statusMessage ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+          aria-live="polite"
+          aria-hidden={!statusMessage}
+        >
+          {statusMessage}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PlanSection({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold text-foreground">{title}</div>
+        <div className="shrink-0 text-[10px] text-muted-foreground">{detail}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SubscriptionPlanNotice() {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-200/80 bg-amber-50/70 px-2.5 py-2 text-[11px] leading-5 text-amber-900">
+      <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+      <div className="min-w-0">
+        <span className="font-semibold">注意：</span>
+        订阅套餐不是一次性积分；日、周、月额度会按对应周期刷新。重复购买同一订阅只延长到期时间，不会叠加当前周期额度。
+      </div>
+    </div>
+  );
+}
+
+function BalanceEntitlementCard({
+  group,
+  currentGroupId,
+  busyAction,
+  isBusy,
+  modelCatalog,
+  onActivateGroup,
+}: {
+  group: CloudBalanceGroupEntitlement;
+  currentGroupId: number;
+  busyAction: CloudBusyAction;
+  isBusy: boolean;
+  modelCatalog?: CloudGroupModelCatalogState;
+  onActivateGroup: (externalGroupId: number) => void;
+}) {
+  const activating = busyAction === `activate:${group.externalGroupId}`;
+  const current = group.isCurrent || group.externalGroupId === currentGroupId;
+  const usable = cloudEntitlementUsable(group.status);
+  const limit = balanceEntitlementLimit(group);
+  const percent = balanceRemainingPercent(group.remaining, limit);
+  const warning = !usable || percent <= 15;
+  return (
+    <div className={planCardClass(current, usable)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <PlanTitle name={group.name} current={current} status={group.status} />
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            余额套餐 · {formatMultiplier(group.rateMultiplier)}
+          </div>
+          <div className="mt-3 space-y-2">
+            <PlanPointsBar
+              label="余额额度"
+              value={`${formatCompactPoints(group.remaining)} / ${formatCompactPoints(limit)}`}
+              percent={percent}
+              percentLabel={`剩余 ${formatPercent(percent)}`}
+              tone={warning ? "warning" : "default"}
+            />
+          </div>
+        </div>
+        <PlanActivateButton
+          current={current}
+          activating={activating}
+          disabled={isBusy || current || !usable}
+          onClick={() => onActivateGroup(group.externalGroupId)}
+        />
+      </div>
+      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+    </div>
+  );
+}
+
+function SubscriptionEntitlementCard({
+  group,
+  currentGroupId,
+  busyAction,
+  isBusy,
+  modelCatalog,
+  onActivateGroup,
+}: {
+  group: CloudSubscriptionGroupEntitlement;
+  currentGroupId: number;
+  busyAction: CloudBusyAction;
+  isBusy: boolean;
+  modelCatalog?: CloudGroupModelCatalogState;
+  onActivateGroup: (externalGroupId: number) => void;
+}) {
+  const activating = busyAction === `activate:${group.externalGroupId}`;
+  const current = group.isCurrent || group.externalGroupId === currentGroupId;
+  const usable = cloudEntitlementUsable(group.status);
+  const windows = [
+    ["日", group.daily],
+    ["周", group.weekly],
+    ["月", group.monthly],
+  ] as const;
+  return (
+    <div className={planCardClass(current, usable)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <PlanTitle name={group.name} current={current} status={group.status} />
+          <div className="mt-1 text-[10px] text-muted-foreground">
+            订阅套餐 · {formatMultiplier(group.rateMultiplier)} · 到期 {formatCloudDate(group.expiresAt)}
+          </div>
+          <div className="mt-3 space-y-2">
+            {group.unlimited ? (
+              <PlanPointsBar label="订阅额度" value="不限额" percent={100} percentLabel="不限额" />
+            ) : windows.some(([, window]) => Boolean(window)) ? (
+              windows.map(([label, window]) => window ? (
+                <QuotaProgressRow key={label} label={`${label}额度`} window={window} />
+              ) : null)
+            ) : (
+              <PlanPointsBar label="剩余积分" value={formatCloudPoints(group.remaining)} percent={usable && group.remaining > 0 ? 100 : 0} percentLabel={cloudEntitlementStatusLabel(group.status)} tone={usable ? "default" : "warning"} />
+            )}
+          </div>
+        </div>
+        <PlanActivateButton
+          current={current}
+          activating={activating}
+          disabled={isBusy || current || !usable}
+          onClick={() => onActivateGroup(group.externalGroupId)}
+        />
+      </div>
+      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+    </div>
+  );
+}
+
+function FallbackGroupCard({
+  group,
+  currentGroupId,
+  busyAction,
+  isBusy,
+  modelCatalog,
+  onActivateGroup,
+}: {
+  group: CloudGatewayGroup;
+  currentGroupId: number;
+  busyAction: CloudBusyAction;
+  isBusy: boolean;
+  modelCatalog?: CloudGroupModelCatalogState;
+  onActivateGroup: (externalGroupId: number) => void;
+}) {
+  const activating = busyAction === `activate:${group.externalGroupId}`;
+  const current = group.isCurrent || group.externalGroupId === currentGroupId;
+  const usable = !group.status || group.status === "active";
+  return (
+    <div className={planCardClass(current, usable)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <PlanTitle name={group.name} current={current} status={group.status || "unknown"} />
+          <div className="mt-1 text-[10px] text-muted-foreground">{planTypeLabel(group)} · {formatMultiplier(group.rateMultiplier)}</div>
+        </div>
+        <PlanActivateButton
+          current={current}
+          activating={activating}
+          disabled={isBusy || current || !usable}
+          onClick={() => onActivateGroup(group.externalGroupId)}
+        />
+      </div>
+      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+    </div>
+  );
+}
+
+function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupModelCatalogState; fallbackCount: number }) {
+  const models = catalog?.models ?? [];
+  const visibleModels = models.slice(0, 5);
+  const total = catalog?.total || models.length || fallbackCount;
+  const loading = catalog?.status === "loading";
+  const error = catalog?.status === "error";
+  const title = models.length > 0
+    ? models.map((model) => cloudModelDisplayName(model)).join(", ")
+    : error && catalog?.error
+      ? catalog.error
+      : `${total || 0} 个模型`;
+
+  return (
+    <div className="mt-3 border-t border-border/55 pt-2" title={title}>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 text-[10px]">
+          <span className="font-medium text-foreground">可用模型</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+            {loading && models.length === 0 ? "加载中" : `${total || 0} 个`}
+          </span>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+          {visibleModels.map((model) => (
+            <span
+              key={model.id}
+              className={cx(
+                "max-w-[180px] truncate rounded-md border px-1.5 py-0.5 text-[10px] leading-5",
+                model.supportsVision ? "border-sky-200 bg-sky-50 text-sky-800" : "border-border/55 bg-background/80 text-muted-foreground",
+              )}
+            >
+              {cloudModelDisplayName(model)}
+            </span>
+          ))}
+          {models.length > visibleModels.length && (
+            <span className="rounded-md border border-border/55 bg-background/80 px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground">
+              +{models.length - visibleModels.length}
+            </span>
+          )}
+          {models.length === 0 && !loading && (
+            <span className={cx("rounded-md border px-1.5 py-0.5 text-[10px] leading-5", error ? "border-amber-200 bg-amber-50 text-amber-800" : "border-border/55 bg-background/80 text-muted-foreground")}>
+              {fallbackCount > 0 ? `${fallbackCount} 个模型` : "暂无模型"}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyPlanCard({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-dashed bg-card px-3 py-6 text-center text-xs text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
+function PlanTitle({ name, current, status }: { name: string; current: boolean; status: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="truncate text-xs font-semibold text-foreground" title={name}>{name}</span>
+      {current && <span className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[9px] font-medium text-sky-700">当前</span>}
+      {!cloudEntitlementUsable(status) && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">{cloudEntitlementStatusLabel(status)}</span>}
+    </div>
+  );
+}
+
+function PlanPointsBar({
+  label,
+  value,
+  percent,
+  percentLabel,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  percent: number;
+  percentLabel?: string;
+  tone?: "default" | "warning";
+}) {
+  const clamped = clampPercent(percent);
+  return (
+    <div className="rounded-md border bg-background/70 px-2 py-2">
+      <div className="flex items-center justify-between gap-2 text-[10px]">
+        <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
+        <span className={cx("shrink-0", tone === "warning" ? "text-amber-700" : "text-muted-foreground")}>{percentLabel || formatPercent(clamped)}</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cx("h-full rounded-full", tone === "warning" ? "bg-amber-500" : "bg-emerald-500")}
+          style={{ width: `${clamped}%` }}
+        />
+      </div>
+      <div className="mt-1 truncate text-[10px] text-muted-foreground" title={value}>{value}</div>
+    </div>
+  );
+}
+
+function QuotaProgressRow({ label, window }: { label: string; window: CloudQuotaWindow }) {
+  const percent = quotaRemainingPercent(window);
+  const warning = percent <= 15;
+  return (
+    <PlanPointsBar
+      label={label}
+      value={`${formatCompactPoints(window.remaining)} / ${formatCompactPoints(window.limit)}`}
+      percent={percent}
+      percentLabel={`剩余 ${formatPercent(percent)}`}
+      tone={warning ? "warning" : "default"}
+    />
+  );
+}
+
+function PlanActivateButton({ current, activating, disabled, onClick }: { current: boolean; activating: boolean; disabled: boolean; onClick: () => void }) {
+  const label = current ? "使用中" : activating ? "切换中" : "切换套餐";
+  return (
+    <div className="flex shrink-0 justify-end">
+      <button
+        type="button"
+        className={cx(
+          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs shadow-sm transition disabled:cursor-not-allowed",
+          current
+            ? "border-sky-600 bg-sky-600 text-white shadow-sky-950/[0.08]"
+            : "border-border/70 bg-background/85 text-muted-foreground shadow-black/[0.02] hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700",
+          !current && disabled && "opacity-45",
+        )}
+        disabled={disabled}
+        onClick={onClick}
+        title={label}
+        aria-label={label}
+      >
+        <Check className={cx("h-3.5 w-3.5", activating && "animate-pulse")} />
+      </button>
     </div>
   );
 }
@@ -1164,6 +2136,7 @@ function ProviderSettingsPage({
   onCloseEmbeddingEditor,
   onCloseVisionEditor,
   onToggleProvider,
+  onToggleOfficialProviders,
   onToggleEmbeddingProvider,
   onToggleVisionProvider,
   onDeleteProvider,
@@ -1216,6 +2189,7 @@ function ProviderSettingsPage({
   onCloseEmbeddingEditor: () => void;
   onCloseVisionEditor: () => void;
   onToggleProvider: (provider: ModelProviderConfig) => void;
+  onToggleOfficialProviders: () => void;
   onToggleEmbeddingProvider: (provider: ModelProviderConfig) => void;
   onToggleVisionProvider: (provider: ModelProviderConfig) => void;
   onDeleteProvider: (provider: ModelProviderConfig) => void;
@@ -1240,7 +2214,9 @@ function ProviderSettingsPage({
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
   const selectedEmbeddingProvider = providers.find((provider) => provider.id === selectedEmbeddingProviderId);
   const selectedVisionProvider = providers.find((provider) => provider.id === selectedVisionProviderId);
-  const chatProviders = providers.filter((provider) => provider.purpose === "agent");
+  const officialAgentProviders = providers.filter(isOfficialAgentProvider);
+  const enabledOfficialProvider = officialAgentProviders.find((provider) => provider.enabled);
+  const userAgentProviders = providers.filter((provider) => provider.purpose === "agent" && !isOfficialAgentProvider(provider));
   const embeddingProviders = providers.filter((provider) => provider.purpose === "embedding");
   const visionProviders = providers.filter((provider) => provider.purpose === "vision");
   const providerEditorOpen = creatingProvider || Boolean(selectedProvider);
@@ -1256,6 +2232,7 @@ function ProviderSettingsPage({
   const embeddingBusy = isPurposeBlockingBusy("embedding") || embeddingLockedByIndexing;
   const visionBusy = isPurposeBlockingBusy("vision");
   const agentToggleBusy = isBusy("agent-toggle");
+  const officialToggleBusy = isBusy("agent-official-toggle");
   const embeddingToggleBusy = isBusy("embedding-toggle");
   const visionToggleBusy = isBusy("vision-toggle");
   const [visionTestBusy, setVisionTestBusy] = useState<VisionTestKind | null>(null);
@@ -1294,6 +2271,58 @@ function ProviderSettingsPage({
     } finally {
       setVisionTestBusy(null);
     }
+  }
+
+  if (selectedProvider && isOfficialAgentProvider(selectedProvider) && !creatingProvider) {
+    return (
+      <div className="space-y-4">
+        {runtimeBanner}
+        <section className="rounded-lg border bg-background/70 p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onClick={onCloseProviderEditor}
+                disabled={agentBusy}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                返回配置列表
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ShieldCheck className="h-4 w-4" />
+                官方模型配置
+              </div>
+              <div className="mt-1 truncate text-[11px] text-muted-foreground" title={officialProviderGroupLabel(selectedProvider)}>
+                {officialProviderGroupLabel(selectedProvider)}
+              </div>
+            </div>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", draft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+              {draft.enabled ? "已启用" : "已关闭"}
+            </span>
+          </div>
+
+          <OfficialModelList
+            providerKind={draft.providerKind}
+            baseUrl={draft.baseUrl}
+            models={draft.models ?? []}
+            selectedModel={draft.selectedModel}
+            onPick={(model) => onDraftChange({ ...draft, selectedModel: model.id })}
+          />
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton
+              icon={<Save className={cx("h-3.5 w-3.5", isBusy("agent-save") && "animate-pulse")} />}
+              label="保存模型"
+              onClick={onSaveProvider}
+              primary
+              disabled={agentBusy || !draft.selectedModel}
+            />
+          </div>
+          {statusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{statusLine}</div>}
+        </section>
+      </div>
+    );
   }
 
   if (providerEditorOpen) {
@@ -1590,6 +2619,14 @@ function ProviderSettingsPage({
     <div className="space-y-4">
       {runtimeBanner}
       <div className="grid gap-4">
+        <OfficialProviderPanel
+          providers={officialAgentProviders}
+          activeProvider={enabledOfficialProvider}
+          busy={agentBusy || officialToggleBusy}
+          onToggle={onToggleOfficialProviders}
+          onEdit={(provider) => onSelectProvider(provider)}
+        />
+
         <section className="rounded-lg border bg-background/70 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
@@ -1597,13 +2634,13 @@ function ProviderSettingsPage({
                 <PlugZap className="h-3.5 w-3.5" />
                 Agent
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">这里只显示已保存的配置。</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">用户自定义模型配置。</div>
             </div>
             <IconActionButton icon={<Plus className="h-3.5 w-3.5" />} label="新建 Agent" onClick={onNewProvider} disabled={agentBusy} />
           </div>
 
           <div className={cx(PROVIDER_PROFILE_LIST_HEIGHT_CLASS, "space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable] brevyn-scrollbar")}>
-            {chatProviders.map((provider) => (
+            {userAgentProviders.map((provider) => (
               <ProviderProfileRow
                 key={provider.id}
                 provider={provider}
@@ -1617,7 +2654,7 @@ function ProviderSettingsPage({
                 toggleDisabled={agentBusy || agentToggleBusy}
               />
             ))}
-            {chatProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无 Agent 配置。新建后会显示在这里。</div>}
+            {userAgentProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无自定义 Agent 配置。</div>}
           </div>
           <AgentGatewayAdvancedPanel
             status={agentGatewayStatus}
@@ -1740,6 +2777,148 @@ function ProviderSettingsPage({
           {visionTestResult && <VisionTestResultPanel result={visionTestResult} />}
           {visionStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{visionStatusLine}</div>}
         </section>
+      </div>
+    </div>
+  );
+}
+
+function OfficialProviderPanel({
+  providers,
+  activeProvider,
+  busy,
+  onToggle,
+  onEdit,
+}: {
+  providers: ModelProviderConfig[];
+  activeProvider?: ModelProviderConfig;
+  busy: boolean;
+  onToggle: () => void;
+  onEdit: (provider: ModelProviderConfig) => void;
+}) {
+  const primaryProvider = activeProvider || providers[0];
+  const enabled = Boolean(activeProvider);
+  const selectedModel = activeProvider?.selectedModel || primaryProvider?.selectedModel || "-";
+  const statusLabel = enabled ? "官方模型已启用" : "官方模型已关闭";
+  const groups = providers.map((provider) => ({
+    provider,
+    label: officialProviderGroupLabel(provider),
+  }));
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-sky-200/75 bg-[linear-gradient(135deg,rgba(240,249,255,0.92),rgba(255,255,255,0.78)_54%,rgba(236,253,245,0.78))] p-3 shadow-sm shadow-sky-950/[0.03]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-white/80 text-sky-700 shadow-sm">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-foreground">
+              Brevyn 官方模型
+              <span className={cx("rounded-full px-1.5 py-0.5 text-[10px] font-medium", enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+                {enabled ? "已启用" : "已关闭"}
+              </span>
+            </div>
+            <div className="mt-1 truncate text-[11px] text-muted-foreground" title={primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${selectedModel}` : "未同步 Cloud 官方模型"}>
+              {primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${selectedModel}` : "未同步 Cloud 官方模型"}
+            </div>
+          </div>
+        </div>
+        <ProviderSwitch enabled={enabled} label={statusLabel} onClick={onToggle} disabled={busy || providers.length === 0} />
+      </div>
+
+      {primaryProvider ? (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/80 bg-white/65 p-2">
+          <img src={getProviderProfileLogo(primaryProvider)} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
+          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onEdit(primaryProvider)} disabled={busy}>
+            <span className="block truncate text-xs font-semibold text-foreground" title={providerDisplayName(primaryProvider)}>{providerDisplayName(primaryProvider)}</span>
+            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={selectedModel}>
+              默认模型 · {selectedModel}
+            </span>
+          </button>
+          <IconActionButton icon={<Pencil className="h-3.5 w-3.5" />} label="编辑官方配置" onClick={() => onEdit(primaryProvider)} disabled={busy} />
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-dashed border-sky-200/80 bg-white/55 px-3 py-6 text-center text-xs text-muted-foreground">
+          账号同步后会在这里显示官方模型配置。
+        </div>
+      )}
+
+      {groups.length > 1 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {groups.map(({ provider, label }) => (
+            <button
+              key={provider.id}
+              type="button"
+              className={cx(
+                "inline-flex max-w-[190px] items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-60",
+                provider.enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-white/80 bg-white/55 text-muted-foreground hover:bg-white/80 hover:text-foreground",
+              )}
+              title={`${label} · ${provider.selectedModel || "未选择模型"}`}
+              disabled={busy}
+              onClick={() => onEdit(provider)}
+            >
+              {provider.enabled ? <Check className="h-3 w-3 shrink-0" /> : <Circle className="h-2.5 w-2.5 shrink-0" />}
+              <span className="truncate">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OfficialModelList({
+  providerKind,
+  baseUrl,
+  models,
+  selectedModel,
+  onPick,
+}: {
+  providerKind: ProviderKind;
+  baseUrl: string;
+  models: ProviderModel[];
+  selectedModel: string;
+  onPick: (model: ProviderModel) => void;
+}) {
+  const availableModels = models.filter((model) => model.enabled !== false);
+  return (
+    <div className="rounded-lg border bg-card/80 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">可用模型</div>
+        {selectedModel && <div className="max-w-[220px] truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" title={selectedModel}>当前：{selectedModel}</div>}
+      </div>
+      <div className="max-h-[420px] space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
+        {availableModels.map((model) => {
+          const selected = model.id === selectedModel;
+          return (
+            <button
+              key={model.id}
+              type="button"
+              className={cx(
+                "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors",
+                selected ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-border/55 bg-background text-muted-foreground hover:border-border/80 hover:text-foreground",
+              )}
+              onClick={() => onPick(model)}
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">
+                <img src={resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind })} alt="" className="h-5 w-5 object-contain" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-xs font-medium text-foreground" title={model.name || model.id}>{model.name || model.id}</span>
+                  {selected && <span className="shrink-0 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] text-white">默认</span>}
+                </span>
+                <span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={model.id}>{model.id}</span>
+              </span>
+              {selected ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-700" /> : <Circle className="h-2.5 w-2.5 shrink-0 text-muted-foreground/60" />}
+            </button>
+          );
+        })}
+        {availableModels.length === 0 && (
+          <div className="rounded-md border border-dashed px-3 py-10 text-center text-xs text-muted-foreground">
+            还没有同步到可用模型。
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3535,8 +4714,8 @@ function Field({
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={() => setPasswordVisible((visible) => !visible)}
             disabled={disabled}
-            aria-label={passwordVisible ? "隐藏 API Key" : "显示 API Key"}
-            title={passwordVisible ? "隐藏 API Key" : "显示 API Key"}
+            aria-label={passwordVisible ? `隐藏${label}` : `显示${label}`}
+            title={passwordVisible ? `隐藏${label}` : `显示${label}`}
           >
             {passwordVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </button>
@@ -3552,6 +4731,15 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <div className="flex h-8 items-center rounded-md border bg-muted/35 px-2 text-xs text-foreground">{value}</div>
     </label>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-background/70 px-2 py-1.5">
+      <div className="text-[9px] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate text-xs font-medium text-foreground" title={value}>{value}</div>
+    </div>
   );
 }
 
@@ -3850,11 +5038,29 @@ function ModelTransferRow({
   );
 }
 
-function ActionButton({ icon, label, onClick, primary, disabled }: { icon: ReactNode; label: string; onClick: () => void; primary?: boolean; disabled?: boolean }) {
+function ActionButton({
+  icon,
+  label,
+  onClick,
+  primary,
+  disabled,
+  className,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
   return (
     <button
       type="button"
-      className={cx("inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-45", primary ? "bg-foreground text-background" : "border bg-card text-muted-foreground hover:bg-accent hover:text-foreground")}
+      className={cx(
+        "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-45",
+        primary ? "bg-foreground text-background" : "border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+        className,
+      )}
       disabled={disabled}
       onClick={onClick}
     >
@@ -4104,6 +5310,218 @@ function trimNumber(value: number): string {
 
 function providerKindLabel(providerKind: ProviderKind): string {
   return PROVIDER_PRESETS[providerKind]?.label || providerKind;
+}
+
+function isOfficialAgentProvider(provider: ModelProviderConfig): boolean {
+  return provider.purpose === "agent" && provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX);
+}
+
+function officialProviderGroupLabel(provider: ModelProviderConfig): string {
+  const displayName = providerDisplayName(provider);
+  const parts = displayName.split("·").map((part) => part.trim()).filter(Boolean);
+  if (parts.length > 1) return parts.slice(1).join(" · ");
+  const suffix = provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
+  if (!suffix || suffix === "default") return "默认分组";
+  return `分组 #${suffix}`;
+}
+
+function cloudSyncResultLine(status: "synced" | "provisioning", detail?: string, providerName?: string): string {
+  if (status === "synced") return providerName ? `官方模型配置已同步：${providerName}。` : "官方模型配置已同步。";
+  return detail || "Cloud 正在后台准备官方模型配置，稍后可刷新或重新同步。";
+}
+
+function cloudActivateResultLine(providerName?: string, detail?: string): string {
+  if (providerName) return `当前套餐已切换：${providerName}。`;
+  return detail || "当前套餐已切换。";
+}
+
+function cloudRedeemResultLine(result: CloudRedeemCodeResult): string {
+  const redemption = result.result.redemption;
+  const base = redemption.kind === "subscription"
+    ? `订阅已兑换：${redemption.productName || "套餐"}，有效期 ${redemption.validityDays || 0} 天。`
+    : `积分已到账：${formatCloudPoints(redemption.value)}。`;
+  if (result.status === "gateway_failed") {
+    return `${base}${result.error?.message || redemption.errorMessage || "网关同步失败，后台会保留记录。"}`
+  }
+  if (result.providerSyncStatus === "failed") return `${base}本地官方配置同步失败：${result.providerSyncDetail || "请稍后刷新。"}`
+  if (result.providerSyncStatus === "provisioning") return `${base}${result.providerSyncDetail || "官方配置正在后台准备。"}`
+  if (result.providerSyncStatus === "synced") return `${base}对应套餐已同步到本地官方配置。`;
+  return base;
+}
+
+function redeemConfirmationTitle(result: CloudRedeemCodeResult): string {
+  const kind = result.result.redemption.kind;
+  if (kind === "subscription") return result.status === "gateway_failed" ? "订阅已记录，等待同步" : "订阅套餐已兑换";
+  if (kind === "balance") return "积分已到账";
+  return "兑换已完成";
+}
+
+function RedeemConfirmationMessage({ result, groups }: { result: CloudRedeemCodeResult; groups: CloudGatewayGroup[] }) {
+  const redemption = result.result.redemption;
+  const isSubscription = redemption.kind === "subscription";
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <MiniMetric label="商品" value={redemption.productName || redeemKindLabel(redemption.kind)} />
+        <MiniMetric label="到账" value={redeemValueLabel(result)} />
+        <MiniMetric label="套餐" value={redeemedPlanLabel(result, groups)} />
+        <MiniMetric label="状态" value={redeemConfirmationStatusLabel(result)} />
+      </div>
+      {isSubscription && (
+        <div className="rounded-md border border-amber-200/80 bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900">
+          订阅套餐的日、周、月额度按对应周期刷新；重复购买同一订阅只延长到期时间，不会叠加当前周期额度。
+        </div>
+      )}
+      {result.status === "gateway_failed" && (
+        <div className="rounded-md border border-amber-200/80 bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900">
+          兑换已记录，但网关同步暂未完成。稍后刷新账号信息，或在后台重试这条兑换记录。
+        </div>
+      )}
+    </div>
+  );
+}
+
+function redeemConfirmationStatusLabel(result: CloudRedeemCodeResult): string {
+  if (result.status === "gateway_failed") return "待同步";
+  if (result.providerSyncStatus === "synced") return "已同步";
+  if (result.providerSyncStatus === "provisioning") return "准备中";
+  if (result.providerSyncStatus === "failed") return "本地同步失败";
+  return "已兑换";
+}
+
+function agentProviderSelectionValue(providerId: string, modelId: string): string {
+  if (!providerId || !modelId) return "";
+  return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
+}
+
+function redeemKindLabel(kind: string): string {
+  if (kind === "subscription") return "套餐";
+  if (kind === "balance") return "积分";
+  return kind || "兑换";
+}
+
+function redeemValueLabel(result: CloudRedeemCodeResult): string {
+  const redemption = result.result.redemption;
+  if (redemption.kind === "subscription") return `${redemption.validityDays || 0} 天`;
+  return formatCloudPoints(redemption.value);
+}
+
+function redeemedPlanLabel(result: CloudRedeemCodeResult, groups: CloudGatewayGroup[]): string {
+  const externalGroupId = result.result.redemption.externalGroupId;
+  if (!externalGroupId) return "默认套餐";
+  return groups.find((group) => group.externalGroupId === externalGroupId)?.name || "已兑换套餐";
+}
+
+function planTypeLabel(group: CloudGatewayGroup): string {
+  if (group.subscriptionType === "subscription") return "订阅套餐";
+  if (group.subscriptionType === "standard") return "余额套餐";
+  return group.subscriptionType || "套餐";
+}
+
+function cloudEntitlementUsable(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "" || normalized === "active";
+}
+
+function cloudEntitlementStatusLabel(status: string): string {
+  switch (status.trim().toLowerCase()) {
+    case "":
+    case "active":
+      return "可用";
+    case "insufficient_balance":
+      return "余额不足";
+    case "quota_exhausted":
+      return "额度用尽";
+    case "not_subscribed":
+      return "未订阅";
+    case "expired":
+      return "已过期";
+    case "inactive_group":
+      return "分组停用";
+    case "inactive_user":
+      return "账号停用";
+    case "gateway_unlinked":
+      return "未联动";
+    default:
+      return status || "未知";
+  }
+}
+
+function planCardClass(current: boolean, usable: boolean): string {
+  return cx(
+    "rounded-lg border bg-card p-3 transition-colors",
+    current && "border-sky-200 bg-sky-50/35 shadow-sm shadow-sky-950/[0.03] ring-1 ring-sky-100",
+    !usable && "opacity-80",
+  );
+}
+
+function formatMultiplier(value?: number | null): string {
+  const multiplier = Number(value ?? 1);
+  return `${Number.isFinite(multiplier) && multiplier > 0 ? multiplier.toFixed(multiplier % 1 === 0 ? 0 : 2) : "1"}x`;
+}
+
+function quotaRemainingPercent(window: CloudQuotaWindow): number {
+  const limit = Number(window.limit);
+  if (!Number.isFinite(limit) || limit <= 0) return 0;
+  return clampPercent((Number(window.remaining || 0) / limit) * 100);
+}
+
+function balanceEntitlementLimit(group: CloudBalanceGroupEntitlement): number {
+  const remaining = Math.max(0, Number(group.remaining || 0));
+  const limit = Number(group.limit);
+  if (!Number.isFinite(limit) || limit <= 0) return remaining;
+  return Math.max(limit, remaining);
+}
+
+function balanceRemainingPercent(remaining: number, limit: number): number {
+  if (!Number.isFinite(limit) || limit <= 0) return 0;
+  return clampPercent((Math.max(0, Number(remaining || 0)) / limit) * 100);
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(clampPercent(value))}%`;
+}
+
+function formatCompactPoints(value?: number | null): string {
+  const amount = safeAmount(value);
+  return `${new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount)} 积分`;
+}
+
+function formatCloudPoints(value?: number | null): string {
+  const amount = safeAmount(value);
+  return `${new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount)} 积分`;
+}
+
+function safeAmount(value?: number | null): number {
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatCloudDate(value?: string | null): string {
+  if (!value) return "-";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function cloudModelDisplayName(model: CloudProviderModel): string {
+  return model.displayName || model.name || model.id;
 }
 
 function providerDisplayName(provider: ModelProviderConfig): string {

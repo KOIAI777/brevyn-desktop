@@ -180,7 +180,7 @@ function App() {
           onCreateThread={workspace.createThread}
           onOpenCourses={dialogs.openCourses}
           onOpenTimetable={dialogs.openTimetable}
-          onOpenSettings={() => dialogs.openSettings("providers")}
+          onOpenSettings={() => dialogs.openSettings()}
           onResizeStart={layoutState.startSidebarResize}
         />
 
@@ -351,6 +351,7 @@ function App() {
             await workspace.reloadWorkspace(workspace.activeThreadId);
             await agentSession.refreshProviders();
           }}
+          onAgentProviderChanged={(providerSelection) => agentSession.refreshProviders(providerSelection)}
           onClose={() => {
             dialogs.closeSettings();
             void agentSession.refreshProviders();

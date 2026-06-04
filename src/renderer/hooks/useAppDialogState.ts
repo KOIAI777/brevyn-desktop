@@ -3,12 +3,12 @@ import type { SettingsPage } from "@/hooks/useWorkspaceSessionController";
 
 export function useAppDialogState() {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("providers");
+  const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("account");
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [timetableOpen, setTimetableOpen] = useState(false);
   const [courseFilesUploadOpen, setCourseFilesUploadOpen] = useState(false);
 
-  function openSettings(page: SettingsPage = "providers") {
+  function openSettings(page: SettingsPage = "account") {
     setSettingsInitialPage(page);
     setSettingsOpen(true);
   }

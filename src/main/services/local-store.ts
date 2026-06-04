@@ -17,6 +17,15 @@ import type {
   AgentGatewayStatus,
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
+  CloudAccountStatus,
+  CloudActivateOfficialProviderInput,
+  CloudAuthInput,
+  CloudModelCatalogInput,
+  CloudModelCatalogResult,
+  CloudOfficialProviderSyncResult,
+  CloudRedeemCodeInput,
+  CloudRedeemCodeResult,
+  CloudSyncOfficialProviderInput,
   CreateCourseInput,
   CreateSemesterInput,
   CreateTaskInput,
@@ -60,6 +69,7 @@ import { BUILTIN_SKILL_BLUEPRINTS } from "../skills/skill-registry";
 import { SQLiteBusinessStore } from "../storage";
 import { FileService } from "./file-service";
 import { AppSettingsStore } from "./app-settings-store";
+import { CloudAccountService } from "./cloud-account-service";
 import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
@@ -86,6 +96,7 @@ export class LocalStore {
   private readonly agent: AgentOrchestrator;
   private readonly appSettings: AppSettingsStore;
   private readonly agentGateway: AgentGatewayService;
+  private readonly cloud: CloudAccountService;
 
   constructor(
     private readonly filePath: string,
@@ -99,6 +110,9 @@ export class LocalStore {
       enabled: this.appSettings.get().agentGateway.openAiResponsesEnabled,
     });
     this.providers = new ProviderService(providerConfigs, providerSecrets, new ProviderTransactionStore(join(this.rootDataDir, "provider-transactions.json")));
+    this.cloud = new CloudAccountService(join(this.rootDataDir, "cloud-account.json"), this.providers, {
+      defaultBaseUrl: "http://127.0.0.1:4000",
+    });
     this.skillFiles = new SkillFileStore(this.rootDataDir);
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
     for (const dir of bundledDefaultSkillDirs()) {
@@ -467,6 +481,42 @@ export class LocalStore {
   async setAgentGatewayEnabled(enabled: boolean): Promise<AgentGatewayStatus> {
     this.appSettings.updateAgentGateway({ openAiResponsesEnabled: enabled });
     return await this.agentGateway.setEnabled(enabled);
+  }
+
+  cloudStatus(): CloudAccountStatus {
+    return this.cloud.status();
+  }
+
+  cloudLogin(input: CloudAuthInput): Promise<CloudOfficialProviderSyncResult> {
+    return this.cloud.login(input);
+  }
+
+  cloudRegister(input: CloudAuthInput): Promise<CloudOfficialProviderSyncResult> {
+    return this.cloud.register(input);
+  }
+
+  cloudRefresh(): Promise<CloudAccountStatus> {
+    return this.cloud.refresh();
+  }
+
+  cloudModelsCatalog(input?: CloudModelCatalogInput): Promise<CloudModelCatalogResult> {
+    return this.cloud.modelsCatalog(input);
+  }
+
+  cloudSyncOfficialProvider(input?: CloudSyncOfficialProviderInput): Promise<CloudOfficialProviderSyncResult> {
+    return this.cloud.syncOfficialProvider(input);
+  }
+
+  cloudActivateOfficialProvider(input: CloudActivateOfficialProviderInput): Promise<CloudOfficialProviderSyncResult> {
+    return this.cloud.activateOfficialProvider(input);
+  }
+
+  cloudRedeemCode(input: CloudRedeemCodeInput): Promise<CloudRedeemCodeResult> {
+    return this.cloud.redeemCode(input);
+  }
+
+  cloudLogout(): Promise<CloudAccountStatus> {
+    return this.cloud.logout();
   }
 
   listTimetableEvents(query: TimetableRangeQuery): TimetableEvent[] {

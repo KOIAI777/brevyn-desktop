@@ -105,14 +105,18 @@ export function useAgentSessionController({
     }
   }, []);
 
-  const refreshProviders = useCallback(async () => {
+  const refreshProviders = useCallback(async (preferredSelection?: string) => {
     try {
       const providerList = await window.brevyn.providers.list();
       if (!mountedRef.current) return;
       const agents = providerList.filter((provider) => provider.purpose === "agent");
       setProviders(agents);
       const storedSelection = readStoredAgentModelSelection(activeThreadIdRef.current);
-      setSelectedModel((current) => validAgentModelSelection(agents, storedSelection || current));
+      setSelectedModel((current) => {
+        const nextSelection = validAgentModelSelection(agents, preferredSelection || storedSelection || current);
+        if (preferredSelection && nextSelection === preferredSelection) writeStoredAgentModelSelection(activeThreadIdRef.current, nextSelection);
+        return nextSelection;
+      });
     } catch {
       if (mountedRef.current) setProviders([]);
     }
