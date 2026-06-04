@@ -310,7 +310,7 @@ function CourseTimetableReview({ draft, onChange }: { draft: RecognizedCourseTim
   return (
     <div className="space-y-3">
       {draft.courses.map((course, courseIndex) => (
-        <div key={`${course.code}-${courseIndex}`} className="overflow-hidden rounded-lg border bg-card/70">
+        <div key={`course-${courseIndex}`} className="overflow-hidden rounded-lg border bg-card/70">
           <div className="space-y-2 border-b bg-muted/30 px-3 py-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 text-xs font-semibold">课程 {courseIndex + 1}</div>
@@ -327,43 +327,31 @@ function CourseTimetableReview({ draft, onChange }: { draft: RecognizedCourseTim
             </div>
           </div>
           {course.sessions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-[11px]">
-                <thead className="bg-background/80 text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">星期</th>
-                    <th className="px-3 py-2 font-medium">时间</th>
-                    <th className="px-3 py-2 font-medium">教室</th>
-                    <th className="px-3 py-2 font-medium">周次</th>
-                    <th className="px-3 py-2 font-medium">置信度</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {course.sessions.map((session, index) => (
-                    <tr key={`${session.dayOfWeek}-${session.startTime}-${index}`} className="border-t">
-                      <td className="px-3 py-2">
-                        <select className={editableClassName} value={session.dayOfWeek} onChange={(event) => updateSession(courseIndex, index, { dayOfWeek: event.target.value as typeof session.dayOfWeek })}>
-                          {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => <option key={day} value={day}>{weekdayLabel(day)}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1">
-                          <input className={editableClassName} value={session.startTime} onChange={(event) => updateSession(courseIndex, index, { startTime: event.target.value })} />
-                          <span className="text-muted-foreground">-</span>
-                          <input className={editableClassName} value={session.endTime} onChange={(event) => updateSession(courseIndex, index, { endTime: event.target.value })} />
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <input className={editableClassName} value={session.room || ""} onChange={(event) => updateSession(courseIndex, index, { room: event.target.value || undefined })} />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input className={editableClassName} value={session.weeks || ""} placeholder="全部周次" onChange={(event) => updateSession(courseIndex, index, { weeks: event.target.value || undefined })} />
-                      </td>
-                      <td className="px-3 py-2">{formatConfidence(session.confidence)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="overflow-x-auto p-3">
+              <div className="min-w-[540px] space-y-1.5 text-[11px]">
+                <div className="grid grid-cols-[64px_minmax(130px,1fr)_minmax(96px,0.75fr)_minmax(150px,1fr)_52px] gap-2 px-1 text-[10px] font-medium text-muted-foreground">
+                  <div>星期</div>
+                  <div>时间</div>
+                  <div>教室</div>
+                  <div>周次</div>
+                  <div className="text-right">置信度</div>
+                </div>
+                {course.sessions.map((session, index) => (
+                  <div key={`session-${courseIndex}-${index}`} className="grid grid-cols-[64px_minmax(130px,1fr)_minmax(96px,0.75fr)_minmax(150px,1fr)_52px] items-center gap-2 rounded-md border bg-background/65 p-2">
+                    <select className={editableClassName} value={session.dayOfWeek} onChange={(event) => updateSession(courseIndex, index, { dayOfWeek: event.target.value as typeof session.dayOfWeek })}>
+                      {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => <option key={day} value={day}>{weekdayLabel(day)}</option>)}
+                    </select>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1">
+                      <input className={editableClassName} value={session.startTime} onChange={(event) => updateSession(courseIndex, index, { startTime: event.target.value })} />
+                      <span className="text-muted-foreground">-</span>
+                      <input className={editableClassName} value={session.endTime} onChange={(event) => updateSession(courseIndex, index, { endTime: event.target.value })} />
+                    </div>
+                    <input className={editableClassName} value={session.room || ""} onChange={(event) => updateSession(courseIndex, index, { room: event.target.value || undefined })} />
+                    <input className={editableClassName} value={session.weeks || ""} placeholder="全部周次" onChange={(event) => updateSession(courseIndex, index, { weeks: event.target.value || undefined })} />
+                    <div className="text-right text-muted-foreground">{formatConfidence(session.confidence)}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="px-3 py-3 text-[11px] text-muted-foreground">这门课没有识别到每周上课安排。</div>
@@ -425,7 +413,7 @@ function AcademicCalendarReview({ draft, onChange }: { draft: RecognizedAcademic
                     </thead>
                     <tbody>
                       {week.events.map(({ event, index }) => (
-                        <tr key={`${event.title}-${event.startsAt}-${index}`} className="border-t">
+                        <tr key={`event-${index}`} className="border-t">
                           <td className="px-3 py-2">
                             <input className={editableClassName} value={event.title} onChange={(inputEvent) => updateEvent(index, { title: inputEvent.target.value })} />
                           </td>
@@ -452,7 +440,7 @@ function AcademicCalendarReview({ draft, onChange }: { draft: RecognizedAcademic
           <div className="border-b bg-muted/30 px-3 py-2 text-xs font-semibold">未归入周次的事件</div>
           <div className="space-y-2 p-3">
             {draft.events.map((event, index) => (
-              <div key={`${event.title}-${event.startsAt}-${index}`} className="grid gap-2 rounded-md border bg-background/70 p-2 [contain:layout_paint] [content-visibility:auto] [contain-intrinsic-size:96px] md:grid-cols-[1.4fr_0.8fr_0.8fr]">
+              <div key={`unassigned-event-${index}`} className="grid gap-2 rounded-md border bg-background/70 p-2 [contain:layout_paint] [content-visibility:auto] [contain-intrinsic-size:96px] md:grid-cols-[1.4fr_0.8fr_0.8fr]">
                 <EditableField label="事件" value={event.title} onChange={(value) => updateEvent(index, { title: value })} />
                 <EditableField label="开始" value={event.startsAt} onChange={(value) => updateEvent(index, { startsAt: value })} />
                 <EditableField label="结束" value={event.endsAt || ""} onChange={(value) => updateEvent(index, { endsAt: value || undefined })} />
