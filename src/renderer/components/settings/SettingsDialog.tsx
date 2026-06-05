@@ -580,7 +580,7 @@ export function SettingsDialog({
       setCloudStatusLine(cloudSyncResultLine(result.status, result.detail, result.provider?.name));
       await loadProviders();
     } catch (error) {
-      setCloudStatusLine(errorMessage(error, mode === "register" ? "注册失败。" : "登录失败。"));
+      setCloudStatusLine(cloudAuthErrorMessage(error, mode));
     } finally {
       setCloudBusyAction("");
     }
@@ -1634,6 +1634,11 @@ function AccountSettingsPage({
       ? "生产模式"
       : "加载中";
   const cloudBaseUrlLabel = cloudStatus ? cloudStatus.baseUrl || cloudStatus.defaultBaseUrl : "正在读取 Cloud 配置";
+  const authBusy = busyAction === "login" || busyAction === "register";
+  const authActionLabel = cloudMode === "register" ? "创建账号并同步" : "登录并同步官方模型";
+  const authHelperText = cloudMode === "register"
+    ? "密码至少 8 位。注册成功后会自动同步账号套餐和官方模型。"
+    : "登录后会同步账号、余额、套餐和可用官方模型。";
 
   useEffect(() => {
     setProfileDraft(profile);
@@ -1764,35 +1769,40 @@ function AccountSettingsPage({
         </div>
 
         {!authenticated ? (
-          <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-            <div className="space-y-3">
-              <div className="inline-flex rounded-md border bg-card p-1">
-                <button
-                  type="button"
-                  className={cx("h-7 rounded px-3 text-xs transition", cloudMode === "login" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-                  onClick={() => onModeChange("login")}
-                  disabled={isBusy}
-                >
-                  登录
-                </button>
-                <button
-                  type="button"
-                  className={cx("h-7 rounded px-3 text-xs transition", cloudMode === "register" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
-                  onClick={() => onModeChange("register")}
-                  disabled={isBusy}
-                >
-                  注册
-                </button>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
+            <div className="rounded-xl border bg-card/90 p-3 shadow-sm ring-1 ring-border/45">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="inline-flex rounded-lg border bg-background/80 p-1">
+                  <button
+                    type="button"
+                    className={cx("h-8 rounded-md px-4 text-xs font-medium transition", cloudMode === "login" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+                    onClick={() => onModeChange("login")}
+                    disabled={isBusy}
+                  >
+                    登录
+                  </button>
+                  <button
+                    type="button"
+                    className={cx("h-8 rounded-md px-4 text-xs font-medium transition", cloudMode === "register" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+                    onClick={() => onModeChange("register")}
+                    disabled={isBusy}
+                  >
+                    注册
+                  </button>
+                </div>
+                <span className="hidden rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+                  {cloudMode === "register" ? "新账号" : "已有账号"}
+                </span>
               </div>
 
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="space-y-2.5">
                 {cloudBaseUrlEditable ? (
                   <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder={cloudStatus?.defaultBaseUrl || BREVYN_CLOUD_DEVELOPMENT_BASE_URL} />
                 ) : (
-                  <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background/80 px-2">
+                  <div className="flex min-w-0 items-center gap-2 rounded-lg border bg-background/72 px-2.5 py-2">
                     <Cloud className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0">
-                      <div className="text-[9px] font-medium leading-3 text-muted-foreground">官方 Cloud</div>
+                      <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">官方 Cloud</div>
                       <div className="truncate text-xs font-medium text-foreground" title={cloudBaseUrlLabel}>{cloudBaseUrlLabel}</div>
                     </div>
                   </div>
@@ -1801,27 +1811,38 @@ function AccountSettingsPage({
                 {cloudMode === "register" && (
                   <Field label="昵称" value={cloudForm.displayName} onChange={(value) => onFormChange({ ...cloudForm, displayName: value })} placeholder="Brevyn 用户" />
                 )}
-                <Field label="密码" value={cloudForm.password} onChange={(value) => onFormChange({ ...cloudForm, password: value })} type="password" placeholder="Cloud 密码" />
+                <Field label="密码" value={cloudForm.password} onChange={(value) => onFormChange({ ...cloudForm, password: value })} type="password" placeholder={cloudMode === "register" ? "至少 8 位" : "Cloud 密码"} />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <ActionButton
-                  icon={<ShieldCheck className={cx("h-3.5 w-3.5", (busyAction === "login" || busyAction === "register") && "animate-pulse")} />}
-                  label={cloudMode === "register" ? "注册并同步" : "登录并同步"}
-                  onClick={onSubmitAuth}
-                  primary
-                  disabled={isBusy || !cloudForm.email.trim() || !cloudForm.password.trim()}
-                />
-              </div>
+              <div className="mt-2 text-[11px] leading-5 text-muted-foreground">{authHelperText}</div>
+              {statusMessage && (
+                <div className="mt-3 rounded-lg border border-amber-200/80 bg-amber-50/75 px-3 py-2 text-[11px] leading-5 text-amber-900">
+                  {statusMessage}
+                </div>
+              )}
+              <button
+                type="button"
+                className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={onSubmitAuth}
+                disabled={isBusy || !cloudForm.email.trim() || !cloudForm.password.trim()}
+              >
+                <ShieldCheck className={cx("h-3.5 w-3.5", authBusy && "animate-pulse")} />
+                {authBusy ? "正在同步" : authActionLabel}
+              </button>
             </div>
 
-            <div className="rounded-lg border bg-card p-3">
+            <div className="rounded-xl border bg-card/80 p-3 shadow-sm ring-1 ring-border/45">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <UserRound className="h-4 w-4" />
+                <Sparkles className="h-4 w-4" />
               </div>
-              <div className="mt-3 text-xs font-semibold text-foreground">登录后自动准备官方套餐</div>
+              <div className="mt-3 text-xs font-semibold text-foreground">登录后自动准备官方服务</div>
               <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-	                成功后会拉取账号、余额和套餐，并写入可用的官方模型配置。
+                Brevyn 会把 Cloud 账号、套餐和模型配置同步到本地，不需要手动复制 API Key。
+              </div>
+              <div className="mt-3 space-y-2">
+                <CloudAuthStep icon={<UserRound className="h-3.5 w-3.5" />} label="验证账号" />
+                <CloudAuthStep icon={<Wallet className="h-3.5 w-3.5" />} label="同步余额和套餐" />
+                <CloudAuthStep icon={<PlugZap className="h-3.5 w-3.5" />} label="准备官方模型" />
               </div>
             </div>
           </div>
@@ -5184,6 +5205,17 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function CloudAuthStep({ icon, label }: { icon: ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border bg-background/65 px-2.5 py-2 text-[11px] text-muted-foreground">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        {icon}
+      </span>
+      <span className="font-medium text-foreground/80">{label}</span>
+    </div>
+  );
+}
+
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-background/70 px-2 py-1.5">
@@ -6101,6 +6133,79 @@ function hasRunnableVisionProvider(providers: ModelProviderConfig[]): boolean {
 function errorMessage(error: unknown, fallback = "操作失败。"): string {
   const message = error instanceof Error ? error.message : String(error || "");
   return message.trim() || fallback;
+}
+
+function cloudAuthErrorMessage(error: unknown, mode: CloudAuthMode): string {
+  const action = mode === "register" ? "注册" : "登录";
+  const raw = errorMessage(error, `${action}失败。`);
+  const normalized = normalizeRemoteErrorMessage(raw);
+  const code = cloudAuthErrorCode(error, normalized);
+  const mapped = cloudAuthCodeMessage(code, mode);
+  if (mapped) return mapped;
+  if (/failed to fetch|networkerror|network error|fetch failed/i.test(normalized)) {
+    return `无法连接 Brevyn Cloud，请检查网络或 Cloud 地址后重试。`;
+  }
+  if (/safeStorage|系统安全存储不可用/i.test(normalized)) {
+    return "系统安全存储不可用，无法保存 Cloud 登录态。请检查 macOS 钥匙串状态后重试。";
+  }
+  if (/^\d{3}\s+/.test(normalized)) {
+    return `${action}失败，Cloud 服务暂时不可用，请稍后再试。`;
+  }
+  return `${action}失败：${normalized || "请稍后再试。"}`;
+}
+
+function cloudAuthCodeMessage(code: string, mode: CloudAuthMode): string {
+  const isRegister = mode === "register";
+  switch (code) {
+    case "invalid_request":
+      return "请求格式不正确，请检查邮箱和密码后重试。";
+    case "invalid_email":
+      return "邮箱格式不正确，请输入有效邮箱地址。";
+    case "password_too_short":
+      return "密码至少需要 8 位。";
+    case "email_already_registered":
+      return "这个邮箱已经注册，可以直接切换到登录。";
+    case "invalid_credentials":
+      return "邮箱或密码不正确，请重新检查。";
+    case "login_rate_limited":
+      return "登录尝试次数太多，请稍后再试。";
+    case "register_rate_limited":
+      return "注册尝试次数太多，请稍后再试。";
+    case "rate_limit_unavailable":
+      return "Cloud 风控服务暂时不可用，请稍后再试。";
+    case "password_hash_failed":
+    case "register_failed":
+      return "注册暂时失败，请稍后再试。";
+    case "token_create_failed":
+      return `${isRegister ? "注册" : "登录"}成功但登录态创建失败，请稍后重试。`;
+    case "unauthorized":
+    case "invalid_refresh_token":
+      return "登录状态已失效，请重新登录。";
+    default:
+      return "";
+  }
+}
+
+function cloudAuthErrorCode(error: unknown, normalizedMessage: string): string {
+  const named = error && typeof error === "object" && "name" in error ? String((error as { name?: unknown }).name || "") : "";
+  const candidates = [
+    named,
+    normalizedMessage,
+    normalizedMessage.split(":")[0],
+  ];
+  for (const candidate of candidates) {
+    const code = candidate.trim();
+    if (/^[a-z][a-z0-9_]*$/.test(code)) return code;
+  }
+  const embedded = normalizedMessage.match(/\b[a-z][a-z0-9_]*(?:_[a-z0-9]+)+\b/);
+  return embedded?.[0] || "";
+}
+
+function normalizeRemoteErrorMessage(message: string): string {
+  return message
+    .replace(/^Error invoking remote method '[^']+': Error:\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .trim();
 }
 
 function providerFetchErrorMessage(error: unknown): string {
