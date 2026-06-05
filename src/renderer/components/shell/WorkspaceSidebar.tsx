@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { Archive, CalendarDays, ChevronRight, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
-import type { Course, Thread, BrevynTask } from "@/types/domain";
-import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
+import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
 import { formatRelative } from "@/lib/workspace-files";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CourseIcon } from "@/components/courses/CourseIcon";
@@ -20,6 +20,7 @@ export function WorkspaceSidebar({
   emptyThreadIds,
   width,
   resizing,
+  profile,
   onToggle,
   onSelectHome,
   onSelectTask,
@@ -43,6 +44,7 @@ export function WorkspaceSidebar({
   emptyThreadIds: Set<string>;
   width: number;
   resizing: boolean;
+  profile: UserProfileSettings;
   onToggle: () => void;
   onSelectHome: (courseId: string) => void;
   onSelectTask: (courseId: string, taskId: string) => void;
@@ -157,15 +159,18 @@ export function WorkspaceSidebar({
         <span className={cx("absolute right-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100", resizing && "opacity-100")} />
       </button>
       <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-3 py-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-xl bg-background shadow-sm ring-1 ring-border/35">
-            <img src={brevynAppIconUrl} alt="" className="h-full w-full object-cover" />
-          </div>
+        <button
+          type="button"
+          className="no-drag flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-left transition hover:bg-accent/70"
+          onClick={onOpenSettings}
+          title="打开账号设置"
+        >
+          <UserAvatar profile={profile} size="md" />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">Koi</div>
-            <div className="truncate text-[10px] text-muted-foreground">本地账号 · 登录预留</div>
+            <div className="truncate text-sm font-semibold">{profileDisplayName(profile)}</div>
+            <div className="truncate text-[10px] text-muted-foreground">个人资料 · 账号设置</div>
           </div>
-        </div>
+        </button>
         <button className="no-drag rounded-md border bg-background/70 p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
         </button>

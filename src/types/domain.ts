@@ -938,6 +938,17 @@ export interface AppSettings {
   agentGateway: {
     openAiResponsesEnabled: boolean;
   };
+  profile: UserProfileSettings;
+}
+
+export interface UserProfileSettings {
+  displayName: string;
+  avatarId: string;
+}
+
+export interface UserProfileUpdateInput {
+  displayName?: string;
+  avatarId?: string;
 }
 
 export interface AgentGatewayStatus {
@@ -1066,6 +1077,13 @@ export interface CloudGatewayEntitlements {
   subscriptionGroups: CloudSubscriptionGroupEntitlement[];
   updatedAt: string;
   stale: boolean;
+  refreshLimited?: boolean;
+  nextRefreshAfterSeconds?: number;
+}
+
+export interface CloudRefreshInput {
+  forceEntitlements?: boolean;
+  reason?: string;
 }
 
 export interface CloudModelCatalogInput {
@@ -1327,7 +1345,8 @@ export interface BrevynAPI {
     status: () => Promise<CloudAccountStatus>;
     login: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
     register: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
-    refresh: () => Promise<CloudAccountStatus>;
+    refresh: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
+    refreshEntitlements: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
     modelsCatalog: (input?: CloudModelCatalogInput) => Promise<CloudModelCatalogResult>;
     syncOfficialProvider: (input?: CloudSyncOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
     activateOfficialProvider: (input: CloudActivateOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
@@ -1352,6 +1371,8 @@ export interface BrevynAPI {
     quitAndInstall: () => Promise<void>;
   };
   app: {
+    profile: () => Promise<UserProfileSettings>;
+    updateProfile: (input: UserProfileUpdateInput) => Promise<UserProfileSettings>;
     openExternal: (url: string) => Promise<void>;
     revealPath: (path: string) => Promise<void>;
     openPathWith: (input: { path: string; optionId: string; appPath?: string }) => Promise<void>;

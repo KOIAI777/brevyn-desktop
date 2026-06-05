@@ -17,6 +17,7 @@ import type {
   CloudRedeemCodeResult,
   CloudRedeemResult,
   CloudRedemption,
+  CloudRefreshInput,
   CloudTokenPair,
   CloudUser,
   CloudWallet,
@@ -106,15 +107,27 @@ export class CloudAccountService {
   }
 
   status(): CloudAccountStatus {
+    const activeLocalGroupId = this.activeOfficialAgentGroupId();
+    const currentGroupId = activeLocalGroupId
+      || positiveInteger(this.data.currentGroup?.externalGroupId)
+      || positiveInteger(this.data.gateway?.defaultGroupId)
+      || positiveInteger((this.data.groups ?? []).find((group) => group.isCurrent)?.externalGroupId);
+    const groups = markCurrentGroups(this.data.groups ?? [], currentGroupId);
+    const currentGroup = currentGroupId > 0
+      ? groups.find((group) => group.externalGroupId === currentGroupId) ?? null
+      : this.data.currentGroup ?? null;
+    const gateway = this.data.gateway && currentGroupId > 0
+      ? { ...this.data.gateway, defaultGroupId: currentGroupId }
+      : this.data.gateway ?? null;
     return {
       baseUrl: this.data.baseUrl,
       authenticated: Boolean(this.data.user && this.readRefreshToken()),
       user: this.data.user ?? null,
       wallet: this.data.wallet ?? null,
-      gateway: this.data.gateway ?? null,
-      currentGroup: this.data.currentGroup ?? null,
-      groups: cloneGroups(this.data.groups ?? []),
-      entitlements: cloneEntitlements(this.data.entitlements ?? null),
+      gateway,
+      currentGroup,
+      groups,
+      entitlements: markCurrentEntitlements(this.data.entitlements ?? null, currentGroupId),
       providerRefs: cloneProviderRefs(this.data.providerRefs ?? []),
       lastSyncedAt: this.data.lastSyncedAt,
       lastError: this.data.lastError,
@@ -132,7 +145,7 @@ export class CloudAccountService {
     }, false);
     this.saveTokens(result.tokens);
     this.patchData({ user: result.user, lastError: "" });
-    await this.refresh();
+    await this.refresh({ forceEntitlements: true, reason: "login" });
     return this.syncOfficialProvider({});
   }
 
@@ -148,16 +161,17 @@ export class CloudAccountService {
     }, false);
     this.saveTokens(result.tokens);
     this.patchData({ user: result.user, lastError: "" });
-    await this.refresh();
+    await this.refresh({ forceEntitlements: true, reason: "register" });
     return this.syncOfficialProvider({});
   }
 
-  async refresh(): Promise<CloudAccountStatus> {
+  async refresh(input: CloudRefreshInput = {}): Promise<CloudAccountStatus> {
     this.requireRefreshToken();
+    const localCurrentGroupId = this.activeOfficialAgentGroupId();
     const [me, groups, entitlementsResult] = await Promise.all([
       this.request<MeResult>("/api/v1/me"),
       this.request<GroupsResult>("/api/v1/me/groups"),
-      this.request<CloudGatewayEntitlements>("/api/v1/me/gateway-entitlements")
+      this.request<CloudGatewayEntitlements>(gatewayEntitlementsPath(input))
         .then((value) => ({ value }))
         .catch((error: unknown) => ({ error })),
     ]);
@@ -178,9 +192,35 @@ export class CloudAccountService {
       lastError: entitlementError,
     });
     const providerSyncErrors = await this.refreshKnownOfficialProviders();
+    if (localCurrentGroupId > 0) {
+      try {
+        this.activateLocalOfficialProviders(localCurrentGroupId);
+        this.setCurrentLocalGroup(localCurrentGroupId);
+      } catch (error) {
+        providerSyncErrors.push(`保留当前套餐失败：${errorMessage(error)}`);
+      }
+    }
     if (entitlementError || providerSyncErrors.length > 0) {
       this.patchData({
         lastError: [entitlementError, ...providerSyncErrors].filter(Boolean).join("；"),
+      });
+    }
+    return this.status();
+  }
+
+  async refreshEntitlements(input: CloudRefreshInput = {}): Promise<CloudAccountStatus> {
+    this.requireRefreshToken();
+    try {
+      const entitlements = await this.request<CloudGatewayEntitlements>(gatewayEntitlementsPath(input));
+      this.patchData({
+        entitlements: cloneEntitlements(entitlements),
+        lastSyncedAt: new Date().toISOString(),
+        lastError: "",
+      });
+    } catch (error) {
+      this.patchData({
+        lastSyncedAt: new Date().toISOString(),
+        lastError: `实时余额暂不可用：${errorMessage(error)}`,
       });
     }
     return this.status();
@@ -276,6 +316,7 @@ export class CloudAccountService {
       lastSyncedAt: new Date().toISOString(),
       lastError: "",
     });
+    const cloud = await this.refreshEntitlements({ forceEntitlements: true, reason: "activate_group" });
 
     return {
       status: "synced",
@@ -284,7 +325,7 @@ export class CloudAccountService {
         : `已启用 ${group?.name || `group #${externalGroupId}`} 官方能力。`),
       provider: activated,
       providers: activatedProviders,
-      cloud: this.status(),
+      cloud,
     };
   }
 
@@ -299,7 +340,7 @@ export class CloudAccountService {
     });
     if (!redeemed.result?.redemption) throw new Error("兑换成功但响应缺少兑换结果。");
 
-    let cloud = await this.refresh();
+    let cloud = await this.refresh({ forceEntitlements: true, reason: "redeem" });
     let provider: ModelProviderConfig | undefined;
     let providers: ModelProviderConfig[] | undefined;
     let providerSyncStatus: CloudRedeemCodeResult["providerSyncStatus"];
@@ -415,6 +456,9 @@ export class CloudAccountService {
     if (models.length === 0) return undefined;
     const providerId = officialProviderId(externalGroupId, purpose);
     const existing = this.providers.list().find((item) => item.id === providerId);
+    const hasEnabledOfficialProviderForPurpose = this.providers.list().some((item) =>
+      item.enabled && item.purpose === purpose && isOfficialProviderId(item.id) && item.id !== providerId,
+    );
     const selectedModel = selectedEnabledModel(existing?.selectedModel || provider.selectedModel, models);
     const nameSuffix = group?.name || (externalGroupId > 0 ? `group #${externalGroupId}` : "");
     const draft: ProviderDraftInput = {
@@ -429,7 +473,7 @@ export class CloudAccountService {
       authMode: officialProviderAuthMode(provider, purpose),
       models,
       selectedModel,
-      enabled: existing?.enabled ?? provider.enabled !== false,
+      enabled: existing?.enabled ?? (purpose === "agent" && hasEnabledOfficialProviderForPurpose ? false : provider.enabled !== false),
     };
     return this.providers.save(draft).provider;
   }
@@ -549,10 +593,16 @@ export class CloudAccountService {
   }
 
   private defaultExternalGroupId(): number {
-    return positiveInteger(this.data.currentGroup?.externalGroupId)
+    return this.activeOfficialAgentGroupId()
+      || positiveInteger(this.data.currentGroup?.externalGroupId)
       || positiveInteger(this.data.gateway?.defaultGroupId)
       || positiveInteger((this.data.groups ?? []).find((group) => group.isCurrent)?.externalGroupId)
       || positiveInteger((this.data.groups ?? [])[0]?.externalGroupId);
+  }
+
+  private activeOfficialAgentGroupId(): number {
+    const provider = this.providers.list().find((item) => item.enabled && item.purpose === "agent" && isOfficialProviderId(item.id));
+    return positiveInteger(provider ? this.officialProviderExternalGroupId(provider.id) : 0);
   }
 
   private groupForExternalId(externalGroupId: number): CloudGatewayGroup | undefined {
@@ -777,6 +827,15 @@ function providerToDraft(provider: ModelProviderConfig, overrides: Partial<Provi
   };
 }
 
+function gatewayEntitlementsPath(input: CloudRefreshInput = {}): string {
+  const params = new URLSearchParams();
+  if (input.forceEntitlements) params.set("refresh", "1");
+  const reason = stringValue(input.reason).trim();
+  if (reason) params.set("reason", reason);
+  const query = params.toString();
+  return query ? `/api/v1/me/gateway-entitlements?${query}` : "/api/v1/me/gateway-entitlements";
+}
+
 function cloneGroups(groups: unknown): CloudGatewayGroup[] {
   if (!Array.isArray(groups)) return [];
   return groups.flatMap((raw) => {
@@ -824,6 +883,8 @@ function cloneEntitlements(value: unknown): CloudGatewayEntitlements | null {
       : [],
     updatedAt: stringValue(item.updatedAt),
     stale: item.stale === true,
+    refreshLimited: item.refreshLimited === true,
+    nextRefreshAfterSeconds: positiveInteger(item.nextRefreshAfterSeconds),
   };
 }
 
@@ -901,6 +962,7 @@ function cloneQuotaWindow(value: unknown): CloudQuotaWindow | undefined {
 function markCurrentEntitlements(value: CloudGatewayEntitlements | null, externalGroupId: number): CloudGatewayEntitlements | null {
   const entitlements = cloneEntitlements(value);
   if (!entitlements) return null;
+  if (externalGroupId <= 0) return entitlements;
   return {
     ...entitlements,
     balanceGroups: entitlements.balanceGroups.map((group) => ({
@@ -912,6 +974,15 @@ function markCurrentEntitlements(value: CloudGatewayEntitlements | null, externa
       isCurrent: group.externalGroupId === externalGroupId,
     })),
   };
+}
+
+function markCurrentGroups(value: unknown, externalGroupId: number): CloudGatewayGroup[] {
+  const groups = cloneGroups(value);
+  if (externalGroupId <= 0) return groups;
+  return groups.map((group) => ({
+    ...group,
+    isCurrent: group.externalGroupId === externalGroupId,
+  }));
 }
 
 function cloneProviderRefs(refs: unknown): CloudOfficialProviderRef[] {

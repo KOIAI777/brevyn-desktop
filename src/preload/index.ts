@@ -21,6 +21,7 @@ import type {
   CloudAuthInput,
   CloudModelCatalogInput,
   CloudRedeemCodeInput,
+  CloudRefreshInput,
   CloudSyncOfficialProviderInput,
   BrevynAgentEvent,
   FileImportInput,
@@ -32,6 +33,7 @@ import type {
   SkillWriteInput,
   SkillUpdateInput,
   TimetableRangeQuery,
+  UserProfileUpdateInput,
   BrevynAPI,
 } from "../types/domain";
 import { IPC_CHANNELS } from "../types/ipc";
@@ -153,7 +155,8 @@ const api: BrevynAPI = {
     status: () => ipcRenderer.invoke(IPC_CHANNELS.cloudStatus),
     login: (input: CloudAuthInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudLogin, input),
     register: (input: CloudAuthInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudRegister, input),
-    refresh: () => ipcRenderer.invoke(IPC_CHANNELS.cloudRefresh),
+    refresh: (input?: CloudRefreshInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudRefresh, input),
+    refreshEntitlements: (input?: CloudRefreshInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudRefreshEntitlements, input),
     modelsCatalog: (input?: CloudModelCatalogInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudModelsCatalog, input),
     syncOfficialProvider: (input?: CloudSyncOfficialProviderInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudSyncOfficialProvider, input),
     activateOfficialProvider: (input: CloudActivateOfficialProviderInput) => ipcRenderer.invoke(IPC_CHANNELS.cloudActivateOfficialProvider, input),
@@ -182,6 +185,8 @@ const api: BrevynAPI = {
     quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.updaterQuitAndInstall),
   },
   app: {
+    profile: () => ipcRenderer.invoke(IPC_CHANNELS.appProfile),
+    updateProfile: (input: UserProfileUpdateInput) => ipcRenderer.invoke(IPC_CHANNELS.appUpdateProfile, input),
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.appOpenExternal, url),
     revealPath: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.appRevealPath, path),
     openPathWith: (input) => ipcRenderer.invoke(IPC_CHANNELS.appOpenPathWith, input),

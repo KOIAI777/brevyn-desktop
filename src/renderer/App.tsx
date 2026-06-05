@@ -1,6 +1,6 @@
 import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
-import type { AgentAttachment, AgentPermissionMode } from "@/types/domain";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AgentAttachment, AgentPermissionMode, UserProfileSettings } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseDashboard } from "@/components/courses/CourseDashboard";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
@@ -26,6 +26,7 @@ function App() {
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
+  const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Koi", avatarId: "prism" });
 
   const dialogs = useAppDialogState();
   const layoutState = useWorkspaceLayoutState({ contentGridRef });
@@ -85,6 +86,20 @@ function App() {
       previewErrorTimeoutRef.current = null;
     }
     previewErrorMessageRef.current = "";
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.brevyn.app.profile()
+      .then((nextProfile) => {
+        if (mounted) setProfile(nextProfile);
+      })
+      .catch(() => {
+        if (mounted) setProfile({ displayName: "Koi", avatarId: "prism" });
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function runAgent(prompt: string, permissionMode: AgentPermissionMode = "auto", attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]): Promise<void> {
@@ -161,6 +176,7 @@ function App() {
           collapsed={layoutState.sidebarCollapsed}
           width={layoutState.sidebarWidth}
           resizing={layoutState.sidebarResizing}
+          profile={profile}
           courses={workspace.courses}
           tasksByCourse={workspace.tasksByCourse}
           threads={workspace.threads}
@@ -344,8 +360,10 @@ function App() {
           initialPage={dialogs.settingsInitialPage}
           course={workspace.activeCourse}
           semester={workspace.semester}
+          profile={profile}
           skills={workspace.skills}
           gitStatus={workspace.gitStatus}
+          onProfileChange={setProfile}
           onSkillsChange={workspace.setSkills}
           onWorkspaceChanged={async () => {
             await workspace.reloadWorkspace(workspace.activeThreadId);

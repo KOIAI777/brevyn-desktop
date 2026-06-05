@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { CloudAuthInput, CloudModelCatalogInput, CloudSyncOfficialProviderInput } from "../../types/domain";
+import type { CloudAuthInput, CloudModelCatalogInput, CloudRefreshInput, CloudSyncOfficialProviderInput } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 import { optionalString, requireObject, requireString } from "./validation";
@@ -8,7 +8,8 @@ export function registerCloudIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.cloudStatus, () => store.cloudStatus());
   ipcMain.handle(IPC_CHANNELS.cloudLogin, (_event, input: unknown) => store.cloudLogin(normalizeCloudAuthInput(input, false)));
   ipcMain.handle(IPC_CHANNELS.cloudRegister, (_event, input: unknown) => store.cloudRegister(normalizeCloudAuthInput(input, true)));
-  ipcMain.handle(IPC_CHANNELS.cloudRefresh, () => store.cloudRefresh());
+  ipcMain.handle(IPC_CHANNELS.cloudRefresh, (_event, input: unknown) => store.cloudRefresh(normalizeCloudRefreshInput(input)));
+  ipcMain.handle(IPC_CHANNELS.cloudRefreshEntitlements, (_event, input: unknown) => store.cloudRefreshEntitlements(normalizeCloudRefreshInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudModelsCatalog, (_event, input: unknown) => store.cloudModelsCatalog(normalizeCloudModelCatalogInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudSyncOfficialProvider, (_event, input: unknown) => store.cloudSyncOfficialProvider(normalizeCloudSyncInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudActivateOfficialProvider, (_event, input: unknown) => store.cloudActivateOfficialProvider(normalizeCloudActivateInput(input)));
@@ -42,6 +43,15 @@ function normalizeCloudSyncInput(value: unknown): CloudSyncOfficialProviderInput
   return Number.isFinite(externalGroupId) && externalGroupId > 0
     ? { externalGroupId: Math.floor(externalGroupId) }
     : undefined;
+}
+
+function normalizeCloudRefreshInput(value: unknown): CloudRefreshInput | undefined {
+  if (value === undefined || value === null) return undefined;
+  const input = requireObject(value, "Cloud refresh input");
+  return {
+    forceEntitlements: input.forceEntitlements === undefined ? undefined : Boolean(input.forceEntitlements),
+    reason: optionalString(input.reason),
+  };
 }
 
 function normalizeCloudRedeemInput(value: unknown): { code: string } {

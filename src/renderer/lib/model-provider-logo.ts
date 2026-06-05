@@ -8,6 +8,7 @@ import googleLogo from "@/assets/models/google.svg";
 import googleCloudLogo from "@/assets/models/googlecloud.svg";
 import googleGeminiLogo from "@/assets/models/googlegemini.svg";
 import miniMaxLogo from "@/assets/models/minimax.svg";
+import modelGenericLogo from "@/assets/models/model-generic.svg";
 import moonshotLogo from "@/assets/models/moonshotai.svg";
 import openAiLogo from "@/assets/models/openai.svg";
 import qwenLogo from "@/assets/models/qwen.svg";
@@ -29,7 +30,7 @@ const MODEL_LOGO_RULES: Array<[RegExp, string]> = [
   [/gemini|gemma|google/i, googleGeminiLogo],
   [/doubao|bytedance|byte[-_ ]?dance|volc|seed/i, byteDanceLogo],
   [/minimax/i, miniMaxLogo],
-  [/embedding/i, openAiLogo],
+  [/embedding/i, modelGenericLogo],
 ];
 
 const BASE_URL_LOGO_RULES: Array<[RegExp, string]> = [
@@ -92,9 +93,11 @@ export function resolveModelProviderLogo({
   baseUrl,
   providerKind,
 }: ResolveModelProviderLogoInput): string {
-  return logoFromRules(modelId, MODEL_LOGO_RULES)
-    || logoFromRules(baseUrl, BASE_URL_LOGO_RULES)
-    || (providerKind ? getProviderKindLogo(providerKind) : defaultLogo);
+  const directLogo = logoFromRules(modelId, MODEL_LOGO_RULES) || logoFromRules(baseUrl, BASE_URL_LOGO_RULES);
+  if (directLogo) return directLogo;
+  if (!providerKind) return modelGenericLogo;
+  const providerLogo = getProviderKindLogo(providerKind);
+  return providerLogo === openAiLogo ? modelGenericLogo : providerLogo;
 }
 
 function logoFromRules(value: string | undefined, rules: Array<[RegExp, string]>): string | undefined {
@@ -112,6 +115,7 @@ export {
   googleCloudLogo,
   googleGeminiLogo,
   miniMaxLogo,
+  modelGenericLogo,
   moonshotLogo,
   openAiLogo,
   qwenLogo,

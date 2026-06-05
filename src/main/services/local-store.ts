@@ -25,6 +25,7 @@ import type {
   CloudOfficialProviderSyncResult,
   CloudRedeemCodeInput,
   CloudRedeemCodeResult,
+  CloudRefreshInput,
   CloudSyncOfficialProviderInput,
   CreateCourseInput,
   CreateSemesterInput,
@@ -55,6 +56,8 @@ import type {
   Thread,
   TimetableEvent,
   TimetableRangeQuery,
+  UserProfileSettings,
+  UserProfileUpdateInput,
   VisionRecognitionInput,
   BrevynTask,
   UpdateCourseInput,
@@ -74,7 +77,7 @@ import { ProviderConfigStore } from "./provider-config-store";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { ProviderTransactionStore } from "./provider-transaction-store";
-import { RagIndexService } from "./rag-index-service";
+import { RagIndexService, type RagSearchOptions } from "./rag-index-service";
 import { VisionRecognitionService } from "./vision-recognition-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
@@ -84,6 +87,8 @@ import { formatSize, kindForPath } from "./workspace-file-tree";
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
 const MAX_AGENT_ATTACHMENT_DATA_BYTES = 100 * 1024 * 1024;
+const CLOUD_ENTITLEMENTS_USAGE_REFRESH_DELAY_MS = 2_500;
+const CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS = 15_000;
 
 export class LocalStore {
   private readonly rootDataDir: string;
@@ -97,6 +102,9 @@ export class LocalStore {
   private readonly appSettings: AppSettingsStore;
   private readonly agentGateway: AgentGatewayService;
   private readonly cloud: CloudAccountService;
+  private cloudEntitlementsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private cloudEntitlementsRefreshInFlight = false;
+  private cloudEntitlementsLastForceAt = 0;
 
   constructor(
     private readonly filePath: string,
@@ -140,20 +148,26 @@ export class LocalStore {
       providers: this.providers,
       ragIndex: this.ragIndex,
     });
+    const agentEventBus = new AgentEventBus();
+    agentEventBus.on((event) => {
+      if (isTerminalAgentRunEvent(event)) {
+        this.scheduleCloudEntitlementsRefresh("agent_request_complete");
+      }
+    });
     this.agent = new AgentOrchestrator({
       rootDataDir: this.rootDataDir,
       businessStore,
       providers: this.providers,
       skillFiles: this.skillFiles,
       sessions: new AgentSessionStore(this.rootDataDir),
-      eventBus: new AgentEventBus(),
+      eventBus: agentEventBus,
       promptBuilder: new PromptBuilder(),
       permissions: new PermissionService(),
       askUsers: new AskUserService(),
       exitPlans: new ExitPlanService(),
       sdk: new ClaudeSdkAdapter(),
       gateway: this.agentGateway,
-      ragSearch: (input) => this.files.searchRag(input.query, input.courseId, input),
+      ragSearch: (input) => this.searchRag(input.query, input.courseId, input),
     });
     void this.agentGateway.syncConfiguredState().catch((error) => {
       console.warn("[agent-gateway] Failed to sync configured state", error);
@@ -286,8 +300,12 @@ export class LocalStore {
     return this.workspace.gitStatus();
   }
 
-  searchRag(query: string, courseId?: string): Promise<RagSearchResult[]> {
-    return this.files.searchRag(query, courseId);
+  async searchRag(query: string, courseId?: string, options?: RagSearchOptions & { limit?: number }): Promise<RagSearchResult[]> {
+    try {
+      return await this.files.searchRag(query, courseId, options);
+    } finally {
+      this.scheduleCloudEntitlementsRefresh("embedding_search_complete");
+    }
   }
 
   listFiles(courseId?: string): WorkspaceFileNode[] {
@@ -363,8 +381,12 @@ export class LocalStore {
     this.files.recoverExpiredIndexingTasks(currentWorkerId);
   }
 
-  completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
-    return this.files.completeIndexingTask(taskId, result, workerId, lockedUntil);
+  async completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
+    try {
+      return await this.files.completeIndexingTask(taskId, result, workerId, lockedUntil);
+    } finally {
+      this.scheduleCloudEntitlementsRefresh("embedding_index_complete");
+    }
   }
 
   failIndexingTask(taskId: string, message: string, workerId?: string, lockedUntil?: string): IndexingJob | null {
@@ -446,12 +468,20 @@ export class LocalStore {
     return semesterId ? this.businessStore.hasActiveSemesterIndexing(semesterId) : false;
   }
 
-  recognizeAcademicCalendar(input: VisionRecognitionInput): Promise<RecognizedAcademicCalendar> {
-    return this.vision.recognizeAcademicCalendar(input);
+  async recognizeAcademicCalendar(input: VisionRecognitionInput): Promise<RecognizedAcademicCalendar> {
+    try {
+      return await this.vision.recognizeAcademicCalendar(input);
+    } finally {
+      this.scheduleCloudEntitlementsRefresh("vision_request_complete");
+    }
   }
 
-  recognizeCourseTimetable(input: VisionRecognitionInput): Promise<RecognizedCourseTimetable> {
-    return this.vision.recognizeCourseTimetable(input);
+  async recognizeCourseTimetable(input: VisionRecognitionInput): Promise<RecognizedCourseTimetable> {
+    try {
+      return await this.vision.recognizeCourseTimetable(input);
+    } finally {
+      this.scheduleCloudEntitlementsRefresh("vision_request_complete");
+    }
   }
 
   importAcademicCalendar(input: RecognizedAcademicCalendar): RecognizedAcademicCalendar {
@@ -483,6 +513,14 @@ export class LocalStore {
     return await this.agentGateway.setEnabled(enabled);
   }
 
+  profile(): UserProfileSettings {
+    return this.appSettings.get().profile;
+  }
+
+  updateProfile(input: UserProfileUpdateInput): UserProfileSettings {
+    return this.appSettings.updateProfile(input).profile;
+  }
+
   cloudStatus(): CloudAccountStatus {
     return this.cloud.status();
   }
@@ -495,8 +533,43 @@ export class LocalStore {
     return this.cloud.register(input);
   }
 
-  cloudRefresh(): Promise<CloudAccountStatus> {
-    return this.cloud.refresh();
+  cloudRefresh(input?: CloudRefreshInput): Promise<CloudAccountStatus> {
+    return this.cloud.refresh(input);
+  }
+
+  cloudRefreshEntitlements(input?: CloudRefreshInput): Promise<CloudAccountStatus> {
+    return this.cloud.refreshEntitlements(input);
+  }
+
+  private scheduleCloudEntitlementsRefresh(reason: string, delayMs = CLOUD_ENTITLEMENTS_USAGE_REFRESH_DELAY_MS): void {
+    if (!this.cloud.status().authenticated) return;
+    if (this.cloudEntitlementsRefreshTimer) clearTimeout(this.cloudEntitlementsRefreshTimer);
+    this.cloudEntitlementsRefreshTimer = setTimeout(() => {
+      this.cloudEntitlementsRefreshTimer = null;
+      void this.refreshCloudEntitlementsAfterUsage(reason);
+    }, delayMs);
+  }
+
+  private async refreshCloudEntitlementsAfterUsage(reason: string): Promise<void> {
+    if (this.cloudEntitlementsRefreshInFlight) {
+      this.scheduleCloudEntitlementsRefresh(reason, CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS);
+      return;
+    }
+    const now = Date.now();
+    const remainingCooldown = CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS - (now - this.cloudEntitlementsLastForceAt);
+    if (remainingCooldown > 0) {
+      this.scheduleCloudEntitlementsRefresh(reason, remainingCooldown);
+      return;
+    }
+    this.cloudEntitlementsRefreshInFlight = true;
+    this.cloudEntitlementsLastForceAt = now;
+    try {
+      await this.cloud.refreshEntitlements({ forceEntitlements: true, reason });
+    } catch (error) {
+      console.warn("[cloud] Usage-triggered entitlement refresh failed", error);
+    } finally {
+      this.cloudEntitlementsRefreshInFlight = false;
+    }
   }
 
   cloudModelsCatalog(input?: CloudModelCatalogInput): Promise<CloudModelCatalogResult> {
@@ -670,6 +743,10 @@ export class LocalStore {
   }
 
   async close(): Promise<void> {
+    if (this.cloudEntitlementsRefreshTimer) {
+      clearTimeout(this.cloudEntitlementsRefreshTimer);
+      this.cloudEntitlementsRefreshTimer = null;
+    }
     let closeError: unknown;
     try {
       this.stopAllAgents();
@@ -747,6 +824,14 @@ function uniqueAttachmentPath(dir: string, fileName: string): string {
     index += 1;
   }
   return candidate;
+}
+
+function isTerminalAgentRunEvent(event: BrevynAgentEvent): boolean {
+  if (event.kind !== "brevyn_event") return false;
+  return event.event.type === "run_completed" ||
+    event.event.type === "run_stopped" ||
+    event.event.type === "run_failed" ||
+    event.event.type === "run_interrupted";
 }
 
 function listSessionFileNodes(dir: string, rootDir: string, thread: Thread): WorkspaceFileNode[] {

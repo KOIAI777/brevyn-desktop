@@ -81,6 +81,7 @@ export const IPC_CHANNELS = {
   cloudLogin: "brevyn:cloud:login",
   cloudRegister: "brevyn:cloud:register",
   cloudRefresh: "brevyn:cloud:refresh",
+  cloudRefreshEntitlements: "brevyn:cloud:refresh-entitlements",
   cloudModelsCatalog: "brevyn:cloud:models-catalog",
   cloudSyncOfficialProvider: "brevyn:cloud:sync-official-provider",
   cloudActivateOfficialProvider: "brevyn:cloud:activate-official-provider",
@@ -104,4 +105,6 @@ export const IPC_CHANNELS = {
   appOpenPathOptions: "brevyn:app:open-path-options",
   appOpenWorkspacePath: "brevyn:app:open-workspace-path",
   appPreviewWorkspacePath: "brevyn:app:preview-workspace-path",
+  appProfile: "brevyn:app:profile",
+  appUpdateProfile: "brevyn:app:update-profile",
 } as const;

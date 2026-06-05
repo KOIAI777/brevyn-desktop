@@ -1,10 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AppSettings } from "../../types/domain";
+import type { AppSettings, UserProfileSettings } from "../../types/domain";
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   agentGateway: {
     openAiResponsesEnabled: false,
+  },
+  profile: {
+    displayName: "Koi",
+    avatarId: "prism",
   },
 };
 
@@ -39,6 +43,15 @@ export class AppSettingsStore {
     });
   }
 
+  updateProfile(patch: Partial<UserProfileSettings>): AppSettings {
+    return this.update({
+      profile: normalizeProfile({
+        ...this.data.settings.profile,
+        ...patch,
+      }),
+    });
+  }
+
   private readData(): AppSettingsFile {
     if (!existsSync(this.filePath)) {
       return { version: 1, settings: cloneSettings(DEFAULT_APP_SETTINGS) };
@@ -65,6 +78,10 @@ function mergeSettings(base: AppSettings, patch: Partial<AppSettings>): AppSetti
     agentGateway: {
       openAiResponsesEnabled: Boolean(patch.agentGateway?.openAiResponsesEnabled ?? base.agentGateway.openAiResponsesEnabled),
     },
+    profile: normalizeProfile({
+      ...base.profile,
+      ...(patch.profile || {}),
+    }),
   };
 }
 
@@ -73,5 +90,15 @@ function cloneSettings(settings: AppSettings): AppSettings {
     agentGateway: {
       openAiResponsesEnabled: Boolean(settings.agentGateway.openAiResponsesEnabled),
     },
+    profile: normalizeProfile(settings.profile),
+  };
+}
+
+function normalizeProfile(profile: Partial<UserProfileSettings>): UserProfileSettings {
+  const displayName = String(profile.displayName || DEFAULT_APP_SETTINGS.profile.displayName).trim().slice(0, 40);
+  const avatarId = String(profile.avatarId || DEFAULT_APP_SETTINGS.profile.avatarId).trim().slice(0, 40);
+  return {
+    displayName: displayName || DEFAULT_APP_SETTINGS.profile.displayName,
+    avatarId: avatarId || DEFAULT_APP_SETTINGS.profile.avatarId,
   };
 }
