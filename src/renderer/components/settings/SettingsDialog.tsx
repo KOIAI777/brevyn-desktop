@@ -88,6 +88,7 @@ import {
   type UserProfileSettings,
   type UpdaterStatus,
 } from "../../../types/domain";
+import { BREVYN_CLOUD_DEVELOPMENT_BASE_URL, BREVYN_CLOUD_SHOP_URL } from "../../../types/cloud-config";
 import { cx } from "@/lib/cn";
 
 type SettingsPage = "account" | "general" | "providers" | "archive" | "skills" | "about";
@@ -132,7 +133,6 @@ const SEMESTER_HOME_COURSE_ID = "semester-home";
 const PROVIDER_PROFILE_ROW_HEIGHT_CLASS = "h-[72px]";
 const PROVIDER_PROFILE_LIST_HEIGHT_CLASS = "max-h-[312px]";
 const OFFICIAL_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-official-";
-const CLOUD_SHOP_URL = "https://pay.ldxp.cn/shop/6B9RTIVH";
 const CLOUD_ENTITLEMENTS_POLL_MS = 40_000;
 const CLOUD_ENTITLEMENTS_FOCUS_REFRESH_MS = 60_000;
 
@@ -235,7 +235,7 @@ export function SettingsDialog({
   const [cloudRedeemResult, setCloudRedeemResult] = useState<CloudRedeemCodeResult | null>(null);
   const [cloudGroupModels, setCloudGroupModels] = useState<Record<number, CloudGroupModelCatalogState>>({});
   const [cloudForm, setCloudForm] = useState<CloudAccountForm>({
-    baseUrl: "http://127.0.0.1:4000",
+    baseUrl: BREVYN_CLOUD_DEVELOPMENT_BASE_URL,
     email: "",
     password: "",
     displayName: "",
@@ -562,8 +562,11 @@ export function SettingsDialog({
     setCloudBusyAction(mode);
     setCloudStatusLine("");
     try {
+      const baseUrl = cloudStatus?.baseUrlEditable === false
+        ? cloudStatus.defaultBaseUrl || cloudStatus.baseUrl
+        : cloudForm.baseUrl;
       const input = {
-        baseUrl: cloudForm.baseUrl,
+        baseUrl,
         email: cloudForm.email,
         password: cloudForm.password,
         displayName: cloudForm.displayName,
@@ -764,7 +767,7 @@ export function SettingsDialog({
   async function openCloudShop() {
     setCloudStatusLine("");
     try {
-      await window.brevyn.app.openExternal(CLOUD_SHOP_URL);
+      await window.brevyn.app.openExternal(cloudStatus?.shopUrl || BREVYN_CLOUD_SHOP_URL);
       setCloudStatusLine("已在外部浏览器打开购买页面。");
     } catch (error) {
       setCloudStatusLine(`打开购买页面失败：${errorMessage(error)}`);
@@ -1624,6 +1627,13 @@ function AccountSettingsPage({
   const walletStatus = entitlements?.wallet.status || "";
   const statusMessage = statusLine || cloudStatus?.lastError || "";
   const profileDirty = profileDraft.displayName.trim() !== profile.displayName || profileDraft.avatarId !== profile.avatarId;
+  const cloudBaseUrlEditable = cloudStatus?.baseUrlEditable === true;
+  const cloudEnvironmentLabel = cloudStatus?.environment === "development"
+    ? "开发模式"
+    : cloudStatus?.environment === "production"
+      ? "生产模式"
+      : "加载中";
+  const cloudBaseUrlLabel = cloudStatus ? cloudStatus.baseUrl || cloudStatus.defaultBaseUrl : "正在读取 Cloud 配置";
 
   useEffect(() => {
     setProfileDraft(profile);
@@ -1720,6 +1730,16 @@ function AccountSettingsPage({
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Cloud className="h-4 w-4" />
               Brevyn Cloud 账号
+              <span className={cx(
+                "rounded px-1.5 py-0.5 text-[9px] font-medium",
+                cloudStatus?.environment === "development"
+                  ? "bg-amber-50 text-amber-700"
+                  : cloudStatus?.environment === "production"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-muted text-muted-foreground",
+              )}>
+                {cloudEnvironmentLabel}
+              </span>
             </div>
             <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
               登录后自动准备官方模型配置；套餐切换会同步到当前对话可用的模型服务。
@@ -1766,7 +1786,17 @@ function AccountSettingsPage({
               </div>
 
               <div className="grid gap-2 md:grid-cols-2">
-                <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder="http://127.0.0.1:4000" />
+                {cloudBaseUrlEditable ? (
+                  <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder={cloudStatus?.defaultBaseUrl || BREVYN_CLOUD_DEVELOPMENT_BASE_URL} />
+                ) : (
+                  <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background/80 px-2">
+                    <Cloud className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <div className="text-[9px] font-medium leading-3 text-muted-foreground">官方 Cloud</div>
+                      <div className="truncate text-xs font-medium text-foreground" title={cloudBaseUrlLabel}>{cloudBaseUrlLabel}</div>
+                    </div>
+                  </div>
+                )}
                 <Field label="邮箱" value={cloudForm.email} onChange={(value) => onFormChange({ ...cloudForm, email: value })} placeholder="you@example.com" />
                 {cloudMode === "register" && (
                   <Field label="昵称" value={cloudForm.displayName} onChange={(value) => onFormChange({ ...cloudForm, displayName: value })} placeholder="Brevyn 用户" />

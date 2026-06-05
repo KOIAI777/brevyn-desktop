@@ -4,26 +4,33 @@
 
 @layer base {
   :root {
-    --background: 48 20% 97%;
-    --foreground: 222 47% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 10%;
-    --primary: 221 83% 53%;
+    --background: 43 31% 96%;
+    --foreground: 224 34% 12%;
+    --card: 42 40% 98%;
+    --card-foreground: 224 34% 12%;
+    --popover: 42 40% 98%;
+    --popover-foreground: 224 34% 12%;
+    --primary: 217 62% 39%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 30% 94%;
-    --secondary-foreground: 222 47% 12%;
-    --muted: 210 25% 94%;
-    --muted-foreground: 215 14% 43%;
-    --accent: 212 34% 91%;
-    --accent-foreground: 222 47% 12%;
-    --destructive: 0 74% 55%;
+    --secondary: 42 22% 92%;
+    --secondary-foreground: 224 34% 14%;
+    --muted: 42 22% 92%;
+    --muted-foreground: 220 11% 43%;
+    --accent: 39 24% 90%;
+    --accent-foreground: 224 34% 14%;
+    --destructive: 0 67% 50%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214 26% 88%;
-    --input: 214 26% 88%;
-    --ring: 221 83% 53%;
+    --border: 38 18% 84%;
+    --input: 38 18% 84%;
+    --ring: 217 62% 39%;
     --radius: 8px;
+    --surface-warm: 39 43% 94%;
+    --surface-panel: 42 40% 98%;
+    --brand-glow: 217 62% 39%;
+    --status-success: 154 53% 38%;
+    --status-warning: 36 76% 42%;
+    --status-danger: 0 67% 50%;
+    --status-info: 217 62% 39%;
   }
 
   * {
@@ -126,6 +133,28 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  .brevyn-app-background {
+    background:
+      radial-gradient(circle at 20% 0%, hsl(var(--brand-glow) / 0.07), transparent 34%),
+      linear-gradient(180deg, hsl(var(--background)), hsl(var(--surface-warm)));
+  }
+
+  .brevyn-dashboard-background {
+    background:
+      radial-gradient(circle at 18% 8%, hsl(var(--brand-glow) / 0.06), transparent 30%),
+      linear-gradient(180deg, hsl(var(--surface-panel) / 0.9), hsl(var(--background) / 0.98));
+  }
+
+  .brevyn-composer-surface {
+    background: hsl(var(--surface-warm));
+    border-color: hsl(var(--card) / 0.9);
+  }
+
+  .brevyn-composer-surface-dragging {
+    background: hsl(var(--status-info) / 0.08);
+    border-color: hsl(var(--status-info) / 0.28);
   }
 
   .taskagent-panel-content-in {

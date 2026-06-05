@@ -57,7 +57,7 @@ export function CourseDashboard({
   const courseColor = course.color || "#2563eb";
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_22%_8%,rgba(37,99,235,0.07),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,247,242,0.96))] p-5 text-sm text-foreground brevyn-scrollbar">
+    <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
         <section className="overflow-hidden rounded-2xl border bg-card/90 shadow-sm ring-1 ring-border/60">
           <div className="p-5">
@@ -349,10 +349,10 @@ export function FileKindCard({ icon, label, value }: { icon: ReactNode; label: s
 }
 
 function heatCellClass(score: number): string {
-  if (score >= 8) return "border-blue-700/20 bg-blue-700";
-  if (score >= 5) return "border-blue-600/20 bg-blue-500";
-  if (score >= 2) return "border-blue-400/20 bg-blue-300";
-  if (score >= 1) return "border-blue-300/30 bg-blue-100";
+  if (score >= 8) return "border-primary/20 bg-primary";
+  if (score >= 5) return "border-primary/20 bg-primary/75";
+  if (score >= 2) return "border-primary/20 bg-[hsl(var(--primary)/0.42)]";
+  if (score >= 1) return "border-primary/20 bg-[hsl(var(--primary)/0.18)]";
   return "border-border/70 bg-muted/45";
 }
 

@@ -1,6 +1,6 @@
 import type { EmbeddingProviderKind, ModelProviderConfig, ProviderModel } from "../../types/domain";
 import type { EmbeddingProviderAdapter, ProviderHttpRequest } from "./types";
-import { normalizeBaseUrl } from "./url-utils";
+import { normalizeOpenAICompatibleBaseUrl } from "./url-utils";
 
 export class OpenAIEmbeddingAdapter implements EmbeddingProviderAdapter {
   constructor(readonly providerKind: EmbeddingProviderKind = "openai") {}
@@ -16,7 +16,7 @@ export class OpenAIEmbeddingAdapter implements EmbeddingProviderAdapter {
 
   buildModelListRequest(provider: ModelProviderConfig, apiKey: string): ProviderHttpRequest {
     return {
-      url: `${normalizeBaseUrl(provider.baseUrl)}/models`,
+      url: `${normalizeOpenAICompatibleBaseUrl(provider.baseUrl)}/models`,
       init: {
         method: "GET",
         headers: this.authHeaders(provider, apiKey, false),
@@ -26,7 +26,7 @@ export class OpenAIEmbeddingAdapter implements EmbeddingProviderAdapter {
 
   buildEmbeddingRequest(provider: ModelProviderConfig, apiKey: string, input: string[]): ProviderHttpRequest {
     return {
-      url: `${normalizeBaseUrl(provider.baseUrl)}/embeddings`,
+      url: `${normalizeOpenAICompatibleBaseUrl(provider.baseUrl)}/embeddings`,
       init: {
         method: "POST",
         headers: this.authHeaders(provider, apiKey, true),

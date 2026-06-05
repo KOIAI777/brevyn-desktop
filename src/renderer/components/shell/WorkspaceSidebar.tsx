@@ -158,20 +158,23 @@ export function WorkspaceSidebar({
       >
         <span className={cx("absolute right-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100", resizing && "opacity-100")} />
       </button>
-      <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-3 py-3">
+      <div className="drag-region flex items-center gap-2 border-b bg-card/70 px-3 py-3">
         <button
           type="button"
-          className="no-drag flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-left transition hover:bg-accent/70"
+          className="no-drag group/profile flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-border/60 bg-background/70 px-2.5 py-2 text-left shadow-sm transition-colors duration-150 hover:border-border hover:bg-accent/45"
           onClick={onOpenSettings}
           title="打开账号设置"
         >
-          <UserAvatar profile={profile} size="md" />
+          <span className="relative shrink-0">
+            <UserAvatar profile={profile} size="sm" className="rounded-lg shadow-none transition-transform duration-150 group-hover/profile:scale-[1.03]" />
+            <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-[hsl(var(--status-success))]" aria-hidden="true" />
+          </span>
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{profileDisplayName(profile)}</div>
-            <div className="truncate text-[10px] text-muted-foreground">个人资料 · 账号设置</div>
+            <div className="truncate text-[13px] font-semibold leading-4 text-foreground">{profileDisplayName(profile)}</div>
+            <div className="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/80">Workspace</div>
           </div>
         </button>
-        <button className="no-drag rounded-md border bg-background/70 p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
+        <button className="no-drag shrink-0 rounded-lg border border-border/60 bg-background/70 p-1.5 text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
         </button>
       </div>

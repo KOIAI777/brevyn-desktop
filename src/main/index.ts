@@ -126,7 +126,7 @@ app.whenReady().then(() => {
   let storeReady = false;
   try {
     configureClaudeSdk(dataRoot);
-    store = createLocalStore(dataRoot);
+    store = createLocalStore(dataRoot, { isPackaged: app.isPackaged });
     indexingQueue = new IndexingQueueService(store, new WorkerThreadIndexingExecutor(), {
       onQueueChanged: scheduleIndexingFilesChangedBroadcast,
     });

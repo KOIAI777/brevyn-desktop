@@ -159,7 +159,7 @@ function App() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,hsl(var(--background)),#f3f1ea)] text-foreground">
+    <div className="brevyn-app-background flex h-full min-h-0 flex-col text-foreground">
       <AppTitleBar
         course={workspace.activeCourse}
         task={workspace.activeTask}
@@ -420,7 +420,7 @@ export default App;
 
 function AppLoadingScreen() {
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,hsl(var(--background)),#f3f1ea)] px-6 text-foreground">
+    <div className="brevyn-app-background flex h-full min-h-screen items-center justify-center px-6 text-foreground">
       <div className="w-full max-w-md rounded-2xl border bg-card/90 p-6 shadow-2xl ring-1 ring-border/70">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -439,7 +439,7 @@ function AppLoadingScreen() {
 
 function AppBootErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
-    <div className="flex h-full min-h-screen items-center justify-center bg-[radial-gradient(circle_at_20%_0%,rgba(37,99,235,0.08),transparent_34%),linear-gradient(180deg,hsl(var(--background)),#f3f1ea)] px-6 text-foreground">
+    <div className="brevyn-app-background flex h-full min-h-screen items-center justify-center px-6 text-foreground">
       <div className="w-full max-w-md rounded-2xl border bg-card/90 p-6 shadow-2xl ring-1 ring-border/70">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <AlertCircle className="h-4 w-4 text-amber-600" />

@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { BrevynCloudEnvironment } from "./cloud-config";
 
 export interface Course {
   id: string;
@@ -1183,6 +1184,10 @@ export interface CloudOfficialProviderRef {
 
 export interface CloudAccountStatus {
   baseUrl: string;
+  defaultBaseUrl: string;
+  environment: BrevynCloudEnvironment;
+  baseUrlEditable: boolean;
+  shopUrl: string;
   authenticated: boolean;
   user: CloudUser | null;
   wallet: CloudWallet | null;

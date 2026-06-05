@@ -27,6 +27,7 @@ import type {
   ProviderModel,
   ProviderPurpose,
 } from "../../types/domain";
+import { BREVYN_CLOUD_DEVELOPMENT_BASE_URL, type BrevynCloudEnvironment } from "../../types/cloud-config";
 import { readJsonFileSafe, writeJsonFileAtomic } from "./safe-json-file";
 import type { ProviderService } from "./provider-service";
 
@@ -92,6 +93,9 @@ interface RedeemAPIResult {
 
 interface CloudAccountServiceOptions {
   defaultBaseUrl: string;
+  environment: BrevynCloudEnvironment;
+  baseUrlEditable: boolean;
+  shopUrl: string;
 }
 
 export class CloudAccountService {
@@ -121,6 +125,10 @@ export class CloudAccountService {
       : this.data.gateway ?? null;
     return {
       baseUrl: this.data.baseUrl,
+      defaultBaseUrl: this.options.defaultBaseUrl,
+      environment: this.options.environment,
+      baseUrlEditable: this.options.baseUrlEditable,
+      shopUrl: this.options.shopUrl,
       authenticated: Boolean(this.data.user && this.readRefreshToken()),
       user: this.data.user ?? null,
       wallet: this.data.wallet ?? null,
@@ -434,7 +442,7 @@ export class CloudAccountService {
     }
     this.data = {
       version: 1,
-      baseUrl: this.data.baseUrl || this.options.defaultBaseUrl,
+      baseUrl: this.accountBaseUrl(this.data.baseUrl),
       providerRefs: [],
       groups: [],
       user: null,
@@ -588,8 +596,13 @@ export class CloudAccountService {
   }
 
   private setBaseUrl(baseUrl: string | undefined): void {
-    const normalized = normalizeBaseUrl(baseUrl || this.data.baseUrl || this.options.defaultBaseUrl);
+    const normalized = this.accountBaseUrl(baseUrl || this.data.baseUrl);
     if (normalized !== this.data.baseUrl) this.patchData({ baseUrl: normalized });
+  }
+
+  private accountBaseUrl(value?: string): string {
+    if (!this.options.baseUrlEditable) return normalizeBaseUrl(this.options.defaultBaseUrl, this.options.defaultBaseUrl);
+    return normalizeBaseUrl(value || this.options.defaultBaseUrl, this.options.defaultBaseUrl);
   }
 
   private defaultExternalGroupId(): number {
@@ -634,7 +647,7 @@ export class CloudAccountService {
     const parsed = readJsonFileSafe<Partial<CloudAccountFile>>(this.filePath);
     return {
       version: 1,
-      baseUrl: normalizeBaseUrl(parsed?.baseUrl || this.options.defaultBaseUrl),
+      baseUrl: this.accountBaseUrl(parsed?.baseUrl),
       tokens: normalizeEncryptedTokens(parsed?.tokens),
       user: parsed?.user ?? null,
       wallet: parsed?.wallet ?? null,
@@ -1020,9 +1033,9 @@ function normalizeEncryptedTokens(tokens: unknown): EncryptedCloudTokens | undef
   };
 }
 
-function normalizeBaseUrl(value: string): string {
+function normalizeBaseUrl(value: string, fallback = BREVYN_CLOUD_DEVELOPMENT_BASE_URL): string {
   const trimmed = stringValue(value).trim();
-  if (!trimmed) return "http://127.0.0.1:4000";
+  if (!trimmed) return fallback;
   try {
     const url = new URL(trimmed);
     url.pathname = url.pathname.replace(/\/+$/, "");

@@ -241,8 +241,8 @@ export const AgentComposer = memo(function AgentComposer({
         <div
           className={`pointer-events-auto relative w-full min-w-0 rounded-[1.6rem] border p-2.5 shadow-[0_8px_22px_rgba(64,55,38,0.12)] [backface-visibility:hidden] [transform:translateZ(0)] ${
             draggingFiles
-              ? "border-sky-200 bg-sky-50"
-              : "border-white/70 bg-[#f5f0e6]"
+              ? "brevyn-composer-surface-dragging"
+              : "brevyn-composer-surface"
           }`}
           onDragOver={(event) => {
             event.preventDefault();

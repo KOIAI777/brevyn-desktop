@@ -52,7 +52,7 @@ export function SemesterDashboard({
   } = dashboardStats;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_16%_8%,rgba(15,23,42,0.06),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.9),rgba(248,247,242,0.96))] p-5 text-sm text-foreground brevyn-scrollbar">
+    <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
         <section className="overflow-hidden rounded-2xl border bg-card/90 p-5 shadow-sm ring-1 ring-border/60">
           <div className="flex flex-wrap items-start justify-between gap-4">

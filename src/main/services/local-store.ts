@@ -65,6 +65,12 @@ import type {
   ArchivedTaskScope,
   WorkspaceFileNode,
 } from "../../types/domain";
+import {
+  BREVYN_CLOUD_DEVELOPMENT_BASE_URL,
+  BREVYN_CLOUD_PRODUCTION_BASE_URL,
+  BREVYN_CLOUD_SHOP_URL,
+  type BrevynCloudEnvironment,
+} from "../../types/cloud-config";
 import { AgentEventBus, AgentGatewayService, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import { SkillFileStore } from "../skills/skill-file-store";
@@ -90,6 +96,10 @@ const MAX_AGENT_ATTACHMENT_DATA_BYTES = 100 * 1024 * 1024;
 const CLOUD_ENTITLEMENTS_USAGE_REFRESH_DELAY_MS = 2_500;
 const CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS = 15_000;
 
+interface LocalStoreOptions {
+  isPackaged?: boolean;
+}
+
 export class LocalStore {
   private readonly rootDataDir: string;
   private readonly ragIndex: RagIndexService;
@@ -111,6 +121,7 @@ export class LocalStore {
     private readonly businessStore: SQLiteBusinessStore,
     providerConfigs: ProviderConfigStore,
     providerSecrets?: ProviderSecretStore,
+    options: LocalStoreOptions = {},
   ) {
     this.rootDataDir = dirname(this.filePath);
     this.appSettings = new AppSettingsStore(join(this.rootDataDir, "app-settings.json"));
@@ -118,8 +129,12 @@ export class LocalStore {
       enabled: this.appSettings.get().agentGateway.openAiResponsesEnabled,
     });
     this.providers = new ProviderService(providerConfigs, providerSecrets, new ProviderTransactionStore(join(this.rootDataDir, "provider-transactions.json")));
+    const cloudConfig = resolveCloudRuntimeConfig(options);
     this.cloud = new CloudAccountService(join(this.rootDataDir, "cloud-account.json"), this.providers, {
-      defaultBaseUrl: "http://127.0.0.1:4000",
+      defaultBaseUrl: cloudConfig.defaultBaseUrl,
+      environment: cloudConfig.environment,
+      baseUrlEditable: cloudConfig.baseUrlEditable,
+      shopUrl: cloudConfig.shopUrl,
     });
     this.skillFiles = new SkillFileStore(this.rootDataDir);
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
@@ -870,11 +885,38 @@ function listSessionFileNodes(dir: string, rootDir: string, thread: Thread): Wor
     });
 }
 
-export function createLocalStore(rootDataPath: string): LocalStore {
+export function createLocalStore(rootDataPath: string, options: LocalStoreOptions = {}): LocalStore {
   return new LocalStore(
     join(rootDataPath, "brevyn-state.json"),
     new SQLiteBusinessStore(join(rootDataPath, "indexes", "brevyn.sqlite")),
     new ProviderConfigStore(join(rootDataPath, "provider-profiles.json")),
     new ProviderSecretStore(join(rootDataPath, "provider-secrets.json")),
+    options,
   );
+}
+
+function resolveCloudRuntimeConfig(options: LocalStoreOptions): {
+  defaultBaseUrl: string;
+  environment: BrevynCloudEnvironment;
+  baseUrlEditable: boolean;
+  shopUrl: string;
+} {
+  const environment: BrevynCloudEnvironment = options.isPackaged ? "production" : "development";
+  const defaultBaseUrl = envString("BREVYN_CLOUD_BASE_URL")
+    || (environment === "production" ? BREVYN_CLOUD_PRODUCTION_BASE_URL : BREVYN_CLOUD_DEVELOPMENT_BASE_URL);
+  return {
+    defaultBaseUrl,
+    environment,
+    baseUrlEditable: environment === "development" || envFlag("BREVYN_CLOUD_ALLOW_BASE_URL_EDIT"),
+    shopUrl: envString("BREVYN_CLOUD_SHOP_URL") || BREVYN_CLOUD_SHOP_URL,
+  };
+}
+
+function envString(name: string): string {
+  return typeof process.env[name] === "string" ? process.env[name]!.trim() : "";
+}
+
+function envFlag(name: string): boolean {
+  const value = envString(name).toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
 }
