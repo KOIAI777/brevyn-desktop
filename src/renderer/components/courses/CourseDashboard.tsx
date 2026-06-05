@@ -349,10 +349,10 @@ export function FileKindCard({ icon, label, value }: { icon: ReactNode; label: s
 }
 
 function heatCellClass(score: number): string {
-  if (score >= 8) return "border-primary/20 bg-primary";
-  if (score >= 5) return "border-primary/20 bg-primary/75";
-  if (score >= 2) return "border-primary/20 bg-[hsl(var(--primary)/0.42)]";
-  if (score >= 1) return "border-primary/20 bg-[hsl(var(--primary)/0.18)]";
+  if (score >= 8) return "border-blue-500/35 bg-blue-500";
+  if (score >= 5) return "border-blue-400/35 bg-blue-400";
+  if (score >= 2) return "border-blue-300/45 bg-blue-300";
+  if (score >= 1) return "border-blue-200/70 bg-blue-100";
   return "border-border/70 bg-muted/45";
 }
 

@@ -197,18 +197,22 @@ export function buildActivityDays(threads: Thread[], files: WorkspaceFileNode[])
   const days = lastNDays(ACTIVITY_WEEK_COUNT * 7);
   const byDay = new Map(days.map((day) => [day.dateKey, { ...day, fileEvents: 0, sessionEvents: 0, score: 0 }]));
   for (const file of files) {
+    const score = fileActivityScore(file);
+    if (score <= 0) continue;
     const key = dateKey(file.updatedAt);
     const day = byDay.get(key);
     if (!day) continue;
     day.fileEvents += 1;
-    day.score += isDraftFile(file) ? 2 : 1;
+    day.score += score;
   }
   for (const thread of threads) {
-    const key = dateKey(thread.updatedAt);
+    const score = threadActivityScore(thread);
+    if (score <= 0) continue;
+    const key = dateKey(thread.lastMessageAt || thread.updatedAt);
     const day = byDay.get(key);
     if (!day) continue;
     day.sessionEvents += 1;
-    day.score += thread.isDraft ? 1 : 2;
+    day.score += score;
   }
   return days.map((day) => byDay.get(day.dateKey) || day);
 }
@@ -351,6 +355,29 @@ function countSectionFiles(files: WorkspaceFileNode[], bucket: "materials" | "dr
 
 function isDraftFile(file: WorkspaceFileNode): boolean {
   return file.taskFileBucket === "drafts" || file.path.toLowerCase().includes("/drafts/");
+}
+
+function isSubmittedFile(file: WorkspaceFileNode): boolean {
+  return file.taskFileBucket === "submitted" || file.path.toLowerCase().includes("/submitted/");
+}
+
+function isMaterialFile(file: WorkspaceFileNode): boolean {
+  return file.taskFileBucket === "materials" || file.path.toLowerCase().includes("/materials/");
+}
+
+function fileActivityScore(file: WorkspaceFileNode): number {
+  if (file.sourceKind === "system") return 0;
+  if (isSubmittedFile(file)) return 4;
+  if (isDraftFile(file)) return 3;
+  if (isMaterialFile(file) || file.sectionKind === "lecture" || file.sectionKind === "course_shared") return 1;
+  if (file.sourceKind === "agent_generated") return 2;
+  return 1;
+}
+
+function threadActivityScore(thread: Thread): number {
+  const messageCount = thread.messageCount ?? 0;
+  if (messageCount <= 0) return 0;
+  return thread.isDraft ? 1 : 2;
 }
 
 function isWithinDays(value: string, days: number): boolean {
