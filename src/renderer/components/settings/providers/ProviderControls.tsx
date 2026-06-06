@@ -4,7 +4,7 @@ import { DropdownSelect } from "@/components/ui/DropdownSelect";
 import { IconActionButton, ProviderLogo } from "@/components/settings/shared/SettingsControls";
 import { getProviderKindLogo, getProviderProfileLogo, resolveModelProviderLogo } from "@/lib/model-provider-logo";
 import { cx } from "@/lib/cn";
-import { AGENT_PROVIDER_PRESETS, EMBEDDING_PROVIDER_PRESETS, VISION_PROVIDER_PRESETS, type AgentProviderKind, type EmbeddingProviderKind, type ModelProviderConfig, type ProviderKind, type ProviderModel, type ProviderPurpose, type VisionProviderKind } from "../../../../types/domain";
+import { AGENT_PROVIDER_PRESETS, EMBEDDING_PROVIDER_PRESETS, OCR_PROVIDER_PRESETS, VISION_PROVIDER_PRESETS, type AgentProviderKind, type EmbeddingProviderKind, type ModelProviderConfig, type OcrProviderKind, type ProviderKind, type ProviderModel, type ProviderPurpose, type VisionProviderKind } from "../../../../types/domain";
 import {
   PROVIDER_PROFILE_ROW_HEIGHT_CLASS,
   contextWindowFromInput,
@@ -18,6 +18,7 @@ import {
 const agentProviderKinds = Object.keys(AGENT_PROVIDER_PRESETS) as AgentProviderKind[];
 const embeddingProviderKinds = Object.keys(EMBEDDING_PROVIDER_PRESETS) as EmbeddingProviderKind[];
 const visionProviderKinds = Object.keys(VISION_PROVIDER_PRESETS) as VisionProviderKind[];
+const ocrProviderKinds = Object.keys(OCR_PROVIDER_PRESETS) as OcrProviderKind[];
 
 export function ProviderProfileRow({
   provider,
@@ -105,7 +106,7 @@ export function ProviderKindField({
   onChange: (value: ProviderKind) => void;
   disabled?: boolean;
 }) {
-  const options = purpose === "agent" ? agentProviderKinds : purpose === "vision" ? visionProviderKinds : embeddingProviderKinds;
+  const options = purpose === "agent" ? agentProviderKinds : purpose === "vision" ? visionProviderKinds : purpose === "ocr" ? ocrProviderKinds : embeddingProviderKinds;
   return (
     <label className="space-y-1 text-[11px] text-muted-foreground">
       <span>服务商</span>

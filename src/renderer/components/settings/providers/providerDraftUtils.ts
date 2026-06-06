@@ -5,7 +5,7 @@ import { isOfficialProvider } from "./providerUtils";
 export type ProviderDraftFetchTarget = Pick<ProviderDraftInput, "id" | "purpose" | "providerKind" | "protocol" | "authMode" | "baseUrl" | "apiKey">;
 
 export function nextProviderDraftName(providers: ModelProviderConfig[], purpose: ProviderPurpose): string {
-  const prefix = purpose === "agent" ? "Agent" : purpose === "vision" ? "Vision" : "Embedding";
+  const prefix = purpose === "agent" ? "Agent" : purpose === "vision" ? "Vision" : purpose === "ocr" ? "OCR" : "Embedding";
   const used = new Set(
     providers
       .filter((provider) => provider.purpose === purpose)
@@ -139,7 +139,7 @@ export function mergeFetchedDraftModels(draft: ProviderDraftInput, fetchedModels
 
 export function applyProviderPreset(draft: ProviderDraftInput, providerKind: ProviderKind): ProviderDraftInput {
   const preset = PROVIDER_PRESETS[providerKind];
-  const models = preset.purpose === "agent" || preset.purpose === "vision" ? [] : presetModels(providerKind);
+  const models = preset.purpose === "agent" || preset.purpose === "vision" || preset.purpose === "ocr" ? [] : presetModels(providerKind);
   return {
     ...draft,
     purpose: preset.purpose,

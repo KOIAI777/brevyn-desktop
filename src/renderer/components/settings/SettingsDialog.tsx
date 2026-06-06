@@ -14,7 +14,7 @@ import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AboutUpdateSettingsPage } from "@/components/settings/about/AboutUpdateSettingsPage";
 import { ArchiveSettingsPage } from "@/components/settings/archive/ArchiveSettingsPage";
 import { AccountSettingsPage, type CloudAccountForm, type CloudBusyAction } from "@/components/settings/account/AccountSettingsPage";
-import { redeemKindLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
+import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
 import {
   cloudModelDisplayName,
   formatCloudPoints,
@@ -410,6 +410,7 @@ export function SettingsDialog({
     const capabilities = new Set<string>();
     if (provider.purpose === "embedding") capabilities.add("embedding");
     if (provider.purpose === "vision" || model.supportsVision) capabilities.add("vision_input");
+    if (provider.purpose === "ocr") capabilities.add("ocr");
     return [...capabilities];
   }
 
@@ -461,7 +462,7 @@ export function SettingsDialog({
         cancelLabel: "关闭",
       });
     } catch (error) {
-      setCloudStatusLine(`兑换失败：${errorMessage(error)}`);
+      setCloudStatusLine(cloudRedeemErrorMessage(error));
     } finally {
       setCloudBusyAction("");
     }
@@ -775,7 +776,7 @@ function redeemConfirmationStatusLabel(result: CloudRedeemCodeResult): string {
   if (result.providerSyncStatus === "synced") return "已同步";
   if (result.providerSyncStatus === "provisioning") return "准备中";
   if (result.providerSyncStatus === "failed") return "本地同步失败";
-  return "已兑换";
+  return redeemStatusLabel(result.status);
 }
 
 function agentProviderSelectionValue(providerId: string, modelId: string): string {
@@ -800,6 +801,51 @@ function cloudAuthErrorMessage(error: unknown, mode: CloudAuthMode): string {
     return `${action}失败，Cloud 服务暂时不可用，请稍后再试。`;
   }
   return `${action}失败：${normalized || "请稍后再试。"}`;
+}
+
+function cloudRedeemErrorMessage(error: unknown): string {
+  const raw = errorMessage(error, "兑换失败。");
+  const normalized = normalizeRemoteErrorMessage(raw);
+  const code = cloudAuthErrorCode(error, normalized);
+  const mapped = cloudRedeemCodeMessage(code);
+  if (mapped) return mapped;
+  if (/failed to fetch|networkerror|network error|fetch failed/i.test(normalized)) {
+    return "无法连接 Brevyn Cloud，请检查网络或 Cloud 地址后重试。";
+  }
+  if (/^\d{3}\s+/.test(normalized)) {
+    return "兑换失败，Cloud 服务暂时不可用，请稍后再试。";
+  }
+  return `兑换失败：${normalized || "请稍后再试。"}`;
+}
+
+function cloudRedeemCodeMessage(code: string): string {
+  switch (code) {
+    case "code_required":
+      return "请输入兑换码。";
+    case "redeem_rate_limited":
+      return "兑换太频繁，请稍后再试。";
+    case "redeem_code_not_found":
+      return "兑换码不存在，请检查后重新输入。";
+    case "redeem_code_used":
+      return "兑换码已被使用。";
+    case "redeem_code_expired":
+      return "兑换码已过期。";
+    case "redeem_code_invalid_state":
+      return "兑换码配置异常，请联系客服处理。";
+    case "redeem_failed":
+      return "兑换失败，请稍后再试。";
+    case "redeem_gateway_sync_failed":
+      return "兑换已记录，但套餐或积分同步暂未完成，请稍后刷新。";
+    case "unauthorized":
+    case "invalid_refresh_token":
+      return "登录状态已失效，请重新登录。";
+    case "invalid_request":
+      return "请求格式不正确，请重新输入兑换码。";
+    case "rate_limit_unavailable":
+      return "Cloud 风控服务暂时不可用，请稍后再试。";
+    default:
+      return "";
+  }
 }
 
 function cloudAuthCodeMessage(code: string, mode: CloudAuthMode): string {

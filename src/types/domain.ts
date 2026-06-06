@@ -459,16 +459,18 @@ export interface FileImportResult {
   indexingNotice?: string;
 }
 
-export type ProviderPurpose = "agent" | "embedding" | "vision";
+export type ProviderPurpose = "agent" | "embedding" | "vision" | "ocr";
 export type AgentProtocol = "anthropic_messages" | "openai_responses";
 export type EmbeddingProtocol = "openai_compatible";
 export type VisionProtocol = "anthropic_messages" | "openai_compatible" | "openai_responses";
-export type ProviderProtocol = AgentProtocol | EmbeddingProtocol | VisionProtocol;
+export type OcrProtocol = "anthropic_messages" | "openai_compatible" | "openai_responses";
+export type ProviderProtocol = AgentProtocol | EmbeddingProtocol | VisionProtocol | OcrProtocol;
 export type ProviderAdapterKind = "anthropic" | "openai_embedding" | "openai_chat_completions" | "openai_responses";
 export type AgentProviderKind = "anthropic" | "deepseek" | "bailian-anthropic" | "kimi-api" | "kimi-coding" | "custom-anthropic" | "openai-responses-agent";
 export type EmbeddingProviderKind = "openai" | "qwen" | "doubao" | "zhipu" | "minimax" | "custom-openai";
 export type VisionProviderKind = "vision-bailian-openai" | "vision-custom-openai" | "vision-custom-anthropic" | "vision-openai-responses" | "vision-custom-openai-responses";
-export type ProviderKind = AgentProviderKind | EmbeddingProviderKind | VisionProviderKind;
+export type OcrProviderKind = "ocr-custom-openai" | "ocr-custom-anthropic" | "ocr-openai-responses";
+export type ProviderKind = AgentProviderKind | EmbeddingProviderKind | VisionProviderKind | OcrProviderKind;
 export type ProviderAuthMode = "api_key" | "auth_token" | "bearer";
 
 export interface ProviderModel {
@@ -668,10 +670,41 @@ export const VISION_PROVIDER_PRESETS = {
   },
 } as const satisfies Record<VisionProviderKind, ProviderPreset>;
 
+export const OCR_PROVIDER_PRESETS = {
+  "ocr-custom-openai": {
+    kind: "ocr-custom-openai",
+    purpose: "ocr",
+    label: "Custom OpenAI-compatible OCR",
+    adapterKind: "openai_chat_completions",
+    protocol: "openai_compatible",
+    baseUrl: "",
+    authMode: "bearer",
+  },
+  "ocr-custom-anthropic": {
+    kind: "ocr-custom-anthropic",
+    purpose: "ocr",
+    label: "Custom Anthropic OCR",
+    adapterKind: "anthropic",
+    protocol: "anthropic_messages",
+    baseUrl: "",
+    authMode: "api_key",
+  },
+  "ocr-openai-responses": {
+    kind: "ocr-openai-responses",
+    purpose: "ocr",
+    label: "OpenAI Responses OCR",
+    adapterKind: "openai_responses",
+    protocol: "openai_responses",
+    baseUrl: "https://api.openai.com/v1",
+    authMode: "bearer",
+  },
+} as const satisfies Record<OcrProviderKind, ProviderPreset>;
+
 export const PROVIDER_PRESETS = {
   ...AGENT_PROVIDER_PRESETS,
   ...EMBEDDING_PROVIDER_PRESETS,
   ...VISION_PROVIDER_PRESETS,
+  ...OCR_PROVIDER_PRESETS,
 } as const satisfies Record<ProviderKind, ProviderPreset>;
 
 export const DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT = 77.5;
@@ -988,16 +1021,23 @@ export interface CloudGatewayAccount {
   lastSyncedAt: string | null;
 }
 
-export type CloudOfficialCapability = "embedding" | "vision";
+export type CloudOfficialCapability = "embedding" | "vision" | "ocr";
 
 export interface CloudOfficialPurposeConfig {
   modelIds: string[];
   defaultModelId: string;
 }
 
-export interface CloudOfficialModelConfig {
-  embedding: CloudOfficialPurposeConfig;
-  vision: CloudOfficialPurposeConfig;
+export type CloudOfficialModelConfig = Record<CloudOfficialCapability | string, CloudOfficialPurposeConfig>;
+
+export interface CloudOfficialCapabilityDefinition {
+  key: string;
+  name: string;
+  providerKind: string;
+  adapterKind: string;
+  protocol: string;
+  modelHintCapabilities?: string[];
+  minClientVersion?: string;
 }
 
 export interface CloudGatewayGroup {
@@ -1094,6 +1134,7 @@ export interface CloudGatewayEntitlements {
   wallet: CloudEntitlementWallet;
   balanceGroups: CloudBalanceGroupEntitlement[];
   subscriptionGroups: CloudSubscriptionGroupEntitlement[];
+  officialCapabilityDefinitions?: CloudOfficialCapabilityDefinition[];
   updatedAt: string;
   stale: boolean;
   refreshLimited?: boolean;
@@ -1135,6 +1176,8 @@ export interface CloudProviderConfig {
   apiKey: string;
   selectedModel: string;
   enabled: boolean;
+  minClientVersion?: string;
+  modelHintCapabilities?: string[];
   models: CloudProviderModel[];
 }
 

@@ -15,7 +15,7 @@ import {
   isCloudCapabilityGroup,
   type CloudGroupModelCatalogState,
 } from "@/components/settings/account/cloudPlanUtils";
-import { redeemKindLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
+import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
 import { ActionButton, CloudAuthStep, Field, MiniMetric } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
@@ -373,7 +373,7 @@ export function AccountSettingsPage({
                   />
                   {redeemResult ? (
                     <span className={cx("rounded px-2 py-1 text-[10px] font-medium", redeemResult.status === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
-                      {redeemResult.status === "ok" ? "已兑换" : redeemResult.status}
+                      {redeemStatusLabel(redeemResult.status)}
                     </span>
                   ) : null}
                 </div>
@@ -529,4 +529,3 @@ export function AccountSettingsPage({
     </div>
   );
 }
-

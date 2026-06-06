@@ -4,11 +4,13 @@ import {
   EMBEDDING_PROVIDER_PRESETS,
   MAX_AUTO_COMPACT_THRESHOLD_PERCENT,
   MIN_AUTO_COMPACT_THRESHOLD_PERCENT,
+  OCR_PROVIDER_PRESETS,
   PROVIDER_PRESETS,
   VISION_PROVIDER_PRESETS,
   type AgentProviderKind,
   type EmbeddingProviderKind,
   type ModelProviderConfig,
+  type OcrProviderKind,
   type ProviderAdapterKind,
   type ProviderAuthMode,
   type ProviderDraftInput,
@@ -178,7 +180,7 @@ export class ProviderService {
     try {
       const fetched = await fetchProviderModels(provider, apiKey);
       const compatibleModels = filterModelsForPurpose(provider.purpose, fetched);
-      const models = provider.purpose === "agent" || provider.purpose === "vision"
+      const models = provider.purpose === "agent" || provider.purpose === "vision" || provider.purpose === "ocr"
         ? fetchedAgentModelsAsAvailable(compatibleModels)
         : normalizeProviderModels(compatibleModels, provider.selectedModel);
       this.configs.saveProvider({ ...provider, models, updatedAt: new Date().toISOString() });
@@ -197,7 +199,7 @@ export class ProviderService {
     try {
       const fetched = await fetchProviderModels(provider, apiKey);
       const compatibleModels = filterModelsForPurpose(provider.purpose, fetched);
-      return provider.purpose === "agent" || provider.purpose === "vision"
+      return provider.purpose === "agent" || provider.purpose === "vision" || provider.purpose === "ocr"
         ? mergeFetchedModelsAsAvailable(input.models || [], compatibleModels, input.selectedModel)
         : normalizeProviderModels(compatibleModels, input.selectedModel);
     } catch (error) {
@@ -233,6 +235,7 @@ export class ProviderService {
         : undefined;
       if (provider.purpose === "agent") await testAgentProvider(provider, apiKey);
       if (provider.purpose === "vision") await testVisionProvider(provider, apiKey);
+      if (provider.purpose === "ocr") await testVisionProvider(provider, apiKey);
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
@@ -269,6 +272,7 @@ export class ProviderService {
         : undefined;
       if (provider.purpose === "agent") await testAgentProvider(provider, apiKey);
       if (provider.purpose === "vision") await testVisionProvider(provider, apiKey);
+      if (provider.purpose === "ocr") await testVisionProvider(provider, apiKey);
       return {
         ok: true,
         latencyMs: Date.now() - startedAt,
@@ -473,14 +477,14 @@ export function normalizeProviders(providers: LegacyProviderConfig[]): ModelProv
     const protocol = preset.protocol;
     const modelSeed = Array.isArray(provider.models) && provider.models.length > 0
       ? provider.models
-      : purpose === "agent" || purpose === "vision" ? [] : presetModels(preset);
+      : purpose === "agent" || purpose === "vision" || purpose === "ocr" ? [] : presetModels(preset);
     const selectedModel = selectedEnabledModelId(normalizeSelectedModel(provider), modelSeed);
     return {
       id: stringValue(provider.id) || `provider-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       purpose,
       providerKind,
       adapterKind: normalizeProviderAdapterKind(provider.adapterKind, providerKind),
-      name: stringValue(provider.name) || (purpose === "agent" ? "Agent Provider" : purpose === "vision" ? "Vision Provider" : "Embedding Provider"),
+      name: stringValue(provider.name) || (purpose === "agent" ? "Agent Provider" : purpose === "vision" ? "Vision Provider" : purpose === "ocr" ? "OCR Provider" : "Embedding Provider"),
       protocol,
       baseUrl: normalizeBaseUrl(provider.baseUrl || preset.baseUrl),
       apiKeyMasked: stringValue(provider.apiKeyMasked) === "sk-...local" ? "" : stringValue(provider.apiKeyMasked),
@@ -500,7 +504,7 @@ export function envApiKeyForProvider(provider: ModelProviderConfig): string | un
   if (provider.purpose === "agent") {
     return envAgentApiKey(provider);
   }
-  if (provider.purpose === "vision") {
+  if (provider.purpose === "vision" || provider.purpose === "ocr") {
     return envVisionApiKey(provider);
   }
   return envEmbeddingApiKey(provider);
@@ -565,7 +569,7 @@ function maskApiKey(apiKey: string): string {
 }
 
 function nextProviderName(providers: ModelProviderConfig[], purpose: ProviderPurpose, excludeId?: string): string {
-  const prefix = purpose === "agent" ? "Agent" : purpose === "vision" ? "Vision" : "Embedding";
+  const prefix = purpose === "agent" ? "Agent" : purpose === "vision" ? "Vision" : purpose === "ocr" ? "OCR" : "Embedding";
   const used = new Set(
     providers
       .filter((provider) => provider.purpose === purpose && provider.id !== excludeId)
@@ -594,7 +598,7 @@ function normalizeNameKey(name: string): string {
 }
 
 function normalizeProviderPurpose(provider: Pick<LegacyProviderConfig, "purpose" | "protocol" | "providerKind">): ProviderPurpose {
-  if (provider.purpose === "agent" || provider.purpose === "embedding" || provider.purpose === "vision") return provider.purpose;
+  if (provider.purpose === "agent" || provider.purpose === "embedding" || provider.purpose === "vision" || provider.purpose === "ocr") return provider.purpose;
   const kindPurpose = providerPurposeForKind(provider.providerKind);
   if (kindPurpose) return kindPurpose;
   if (provider.protocol === "openai_responses") return "vision";
@@ -625,6 +629,10 @@ function normalizeProviderKind(kind: string | undefined, purpose: ProviderPurpos
     if (isVisionProviderKind(normalized)) return normalized;
     return inferVisionProviderKind(protocol, baseUrl);
   }
+  if (purpose === "ocr") {
+    if (isOcrProviderKind(normalized)) return normalized;
+    return inferOcrProviderKind(protocol, baseUrl);
+  }
   if (isEmbeddingProviderKind(normalized)) return normalized;
   return inferEmbeddingProviderKind(baseUrl);
 }
@@ -639,6 +647,9 @@ function normalizeKindAlias(kind: string | undefined): string {
   if (value === "vision_custom_anthropic") return "vision-custom-anthropic";
   if (value === "vision_openai_responses") return "vision-openai-responses";
   if (value === "vision_custom_openai_responses") return "vision-custom-openai-responses";
+  if (value === "ocr_custom_openai" || value === "document_ocr" || value === "vision_ocr") return "ocr-custom-openai";
+  if (value === "ocr_custom_anthropic") return "ocr-custom-anthropic";
+  if (value === "ocr_openai_responses") return "ocr-openai-responses";
   if (value === "custom_anthropic") return "custom-anthropic";
   if (value === "openai_responses_agent" || value === "openai-responses" || value === "custom_openai_responses_agent") return "openai-responses-agent";
   if (value === "custom_openai" || value === "custom") return "custom-openai";
@@ -650,6 +661,7 @@ function providerPurposeForKind(kind: string | undefined): ProviderPurpose | und
   if (isAgentProviderKind(normalized)) return "agent";
   if (isEmbeddingProviderKind(normalized)) return "embedding";
   if (isVisionProviderKind(normalized)) return "vision";
+  if (isOcrProviderKind(normalized)) return "ocr";
   return undefined;
 }
 
@@ -663,6 +675,10 @@ function isEmbeddingProviderKind(kind: string): kind is EmbeddingProviderKind {
 
 function isVisionProviderKind(kind: string): kind is VisionProviderKind {
   return Object.prototype.hasOwnProperty.call(VISION_PROVIDER_PRESETS, kind);
+}
+
+function isOcrProviderKind(kind: string): kind is OcrProviderKind {
+  return Object.prototype.hasOwnProperty.call(OCR_PROVIDER_PRESETS, kind);
 }
 
 function inferAgentProviderKind(protocol?: string, baseUrl?: string): AgentProviderKind {
@@ -697,6 +713,15 @@ function inferVisionProviderKind(protocol?: string, baseUrl?: string): VisionPro
     return url.includes("api.openai.com") || !url ? "vision-openai-responses" : "vision-custom-openai-responses";
   }
   return "vision-custom-anthropic";
+}
+
+function inferOcrProviderKind(protocol?: string, baseUrl?: string): OcrProviderKind {
+  const url = normalizeBaseUrl(baseUrl).toLowerCase();
+  if (protocol === "openai_responses") {
+    return url.includes("api.openai.com") || !url ? "ocr-openai-responses" : "ocr-custom-openai";
+  }
+  if (protocol === "anthropic_messages") return "ocr-custom-anthropic";
+  return "ocr-custom-openai";
 }
 
 function providerPreset(providerKind: ProviderKind): ProviderPreset {
@@ -849,7 +874,7 @@ async function fetchProviderModels(
   options: { limit?: number } = {},
 ): Promise<ProviderModel[]> {
   if (!provider.baseUrl) throw new Error("Base URL is required.");
-  if (provider.purpose === "vision") {
+  if (provider.purpose === "vision" || provider.purpose === "ocr") {
     const response = await fetchWithTimeout(visionModelListUrl(provider), {
       method: "GET",
       headers: provider.protocol === "anthropic_messages" ? visionAnthropicHeaders(provider, apiKey) : visionOpenAiHeaders(provider, apiKey),
@@ -1014,7 +1039,7 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
 
 function filterModelsForPurpose(purpose: ProviderPurpose, models: ProviderModel[]): ProviderModel[] {
   if (purpose === "agent") return models;
-  if (purpose === "vision") return models.filter((model) => !isEmbeddingModelId(model.id));
+  if (purpose === "vision" || purpose === "ocr") return models.filter((model) => !isEmbeddingModelId(model.id));
   const embeddingModels = models.filter((model) => isEmbeddingModelId(model.id));
   return embeddingModels.length > 0 ? embeddingModels : models;
 }
@@ -1068,7 +1093,7 @@ function normalizeContextWindowSource(value: unknown): ProviderModel["contextWin
 
 function normalizeProviderDraftInput(input: unknown): ProviderDraftInput {
   const draft = input && typeof input === "object" ? input as Partial<ProviderDraftInput> : {};
-  const purpose = draft.purpose === "agent" || draft.purpose === "embedding" || draft.purpose === "vision"
+  const purpose = draft.purpose === "agent" || draft.purpose === "embedding" || draft.purpose === "vision" || draft.purpose === "ocr"
     ? draft.purpose
     : providerPurposeForKind(stringValue(draft.providerKind)) || (draft.protocol === "openai_responses" ? "vision" : draft.protocol === "anthropic_messages" ? "agent" : "embedding");
   const providerKind = normalizeProviderKind(stringValue(draft.providerKind), purpose, stringValue(draft.protocol), stringValue(draft.baseUrl));

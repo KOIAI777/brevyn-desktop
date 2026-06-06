@@ -19,7 +19,7 @@ export interface CloudGroupModelCatalogState {
   error?: string;
 }
 
-export type CapabilityKind = "embedding" | "vision";
+export type CapabilityKind = "embedding" | "vision" | "ocr";
 
 export function isBalanceEntitlementGroup(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): group is CloudBalanceGroupEntitlement {
   return "billingKind" in group && group.billingKind === "balance";
@@ -63,11 +63,15 @@ export function groupCapabilityKinds(
   const groupId = group.externalGroupId;
   for (const ref of providerRefs) {
     if (ref.externalGroupId !== groupId) continue;
-    if (ref.purpose === "embedding" || ref.purpose === "vision") kinds.add(ref.purpose);
+    if (ref.purpose === "embedding" || ref.purpose === "vision" || ref.purpose === "ocr") kinds.add(ref.purpose);
   }
   for (const provider of providers) {
     if (!isOfficialProvider(provider) || officialProviderExternalGroupId(provider) !== groupId) continue;
-    if (provider.purpose === "embedding" || provider.purpose === "vision") kinds.add(provider.purpose);
+    if (provider.purpose === "embedding" || provider.purpose === "vision" || provider.purpose === "ocr") kinds.add(provider.purpose);
+  }
+  const officialCapabilities = Array.isArray(group.officialCapabilities) ? group.officialCapabilities : [];
+  for (const capability of officialCapabilities) {
+    if (capability === "embedding" || capability === "vision" || capability === "ocr") kinds.add(capability);
   }
   const models = catalog?.models ?? [];
   if (models.some(isEmbeddingCloudModel)) kinds.add("embedding");
@@ -77,8 +81,9 @@ export function groupCapabilityKinds(
     kinds.add("vision");
   }
   if (/embedding|embed|向量|知识库|rag/.test(text)) kinds.add("embedding");
+  if (/ocr|扫描|文字识别/.test(text)) kinds.add("ocr");
   if (namedVisionGroup) kinds.add("vision");
-  return [...kinds].sort((a, b) => (a === "embedding" ? -1 : 1) - (b === "embedding" ? -1 : 1));
+  return [...kinds].sort(capabilityKindSort);
 }
 
 function hasCapabilityGroupTextHint(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): boolean {
@@ -100,9 +105,14 @@ export function activeCapabilityKinds(groupId: number, providers: ModelProviderC
 export function officialProviderExternalGroupId(provider: ModelProviderConfig): number {
   const suffix = provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
   const parts = suffix.split("-");
-  const raw = parts[0] === "embedding" || parts[0] === "vision" ? parts.slice(1).join("-") : suffix;
+  const raw = parts[0] === "embedding" || parts[0] === "vision" || parts[0] === "ocr" ? parts.slice(1).join("-") : suffix;
   const value = Number.parseInt(raw, 10);
   return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function capabilityKindSort(a: CapabilityKind, b: CapabilityKind): number {
+  const order: Record<CapabilityKind, number> = { embedding: 0, vision: 1, ocr: 2 };
+  return order[a] - order[b];
 }
 
 function isOfficialProvider(provider: ModelProviderConfig): boolean {

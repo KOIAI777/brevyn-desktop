@@ -152,7 +152,7 @@ export function ProviderSettingsPage({
   const runtimeBanner = null;
   const isBusy = (action: ProviderBusyAction) => Boolean(busyActions[action]);
   const isPurposeBlockingBusy = (purpose: ProviderPurpose) => {
-    const prefix = purpose === "agent" ? "agent" : purpose === "vision" ? "vision" : "embedding";
+    const prefix = purpose === "agent" ? "agent" : purpose === "vision" ? "vision" : purpose === "ocr" ? "ocr" : "embedding";
     return Object.entries(busyActions).some(([action, busy]) => Boolean(busy) && action.startsWith(`${prefix}-`) && action !== `${prefix}-toggle`);
   };
   const agentBusy = isPurposeBlockingBusy("agent");

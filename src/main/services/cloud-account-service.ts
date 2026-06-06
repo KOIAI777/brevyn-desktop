@@ -10,7 +10,9 @@ import type {
   CloudModelCatalogInput,
   CloudModelCatalogResult,
   CloudOfficialCapability,
+  CloudOfficialCapabilityDefinition,
   CloudOfficialModelConfig,
+  CloudOfficialPurposeConfig,
   CloudOfficialProviderRef,
   CloudOfficialProviderSyncResult,
   CloudProviderConfig,
@@ -774,13 +776,13 @@ function isOfficialProviderId(providerId: string): boolean {
 function officialProviderIdGroup(providerId: string): number {
   const suffix = providerId.slice("provider-brevyn-cloud-official-".length);
   const parts = suffix.split("-");
-  const raw = parts[0] === "embedding" || parts[0] === "vision" ? parts.slice(1).join("-") : suffix;
+  const raw = parts[0] === "embedding" || parts[0] === "vision" || parts[0] === "ocr" ? parts.slice(1).join("-") : suffix;
   return positiveInteger(raw);
 }
 
 function officialProviderPurpose(provider: CloudProviderConfig): ProviderPurpose | undefined {
   const purpose = stringValue(provider.purpose);
-  if (purpose === "agent" || purpose === "embedding" || purpose === "vision") return purpose;
+  if (purpose === "agent" || purpose === "embedding" || purpose === "vision" || purpose === "ocr") return purpose;
   if (provider.protocol === "openai_compatible") return "embedding";
   if (provider.protocol === "openai_responses") return "vision";
   if (provider.protocol === "anthropic_messages") return "agent";
@@ -802,6 +804,11 @@ function officialProviderKind(provider: CloudProviderConfig, purpose: ProviderPu
     ) return kind;
     return provider.protocol === "anthropic_messages" ? "vision-custom-anthropic" : "vision-custom-openai";
   }
+  if (purpose === "ocr") {
+    if (kind === "ocr-custom-openai" || kind === "ocr-custom-anthropic" || kind === "ocr-openai-responses") return kind;
+    if (provider.protocol === "openai_responses") return "ocr-openai-responses";
+    return provider.protocol === "anthropic_messages" ? "ocr-custom-anthropic" : "ocr-custom-openai";
+  }
   if (
     kind === "anthropic" ||
     kind === "deepseek" ||
@@ -821,6 +828,10 @@ function officialProviderProtocol(provider: CloudProviderConfig, purpose: Provid
     if (protocol === "anthropic_messages" || protocol === "openai_responses") return protocol;
     return "openai_compatible";
   }
+  if (purpose === "ocr") {
+    if (protocol === "anthropic_messages" || protocol === "openai_responses") return protocol;
+    return "openai_compatible";
+  }
   if (protocol === "openai_responses") return "openai_responses";
   return "anthropic_messages";
 }
@@ -835,6 +846,7 @@ function officialProviderAuthMode(provider: CloudProviderConfig, purpose: Provid
 function officialProviderDefaultName(purpose: ProviderPurpose): string {
   if (purpose === "embedding") return "Brevyn Official Embedding";
   if (purpose === "vision") return "Brevyn Official Vision";
+  if (purpose === "ocr") return "Brevyn Official OCR";
   return "Brevyn Official";
 }
 
@@ -873,16 +885,20 @@ function gatewayEntitlementsPath(input: CloudRefreshInput = {}): string {
 
 function cloneOfficialModelConfig(value: unknown): CloudOfficialModelConfig | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const item = value as Partial<CloudOfficialModelConfig>;
-  const embedding = cloneOfficialPurposeConfig(item.embedding);
-  const vision = cloneOfficialPurposeConfig(item.vision);
-  if (embedding.modelIds.length === 0 && vision.modelIds.length === 0) return undefined;
-  return { embedding, vision };
+  const item = value as Record<string, unknown>;
+  const out: CloudOfficialModelConfig = {};
+  for (const [key, rawConfig] of Object.entries(item)) {
+    const normalizedKey = key.trim().toLowerCase();
+    if (!normalizedKey) continue;
+    const config = cloneOfficialPurposeConfig(rawConfig);
+    if (config.modelIds.length > 0) out[normalizedKey] = config;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function cloneOfficialPurposeConfig(value: unknown): CloudOfficialModelConfig["embedding"] {
+function cloneOfficialPurposeConfig(value: unknown): CloudOfficialPurposeConfig {
   if (!value || typeof value !== "object") return { modelIds: [], defaultModelId: "" };
-  const item = value as Partial<CloudOfficialModelConfig["embedding"]>;
+  const item = value as Partial<CloudOfficialPurposeConfig>;
   const seen = new Set<string>();
   const modelIds = Array.isArray(item.modelIds)
     ? item.modelIds.flatMap((raw) => {
@@ -901,11 +917,14 @@ function cloneOfficialCapabilities(value: unknown, config?: CloudOfficialModelCo
   const out: CloudOfficialCapability[] = [];
   const add = (capability: unknown) => {
     const normalized = stringValue(capability).toLowerCase();
-    if ((normalized === "embedding" || normalized === "vision") && !out.includes(normalized)) out.push(normalized);
+    if ((normalized === "embedding" || normalized === "vision" || normalized === "ocr") && !out.includes(normalized)) out.push(normalized);
   };
   if (Array.isArray(value)) value.forEach(add);
-  if (config?.embedding.modelIds.length) add("embedding");
-  if (config?.vision.modelIds.length) add("vision");
+  if (config) {
+    for (const [key, purposeConfig] of Object.entries(config)) {
+      if (purposeConfig.modelIds.length) add(key);
+    }
+  }
   return out;
 }
 
@@ -958,6 +977,7 @@ function cloneEntitlements(value: unknown): CloudGatewayEntitlements | null {
     subscriptionGroups: Array.isArray(item.subscriptionGroups)
       ? item.subscriptionGroups.flatMap((raw) => cloneSubscriptionEntitlement(raw))
       : [],
+    officialCapabilityDefinitions: cloneOfficialCapabilityDefinitions(item.officialCapabilityDefinitions),
     updatedAt: stringValue(item.updatedAt),
     stale: item.stale === true,
     refreshLimited: item.refreshLimited === true,
@@ -1032,6 +1052,31 @@ function cloneSubscriptionEntitlement(raw: unknown): CloudGatewayEntitlements["s
   }];
 }
 
+function cloneOfficialCapabilityDefinitions(value: unknown): CloudOfficialCapabilityDefinition[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const item = raw as Partial<CloudOfficialCapabilityDefinition>;
+    const key = stringValue(item.key).trim().toLowerCase();
+    if (!key) return [];
+    const modelHintCapabilities = Array.isArray(item.modelHintCapabilities)
+      ? item.modelHintCapabilities.flatMap((rawHint) => {
+        const hint = stringValue(rawHint).trim();
+        return hint ? [hint] : [];
+      })
+      : [];
+    return [{
+      key,
+      name: stringValue(item.name) || key,
+      providerKind: stringValue(item.providerKind),
+      adapterKind: stringValue(item.adapterKind),
+      protocol: stringValue(item.protocol),
+      ...(modelHintCapabilities.length ? { modelHintCapabilities } : {}),
+      ...(item.minClientVersion ? { minClientVersion: stringValue(item.minClientVersion) } : {}),
+    }];
+  });
+}
+
 function cloneQuotaWindow(value: unknown): CloudQuotaWindow | undefined {
   if (!value || typeof value !== "object") return undefined;
   const item = value as Partial<CloudQuotaWindow>;
@@ -1080,7 +1125,7 @@ function cloneProviderRefs(refs: unknown): CloudOfficialProviderRef[] {
     if (!providerId || externalGroupId <= 0) return [];
     return [{
       providerId,
-      purpose: item.purpose === "agent" || item.purpose === "embedding" || item.purpose === "vision" ? item.purpose : undefined,
+      purpose: item.purpose === "agent" || item.purpose === "embedding" || item.purpose === "vision" || item.purpose === "ocr" ? item.purpose : undefined,
       externalGroupId,
       groupName: stringValue(item.groupName),
       selectedModel: stringValue(item.selectedModel),

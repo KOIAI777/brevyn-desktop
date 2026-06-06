@@ -34,11 +34,12 @@ export function isOfficialProvider(provider: ModelProviderConfig): boolean {
 
 export function providerDisplayName(provider: ModelProviderConfig): string {
   const trimmed = provider.name.trim();
-  const defaultMatch = /^(Agent|Embedding|Vision)\s+(\d+)$/i.exec(trimmed);
+  const defaultMatch = /^(Agent|Embedding|Vision|OCR)\s+(\d+)$/i.exec(trimmed);
   if (!defaultMatch) return trimmed || "未命名服务商";
   const index = defaultMatch[2];
   if (provider.purpose === "embedding") return `Embedding ${index}`;
   if (provider.purpose === "vision") return `Vision ${index}`;
+  if (provider.purpose === "ocr") return `OCR ${index}`;
   return `Agent ${index}`;
 }
 
@@ -48,7 +49,7 @@ export function officialProviderGroupLabel(provider: ModelProviderConfig): strin
   if (parts.length > 1) return parts.slice(1).join(" · ");
   const suffix = provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
   if (!suffix || suffix === "default") return "官方分组";
-  const groupId = suffix.replace(/^(embedding|vision)-/, "");
+  const groupId = suffix.replace(/^(embedding|vision|ocr)-/, "");
   return groupId === "default" ? "官方分组" : `分组 #${groupId}`;
 }
 

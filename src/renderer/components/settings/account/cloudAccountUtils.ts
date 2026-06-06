@@ -7,6 +7,14 @@ export function redeemKindLabel(kind: string): string {
   return kind || "兑换";
 }
 
+export function redeemStatusLabel(status: string): string {
+  if (status === "ok" || status === "synced") return "已兑换";
+  if (status === "gateway_failed") return "待同步";
+  if (status === "pending_gateway") return "同步中";
+  if (status === "failed") return "失败";
+  return status || "已兑换";
+}
+
 export function redeemValueLabel(result: CloudRedeemCodeResult): string {
   const redemption = result.result.redemption;
   if (redemption.kind === "subscription") return `${redemption.validityDays || 0} 天`;
