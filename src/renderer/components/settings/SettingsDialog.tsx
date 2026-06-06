@@ -1615,12 +1615,12 @@ function AccountSettingsPage({
   const entitlements = cloudStatus?.entitlements ?? null;
   const balanceGroups = entitlements?.balanceGroups ?? [];
   const subscriptionGroups = entitlements?.subscriptionGroups ?? [];
-  const capabilityBalanceGroups = balanceGroups.filter((group) => isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
-  const capabilitySubscriptionGroups = subscriptionGroups.filter((group) => isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
-  const conversationBalanceGroups = balanceGroups.filter((group) => !isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
-  const conversationSubscriptionGroups = subscriptionGroups.filter((group) => !isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
-  const fallbackCapabilityGroups = !entitlements ? groups.filter((group) => isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? [])) : [];
-  const fallbackConversationGroups = !entitlements ? groups.filter((group) => !isCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? [])) : [];
+  const capabilityBalanceGroups = balanceGroups.filter((group) => isCloudCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const capabilitySubscriptionGroups = subscriptionGroups.filter((group) => isCloudCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const conversationBalanceGroups = balanceGroups.filter((group) => !isCloudCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const conversationSubscriptionGroups = subscriptionGroups.filter((group) => !isCloudCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? []));
+  const fallbackCapabilityGroups = !entitlements ? groups.filter((group) => isCloudCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? [])) : [];
+  const fallbackConversationGroups = !entitlements ? groups.filter((group) => !isCloudCapabilityGroup(group, groupModels[group.externalGroupId], providers, cloudStatus?.providerRefs ?? [])) : [];
   const capabilityGroupCount = capabilityBalanceGroups.length + capabilitySubscriptionGroups.length + fallbackCapabilityGroups.length;
   const currentGroupId = cloudStatus?.currentGroup?.externalGroupId || cloudStatus?.gateway?.defaultGroupId || 0;
   const walletRemaining = entitlements?.wallet.remaining ?? cloudStatus?.wallet?.balance ?? 0;
@@ -2248,9 +2248,10 @@ function CapabilityEntitlementCard({
   const activeKinds = activeCapabilityKinds(group.externalGroupId, providers, kinds);
   const active = kinds.length > 0 && activeKinds.length === kinds.length;
   const partial = activeKinds.length > 0 && !active;
+  const loadingCapabilities = kinds.length === 0 && modelCatalog?.status === "loading";
   const usable = cloudEntitlementUsable(group.status || "");
   return (
-    <div className={planCardClass(active || partial, usable)}>
+    <div className={planCardClass(false, usable)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <PlanTitle name={group.name} current={false} status={group.status || ""} />
@@ -2275,7 +2276,9 @@ function CapabilityEntitlementCard({
               </span>
             ))}
             {partial && <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">部分启用</span>}
-            {active && <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">常开</span>}
+            {active && <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">已启用</span>}
+            {loadingCapabilities && <span className="rounded border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">正在识别能力</span>}
+            {!loadingCapabilities && kinds.length === 0 && <span className="rounded border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">能力待同步</span>}
           </div>
           <div className="mt-3 space-y-2">
             {isBalanceEntitlementGroup(group) ? (
@@ -2462,7 +2465,7 @@ function PlanCapabilityButton({ active, partial, activating, disabled, onClick }
       <button
         type="button"
         className={cx(
-          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs shadow-sm transition disabled:cursor-not-allowed",
+          "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm transition disabled:cursor-not-allowed",
           active
             ? "border-emerald-600 bg-emerald-600 text-white shadow-emerald-950/[0.08]"
             : partial
@@ -2476,6 +2479,7 @@ function PlanCapabilityButton({ active, partial, activating, disabled, onClick }
         aria-label={label}
       >
         <Check className={cx("h-3.5 w-3.5", activating && "animate-pulse")} />
+        <span>{label}</span>
       </button>
     </div>
   );
@@ -5920,6 +5924,15 @@ function capabilityGroupBillingLabel(group: CloudGatewayEntitlementGroup | Cloud
   return planTypeLabel(group);
 }
 
+function isCloudCapabilityGroup(
+  group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
+  catalog: CloudGroupModelCatalogState | undefined,
+  providers: ModelProviderConfig[],
+  providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
+): boolean {
+  return isCapabilityGroup(group, catalog, providers, providerRefs) || hasCapabilityGroupTextHint(group);
+}
+
 function isCapabilityGroup(
   group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
   catalog: CloudGroupModelCatalogState | undefined,
@@ -5955,6 +5968,11 @@ function groupCapabilityKinds(
   if (/embedding|embed|向量|知识库|rag/.test(text)) kinds.add("embedding");
   if (namedVisionGroup) kinds.add("vision");
   return [...kinds].sort((a, b) => (a === "embedding" ? -1 : 1) - (b === "embedding" ? -1 : 1));
+}
+
+function hasCapabilityGroupTextHint(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): boolean {
+  const text = `${group.name} ${"description" in group ? group.description ?? "" : ""} ${group.platform || ""} ${group.source || ""}`.toLowerCase();
+  return /能力|capability|embedding|embed|向量|知识库|rag|vision|视觉|识别|ocr|image|图片/.test(text);
 }
 
 function activeCapabilityKinds(groupId: number, providers: ModelProviderConfig[], kinds: CapabilityKind[]): CapabilityKind[] {

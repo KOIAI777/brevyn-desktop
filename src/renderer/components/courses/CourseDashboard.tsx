@@ -1,6 +1,5 @@
-import { ArrowRight, BarChart3, BookOpen, CalendarClock, FileText, FolderOpen, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpen, CalendarClock, Plus, Sparkles } from "lucide-react";
 import { useMemo } from "react";
-import type { ReactNode } from "react";
 import type { BrevynTask, Course, FileStats, SemesterWorkspace, Thread, WorkspaceFileNode } from "@/types/domain";
 import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
@@ -40,7 +39,6 @@ export function CourseDashboard({
   const {
     activeTasks,
     activityDays,
-    activityScore,
     courseFileCount,
     courseThreads,
     draftFiles,
@@ -49,9 +47,7 @@ export function CourseDashboard({
     lectureWeeks,
     recentTask,
     sectionCount,
-    submittedCount,
     taskCards,
-    taskMaterialCount,
     threadsWithMessages,
   } = dashboardStats;
   const courseColor = course.color || "#2563eb";
@@ -118,11 +114,7 @@ export function CourseDashboard({
                   <BarChart3 className="h-4 w-4" />
                   活动热力图
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">最近 26 周的文件更新和会话活动。</p>
               </div>
-              <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                {activityScore} 活动
-              </span>
             </div>
             <ActivityHeatmap days={activityDays} />
           </section>
@@ -175,7 +167,6 @@ export function CourseDashboard({
                 <BookOpen className="h-4 w-4" />
                 课件资料
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">课件、每周阅读和课程材料会独立于任务草稿统计。</p>
             </div>
             <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
               {lectureFiles.length} 个文件
@@ -209,7 +200,6 @@ export function CourseDashboard({
                 <CalendarClock className="h-4 w-4" />
                 任务进展
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">选择一个任务，进入对应的写作、阅读或复习工作区。</p>
             </div>
             <button
               type="button"
@@ -252,12 +242,6 @@ export function CourseDashboard({
               还没有任务。先为下一份作业、展示或复习目标创建一个任务。
             </div>
           )}
-        </section>
-
-        <section className="grid gap-3 md:grid-cols-3">
-          <FileKindCard icon={<FolderOpen className="h-4 w-4" />} label="任务材料" value={taskMaterialCount.toString()} />
-          <FileKindCard icon={<FileText className="h-4 w-4" />} label="草稿" value={draftFiles.length.toString()} />
-          <FileKindCard icon={<FileText className="h-4 w-4" />} label="已提交" value={submittedCount.toString()} />
         </section>
       </div>
     </div>
@@ -332,18 +316,6 @@ export function MetricCard({ label, value, hint }: { label: string; value: strin
       <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-foreground">{value}</div>
       <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div>
-    </div>
-  );
-}
-
-export function FileKindCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border bg-card/82 p-4 shadow-sm ring-1 ring-border/45">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-muted-foreground">{icon}</div>
-      <div>
-        <div className="text-lg font-semibold tracking-[-0.02em]">{value}</div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-      </div>
     </div>
   );
 }

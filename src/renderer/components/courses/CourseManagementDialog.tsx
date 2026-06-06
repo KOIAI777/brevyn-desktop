@@ -101,6 +101,7 @@ export function CourseManagementDialog({
   const [newCourseInstructor, setNewCourseInstructor] = useState("");
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [newCourseError, setNewCourseError] = useState("");
+  const [showCreateCourse, setShowCreateCourse] = useState(false);
   const [uploadingSectionId, setUploadingSectionId] = useState("");
   const [autoOpenLectureWeek, setAutoOpenLectureWeek] = useState<AutoOpenLectureWeek | null>(null);
   const courseViewRequestRef = useRef(0);
@@ -235,6 +236,7 @@ export function CourseManagementDialog({
       setNewCourseName("");
       setNewCourseCode("");
       setNewCourseInstructor("");
+      setShowCreateCourse(false);
       await loadCourseView(created.id);
     } catch (error) {
       setNewCourseError(error instanceof Error ? error.message : "创建课程失败。");
@@ -584,62 +586,86 @@ export function CourseManagementDialog({
               ))}
             </section>
 
-            <section className="rounded-lg border bg-background/70 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
-                <Plus className="h-3.5 w-3.5" />
-                新建课程
-              </div>
-              <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                <span>课程名称</span>
-                <input
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
-                  value={newCourseName}
-                  onChange={(event) => setNewCourseName(event.target.value)}
-                  placeholder="例如：宪法学"
-                />
-              </label>
-              <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                <span>课程代码</span>
-                <input
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
-                  value={newCourseCode}
-                  onChange={(event) => setNewCourseCode(event.target.value)}
-                  placeholder="例如：LAW 200"
-                />
-              </label>
-              <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                <span>教师（可选）</span>
-                <input
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
-                  value={newCourseInstructor}
-                  onChange={(event) => setNewCourseInstructor(event.target.value)}
-                  placeholder="例如：Prof. Lee"
-                />
-              </label>
-              {newCourseError && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
-              {!canCreateCourse && !newCourseError && (
-                <div className="mb-2 rounded-md bg-muted/55 px-2 py-1 text-[11px] leading-5 text-muted-foreground">
-                  请先选择或创建学期，再添加课程。
+            <section className="rounded-lg border bg-background/70 p-2">
+              {!showCreateCourse ? (
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => setShowCreateCourse(true)}
+                  disabled={!canCreateCourse}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  新建课程
+                </button>
+              ) : (
+                <div className="p-1">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold">
+                      <Plus className="h-3.5 w-3.5" />
+                      新建课程
+                    </div>
+                    <button
+                      type="button"
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                      onClick={() => setShowCreateCourse(false)}
+                      title="收起新建课程"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
+                    <span>课程名称</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                      value={newCourseName}
+                      onChange={(event) => setNewCourseName(event.target.value)}
+                      placeholder="例如：宪法学"
+                    />
+                  </label>
+                  <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
+                    <span>课程代码</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                      value={newCourseCode}
+                      onChange={(event) => setNewCourseCode(event.target.value)}
+                      placeholder="例如：LAW 200"
+                    />
+                  </label>
+                  <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
+                    <span>教师（可选）</span>
+                    <input
+                      className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                      value={newCourseInstructor}
+                      onChange={(event) => setNewCourseInstructor(event.target.value)}
+                      placeholder="例如：Prof. Lee"
+                    />
+                  </label>
+                  {newCourseError && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
+                  {!canCreateCourse && !newCourseError && (
+                    <div className="mb-2 rounded-md bg-muted/55 px-2 py-1 text-[11px] leading-5 text-muted-foreground">
+                      请先选择或创建学期，再添加课程。
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={createCourse}
+                    disabled={creatingCourse || !canCreateCourse}
+                  >
+                    {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    {creatingCourse ? "正在创建..." : "创建课程"}
+                  </button>
+                  <VisionRecognitionImportButton
+                    kind="course_timetable"
+                    className="mt-2 w-full"
+                    onImported={async () => {
+                      await onWorkspaceChanged?.();
+                      await loadArchivedCourses();
+                      if (activeCourse?.id) await loadCourseView(activeCourse.id);
+                    }}
+                  />
                 </div>
               )}
-              <button
-                type="button"
-                className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={createCourse}
-                disabled={creatingCourse || !canCreateCourse}
-              >
-                {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                {creatingCourse ? "正在创建..." : "创建课程"}
-              </button>
-              <VisionRecognitionImportButton
-                kind="course_timetable"
-                className="mt-2 w-full"
-                onImported={async () => {
-                  await onWorkspaceChanged?.();
-                  await loadArchivedCourses();
-                  if (activeCourse?.id) await loadCourseView(activeCourse.id);
-                }}
-              />
             </section>
           </aside>
 
@@ -666,15 +692,6 @@ export function CourseManagementDialog({
                 >
                   <Pencil className="h-3.5 w-3.5" />
                   详情
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void indexAllSections()}
-                  disabled={!activeCourse?.id || activeCourseArchived || Boolean(indexingSectionId)}
-                >
-                  {indexingSectionId === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
-                  全部索引
                 </button>
               </div>
             </div>
@@ -851,6 +868,9 @@ export function CourseManagementDialog({
                     jobs={indexingJobs}
                     loading={loadingIndexingJobs}
                     sections={sections}
+                    indexingAll={indexingSectionId === "all"}
+                    disabled={!activeCourse?.id || activeCourseArchived || Boolean(indexingSectionId)}
+                    onIndexAll={() => void indexAllSections()}
                     onRefresh={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
                     onCancel={(jobId) => void cancelIndexing(jobId)}
                   />
@@ -998,12 +1018,18 @@ function IndexingProgressPanel({
   jobs,
   loading,
   sections,
+  indexingAll,
+  disabled,
+  onIndexAll,
   onRefresh,
   onCancel,
 }: {
   jobs: IndexingJob[];
   loading: boolean;
   sections: CourseFileSection[];
+  indexingAll: boolean;
+  disabled: boolean;
+  onIndexAll: () => void;
   onRefresh: () => void;
   onCancel: (jobId: string) => void;
 }) {
@@ -1013,20 +1039,31 @@ function IndexingProgressPanel({
 
   return (
     <section className="rounded-lg border bg-card p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
           <Database className="h-3.5 w-3.5" />
           <span className="truncate">索引</span>
           {activeCount > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{activeCount} 个进行中</span>}
         </div>
-        <button
-          type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
-          onClick={onRefresh}
-          title="刷新索引任务"
-        >
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onIndexAll}
+            disabled={disabled}
+          >
+            {indexingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
+            全部索引
+          </button>
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            onClick={onRefresh}
+            title="刷新索引任务"
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          </button>
+        </div>
       </div>
 
       {visibleJobs.length === 0 ? (

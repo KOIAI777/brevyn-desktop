@@ -1,9 +1,9 @@
-import { ArrowRight, BarChart3, BookOpen, CalendarDays, FileText, FolderOpen, Home, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpen, CalendarDays, Home, MessageSquare, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import type { BrevynTask, Course, FileStats, SemesterWorkspace, Thread, WorkspaceFileNode } from "@/types/domain";
 import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
-import { ActivityHeatmap, FileKindCard, MetricCard } from "@/components/courses/CourseDashboard";
+import { ActivityHeatmap, MetricCard } from "@/components/courses/CourseDashboard";
 import { buildSemesterDashboardStats } from "@/components/courses/courseDashboardStats";
 
 export function SemesterDashboard({
@@ -40,7 +40,6 @@ export function SemesterDashboard({
     semesterThreads,
     allTasks,
     activityDays,
-    activityScore,
     courseCards,
     recentTask,
     homeThread,
@@ -48,7 +47,6 @@ export function SemesterDashboard({
     emptyCourseCount,
     fileCount,
     threadsWithMessages,
-    lectureFileCount,
   } = dashboardStats;
 
   return (
@@ -104,11 +102,7 @@ export function SemesterDashboard({
                   <BarChart3 className="h-4 w-4" />
                   学期活动热力图
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">最近 26 周的跨课程文件更新和会话活动。</p>
               </div>
-              <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                {activityScore} 活动
-              </span>
             </div>
             <ActivityHeatmap days={activityDays} />
           </section>
@@ -159,7 +153,6 @@ export function SemesterDashboard({
                 <CalendarDays className="h-4 w-4" />
                 课程状态
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">从这里进入具体课程看板或任务工作区。</p>
             </div>
           </div>
           {courseCards.length > 0 ? (
@@ -198,12 +191,6 @@ export function SemesterDashboard({
               当前学期还没有课程。先在课程管理里添加课程。
             </div>
           )}
-        </section>
-
-        <section className="grid gap-3 md:grid-cols-3">
-          <FileKindCard icon={<FolderOpen className="h-4 w-4" />} label="学期文件" value={fileCount.toString()} />
-          <FileKindCard icon={<FileText className="h-4 w-4" />} label="课件文件" value={lectureFileCount.toString()} />
-          <FileKindCard icon={<MessageSquare className="h-4 w-4" />} label="跨课程会话" value={(homeThread ? 1 : 0).toString()} />
         </section>
       </div>
     </div>
