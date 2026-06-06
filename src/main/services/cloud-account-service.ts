@@ -9,6 +9,8 @@ import type {
   CloudGatewayGroup,
   CloudModelCatalogInput,
   CloudModelCatalogResult,
+  CloudOfficialCapability,
+  CloudOfficialModelConfig,
   CloudOfficialProviderRef,
   CloudOfficialProviderSyncResult,
   CloudProviderConfig,
@@ -506,6 +508,7 @@ export class CloudAccountService {
     for (const ref of this.data.providerRefs ?? []) addGroupId(ref.externalGroupId);
     addGroupId(this.data.currentGroup?.externalGroupId);
     addGroupId(this.data.gateway?.defaultGroupId);
+    for (const group of this.officialCapabilityGroups()) addGroupId(group.externalGroupId);
 
     const errors: string[] = [];
     for (const externalGroupId of groupIds) {
@@ -516,6 +519,14 @@ export class CloudAccountService {
       }
     }
     return errors;
+  }
+
+  private officialCapabilityGroups(): Array<{ externalGroupId?: unknown; officialCapabilities?: unknown; officialModelConfig?: unknown }> {
+    return [
+      ...(this.data.groups ?? []),
+      ...(this.data.entitlements?.balanceGroups ?? []),
+      ...(this.data.entitlements?.subscriptionGroups ?? []),
+    ].filter(hasOfficialCapability);
   }
 
   private async request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
@@ -736,6 +747,12 @@ function selectedEnabledModel(selectedModel: string, models: ProviderModel[]): s
   return models.find((model) => model.enabled !== false)?.id || "";
 }
 
+function selectedConfiguredModel(selectedModel: string, modelIds: string[]): string {
+  const selected = stringValue(selectedModel).trim();
+  const matched = modelIds.find((modelId) => modelId.toLowerCase() === selected.toLowerCase());
+  return matched || modelIds[0] || "";
+}
+
 function normalizedOfficialCloudProviders(result: OfficialProviderResult): CloudProviderConfig[] {
   const providers = Array.isArray(result.providers)
     ? result.providers.filter((provider) => provider && typeof provider === "object")
@@ -821,6 +838,11 @@ function officialProviderDefaultName(purpose: ProviderPurpose): string {
   return "Brevyn Official";
 }
 
+function hasOfficialCapability(group: { officialCapabilities?: unknown; officialModelConfig?: unknown }): boolean {
+  const config = cloneOfficialModelConfig(group.officialModelConfig);
+  return cloneOfficialCapabilities(group.officialCapabilities, config).length > 0;
+}
+
 function providerToDraft(provider: ModelProviderConfig, overrides: Partial<ProviderDraftInput> = {}): ProviderDraftInput {
   return {
     id: provider.id,
@@ -849,6 +871,44 @@ function gatewayEntitlementsPath(input: CloudRefreshInput = {}): string {
   return query ? `/api/v1/me/gateway-entitlements?${query}` : "/api/v1/me/gateway-entitlements";
 }
 
+function cloneOfficialModelConfig(value: unknown): CloudOfficialModelConfig | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Partial<CloudOfficialModelConfig>;
+  const embedding = cloneOfficialPurposeConfig(item.embedding);
+  const vision = cloneOfficialPurposeConfig(item.vision);
+  if (embedding.modelIds.length === 0 && vision.modelIds.length === 0) return undefined;
+  return { embedding, vision };
+}
+
+function cloneOfficialPurposeConfig(value: unknown): CloudOfficialModelConfig["embedding"] {
+  if (!value || typeof value !== "object") return { modelIds: [], defaultModelId: "" };
+  const item = value as Partial<CloudOfficialModelConfig["embedding"]>;
+  const seen = new Set<string>();
+  const modelIds = Array.isArray(item.modelIds)
+    ? item.modelIds.flatMap((raw) => {
+      const modelId = stringValue(raw).trim();
+      const key = modelId.toLowerCase();
+      if (!modelId || seen.has(key)) return [];
+      seen.add(key);
+      return [modelId];
+    })
+    : [];
+  const defaultModelId = selectedConfiguredModel(stringValue(item.defaultModelId), modelIds);
+  return { modelIds, defaultModelId };
+}
+
+function cloneOfficialCapabilities(value: unknown, config?: CloudOfficialModelConfig): CloudOfficialCapability[] {
+  const out: CloudOfficialCapability[] = [];
+  const add = (capability: unknown) => {
+    const normalized = stringValue(capability).toLowerCase();
+    if ((normalized === "embedding" || normalized === "vision") && !out.includes(normalized)) out.push(normalized);
+  };
+  if (Array.isArray(value)) value.forEach(add);
+  if (config?.embedding.modelIds.length) add("embedding");
+  if (config?.vision.modelIds.length) add("vision");
+  return out;
+}
+
 function cloneGroups(groups: unknown): CloudGatewayGroup[] {
   if (!Array.isArray(groups)) return [];
   return groups.flatMap((raw) => {
@@ -856,6 +916,8 @@ function cloneGroups(groups: unknown): CloudGatewayGroup[] {
     const item = raw as Partial<CloudGatewayGroup>;
     const externalGroupId = positiveInteger(item.externalGroupId);
     if (externalGroupId <= 0) return [];
+    const officialModelConfig = cloneOfficialModelConfig(item.officialModelConfig);
+    const officialCapabilities = cloneOfficialCapabilities(item.officialCapabilities, officialModelConfig);
     return [{
       externalGroupId,
       name: stringValue(item.name) || `group #${externalGroupId}`,
@@ -872,6 +934,8 @@ function cloneGroups(groups: unknown): CloudGatewayGroup[] {
       modelCount: positiveInteger(item.modelCount),
       source: stringValue(item.source) || undefined,
       isCurrent: item.isCurrent === true,
+      ...(officialModelConfig ? { officialModelConfig } : {}),
+      ...(officialCapabilities.length ? { officialCapabilities } : {}),
     }];
   });
 }
@@ -906,6 +970,8 @@ function cloneBalanceEntitlement(raw: unknown): CloudGatewayEntitlements["balanc
   const item = raw as Partial<CloudGatewayEntitlements["balanceGroups"][number]>;
   const externalGroupId = positiveInteger(item.externalGroupId);
   if (externalGroupId <= 0) return [];
+  const officialModelConfig = cloneOfficialModelConfig(item.officialModelConfig);
+  const officialCapabilities = cloneOfficialCapabilities(item.officialCapabilities, officialModelConfig);
   return [{
     externalGroupId,
     name: stringValue(item.name) || `group #${externalGroupId}`,
@@ -924,6 +990,8 @@ function cloneBalanceEntitlement(raw: unknown): CloudGatewayEntitlements["balanc
     modelCount: positiveInteger(item.modelCount),
     source: stringValue(item.source) || undefined,
     isCurrent: item.isCurrent === true,
+    ...(officialModelConfig ? { officialModelConfig } : {}),
+    ...(officialCapabilities.length ? { officialCapabilities } : {}),
   }];
 }
 
@@ -932,6 +1000,8 @@ function cloneSubscriptionEntitlement(raw: unknown): CloudGatewayEntitlements["s
   const item = raw as Partial<CloudGatewayEntitlements["subscriptionGroups"][number]>;
   const externalGroupId = positiveInteger(item.externalGroupId);
   if (externalGroupId <= 0) return [];
+  const officialModelConfig = cloneOfficialModelConfig(item.officialModelConfig);
+  const officialCapabilities = cloneOfficialCapabilities(item.officialCapabilities, officialModelConfig);
   return [{
     externalGroupId,
     name: stringValue(item.name) || `group #${externalGroupId}`,
@@ -957,6 +1027,8 @@ function cloneSubscriptionEntitlement(raw: unknown): CloudGatewayEntitlements["s
     weekly: cloneQuotaWindow(item.weekly),
     monthly: cloneQuotaWindow(item.monthly),
     defaultValidityDays: positiveInteger(item.defaultValidityDays),
+    ...(officialModelConfig ? { officialModelConfig } : {}),
+    ...(officialCapabilities.length ? { officialCapabilities } : {}),
   }];
 }
 

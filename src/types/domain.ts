@@ -988,6 +988,18 @@ export interface CloudGatewayAccount {
   lastSyncedAt: string | null;
 }
 
+export type CloudOfficialCapability = "embedding" | "vision";
+
+export interface CloudOfficialPurposeConfig {
+  modelIds: string[];
+  defaultModelId: string;
+}
+
+export interface CloudOfficialModelConfig {
+  embedding: CloudOfficialPurposeConfig;
+  vision: CloudOfficialPurposeConfig;
+}
+
 export interface CloudGatewayGroup {
   externalGroupId: number;
   name: string;
@@ -1004,6 +1016,8 @@ export interface CloudGatewayGroup {
   modelCount: number;
   source?: string;
   isCurrent: boolean;
+  officialModelConfig?: CloudOfficialModelConfig;
+  officialCapabilities?: CloudOfficialCapability[];
 }
 
 export interface CloudEntitlementWallet {
@@ -1040,6 +1054,8 @@ export interface CloudBalanceGroupEntitlement {
   modelCount: number;
   source?: string;
   isCurrent: boolean;
+  officialModelConfig?: CloudOfficialModelConfig;
+  officialCapabilities?: CloudOfficialCapability[];
 }
 
 export interface CloudSubscriptionGroupEntitlement {
@@ -1067,6 +1083,8 @@ export interface CloudSubscriptionGroupEntitlement {
   weekly?: CloudQuotaWindow;
   monthly?: CloudQuotaWindow;
   defaultValidityDays: number;
+  officialModelConfig?: CloudOfficialModelConfig;
+  officialCapabilities?: CloudOfficialCapability[];
 }
 
 export type CloudGatewayEntitlementGroup = CloudBalanceGroupEntitlement | CloudSubscriptionGroupEntitlement;
