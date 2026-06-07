@@ -393,6 +393,30 @@ export class ProviderService {
     return { ...provider, selectedModel };
   }
 
+  /** Enabled provider used for document OCR during RAG indexing. */
+  ocrProvider(): ModelProviderConfig | undefined {
+    return this.ocrProviderFor();
+  }
+
+  /** Provider/model pair for document OCR during RAG indexing. */
+  ocrProviderFor(providerId?: string, modelId?: string): ModelProviderConfig | undefined {
+    const providers = this.list().filter((item) =>
+      item.purpose === "ocr" &&
+      item.enabled &&
+      item.models.some((model) => model.enabled !== false) &&
+      Boolean(item.baseUrl) &&
+      Boolean(this.apiKey(item.id) || envApiKeyForProvider(item)),
+    );
+    const provider = providerId ? providers.find((item) => item.id === providerId) : singleActiveProvider(providers);
+    if (!provider) return undefined;
+    const enabledModels = provider.models.filter((model) => model.enabled !== false);
+    const selectedModel = modelId && enabledModels.some((model) => model.id === modelId)
+      ? modelId
+      : selectedEnabledModelId(provider.selectedModel, enabledModels);
+    if (!selectedModel) return undefined;
+    return { ...provider, selectedModel };
+  }
+
   envApiKeyFor(provider: ModelProviderConfig): string | undefined {
     return envApiKeyForProvider(provider);
   }

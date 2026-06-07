@@ -1,4 +1,5 @@
 import type { ModelProviderConfig, WorkspaceFileKind } from "../../types/domain";
+import type { ParsedIndexingFile } from "./parsers";
 
 export type IndexingTaskKind = "parse_chunk" | "embed" | "upsert" | "multimodal";
 export type IndexingTaskStatus = "queued" | "running" | "done" | "failed" | "cancelled";
@@ -63,6 +64,7 @@ export interface IndexingWorkerResult {
   chunks: string[];
   chunkMetadata?: IndexingChunkMetadata[];
   metadata?: Record<string, string | number | boolean>;
+  parsed?: ParsedIndexingFile;
 }
 
 export interface IndexingChunkMetadata {

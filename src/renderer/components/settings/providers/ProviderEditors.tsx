@@ -1,4 +1,4 @@
-import { ArrowLeft, Database, Eye, KeyRound, PlugZap, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, Database, Eye, KeyRound, PlugZap, Plus, RefreshCw, Save, ScanText, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   ActionButton,
@@ -11,6 +11,7 @@ import {
   type AgentProviderKind,
   type EmbeddingProviderKind,
   type ModelProviderConfig,
+  type OcrProviderKind,
   type ProviderDraftInput,
   type ProviderKind,
   type ProviderModel,
@@ -21,6 +22,7 @@ import { AgentModelManager, ModelPicker, ProviderKindField } from "./ProviderCon
 type AgentEditorBusyAction = "agent-fetch" | "agent-test" | "agent-save";
 type EmbeddingEditorBusyAction = "embedding-fetch" | "embedding-test" | "embedding-save";
 type VisionEditorBusyAction = "vision-fetch" | "vision-test" | "vision-save";
+type OcrEditorBusyAction = "ocr-fetch" | "ocr-test" | "ocr-save";
 
 export function AgentProviderEditor({
   runtimeBanner,
@@ -439,6 +441,154 @@ export function VisionProviderEditor({
           <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("vision-save") && "animate-pulse")} />} label="保存视觉配置" onClick={onSaveVisionProvider} primary disabled={visionBusy} />
         </div>
         {visionStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{visionStatusLine}</div>}
+      </section>
+    </div>
+  );
+}
+
+export function OcrProviderEditor({
+  runtimeBanner,
+  creatingOcrProvider,
+  selectedOcrProvider,
+  selectedOcrProviderId,
+  ocrDraft,
+  manualOcrModel,
+  ocrStatusLine,
+  ocrBusy,
+  isBusy,
+  adapterLabel,
+  onClose,
+  onDeleteOcrProvider,
+  onOcrDraftChange,
+  onProviderKindChange,
+  onManualOcrModelChange,
+  onAddManualOcrModel,
+  onToggleModel,
+  onMakeDefaultModel,
+  onUpdateModel,
+  onRemoveModel,
+  onFetchOcrModels,
+  onTestOcrProvider,
+  onSaveOcrProvider,
+}: {
+  runtimeBanner: ReactNode;
+  creatingOcrProvider: boolean;
+  selectedOcrProvider: ModelProviderConfig | undefined;
+  selectedOcrProviderId: string;
+  ocrDraft: ProviderDraftInput;
+  ocrModels: ProviderModel[];
+  manualOcrModel: string;
+  ocrStatusLine: string;
+  ocrBusy: boolean;
+  isBusy: (action: OcrEditorBusyAction) => boolean;
+  adapterLabel: (providerKind: ProviderKind) => string;
+  onClose: () => void;
+  onDeleteOcrProvider: (provider: ModelProviderConfig) => void;
+  onOcrDraftChange: (draft: ProviderDraftInput) => void;
+  onProviderKindChange: (providerKind: OcrProviderKind) => void;
+  onManualOcrModelChange: (value: string) => void;
+  onAddManualOcrModel: () => void;
+  onToggleModel: (model: ProviderModel) => void;
+  onMakeDefaultModel: (model: ProviderModel) => void;
+  onUpdateModel: (model: ProviderModel) => void;
+  onRemoveModel: (model: ProviderModel) => void;
+  onFetchOcrModels: () => void;
+  onTestOcrProvider: () => void;
+  onSaveOcrProvider: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {runtimeBanner}
+      <section className="rounded-lg border bg-background/70 p-4">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <button
+              type="button"
+              className="mb-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              onClick={onClose}
+              disabled={ocrBusy}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              返回配置列表
+            </button>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ScanText className="h-4 w-4" />
+              {creatingOcrProvider ? "新建 OCR 配置" : `编辑 OCR 配置 · ${selectedOcrProvider?.name || "未命名"}`}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">用于课程文件索引前的扫描件、图片页和低文本覆盖补识别。</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {selectedOcrProvider && <ActionButton icon={<Trash2 className="h-3.5 w-3.5" />} label="删除" onClick={() => onDeleteOcrProvider(selectedOcrProvider)} disabled={ocrBusy} />}
+          </div>
+        </div>
+
+        {creatingOcrProvider && (
+          <div className="mb-4 rounded-md border border-dashed bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
+            这个 OCR 配置还没有保存。保存后会加入 OCR 列表。
+          </div>
+        )}
+
+        <div className="grid gap-2 md:grid-cols-2">
+          <Field label="配置名称" value={ocrDraft.name} onChange={(value) => onOcrDraftChange({ ...ocrDraft, name: value })} />
+          <ReadOnlyField label="用途" value="文档 OCR" />
+          <ProviderKindField purpose="ocr" value={ocrDraft.providerKind as OcrProviderKind} onChange={(value) => onProviderKindChange(value as OcrProviderKind)} />
+          <ReadOnlyField label="适配器" value={adapterLabel(ocrDraft.providerKind)} />
+          <Field label="Base URL" value={ocrDraft.baseUrl} onChange={(value) => onOcrDraftChange({ ...ocrDraft, baseUrl: value })} />
+          <Field
+            label="API Key"
+            value={ocrDraft.apiKey}
+            onChange={(value) => onOcrDraftChange({ ...ocrDraft, apiKey: value, clearApiKey: false })}
+            type="password"
+            placeholder={selectedOcrProviderId ? "留空则不更新" : "输入 API Key"}
+            icon={<KeyRound className="h-3 w-3" />}
+          />
+          <ReadOnlyField label="默认模型" value={ocrDraft.selectedModel || "请在下方选择已启用模型"} />
+        </div>
+
+        <div className="mt-3 rounded-md border bg-card p-2">
+          <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">手动添加模型</div>
+          <div className="flex gap-2">
+            <input
+              className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/55"
+              value={manualOcrModel}
+              placeholder="e.g. DeepSeek-OCR, PaddleOCR-VL, Qwen3-VL-30B"
+              onChange={(event) => onManualOcrModelChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onAddManualOcrModel();
+                }
+              }}
+            />
+            <ActionButton icon={<Plus className="h-3.5 w-3.5" />} label="添加" onClick={onAddManualOcrModel} disabled={!manualOcrModel.trim()} />
+          </div>
+          <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+            OpenAI-compatible OCR 适合图片和轻量扫描页；MinerU 文档解析会作为独立 OCR adapter 接入。
+          </div>
+        </div>
+
+        {(ocrDraft.models?.length ?? 0) > 0 && (
+          <AgentModelManager
+            title="OCR 模型"
+            providerKind={ocrDraft.providerKind}
+            baseUrl={ocrDraft.baseUrl}
+            availableEmptyLabel="已获取的 OCR 模型都已启用。"
+            enabledEmptyLabel="至少启用一个模型用于 OCR。"
+            models={ocrDraft.models ?? []}
+            selectedModel={ocrDraft.selectedModel}
+            onToggle={onToggleModel}
+            onMakeDefault={onMakeDefaultModel}
+            onUpdateModel={onUpdateModel}
+            onRemoveModel={onRemoveModel}
+          />
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <ActionButton icon={<RefreshCw className={cx("h-3.5 w-3.5", isBusy("ocr-fetch") && "animate-spin")} />} label="获取模型" onClick={onFetchOcrModels} disabled={ocrBusy} />
+          <ActionButton icon={<PlugZap className={cx("h-3.5 w-3.5", isBusy("ocr-test") && "animate-pulse")} />} label="测试" onClick={onTestOcrProvider} disabled={ocrBusy} />
+          <ActionButton icon={<Save className={cx("h-3.5 w-3.5", isBusy("ocr-save") && "animate-pulse")} />} label="保存 OCR 配置" onClick={onSaveOcrProvider} primary disabled={ocrBusy} />
+        </div>
+        {ocrStatusLine && <div className="mt-3 rounded-md bg-muted/55 px-2 py-2 text-[11px] text-muted-foreground">{ocrStatusLine}</div>}
       </section>
     </div>
   );

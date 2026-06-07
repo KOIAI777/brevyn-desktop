@@ -16,7 +16,7 @@ import type {
   WorkspaceFileNode,
 } from "../../types/domain";
 import { semesterWeekRanges } from "../../shared/semester-weeks";
-import { normalizeBaseUrl } from "../providers/url-utils";
+import { extractMultimodalText, multimodalEndpoint, multimodalHeaders, multimodalRequestBody } from "../providers/multimodal-request";
 import { SQLiteBusinessStore } from "../storage";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { ensureCourseFolderInTree } from "./workspace-file-tree";
@@ -97,21 +97,17 @@ export class VisionRecognitionService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
     try {
-      const endpoint = visionEndpoint(provider);
+      const endpoint = multimodalEndpoint(provider);
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: visionHeaders(provider, apiKey),
+        headers: multimodalHeaders(provider, apiKey),
         signal: controller.signal,
-        body: JSON.stringify(visionRequestBody(provider, image, prompt)),
+        body: JSON.stringify(multimodalRequestBody(provider, { type: "image", ...image }, prompt)),
       });
       const text = await response.text();
       if (!response.ok) throw new Error(`Vision request failed (${response.status}): ${text}`);
       const message = parseJson(text);
-      const contentText = provider.protocol === "openai_responses"
-        ? extractOpenAiResponsesText(message)
-        : provider.protocol === "openai_compatible"
-          ? extractOpenAiChatCompletionsText(message)
-          : extractAnthropicText(message);
+      const contentText = extractMultimodalText(provider, message);
       return parseJsonFromModelText(contentText);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
@@ -371,135 +367,6 @@ function readImagePayload(sourcePath: string): { mediaType: string; data: string
     mediaType: mediaTypeForPath(sourcePath),
     data: readFileSync(sourcePath).toString("base64"),
   };
-}
-
-function visionEndpoint(provider: ModelProviderConfig): string {
-  const baseUrl = normalizeBaseUrl(provider.baseUrl)
-    .replace(/\/messages$/, "")
-    .replace(/\/responses$/, "")
-    .replace(/\/chat\/completions$/, "");
-  if (provider.protocol === "openai_responses") return `${baseUrl}/responses`;
-  if (provider.protocol === "openai_compatible") return `${baseUrl}/chat/completions`;
-  return `${baseUrl}/messages`;
-}
-
-function visionHeaders(provider: ModelProviderConfig, apiKey: string): Record<string, string> {
-  if (provider.protocol === "openai_responses" || provider.protocol === "openai_compatible") {
-    return provider.authMode === "api_key"
-      ? { "x-api-key": apiKey, "content-type": "application/json" }
-      : { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" };
-  }
-  const headers: Record<string, string> = {
-    "anthropic-version": "2023-06-01",
-    "content-type": "application/json",
-  };
-  if (provider.authMode === "bearer") headers.Authorization = `Bearer ${apiKey}`;
-  else {
-    headers["x-api-key"] = apiKey;
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-  return headers;
-}
-
-function visionRequestBody(provider: ModelProviderConfig, image: { mediaType: string; data: string }, prompt: string): unknown {
-  if (provider.protocol === "openai_responses") {
-    return {
-      model: provider.selectedModel,
-      max_output_tokens: 4096,
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: prompt },
-            { type: "input_image", image_url: `data:${image.mediaType};base64,${image.data}` },
-          ],
-        },
-      ],
-    };
-  }
-  if (provider.protocol === "openai_compatible") {
-    return {
-      model: provider.selectedModel,
-      max_tokens: 4096,
-      temperature: 0,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${image.mediaType};base64,${image.data}` } },
-          ],
-        },
-      ],
-    };
-  }
-  return {
-    model: provider.selectedModel,
-    max_tokens: 4096,
-    temperature: 0,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: image.mediaType,
-              data: image.data,
-            },
-          },
-          { type: "text", text: prompt },
-        ],
-      },
-    ],
-  };
-}
-
-function extractOpenAiChatCompletionsText(message: unknown): string {
-  const choices = objectValue(message).choices;
-  if (!Array.isArray(choices)) return "";
-  return choices
-    .flatMap((choice) => {
-      const content = objectValue(objectValue(choice).message).content;
-      if (typeof content === "string") return content;
-      if (!Array.isArray(content)) return [];
-      return content.flatMap((part) => {
-        const block = objectValue(part);
-        return block.type === "text" ? stringValue(block.text) : [];
-      });
-    })
-    .join("\n")
-    .trim();
-}
-
-function extractAnthropicText(message: unknown): string {
-  const content = objectValue(message).content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .flatMap((item) => {
-      const block = objectValue(item);
-      return block.type === "text" ? stringValue(block.text) : [];
-    })
-    .join("\n")
-    .trim();
-}
-
-function extractOpenAiResponsesText(message: unknown): string {
-  const outputText = stringValue(objectValue(message).output_text);
-  if (outputText) return outputText;
-  const output = objectValue(message).output;
-  if (!Array.isArray(output)) return "";
-  return output
-    .flatMap((item) => {
-      const content = objectValue(item).content;
-      if (!Array.isArray(content)) return [];
-      return content.flatMap((part) => {
-        const block = objectValue(part);
-        return block.type === "output_text" || block.type === "text" ? stringValue(block.text) : [];
-      });
-    })
-    .join("\n");
 }
 
 function parseJsonFromModelText(text: string): unknown {

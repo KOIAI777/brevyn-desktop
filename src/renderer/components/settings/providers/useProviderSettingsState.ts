@@ -16,6 +16,7 @@ import {
   AGENT_PROVIDER_PRESETS,
   DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
   EMBEDDING_PROVIDER_PRESETS,
+  OCR_PROVIDER_PRESETS,
   VISION_PROVIDER_PRESETS,
   type AgentGatewayStatus,
   type AgentProviderKind,
@@ -72,22 +73,41 @@ const emptyVisionDraft: ProviderDraftInput = {
   enabled: false,
 };
 
+const emptyOcrDraft: ProviderDraftInput = {
+  purpose: "ocr",
+  providerKind: "ocr-custom-openai",
+  name: "",
+  protocol: "openai_compatible",
+  authMode: OCR_PROVIDER_PRESETS["ocr-custom-openai"].authMode,
+  baseUrl: OCR_PROVIDER_PRESETS["ocr-custom-openai"].baseUrl,
+  apiKey: "",
+  clearApiKey: false,
+  models: [],
+  selectedModel: "",
+  enabled: false,
+};
+
 export function useProviderSettingsState({ onAgentProviderChanged }: UseProviderSettingsStateArgs) {
   const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedEmbeddingProviderId, setSelectedEmbeddingProviderId] = useState("");
   const [selectedVisionProviderId, setSelectedVisionProviderId] = useState("");
+  const [selectedOcrProviderId, setSelectedOcrProviderId] = useState("");
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [creatingEmbeddingProvider, setCreatingEmbeddingProvider] = useState(false);
   const [creatingVisionProvider, setCreatingVisionProvider] = useState(false);
+  const [creatingOcrProvider, setCreatingOcrProvider] = useState(false);
   const [draft, setDraft] = useState<ProviderDraftInput>(emptyDraft);
   const [embeddingDraft, setEmbeddingDraft] = useState<ProviderDraftInput>(emptyEmbeddingDraft);
   const [visionDraft, setVisionDraft] = useState<ProviderDraftInput>(emptyVisionDraft);
+  const [ocrDraft, setOcrDraft] = useState<ProviderDraftInput>(emptyOcrDraft);
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [visionModels, setVisionModels] = useState<ProviderModel[]>([]);
+  const [ocrModels, setOcrModels] = useState<ProviderModel[]>([]);
   const [statusLine, setStatusLine] = useState("");
   const [embeddingStatusLine, setEmbeddingStatusLine] = useState("");
   const [visionStatusLine, setVisionStatusLine] = useState("");
+  const [ocrStatusLine, setOcrStatusLine] = useState("");
   const [embeddingReindexNotice, setEmbeddingReindexNotice] = useState("");
   const [embeddingLockedByIndexing, setEmbeddingLockedByIndexing] = useState(false);
   const [reindexingActiveSemester, setReindexingActiveSemester] = useState(false);
@@ -99,12 +119,15 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
   const providerApiKeyLoadRequestRef = useRef(0);
   const embeddingApiKeyLoadRequestRef = useRef(0);
   const visionApiKeyLoadRequestRef = useRef(0);
+  const ocrApiKeyLoadRequestRef = useRef(0);
   const agentModelsFetchRequestRef = useRef(0);
   const embeddingModelsFetchRequestRef = useRef(0);
   const visionModelsFetchRequestRef = useRef(0);
+  const ocrModelsFetchRequestRef = useRef(0);
   const draftRef = useRef(draft);
   const embeddingDraftRef = useRef(embeddingDraft);
   const visionDraftRef = useRef(visionDraft);
+  const ocrDraftRef = useRef(ocrDraft);
 
   useEffect(() => {
     void loadProviders();
@@ -136,6 +159,10 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
   useEffect(() => {
     visionDraftRef.current = visionDraft;
   }, [visionDraft]);
+
+  useEffect(() => {
+    ocrDraftRef.current = ocrDraft;
+  }, [ocrDraft]);
 
   useEffect(() => {
     if (!providerToast) return;
@@ -215,6 +242,30 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     };
   }, [creatingVisionProvider, providers, selectedVisionProviderId]);
 
+  useEffect(() => {
+    if (!selectedOcrProviderId || creatingOcrProvider) return;
+    const provider = providers.find((item) => item.id === selectedOcrProviderId);
+    if (!provider) return;
+    const requestId = ++ocrApiKeyLoadRequestRef.current;
+    void window.brevyn.providers
+      .decryptApiKey(provider.id)
+      .then((apiKey) => {
+        if (ocrApiKeyLoadRequestRef.current !== requestId) return;
+        setOcrDraft((current) => {
+          if (current.id !== provider.id) return current;
+          if (current.apiKey.trim()) return current;
+          return { ...current, apiKey };
+        });
+      })
+      .catch((error) => {
+        if (ocrApiKeyLoadRequestRef.current !== requestId) return;
+        console.warn("[providers] Failed to load OCR provider API key", error);
+      });
+    return () => {
+      ocrApiKeyLoadRequestRef.current += 1;
+    };
+  }, [creatingOcrProvider, providers, selectedOcrProviderId]);
+
   async function loadProviders() {
     try {
       const result = await window.brevyn.providers.list();
@@ -222,15 +273,18 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
       closeProviderEditor();
       closeEmbeddingEditor();
       closeVisionEditor();
+      closeOcrEditor();
       setStatusLine("");
       setEmbeddingStatusLine("");
       setVisionStatusLine("");
+      setOcrStatusLine("");
     } catch (error) {
       setProviders([]);
       const message = errorMessage(error, "加载服务商失败。");
       setStatusLine(message);
       setEmbeddingStatusLine(message);
       setVisionStatusLine(message);
+      setOcrStatusLine(message);
     }
   }
 
@@ -275,6 +329,7 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setProviderBusy("agent-fetch", false);
     closeEmbeddingEditor();
     closeVisionEditor();
+    closeOcrEditor();
     setCreatingProvider(false);
     setSelectedProviderId(provider.id);
     setDraft(toProviderDraft(provider));
@@ -287,6 +342,7 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setProviderBusy("embedding-fetch", false);
     closeProviderEditor();
     closeVisionEditor();
+    closeOcrEditor();
     setCreatingEmbeddingProvider(false);
     setSelectedEmbeddingProviderId(provider.id);
     setEmbeddingDraft(toProviderDraft(provider));
@@ -298,6 +354,7 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setProviderBusy("vision-fetch", false);
     closeProviderEditor();
     closeEmbeddingEditor();
+    closeOcrEditor();
     setCreatingVisionProvider(false);
     setSelectedVisionProviderId(provider.id);
     setVisionDraft(toProviderDraft(provider));
@@ -305,11 +362,25 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setVisionStatusLine("");
   }
 
+  function selectOcrProvider(provider: ModelProviderConfig) {
+    ocrModelsFetchRequestRef.current += 1;
+    setProviderBusy("ocr-fetch", false);
+    closeProviderEditor();
+    closeEmbeddingEditor();
+    closeVisionEditor();
+    setCreatingOcrProvider(false);
+    setSelectedOcrProviderId(provider.id);
+    setOcrDraft(toProviderDraft(provider));
+    setOcrModels([]);
+    setOcrStatusLine("");
+  }
+
   function newProvider() {
     agentModelsFetchRequestRef.current += 1;
     setProviderBusy("agent-fetch", false);
     closeEmbeddingEditor();
     closeVisionEditor();
+    closeOcrEditor();
     setCreatingProvider(true);
     setSelectedProviderId("");
     setDraft({ ...emptyDraft, name: nextProviderDraftName(providers, "agent"), enabled: true });
@@ -326,6 +397,7 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setProviderBusy("embedding-fetch", false);
     closeProviderEditor();
     closeVisionEditor();
+    closeOcrEditor();
     setCreatingEmbeddingProvider(true);
     setSelectedEmbeddingProviderId("");
     setEmbeddingDraft({ ...emptyEmbeddingDraft, name: nextProviderDraftName(providers, "embedding"), enabled: true });
@@ -337,11 +409,25 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setProviderBusy("vision-fetch", false);
     closeProviderEditor();
     closeEmbeddingEditor();
+    closeOcrEditor();
     setCreatingVisionProvider(true);
     setSelectedVisionProviderId("");
     setVisionDraft({ ...emptyVisionDraft, name: nextProviderDraftName(providers, "vision"), enabled: true });
     setVisionModels([]);
     setVisionStatusLine("");
+  }
+
+  function newOcrProvider() {
+    ocrModelsFetchRequestRef.current += 1;
+    setProviderBusy("ocr-fetch", false);
+    closeProviderEditor();
+    closeEmbeddingEditor();
+    closeVisionEditor();
+    setCreatingOcrProvider(true);
+    setSelectedOcrProviderId("");
+    setOcrDraft({ ...emptyOcrDraft, name: nextProviderDraftName(providers, "ocr"), enabled: true });
+    setOcrModels([]);
+    setOcrStatusLine("");
   }
 
   function closeProviderEditor() {
@@ -368,6 +454,15 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     setSelectedVisionProviderId("");
     setVisionDraft({ ...emptyVisionDraft });
     setVisionModels([]);
+  }
+
+  function closeOcrEditor() {
+    ocrModelsFetchRequestRef.current += 1;
+    setProviderBusy("ocr-fetch", false);
+    setCreatingOcrProvider(false);
+    setSelectedOcrProviderId("");
+    setOcrDraft({ ...emptyOcrDraft });
+    setOcrModels([]);
   }
 
   function setProviderBusy(action: ProviderBusyAction, busy: boolean) {
@@ -616,6 +711,22 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     }
   }
 
+  async function toggleOcrProvider(provider: ModelProviderConfig) {
+    setProviderBusy("ocr-toggle", true);
+    try {
+      const result = await window.brevyn.providers.save(toProviderDraft(provider, { enabled: !provider.enabled }));
+      const saved = result.provider;
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      if (provider.id === selectedOcrProviderId) selectOcrProvider(saved);
+      setOcrStatusLine(`已更新 OCR 服务商“${saved.name}”。`);
+    } catch (error) {
+      setOcrStatusLine(errorMessage(error));
+    } finally {
+      setProviderBusy("ocr-toggle", false);
+    }
+  }
+
   async function fetchModels() {
     if (!draft.baseUrl.trim() || !draft.apiKey.trim()) {
       setStatusLine("获取模型前需要填写 Base URL 和 API Key。");
@@ -686,6 +797,29 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     }
   }
 
+  async function fetchOcrModels() {
+    if (!ocrDraft.baseUrl.trim() || !ocrDraft.apiKey.trim()) {
+      setOcrStatusLine("获取模型前需要填写 Base URL 和 API Key。");
+      return;
+    }
+    const requestId = ++ocrModelsFetchRequestRef.current;
+    const target = providerDraftFetchTarget(ocrDraft);
+    setProviderBusy("ocr-fetch", true);
+    try {
+      const fetchedModels = await window.brevyn.providers.models(ocrDraft);
+      if (ocrModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(ocrDraftRef.current, target)) return;
+      setOcrModels(fetchedModels);
+      setOcrDraft((current) => mergeFetchedDraftModels(current, fetchedModels));
+      setOcrStatusLine("已获取 OCR 模型。");
+    } catch (error) {
+      if (ocrModelsFetchRequestRef.current !== requestId || !isSameProviderDraftFetchTarget(ocrDraftRef.current, target)) return;
+      setOcrModels([]);
+      setOcrStatusLine(`获取 OCR 模型失败：${providerFetchErrorMessage(error)}`);
+    } finally {
+      if (ocrModelsFetchRequestRef.current === requestId) setProviderBusy("ocr-fetch", false);
+    }
+  }
+
   async function testProvider() {
     setProviderBusy("agent-test", true);
     try {
@@ -719,6 +853,18 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
       setVisionStatusLine(errorMessage(error));
     } finally {
       setProviderBusy("vision-test", false);
+    }
+  }
+
+  async function testOcrProvider() {
+    setProviderBusy("ocr-test", true);
+    try {
+      const result = await window.brevyn.providers.test(ocrDraft);
+      setOcrStatusLine(result.ok ? `已连接 · ${result.latencyMs}ms · ${result.message}` : `失败 · ${result.message}`);
+    } catch (error) {
+      setOcrStatusLine(errorMessage(error));
+    } finally {
+      setProviderBusy("ocr-test", false);
     }
   }
 
@@ -776,22 +922,81 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     }
   }
 
+  async function saveOcrProvider() {
+    setProviderBusy("ocr-save", true);
+    try {
+      const result = await window.brevyn.providers.save({ ...ocrDraft, purpose: "ocr" });
+      const saved = result.provider;
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      setCreatingOcrProvider(false);
+      setSelectedOcrProviderId(saved.id);
+      setOcrDraft((current) => ({
+        ...current,
+        id: saved.id,
+        purpose: saved.purpose,
+        providerKind: saved.providerKind,
+        name: saved.name,
+        protocol: saved.protocol,
+        authMode: saved.authMode,
+        baseUrl: saved.baseUrl,
+        models: saved.models.map((model) => ({ ...model })),
+        selectedModel: saved.selectedModel,
+        enabled: saved.enabled,
+      }));
+      setOcrStatusLine("");
+      showProviderToast("OCR 服务商已保存。");
+    } catch (error) {
+      setOcrStatusLine(`保存 OCR 服务商失败：${errorMessage(error)}`);
+    } finally {
+      setProviderBusy("ocr-save", false);
+    }
+  }
+
+  async function deleteOcrProvider(provider: ModelProviderConfig) {
+    const ok = await confirmProviderAction({
+      title: `删除 OCR 服务商配置“${provider.name}”？`,
+      message: "这会删除已保存的配置和本地元数据。",
+      confirmLabel: "删除",
+      cancelLabel: "取消",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setProviderBusy("ocr-delete", true);
+    try {
+      await window.brevyn.providers.delete(provider.id);
+      const next = await window.brevyn.providers.list();
+      setProviders(next);
+      closeOcrEditor();
+      setOcrStatusLine(`已删除 OCR 服务商配置“${provider.name}”。`);
+    } catch (error) {
+      setOcrStatusLine(`删除 OCR 服务商失败：${errorMessage(error)}`);
+    } finally {
+      setProviderBusy("ocr-delete", false);
+    }
+  }
+
   const providerPageProps: ComponentProps<typeof ProviderSettingsPage> = {
     providers,
     selectedProviderId,
     selectedEmbeddingProviderId,
     selectedVisionProviderId,
+    selectedOcrProviderId,
     creatingProvider,
     creatingEmbeddingProvider,
     creatingVisionProvider,
+    creatingOcrProvider,
     draft,
     embeddingDraft,
     visionDraft,
+    ocrDraft,
     models,
     visionModels,
+    ocrModels,
     statusLine,
     embeddingStatusLine,
     visionStatusLine,
+    ocrStatusLine,
     embeddingReindexNotice,
     embeddingLockedByIndexing,
     reindexingActiveSemester,
@@ -801,31 +1006,40 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     onSelectProvider: selectProvider,
     onSelectEmbeddingProvider: selectEmbeddingProvider,
     onSelectVisionProvider: selectVisionProvider,
+    onSelectOcrProvider: selectOcrProvider,
     onNewProvider: newProvider,
     onNewEmbeddingProvider: newEmbeddingProvider,
     onNewVisionProvider: newVisionProvider,
+    onNewOcrProvider: newOcrProvider,
     onCloseProviderEditor: closeProviderEditor,
     onCloseEmbeddingEditor: closeEmbeddingEditor,
     onCloseVisionEditor: closeVisionEditor,
+    onCloseOcrEditor: closeOcrEditor,
     onToggleProvider: toggleProvider,
     onToggleOfficialProviders: toggleOfficialProviders,
     onToggleEmbeddingProvider: toggleEmbeddingProvider,
     onToggleVisionProvider: toggleVisionProvider,
+    onToggleOcrProvider: toggleOcrProvider,
     onDeleteProvider: (provider) => void deleteProvider(provider),
     onDeleteEmbeddingProvider: (provider) => void deleteEmbeddingProvider(provider),
     onDeleteVisionProvider: (provider) => void deleteVisionProvider(provider),
+    onDeleteOcrProvider: (provider) => void deleteOcrProvider(provider),
     onDraftChange: setDraft,
     onEmbeddingDraftChange: setEmbeddingDraft,
     onVisionDraftChange: setVisionDraft,
+    onOcrDraftChange: setOcrDraft,
     onFetchModels: fetchModels,
     onFetchEmbeddingModels: fetchEmbeddingModels,
     onFetchVisionModels: fetchVisionModels,
+    onFetchOcrModels: fetchOcrModels,
     onTestProvider: testProvider,
     onTestEmbeddingProvider: testEmbeddingProvider,
     onTestVisionProvider: testVisionProvider,
+    onTestOcrProvider: testOcrProvider,
     onSaveProvider: saveProvider,
     onSaveEmbeddingProvider: saveEmbeddingProvider,
     onSaveVisionProvider: saveVisionProvider,
+    onSaveOcrProvider: saveOcrProvider,
     onReindexActiveSemester: () => void reindexActiveSemester(),
     onDismissEmbeddingReindexNotice: () => setEmbeddingReindexNotice(""),
     onToggleOpenAiResponsesGateway: (enabled) => void setOpenAiResponsesGatewayEnabled(enabled),

@@ -62,6 +62,9 @@ const PROVIDER_KIND_LOGOS: Partial<Record<ProviderKind, string>> = {
   "vision-custom-anthropic": anthropicLogo,
   "vision-openai-responses": openAiLogo,
   "vision-custom-openai-responses": openAiLogo,
+  "ocr-custom-openai": openAiLogo,
+  "ocr-custom-anthropic": anthropicLogo,
+  "ocr-openai-responses": openAiLogo,
 };
 
 export function getModelLogo(modelId: string, providerKind?: ProviderKind): string {
@@ -73,7 +76,7 @@ export function getModelLogoById(modelId: string): string | undefined {
 }
 
 export function getProviderKindLogo(providerKind: ProviderKind): string {
-  return PROVIDER_KIND_LOGOS[providerKind] || defaultLogo;
+  return PROVIDER_KIND_LOGOS[providerKind] || modelGenericLogo;
 }
 
 export function getProviderProfileLogo(provider: ProviderLike): string {
@@ -85,7 +88,7 @@ export function getProviderProfileLogo(provider: ProviderLike): string {
 }
 
 export function getProviderBaseUrlLogo(baseUrl: string, providerKind?: ProviderKind): string {
-  return logoFromRules(baseUrl, BASE_URL_LOGO_RULES) || (providerKind ? getProviderKindLogo(providerKind) : defaultLogo);
+  return logoFromRules(baseUrl, BASE_URL_LOGO_RULES) || (providerKind ? getProviderKindLogo(providerKind) : modelGenericLogo);
 }
 
 export function resolveModelProviderLogo({

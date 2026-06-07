@@ -1,4 +1,4 @@
-import { Check, Database, Eye, Loader2 } from "lucide-react";
+import { Check, Database, Eye, Loader2, ScanText } from "lucide-react";
 import type { ReactNode } from "react";
 import type {
   CloudAccountStatus,
@@ -244,8 +244,8 @@ export function CapabilityEntitlementCard({
                   "border-emerald-200 bg-emerald-50 text-emerald-800",
                 )}
               >
-                {kind === "embedding" ? <Database className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                {kind === "embedding" ? "Embedding" : "Vision"}
+                {kind === "embedding" ? <Database className="h-3 w-3" /> : kind === "ocr" ? <ScanText className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                {kind === "embedding" ? "Embedding" : kind === "ocr" ? "OCR" : "Vision"}
               </span>
             ))}
             {partial && <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">部分启用</span>}

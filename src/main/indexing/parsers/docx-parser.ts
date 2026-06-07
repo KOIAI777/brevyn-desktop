@@ -27,9 +27,6 @@ export async function parseDocx(input: ParseInput, byteCount: number): Promise<P
   if (indexedSections.length === 0) {
     warnings.push("No extractable DOCX text was found. The document may contain only images or unsupported embedded objects.");
   }
-  if (emptySections > 0 && indexedSections.length > 0) {
-    warnings.push(`${emptySections} DOCX sections had no extractable text.`);
-  }
   const text = indexedSections.map((section) => formatDocxSection(section)).join("\n\n");
   const capped = capParsedText(text, warnings);
   const normalized = normalizeText(capped.text);
@@ -42,7 +39,7 @@ export async function parseDocx(input: ParseInput, byteCount: number): Promise<P
   })).filter((section) => section.text);
   const coverageStatus: CoverageStatus = !normalized
     ? "skipped"
-    : emptySections > 0 || capped.truncated
+    : capped.truncated
       ? "partial"
       : "complete";
   return {
@@ -52,7 +49,7 @@ export async function parseDocx(input: ParseInput, byteCount: number): Promise<P
     metadata: {
       parser: "docx-ooxml",
       kind: input.kind,
-      sectionsTotal: sections.length,
+      sectionsTotal: indexedSections.length,
       sectionsIndexed: indexedSections.length,
       sectionsEmpty: emptySections,
       sectionsFailed: 0,

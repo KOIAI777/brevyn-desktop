@@ -1,9 +1,30 @@
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "./indexing-types";
+import type { OcrRecognitionService } from "../services/ocr-recognition-service";
 
 export interface IndexingExecutor {
   run(task: IndexingTaskRecord): Promise<IndexingWorkerResult>;
+}
+
+export class OcrEnhancedIndexingExecutor implements IndexingExecutor {
+  constructor(
+    private readonly base: IndexingExecutor,
+    private readonly ocr: OcrRecognitionService,
+  ) {}
+
+  async run(task: IndexingTaskRecord): Promise<IndexingWorkerResult> {
+    const result = await this.base.run(task);
+    if (!task.payload.sourcePath || (task.payload.kind !== "pdf" && task.payload.kind !== "image")) return stripTransientParsed(result);
+    const enhanced = await this.ocr.enhanceIndexingResult({
+      sourcePath: task.payload.sourcePath,
+      kind: task.payload.kind,
+      parsed: result.parsed,
+      result,
+      fileName: task.payload.name,
+    });
+    return stripTransientParsed(enhanced || result);
+  }
 }
 
 type WorkerMessage =
@@ -60,4 +81,10 @@ export class WorkerThreadIndexingExecutor implements IndexingExecutor {
       });
     });
   }
+}
+
+function stripTransientParsed(result: IndexingWorkerResult): IndexingWorkerResult {
+  if (!result.parsed) return result;
+  const { parsed: _parsed, ...persistable } = result;
+  return persistable;
 }

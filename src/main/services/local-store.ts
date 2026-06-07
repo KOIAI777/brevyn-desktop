@@ -80,6 +80,7 @@ import { FileService } from "./file-service";
 import { AppSettingsStore } from "./app-settings-store";
 import { CloudAccountService } from "./cloud-account-service";
 import { ProviderConfigStore } from "./provider-config-store";
+import { OcrRecognitionService } from "./ocr-recognition-service";
 import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { ProviderTransactionStore } from "./provider-transaction-store";
@@ -108,6 +109,7 @@ export class LocalStore {
   private readonly vision: VisionRecognitionService;
   private readonly workspace: WorkspaceService;
   private readonly files: FileService;
+  readonly ocr: OcrRecognitionService;
   private readonly agent: AgentOrchestrator;
   private readonly appSettings: AppSettingsStore;
   private readonly agentGateway: AgentGatewayService;
@@ -162,6 +164,9 @@ export class LocalStore {
       businessStore,
       providers: this.providers,
       ragIndex: this.ragIndex,
+    });
+    this.ocr = new OcrRecognitionService({
+      providers: this.providers,
     });
     const agentEventBus = new AgentEventBus();
     agentEventBus.on((event) => {

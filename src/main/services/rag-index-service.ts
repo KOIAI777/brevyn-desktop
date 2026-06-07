@@ -24,6 +24,17 @@ type RagChunkRow = {
   text: string;
   title: string;
   citation: string;
+  parser: string;
+  coverage_status: string;
+  ocr_applied: boolean;
+  ocr_provider: string;
+  ocr_model: string;
+  source_label: string;
+  section_type: string;
+  section_title: string;
+  section_index: number;
+  chunk_in_section: number;
+  chunks_in_section: number;
   vector: number[];
   embedding_provider_id: string;
   embedding_model: string;
@@ -495,6 +506,17 @@ export class RagIndexService {
       text,
       title: metadata?.title ? `${task.payload.name} · ${metadata.title}` : task.payload.name,
       citation: citationParts.filter(Boolean).join(" · "),
+      parser: metadataString(result.metadata?.parser),
+      coverage_status: metadataString(result.metadata?.coverageStatus),
+      ocr_applied: metadataBoolean(result.metadata?.ocrApplied),
+      ocr_provider: metadataString(result.metadata?.ocrProvider),
+      ocr_model: metadataString(result.metadata?.ocrModel),
+      source_label: metadataString(metadata?.sourceLabel),
+      section_type: metadataString(metadata?.sectionType),
+      section_title: metadataString(metadata?.title),
+      section_index: metadataNumber(metadata?.sectionIndex, -1),
+      chunk_in_section: metadataNumber(metadata?.chunkInSection, -1),
+      chunks_in_section: metadataNumber(metadata?.chunksInSection, -1),
       vector,
       embedding_provider_id: providerMeta.providerId,
       embedding_model: providerMeta.model,
@@ -503,6 +525,19 @@ export class RagIndexService {
       updated_at: new Date().toISOString(),
     };
   }
+}
+
+function metadataString(value: unknown): string {
+  return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+}
+
+function metadataBoolean(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function metadataNumber(value: unknown, fallback: number): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function chunkArray<T>(values: T[], size: number): T[][] {
