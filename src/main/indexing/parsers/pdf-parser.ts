@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { CoverageStatus, ParsedIndexingFile, ParsedIndexingSection, ParseInput } from "./types";
+import type { CoverageStatus, ParsedDocumentCoverageItem, ParsedIndexingFile, ParsedIndexingSection, ParseInput } from "./types";
 import { capParsedText, collectConsoleWarnings, dedupeWarnings, emptyParsedFile, errorMessage, normalizeText, withTimeout } from "./utils";
 
 const require = createRequire(__filename);
@@ -47,21 +47,38 @@ async function parsePdfPagesWithPdfjs(input: ParseInput, byteCount: number): Pro
   const pdf = await loadingTask.promise;
   const parts: string[] = [];
   const sections: ParsedIndexingSection[] = [];
+  const coverageItems: ParsedDocumentCoverageItem[] = [];
   const warnings: string[] = [];
   let indexedPages = 0;
   let emptyPages = 0;
   let failedPages = 0;
+  let pagesNeedingOcr = 0;
 
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       try {
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
+        const visualSignals = await pdfPageVisualSignals(page, pdfjs).catch(() => ({ imageOps: 0, paintOps: 0 }));
         const text = normalizeText(content.items
           .map((item) => "str" in item && typeof item.str === "string" ? item.str : "")
           .filter(Boolean)
           .join(" "));
         page.cleanup();
+        const textChars = text.length;
+        const ocrReason = pdfPageOcrReason(textChars, visualSignals.imageOps || 0);
+        if (ocrReason) pagesNeedingOcr += 1;
+        coverageItems.push({
+          index: pageNumber,
+          pageNumber,
+          sourceLabel: `第 ${pageNumber} 页`,
+          textChars,
+          hasText: Boolean(text),
+          failed: false,
+          needsOcr: Boolean(ocrReason),
+          reason: ocrReason,
+          visualSignals,
+        });
         if (text) {
           indexedPages += 1;
           const sectionText = `Page ${pageNumber}\n${repairPdfTextSpacing(text)}`;
@@ -77,6 +94,17 @@ async function parsePdfPagesWithPdfjs(input: ParseInput, byteCount: number): Pro
         }
       } catch (error) {
         failedPages += 1;
+        pagesNeedingOcr += 1;
+        coverageItems.push({
+          index: pageNumber,
+          pageNumber,
+          sourceLabel: `第 ${pageNumber} 页`,
+          textChars: 0,
+          hasText: false,
+          failed: true,
+          needsOcr: true,
+          reason: "page_text_extraction_failed",
+        });
         warnings.push(`Page ${pageNumber} text extraction failed: ${errorMessage(error)}`);
       }
     }
@@ -112,12 +140,54 @@ async function parsePdfPagesWithPdfjs(input: ParseInput, byteCount: number): Pro
       sectionsIndexed: indexedPages,
       sectionsEmpty: emptyPages,
       sectionsFailed: failedPages,
+      sectionsNeedingOcr: pagesNeedingOcr,
       sectionUnit: "页",
       coverageStatus,
       truncated: capped.truncated,
     },
+    coverage: {
+      status: coverageStatus,
+      unit: "page",
+      total: pdf.numPages,
+      indexed: indexedPages,
+      empty: emptyPages,
+      failed: failedPages,
+      needsOcr: pagesNeedingOcr,
+      items: coverageItems,
+    },
     sections: sections.length > 0 ? sections : undefined,
   };
+}
+
+async function pdfPageVisualSignals(page: { getOperatorList: () => Promise<{ fnArray?: unknown[] }> }, pdfjs: { OPS?: Record<string, number> }): Promise<{ imageOps: number; paintOps: number }> {
+  const ops = pdfjs.OPS || {};
+  const imageOps = new Set([
+    ops.paintImageXObject,
+    ops.paintInlineImageXObject,
+    ops.paintImageMaskXObject,
+    ops.paintJpegXObject,
+  ].filter((value): value is number => typeof value === "number"));
+  const paintOps = new Set([
+    ...imageOps,
+    ops.paintFormXObjectBegin,
+    ops.paintFormXObjectEnd,
+  ].filter((value): value is number => typeof value === "number"));
+  const operatorList = await page.getOperatorList();
+  const fnArray = Array.isArray(operatorList.fnArray) ? operatorList.fnArray : [];
+  let imageCount = 0;
+  let paintCount = 0;
+  for (const fn of fnArray) {
+    if (typeof fn !== "number") continue;
+    if (imageOps.has(fn)) imageCount += 1;
+    if (paintOps.has(fn)) paintCount += 1;
+  }
+  return { imageOps: imageCount, paintOps: paintCount };
+}
+
+function pdfPageOcrReason(textChars: number, imageOps: number): string | undefined {
+  if (textChars === 0) return "empty_page";
+  if (imageOps > 0 && textChars < 80) return "image_heavy_low_text_page";
+  return undefined;
 }
 
 function isIgnorablePdfjsWarning(warning: string): boolean {
@@ -145,6 +215,8 @@ async function parsePdfFallback(input: ParseInput, byteCount: number, primaryErr
   }
   const capped = capParsedText(text, warnings);
   const normalized = normalizeText(capped.text);
+  const totalPages = result.numpages || result.numrender || 0;
+  const needsOcr = normalized ? 0 : totalPages || 1;
   return {
     text: normalized,
     byteCount,
@@ -152,10 +224,20 @@ async function parsePdfFallback(input: ParseInput, byteCount: number, primaryErr
     metadata: {
       parser: "pdf-parse-fallback",
       kind: input.kind,
-      pages: result.numpages || result.numrender || 0,
+      pages: totalPages,
       renderedPages: result.numrender || 0,
       coverageStatus: normalized ? "partial" : "skipped",
       truncated: capped.truncated,
+      sectionsNeedingOcr: needsOcr,
+    },
+    coverage: {
+      status: normalized ? "partial" : "skipped",
+      unit: totalPages ? "page" : "document",
+      total: totalPages || 1,
+      indexed: normalized ? totalPages || 1 : 0,
+      empty: normalized ? 0 : totalPages || 1,
+      failed: 0,
+      needsOcr,
     },
     sections: normalized
       ? [{ text: normalized, sourceLabel: "PDF 文本", sectionType: "document", sectionIndex: 1 }]

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import JSZip from "jszip";
 import type { CoverageStatus, ParsedIndexingFile, ParsedIndexingSection, ParseInput } from "./types";
+import { embeddedMediaFiles, mediaAssetFromPath } from "./ooxml-assets";
 import { capParsedText, decodeXml, dedupeWarnings, emptyParsedFile, normalizeText } from "./utils";
 
 export async function parseDocx(input: ParseInput, byteCount: number): Promise<ParsedIndexingFile> {
@@ -20,12 +21,17 @@ export async function parseDocx(input: ParseInput, byteCount: number): Promise<P
   const documentSections = parseDocxDocumentXml(documentXml, shared);
   const noteSections = await parseDocxNoteSections(zip, shared);
   const headerFooterSections = await parseDocxHeaderFooterSections(zip, shared);
+  const mediaFiles = embeddedMediaFiles(zip, "word");
   const sections = [...documentSections, ...noteSections, ...headerFooterSections];
   const indexedSections = sections.filter((section) => section.text);
   const emptySections = sections.length - indexedSections.length;
   const warnings: string[] = [];
   if (indexedSections.length === 0) {
     warnings.push("No extractable DOCX text was found. The document may contain only images or unsupported embedded objects.");
+  }
+  const imageOnlyDocument = indexedSections.length === 0 && mediaFiles.length > 0;
+  if (imageOnlyDocument) {
+    warnings.push(`${mediaFiles.length} embedded DOCX images were detected and need OCR/document parsing before they can be indexed.`);
   }
   const text = indexedSections.map((section) => formatDocxSection(section)).join("\n\n");
   const capped = capParsedText(text, warnings);
@@ -59,9 +65,17 @@ export async function parseDocx(input: ParseInput, byteCount: number): Promise<P
       lists: indexedSections.filter((section) => section.type === "list").length,
       footnotes: noteSections.filter((section) => section.text).length,
       headersFooters: headerFooterSections.filter((section) => section.text).length,
+      embeddedImages: mediaFiles.length,
+      assetsNeedingOcr: imageOnlyDocument ? mediaFiles.length : 0,
       coverageStatus,
       truncated: capped.truncated,
     },
+    assets: mediaFiles.map((path, index) => mediaAssetFromPath({
+      path,
+      sourceLabel: `DOCX 内嵌图片 ${index + 1}`,
+      needsOcr: imageOnlyDocument,
+      reason: imageOnlyDocument ? "docx_image_only_document" : undefined,
+    })),
     sections: parsedSections.length > 0 ? parsedSections : undefined,
   };
 }

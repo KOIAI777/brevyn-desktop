@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "./indexing-types";
+import type { DocumentParseService } from "../services/document-parse-service";
 import type { OcrRecognitionService } from "../services/ocr-recognition-service";
 
 export interface IndexingExecutor {
@@ -24,6 +25,37 @@ export class OcrEnhancedIndexingExecutor implements IndexingExecutor {
       fileName: task.payload.name,
     });
     return stripTransientParsed(enhanced || result);
+  }
+}
+
+export class DocumentEnhancedIndexingExecutor implements IndexingExecutor {
+  constructor(
+    private readonly base: IndexingExecutor,
+    private readonly documentParser: DocumentParseService,
+    private readonly ocr: OcrRecognitionService,
+  ) {}
+
+  async run(task: IndexingTaskRecord): Promise<IndexingWorkerResult> {
+    let result = await this.base.run(task);
+    if (task.payload.sourcePath) {
+      const documentEnhanced = await this.documentParser.enhanceIndexingResult({
+        sourcePath: task.payload.sourcePath,
+        kind: task.payload.kind,
+        parsed: result.parsed,
+        result,
+        fileName: task.payload.name,
+      });
+      result = documentEnhanced || result;
+    }
+    if (!task.payload.sourcePath || (task.payload.kind !== "pdf" && task.payload.kind !== "image")) return stripTransientParsed(result);
+    const ocrEnhanced = await this.ocr.enhanceIndexingResult({
+      sourcePath: task.payload.sourcePath,
+      kind: task.payload.kind,
+      parsed: result.parsed,
+      result,
+      fileName: task.payload.name,
+    });
+    return stripTransientParsed(ocrEnhanced || result);
   }
 }
 

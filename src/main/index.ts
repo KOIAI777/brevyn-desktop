@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../types/ipc";
-import { IndexingQueueService, OcrEnhancedIndexingExecutor, WorkerThreadIndexingExecutor } from "./indexing";
+import { DocumentEnhancedIndexingExecutor, IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
 import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
 import { WORKSPACE_FILE_PREVIEW_PROTOCOL } from "./services/file-service";
@@ -127,7 +127,7 @@ app.whenReady().then(() => {
   try {
     configureClaudeSdk(dataRoot);
     store = createLocalStore(dataRoot, { isPackaged: app.isPackaged });
-    indexingQueue = new IndexingQueueService(store, new OcrEnhancedIndexingExecutor(new WorkerThreadIndexingExecutor(), store.ocr), {
+    indexingQueue = new IndexingQueueService(store, new DocumentEnhancedIndexingExecutor(new WorkerThreadIndexingExecutor(), store.documentParser, store.ocr), {
       onQueueChanged: scheduleIndexingFilesChangedBroadcast,
     });
     registerIpcHandlers({ store, indexingQueue });

@@ -79,6 +79,7 @@ import { SQLiteBusinessStore } from "../storage";
 import { FileService } from "./file-service";
 import { AppSettingsStore } from "./app-settings-store";
 import { CloudAccountService } from "./cloud-account-service";
+import { DocumentParseService } from "./document-parse-service";
 import { ProviderConfigStore } from "./provider-config-store";
 import { OcrRecognitionService } from "./ocr-recognition-service";
 import { ProviderSecretStore } from "./provider-secret-store";
@@ -110,6 +111,7 @@ export class LocalStore {
   private readonly workspace: WorkspaceService;
   private readonly files: FileService;
   readonly ocr: OcrRecognitionService;
+  readonly documentParser: DocumentParseService;
   private readonly agent: AgentOrchestrator;
   private readonly appSettings: AppSettingsStore;
   private readonly agentGateway: AgentGatewayService;
@@ -168,6 +170,7 @@ export class LocalStore {
     this.ocr = new OcrRecognitionService({
       providers: this.providers,
     });
+    this.documentParser = new DocumentParseService();
     const agentEventBus = new AgentEventBus();
     agentEventBus.on((event) => {
       if (isTerminalAgentRunEvent(event)) {

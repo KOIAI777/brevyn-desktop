@@ -94,6 +94,10 @@ export class OcrRecognitionService {
 
 function shouldRunOcr(input: OcrEnhanceInput): boolean {
   if (input.kind === "image") return true;
+  const coverage = input.parsed?.coverage;
+  if (coverage) {
+    return coverage.needsOcr > 0 || coverage.status === "skipped";
+  }
   const metadata = input.parsed?.metadata || input.result?.metadata || {};
   const coverageStatus = typeof metadata.coverageStatus === "string" ? metadata.coverageStatus : "";
   const sectionsEmpty = numberValue(metadata.sectionsEmpty);
@@ -154,7 +158,20 @@ function mergeParsedWithOcr(input: OcrEnhanceInput, ocrText: string, provider: M
       input.kind === "pdf" ? "OCR supplemented pages or regions without extractable text." : "Image text was extracted with OCR.",
     ]),
     metadata,
+    coverage: markCoverageOcrApplied(parsed?.coverage, ocrCoverageStatus(input)),
     sections,
+  };
+}
+
+function markCoverageOcrApplied(coverage: ParsedIndexingFile["coverage"], status: "complete" | "partial"): ParsedIndexingFile["coverage"] | undefined {
+  if (!coverage) return undefined;
+  return {
+    ...coverage,
+    status,
+    needsOcr: 0,
+    items: coverage.items?.map((item) => item.needsOcr
+      ? { ...item, needsOcr: false, ocrApplied: true }
+      : item),
   };
 }
 
@@ -184,14 +201,27 @@ function ocrPrompt(input: { kind: "pdf" | "image"; fileName: string; parsed?: Pa
   const existingSummary = input.parsed?.text
     ? `\nExisting local extraction already found some text. Focus on any scanned/image-only content that may be missing. Do not repeat obvious text if avoidable.\n`
     : "";
+  const coverageHint = ocrCoveragePromptHint(input.parsed);
   return [
     input.kind === "pdf" ? `Extract readable text from this course PDF: ${input.fileName}.` : `Extract readable text from this image: ${input.fileName}.`,
     existingSummary,
+    coverageHint,
     "Return plain Markdown only.",
     "Preserve headings, bullet lists, table-like rows, equations when readable, and page/section cues if visible.",
     "If a region is unreadable, write [unreadable] briefly instead of inventing content.",
     "Do not add commentary about the OCR process.",
   ].filter(Boolean).join("\n");
+}
+
+function ocrCoveragePromptHint(parsed?: ParsedIndexingFile): string {
+  const items = parsed?.coverage?.items?.filter((item) => item.needsOcr) || [];
+  if (items.length === 0) return "";
+  const labels = items
+    .slice(0, 16)
+    .map((item) => `${item.sourceLabel}${item.reason ? ` (${item.reason})` : ""}`)
+    .join(", ");
+  const suffix = items.length > 16 ? `, and ${items.length - 16} more` : "";
+  return `Local parsing marked these pages/sections as needing OCR: ${labels}${suffix}. Focus on recovering their missing text and visual content.`;
 }
 
 function parseJson(value: string): unknown {
