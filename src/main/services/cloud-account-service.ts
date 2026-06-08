@@ -537,11 +537,11 @@ export class CloudAccountService {
     const accessToken = auth ? this.readAccessToken() : "";
     if (auth && accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
-    let response = await fetch(this.url(path), { ...init, headers });
+    let response = await cloudFetch(this.url(path), { ...init, headers });
     if (response.status === 401 && auth && this.readRefreshToken()) {
       const token = await this.refreshTokensOnce();
       headers.set("Authorization", `Bearer ${token}`);
-      response = await fetch(this.url(path), { ...init, headers });
+      response = await cloudFetch(this.url(path), { ...init, headers });
     }
     if (!response.ok) throw await cloudRequestError(response);
     if (response.status === 204) return undefined as T;
@@ -559,7 +559,7 @@ export class CloudAccountService {
 
   private async refreshTokens(): Promise<string> {
     const refreshToken = this.requireRefreshToken();
-    const response = await fetch(this.url("/api/v1/auth/refresh"), {
+    const response = await cloudFetch(this.url("/api/v1/auth/refresh"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
@@ -719,6 +719,31 @@ async function cloudRequestError(response: Response): Promise<Error> {
   const error = new Error(message);
   error.name = code;
   return error;
+}
+
+async function cloudFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    const message = errorMessage(error);
+    const networkCode = networkErrorCode(error);
+    const wrapped = new Error(
+      networkCode
+        ? `cloud_network_error: 网络连接中断（${networkCode}），请稍后重试。`
+        : `cloud_network_error: 无法连接 Brevyn Cloud，请检查网络或 Cloud 地址后重试。`,
+    );
+    wrapped.name = "cloud_network_error";
+    wrapped.cause = error;
+    if (message) (wrapped as Error & { detail?: string }).detail = message;
+    throw wrapped;
+  }
+}
+
+function networkErrorCode(error: unknown): string {
+  const direct = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";
+  if (direct) return direct;
+  const cause = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+  return cause && typeof cause === "object" && "code" in cause ? String((cause as { code?: unknown }).code || "") : "";
 }
 
 function normalizeCloudProviderModels(models: unknown, selectedModel: string): ProviderModel[] {

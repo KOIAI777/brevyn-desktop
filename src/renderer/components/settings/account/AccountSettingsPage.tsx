@@ -97,6 +97,7 @@ export function AccountSettingsPage({
   const walletRemaining = entitlements?.wallet.remaining ?? cloudStatus?.wallet?.balance ?? 0;
   const walletStatus = entitlements?.wallet.status || "";
   const statusMessage = statusLine || cloudStatus?.lastError || "";
+  const statusIsError = /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(statusMessage);
   const profileDirty = profileDraft.displayName.trim() !== profile.displayName || profileDraft.avatarId !== profile.avatarId;
   const cloudBaseUrlEditable = cloudStatus?.baseUrlEditable === true;
   const cloudEnvironmentLabel = cloudStatus?.environment === "development"
@@ -404,6 +405,18 @@ export function AccountSettingsPage({
                   <MiniMetric label="商品" value={redeemResult.result.redemption.productName || redeemKindLabel(redeemResult.result.redemption.kind)} />
                   <MiniMetric label="到账" value={redeemValueLabel(redeemResult)} />
                   <MiniMetric label="套餐" value={redeemedPlanLabel(redeemResult, groups)} />
+                </div>
+              ) : null}
+              {statusMessage ? (
+                <div
+                  className={cx(
+                    "mt-3 rounded-lg border px-3 py-2 text-[11px] leading-5",
+                    statusIsError
+                      ? "border-red-200/80 bg-red-50/85 text-red-800"
+                      : "border-emerald-200/80 bg-emerald-50/85 text-emerald-800",
+                  )}
+                >
+                  {statusMessage}
                 </div>
               ) : null}
             </form>

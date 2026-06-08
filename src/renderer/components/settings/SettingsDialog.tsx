@@ -843,6 +843,8 @@ function cloudRedeemCodeMessage(code: string): string {
       return "请求格式不正确，请重新输入兑换码。";
     case "rate_limit_unavailable":
       return "Cloud 风控服务暂时不可用，请稍后再试。";
+    case "cloud_network_error":
+      return "无法连接 Brevyn Cloud，网络连接中断，请稍后重试。";
     default:
       return "";
   }
