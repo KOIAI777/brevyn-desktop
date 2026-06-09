@@ -37,7 +37,7 @@ export function FilePreviewPane({
           )}
         </div>
         <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-          <div className="w-full max-w-[18rem] rounded-2xl border border-dashed border-border/80 bg-background/55 px-4 py-5 text-center shadow-sm ring-1 ring-white/45">
+          <div className="brevyn-preview-empty-card w-full max-w-[18rem] rounded-2xl border border-dashed border-border/80 bg-background/55 px-4 py-5 text-center shadow-sm ring-1 ring-white/45">
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border bg-card/85 text-muted-foreground shadow-sm">
               <FileSearch className={`h-5 w-5 ${loading ? "animate-pulse" : ""}`} />
             </div>

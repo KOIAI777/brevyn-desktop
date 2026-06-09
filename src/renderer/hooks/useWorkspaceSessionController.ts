@@ -306,11 +306,15 @@ export function useWorkspaceSessionController({
   }, [commitActiveCourseId, commitActiveThreadId, semester?.id]);
 
   const selectTask = useCallback((courseId: string, taskId: string) => {
+    const thread = threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && item.taskId === taskId);
+    if (!thread) {
+      void createThread(courseId, taskId);
+      return;
+    }
     commitActiveCourseId(courseId);
     setActiveTaskId(taskId);
-    const thread = threads.find((item) => threadBelongsToSemester(item, semester?.id) && item.courseId === courseId && item.taskId === taskId);
-    commitActiveThreadId(thread?.id || "", semester?.id);
-  }, [commitActiveCourseId, commitActiveThreadId, semester?.id, threads]);
+    commitActiveThreadId(thread.id, semester?.id);
+  }, [commitActiveCourseId, commitActiveThreadId, createThread, semester?.id, threads]);
 
   const selectThread = useCallback((thread: Thread) => {
     if (!threadBelongsToSemester(thread, semester?.id)) {

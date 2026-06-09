@@ -365,6 +365,13 @@
       inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
 
+  :root[data-theme="dark"] .brevyn-preview-empty-card {
+    border-color: transparent;
+    background: hsl(var(--foreground) / 0.035);
+    box-shadow: none;
+    --tw-ring-color: transparent;
+  }
+
   :root[data-theme="dark"] .brevyn-model-logo-tile {
     background: rgba(255, 255, 255, 0.9);
     box-shadow:
