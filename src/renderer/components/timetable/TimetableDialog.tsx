@@ -144,8 +144,8 @@ export function TimetableDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
-      <div className="flex h-[90vh] w-[min(1440px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
-        <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
+      <div className="brevyn-window-surface flex h-[90vh] w-[min(1440px,calc(100vw-32px))] flex-col overflow-hidden">
+        <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <CalendarDays className="h-4 w-4" />
@@ -155,7 +155,7 @@ export function TimetableDialog({
           </div>
           <button
             type="button"
-            className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="no-drag flex h-8 w-8 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.06] transition hover:bg-background hover:text-foreground active:scale-[0.98]"
             onClick={onClose}
             title="关闭时间表"
           >
@@ -165,12 +165,12 @@ export function TimetableDialog({
 
         <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="flex rounded-md border bg-background p-0.5">
+            <div className="flex rounded-[var(--radius-control)] bg-background p-0.5 shadow-inner ring-1 ring-black/[0.04]">
               {(["week", "month", "year"] as TimetableViewMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
-                  className={cx("h-7 rounded px-3 text-[11px] font-medium capitalize transition", viewMode === mode ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                  className={cx("h-7 rounded-[var(--radius-badge)] px-3 text-[11px] font-medium capitalize transition", viewMode === mode ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
                   onClick={() => setViewMode(mode)}
                 >
                   {viewModeTabLabel(mode)}
@@ -181,20 +181,20 @@ export function TimetableDialog({
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
               onClick={() => void goToToday()}
             >
               <CalendarDays className="h-3.5 w-3.5" />
               今天
             </button>
-            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setAnchorDate(shiftDate(anchorDate, viewMode, -1))}>
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setAnchorDate(shiftDate(anchorDate, viewMode, -1))}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
             <div className="min-w-[250px] truncate text-center text-xs font-semibold">
               {viewMode === "week" && weekNumber ? `第 ${weekNumber} 周 · ` : ""}
               {range.label}
             </div>
-            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setAnchorDate(shiftDate(anchorDate, viewMode, 1))}>
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setAnchorDate(shiftDate(anchorDate, viewMode, 1))}>
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -209,7 +209,7 @@ export function TimetableDialog({
             {loadError && (
               <button
                 type="button"
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border bg-card px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-control)] border bg-card px-2 text-[11px] font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={() => void refreshWorkspace()}
               >
                 <RefreshCw className="h-3 w-3" />
@@ -220,7 +220,7 @@ export function TimetableDialog({
         )}
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
-          <div className="flex items-center justify-between gap-3 rounded-lg border bg-background/70 px-3 py-2">
+          <div className="flex items-center justify-between gap-3 rounded-[var(--radius-card)] bg-background/70 px-3 py-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
             <div className="flex min-w-0 items-center gap-2">
               <GraduationCap className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0">
@@ -251,7 +251,7 @@ export function TimetableDialog({
               />
               <button
                 type="button"
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={() => setManagingSemesters(true)}
               >
                 <Settings2 className="h-3.5 w-3.5" />
@@ -262,7 +262,7 @@ export function TimetableDialog({
 
           <section className="grid min-h-0 flex-1 gap-3 md:grid-cols-[230px_minmax(0,1fr)]">
             <RangeEventRail events={rangeSchoolEvents} range={range} />
-            <div className="min-h-0 overflow-hidden rounded-lg border bg-background/70 p-4">
+            <div className="min-h-0 overflow-hidden rounded-[var(--radius-card)] bg-background/70 p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <div className="mb-3 flex items-center justify-between">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold">{viewModeLabel(viewMode)}</div>
@@ -313,7 +313,7 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
   const eventsByDay = days.map((day) => eventsForDay(events, day).filter((event) => event.kind !== "school_event" && event.kind !== "school_week"));
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-md border bg-muted/25 px-3 py-2">
+      <div className="flex items-center justify-between rounded-[var(--radius-control)] bg-muted/25 px-3 py-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
         <div className="text-xs font-semibold">{weekNumber ? `第 ${weekNumber} 周` : "本周"}</div>
         <div className="text-[11px] text-muted-foreground">{formatShort(start)} - {formatShort(weekEnd)}</div>
       </div>
@@ -323,9 +323,9 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
           const startsNewMonth = index > 0 && day.getMonth() !== days[index - 1].getMonth();
           const dayEvents = eventsByDay[index] || [];
           return (
-            <div key={day.toISOString()} className={cx("relative min-h-[560px] rounded-md border bg-card px-2 py-2", isToday && "border-rose-200 bg-rose-50/20")}>
+            <div key={day.toISOString()} className={cx("relative min-h-[560px] rounded-[var(--radius-control)] border bg-card px-2 py-2", isToday && "border-rose-200 bg-rose-50/20")}>
               {startsNewMonth && (
-                <div className="mb-2 rounded-full border bg-background px-2 py-1 text-center text-[10px] font-medium text-muted-foreground shadow-sm">
+                <div className="mb-2 rounded-[var(--radius-control)] border bg-background px-2 py-1 text-center text-[10px] font-medium text-muted-foreground shadow-sm">
                   进入 {formatMonthLabel(day)}
                 </div>
               )}
@@ -336,7 +336,7 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
                   <EventCard key={event.id} event={event} />
                 ))}
                 {dayEvents.length === 0 && (
-                  <div className="rounded-md border border-dashed bg-muted/25 px-2 py-2 text-[10px] leading-4 text-muted-foreground">暂无课程或截止日期。</div>
+                  <div className="rounded-[var(--radius-control)] border border-dashed bg-muted/25 px-2 py-2 text-[10px] leading-4 text-muted-foreground">暂无课程或截止日期。</div>
                 )}
               </div>
             </div>
@@ -359,21 +359,21 @@ function MonthGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] 
           <div
             key={day.toISOString()}
             className={cx(
-              "min-h-[116px] rounded-md border bg-card px-2 py-1.5",
+              "min-h-[116px] rounded-[var(--radius-control)] border bg-card px-2 py-1.5",
               hasSchoolEvent && "border-emerald-200 bg-emerald-50/45",
               isSameDay(day, today) && "border-rose-200 bg-rose-50/20",
             )}
           >
             <div className={cx("flex items-center justify-between gap-1 text-[10px] font-medium text-muted-foreground", isSameDay(day, today) && "text-rose-700")}>
               <span>{day.getDate()}</span>
-              {hasSchoolEvent && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+              {hasSchoolEvent && <span className="h-1.5 w-1.5 rounded-[var(--radius-pill)] bg-emerald-500" />}
             </div>
             <div className="mt-1 space-y-1">
               {dayEvents
                 .filter((event) => event.kind !== "school_event" && event.kind !== "school_week")
                 .slice(0, 3)
                 .map((event) => (
-                  <div key={event.id} className={cx("truncate rounded px-1.5 py-0.5 text-[10px]", eventTone(event.kind))}>{event.title}</div>
+                  <div key={event.id} className={cx("truncate rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", eventTone(event.kind))}>{event.title}</div>
                 ))}
             </div>
           </div>
@@ -396,7 +396,7 @@ function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }
         const monthStart = new Date(year, month, 1);
         const monthDaysCount = new Date(year, month + 1, 0).getDate();
         return (
-          <div key={month} className="min-h-[156px] rounded-md border bg-card px-3 py-2">
+          <div key={month} className="min-h-[156px] rounded-[var(--radius-control)] border bg-card px-3 py-2">
             <div className="mb-2 text-xs font-semibold">{monthStart.toLocaleString("zh-CN", { month: "short" })}</div>
             <div className="grid grid-cols-7 gap-1">
               {Array.from({ length: monthDaysCount }, (_, index) => {
@@ -409,7 +409,7 @@ function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }
                   <div
                     key={index}
                     className={cx(
-                      "flex h-5 items-center justify-center rounded text-[9px] text-muted-foreground",
+                      "flex h-5 items-center justify-center rounded-[var(--radius-badge)] text-[9px] text-muted-foreground",
                       hasSchoolEvent ? "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200" : hasDeadline ? "bg-amber-100 text-amber-900" : hasCourseSession ? "bg-blue-100 text-blue-900" : "",
                     )}
                   >
@@ -428,7 +428,7 @@ function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }
 function EventCard({ event, compact = false }: { event: TimetableEvent; compact?: boolean }) {
   const meta = eventMeta(event);
   return (
-    <div className={cx("rounded-md border px-2 py-2 text-[11px] leading-4", eventTone(event.kind), compact && "py-1.5")}>
+    <div className={cx("rounded-[var(--radius-control)] border px-2 py-2 text-[11px] leading-4", eventTone(event.kind), compact && "py-1.5")}>
       {meta && <div className="font-semibold">{meta}</div>}
       <div className={cx("font-medium", meta && "mt-1")}>{event.title}</div>
       {!compact && event.location && <div className="mt-1 opacity-75">{event.location}</div>}
@@ -439,16 +439,16 @@ function EventCard({ event, compact = false }: { event: TimetableEvent; compact?
 function EventLegend() {
   return (
     <div className="flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-900">课程</span>
-      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-900">截止</span>
-      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-900">校历</span>
+      <span className="rounded-[var(--radius-badge)] bg-blue-50 px-1.5 py-0.5 text-blue-900">课程</span>
+      <span className="rounded-[var(--radius-badge)] bg-amber-50 px-1.5 py-0.5 text-amber-900">截止</span>
+      <span className="rounded-[var(--radius-badge)] bg-emerald-50 px-1.5 py-0.5 text-emerald-900">校历</span>
     </div>
   );
 }
 
 function RangeEventRail({ events, range }: { events: TimetableEvent[]; range: { start: Date; end: Date; label: string } }) {
   return (
-    <aside className="min-h-0 overflow-hidden rounded-lg border bg-background/70">
+    <aside className="min-h-0 overflow-hidden rounded-[var(--radius-card)] bg-background/70 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
       <div className="flex items-center justify-between border-b bg-muted/25 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
           <Image className="h-3.5 w-3.5 shrink-0" />
@@ -459,14 +459,14 @@ function RangeEventRail({ events, range }: { events: TimetableEvent[]; range: { 
       <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">{range.label}</div>
       <div className="h-full min-h-0 space-y-2 overflow-y-auto p-3 brevyn-scrollbar">
         {events.map((event) => (
-          <div key={event.id} className="rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-2 text-[11px] leading-4 text-emerald-950">
+          <div key={event.id} className="rounded-[var(--radius-control)] border border-emerald-100 bg-emerald-50 px-2.5 py-2 text-[11px] leading-4 text-emerald-950">
             <div className="font-semibold">{eventDateRange(event)}</div>
             <div className="mt-1 font-medium">{event.title}</div>
             {event.notes && <div className="mt-1 line-clamp-2 opacity-75">{event.notes}</div>}
           </div>
         ))}
         {events.length === 0 && (
-          <div className="rounded-md border border-dashed bg-card px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
+          <div className="rounded-[var(--radius-control)] border border-dashed bg-card px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
             当前范围内没有校历事件。
           </div>
         )}
@@ -522,7 +522,7 @@ function CurrentTimeLine() {
   return (
     <div className="pointer-events-none absolute left-0 right-0 z-10" style={{ top }}>
       <div className="flex items-center">
-        <div className="ml-1 h-2 w-2 rounded-full bg-rose-500" />
+        <div className="ml-1 h-2 w-2 rounded-[var(--radius-pill)] bg-rose-500" />
         <div className="h-px flex-1 bg-rose-500" />
       </div>
     </div>

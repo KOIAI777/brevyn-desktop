@@ -24,7 +24,19 @@
     --input: 38 18% 84%;
     --ring: 217 62% 39%;
     --radius: 8px;
+    --radius-window: 20px;
+    --radius-panel: 16px;
+    --radius-card: 12px;
+    --radius-control: 10px;
+    --radius-badge: 6px;
+    --radius-avatar: 20%;
+    --radius-pill: 999px;
+    --shadow-window: 0 30px 86px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.06);
+    --shadow-panel: 0 18px 46px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.045);
+    --shadow-card: 0 12px 30px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.04);
+    --shadow-control: inset 0 0 0 1px rgba(15, 23, 42, 0.045);
     --surface-warm: 39 43% 94%;
+    --surface-chrome: 42 14% 93%;
     --surface-panel: 42 40% 98%;
     --brand-glow: 217 62% 39%;
     --status-success: 154 53% 38%;
@@ -155,6 +167,30 @@
   .brevyn-composer-surface-dragging {
     background: hsl(var(--status-info) / 0.08);
     border-color: hsl(var(--status-info) / 0.28);
+  }
+
+  .brevyn-window-surface {
+    border-radius: var(--radius-window);
+    background: hsl(var(--card));
+    box-shadow: var(--shadow-window);
+  }
+
+  .brevyn-panel-surface {
+    border-radius: var(--radius-panel);
+    background: hsl(var(--card));
+    box-shadow: var(--shadow-panel);
+  }
+
+  .brevyn-card-surface {
+    border-radius: var(--radius-card);
+    background: hsl(var(--card));
+    box-shadow: var(--shadow-card);
+  }
+
+  .brevyn-control-surface {
+    border-radius: var(--radius-control);
+    background: hsl(var(--background));
+    box-shadow: var(--shadow-control);
   }
 
   .taskagent-panel-content-in {

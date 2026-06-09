@@ -26,7 +26,7 @@ function App() {
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
-  const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Koi", avatarId: "prism" });
+  const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Koi", avatarId: "🧑‍💻" });
 
   const dialogs = useAppDialogState();
   const layoutState = useWorkspaceLayoutState({ contentGridRef });
@@ -95,7 +95,7 @@ function App() {
         if (mounted) setProfile(nextProfile);
       })
       .catch(() => {
-        if (mounted) setProfile({ displayName: "Koi", avatarId: "prism" });
+        if (mounted) setProfile({ displayName: "Koi", avatarId: "🧑‍💻" });
       });
     return () => {
       mounted = false;
@@ -161,14 +161,7 @@ function App() {
   return (
     <div className="brevyn-app-background flex h-full min-h-0 flex-col text-foreground">
       <AppTitleBar
-        course={workspace.activeCourse}
-        task={workspace.activeTask}
-        thread={workspace.activeThread}
         semester={workspace.semester}
-        fileRailCollapsed={layoutState.fileRailCollapsed}
-        previewRailCollapsed={layoutState.previewRailCollapsed}
-        onToggleFileRail={() => layoutState.setFileRailCollapsed((value) => !value)}
-        onTogglePreviewRail={() => layoutState.setPreviewRailCollapsed((value) => !value)}
       />
 
       <div className="flex min-h-0 flex-1 gap-2 p-2">
@@ -205,7 +198,7 @@ function App() {
           className={`grid min-w-0 flex-1 gap-0 ${layoutState.resizingRail || layoutState.windowResizing ? "" : "transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"}`}
           style={{ gridTemplateColumns: layoutState.contentGridColumns }}
         >
-          <main className="flex min-w-0 max-w-full flex-col overflow-hidden rounded-lg border bg-card/80 shadow-sm ring-1 ring-border/60">
+          <main className="brevyn-panel-surface flex min-w-0 max-w-full flex-col overflow-hidden">
             <TopBar course={workspace.activeCourse} task={workspace.activeTask} thread={workspace.activeThread} workspaceScope={workspace.workspaceScope} />
             {workspace.workspaceError && (
               <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
@@ -265,7 +258,7 @@ function App() {
                 <div className="flex flex-col items-center gap-3 text-center">
                   {workspace.noActiveSemesters ? (
                     <>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full border bg-background text-amber-700">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-card)] bg-background text-amber-700 shadow-sm ring-1 ring-black/[0.05]">
                         <Archive className="h-4 w-4" />
                       </div>
                       <div>
@@ -277,14 +270,14 @@ function App() {
                       <div className="flex flex-wrap items-center justify-center gap-2">
                         <button
                           type="button"
-                          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90"
+                          className="rounded-[var(--radius-control)] bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98]"
                           onClick={() => dialogs.openSettings("archive")}
                         >
                           Open Archive
                         </button>
                         <button
                           type="button"
-                          className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent"
+                          className="rounded-[var(--radius-control)] bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98]"
                           onClick={dialogs.openTimetable}
                         >
                           Manage semesters
@@ -301,7 +294,7 @@ function App() {
                       </div>
                       <button
                         type="button"
-                        className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-[var(--radius-control)] bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={!workspace.needsSemesterSelection && ((!workspace.activeCourse?.id && !workspace.semester?.id) || Boolean(workspace.activeCourse && !workspace.activeTask))}
                         onClick={() => {
                           if (workspace.needsSemesterSelection) {
@@ -421,7 +414,7 @@ export default App;
 function AppLoadingScreen() {
   return (
     <div className="brevyn-app-background flex h-full min-h-screen items-center justify-center px-6 text-foreground">
-      <div className="w-full max-w-md rounded-2xl border bg-card/90 p-6 shadow-2xl ring-1 ring-border/70">
+      <div className="brevyn-window-surface w-full max-w-md p-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading workspace
@@ -440,7 +433,7 @@ function AppLoadingScreen() {
 function AppBootErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div className="brevyn-app-background flex h-full min-h-screen items-center justify-center px-6 text-foreground">
-      <div className="w-full max-w-md rounded-2xl border bg-card/90 p-6 shadow-2xl ring-1 ring-border/70">
+      <div className="brevyn-window-surface w-full max-w-md p-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <AlertCircle className="h-4 w-4 text-amber-600" />
           Failed to load workspace
@@ -448,12 +441,12 @@ function AppBootErrorScreen({ error, onRetry }: { error: string; onRetry: () => 
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Brevyn could not finish startup. Try again, and if it keeps happening we will need the error text below.
         </p>
-        <div className="mt-4 rounded-lg border bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+        <div className="mt-4 rounded-[var(--radius-control)] bg-muted/35 px-3 py-2 text-[11px] leading-5 text-muted-foreground shadow-inner ring-1 ring-black/[0.04]">
           {error || "Unknown startup error."}
         </div>
         <button
           type="button"
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98]"
           onClick={onRetry}
         >
           <RefreshCw className="h-3.5 w-3.5" />

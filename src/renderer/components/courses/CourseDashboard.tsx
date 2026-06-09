@@ -67,11 +67,11 @@ export function CourseDashboard({
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-xl font-semibold tracking-[-0.02em] text-foreground">{course.name}</h2>
+                    <h2 className="truncate text-xl font-semibold tracking-[-0.02em] text-foreground">课程概览</h2>
                     <span className="rounded-full border bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{course.code}</span>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {semester?.term || course.term} · 课程看板
+                    {semester?.term || course.term} · 任务、会话与文件统计
                   </p>
                 </div>
               </div>

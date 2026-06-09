@@ -36,11 +36,11 @@ import {
 
 export function PlanSection({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border bg-card p-3">
+    <section className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
-          <div className="text-xs font-semibold text-foreground">{title}</div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground">{detail}</div>
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">{detail}</div>
         </div>
       </div>
       {children}
@@ -50,7 +50,7 @@ export function PlanSection({ title, detail, children }: { title: string; detail
 
 export function SubscriptionPlanNotice() {
   return (
-    <div className="mb-2 rounded-md border border-amber-200/80 bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900">
+    <div className="mb-3 rounded-[var(--radius-control)] bg-amber-50/90 px-3 py-2 text-[11px] leading-5 text-amber-900 shadow-sm ring-1 ring-amber-200/65">
       订阅套餐不是一次性积分；日、周、月额度会按对应周期刷新。重复购买同一订阅只延长到期时间，不会叠加当前周期额度。
     </div>
   );
@@ -240,18 +240,18 @@ export function CapabilityEntitlementCard({
               <span
                 key={kind}
                 className={cx(
-                  "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium",
-                  "border-emerald-200 bg-emerald-50 text-emerald-800",
+                  "inline-flex items-center gap-1 rounded-[var(--radius-pill)] px-2 py-1 text-[10px] font-semibold shadow-sm",
+                  "bg-muted text-foreground/80 ring-1 ring-black/[0.035]",
                 )}
               >
                 {kind === "embedding" ? <Database className="h-3 w-3" /> : kind === "ocr" ? <ScanText className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                 {kind === "embedding" ? "Embedding" : kind === "ocr" ? "OCR" : "Vision"}
               </span>
             ))}
-            {partial && <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">部分启用</span>}
-            {active && <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">已启用</span>}
-            {loadingCapabilities && <span className="rounded border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">正在识别能力</span>}
-            {!loadingCapabilities && kinds.length === 0 && <span className="rounded border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">能力待同步</span>}
+            {partial && <span className="rounded-[var(--radius-pill)] bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/65">部分启用</span>}
+            {active && <span className="rounded-[var(--radius-pill)] bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200/65">已启用</span>}
+            {loadingCapabilities && <span className="rounded-[var(--radius-pill)] bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">正在识别能力</span>}
+            {!loadingCapabilities && kinds.length === 0 && <span className="rounded-[var(--radius-pill)] bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">能力待同步</span>}
           </div>
           <div className="mt-3 space-y-2">
             {isBalanceEntitlementGroup(group) ? (
@@ -303,11 +303,11 @@ function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupMode
       : `${total || 0} 个模型`;
 
   return (
-    <div className="mt-3 border-t border-border/55 pt-2" title={title}>
+    <div className="brevyn-control-surface mt-3 px-2.5 py-2" title={title}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex shrink-0 items-center gap-1.5 text-[10px]">
           <span className="font-medium text-foreground">可用模型</span>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+          <span className="rounded-[var(--radius-pill)] bg-card px-1.5 py-0.5 text-muted-foreground shadow-sm">
             {loading && models.length === 0 ? "加载中" : `${total || 0} 个`}
           </span>
         </div>
@@ -318,10 +318,10 @@ function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupMode
               <span
                 key={model.id}
                 className={cx(
-                  "max-w-[180px] truncate rounded-md border px-1.5 py-0.5 text-[10px] leading-5",
+                  "max-w-[180px] truncate rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px] leading-5 shadow-sm",
                   embedding
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : model.supportsVision ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-border/55 bg-background/80 text-muted-foreground",
+                    ? "bg-muted text-foreground/80 ring-1 ring-black/[0.035]"
+                    : model.supportsVision ? "bg-muted text-foreground/80 ring-1 ring-black/[0.035]" : "bg-card text-muted-foreground ring-1 ring-black/[0.035]",
                 )}
               >
                 {cloudModelDisplayName(model)}
@@ -329,12 +329,12 @@ function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupMode
             );
           })}
           {models.length > visibleModels.length && (
-            <span className="rounded-md border border-border/55 bg-background/80 px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground">
+            <span className="rounded-[var(--radius-pill)] bg-card px-2 py-0.5 text-[10px] leading-5 text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">
               +{models.length - visibleModels.length}
             </span>
           )}
           {models.length === 0 && !loading && (
-            <span className={cx("rounded-md border px-1.5 py-0.5 text-[10px] leading-5", error ? "border-amber-200 bg-amber-50 text-amber-800" : "border-border/55 bg-background/80 text-muted-foreground")}>
+            <span className={cx("rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px] leading-5 shadow-sm ring-1", error ? "bg-amber-50 text-amber-800 ring-amber-200/65" : "bg-card text-muted-foreground ring-black/[0.035]")}>
               {fallbackCount > 0 ? `${fallbackCount} 个模型` : "暂无模型"}
             </span>
           )}
@@ -346,7 +346,7 @@ function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupMode
 
 export function EmptyPlanCard({ label }: { label: string }) {
   return (
-    <div className="rounded-lg border border-dashed bg-card px-3 py-6 text-center text-xs text-muted-foreground">
+    <div className="brevyn-control-surface px-3 py-6 text-center text-xs text-muted-foreground">
       {label}
     </div>
   );
@@ -355,9 +355,9 @@ export function EmptyPlanCard({ label }: { label: string }) {
 function PlanTitle({ name, current, status }: { name: string; current: boolean; status: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-xs font-semibold text-foreground" title={name}>{name}</span>
-      {current && <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700">当前</span>}
-      {!cloudEntitlementUsable(status) && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">{cloudEntitlementStatusLabel(status)}</span>}
+      <span className="truncate text-sm font-semibold text-foreground" title={name}>{name}</span>
+      {current && <span className="rounded-[var(--radius-pill)] bg-foreground px-2 py-0.5 text-[9px] font-semibold text-background shadow-sm">当前</span>}
+      {!cloudEntitlementUsable(status) && <span className="rounded-[var(--radius-pill)] bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-800 ring-1 ring-amber-200/65">{cloudEntitlementStatusLabel(status)}</span>}
     </div>
   );
 }
@@ -377,13 +377,13 @@ function PlanPointsBar({
 }) {
   const clamped = clampPercent(percent);
   return (
-    <div className="rounded-md border bg-background/70 px-2 py-2">
+    <div className="brevyn-control-surface px-2.5 py-2.5">
       <div className="flex items-center justify-between gap-2 text-[10px]">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium text-foreground">{value}</span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cx("h-full rounded-full transition-all", tone === "warning" ? "bg-amber-500" : "bg-foreground")} style={{ width: `${clamped}%` }} />
+      <div className="mt-2 h-2 overflow-hidden rounded-[var(--radius-pill)] bg-muted/80">
+        <div className={cx("h-full rounded-[var(--radius-pill)] transition-all", tone === "warning" ? "bg-amber-500" : "bg-foreground/75")} style={{ width: `${clamped}%` }} />
       </div>
       {percentLabel && <div className="mt-1 text-[10px] text-muted-foreground">{percentLabel}</div>}
     </div>
@@ -411,10 +411,10 @@ function PlanActivateButton({ current, activating, disabled, onClick }: { curren
       <button
         type="button"
         className={cx(
-          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs shadow-sm transition disabled:cursor-not-allowed",
+          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-xs shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed",
           current
-            ? "border-emerald-600 bg-emerald-600 text-white shadow-emerald-950/[0.08]"
-            : "border-border/70 bg-background/85 text-muted-foreground shadow-black/[0.02] hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700",
+            ? "bg-foreground text-background shadow-sm"
+            : "bg-background text-muted-foreground ring-1 ring-black/[0.035] hover:bg-muted hover:text-foreground",
           !current && disabled && "opacity-45",
         )}
         disabled={disabled}
@@ -435,12 +435,12 @@ function PlanCapabilityButton({ active, partial, activating, disabled, onClick }
       <button
         type="button"
         className={cx(
-          "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm transition disabled:cursor-not-allowed",
+          "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-xs font-semibold shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed",
           active
-            ? "border-emerald-600 bg-emerald-600 text-white shadow-emerald-950/[0.08]"
+            ? "bg-foreground text-background shadow-sm"
             : partial
-              ? "border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
-              : "border-border/70 bg-background/85 text-muted-foreground shadow-black/[0.02] hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700",
+              ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200/65 hover:bg-amber-100"
+              : "bg-background text-muted-foreground ring-1 ring-black/[0.035] hover:bg-muted hover:text-foreground",
           !active && disabled && "opacity-45",
         )}
         disabled={disabled}

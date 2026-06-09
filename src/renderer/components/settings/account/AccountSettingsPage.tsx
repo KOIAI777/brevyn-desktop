@@ -1,5 +1,5 @@
-import { Cloud, ExternalLink, KeyRound, LogOut, PlugZap, RefreshCw, Save, ShieldCheck, Sparkles, UserRound, Wallet } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Cloud, Database, ExternalLink, Eye, KeyRound, LogOut, PlugZap, RefreshCw, ScanText, ShieldCheck, UserRound, Wallet } from "lucide-react";
+import type { ReactNode } from "react";
 import {
   BalanceEntitlementCard,
   CapabilityEntitlementCard,
@@ -17,11 +17,9 @@ import {
 } from "@/components/settings/account/cloudPlanUtils";
 import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
 import { ActionButton, CloudAuthStep, Field, MiniMetric } from "@/components/settings/shared/SettingsControls";
-import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
-import { profileDisplayName, USER_AVATAR_OPTIONS, UserAvatar } from "@/lib/user-profile";
 import { BREVYN_CLOUD_DEVELOPMENT_BASE_URL } from "../../../../types/cloud-config";
-import type { CloudAccountStatus, CloudAuthMode, CloudRedeemCodeResult, ModelProviderConfig, UserProfileSettings } from "../../../../types/domain";
+import type { CloudAccountStatus, CloudAuthMode, CloudRedeemCodeResult, ModelProviderConfig } from "../../../../types/domain";
 
 export type CloudBusyAction = "" | "status" | "login" | "register" | "refresh" | "redeem" | "logout" | `sync:${number}` | `activate:${number}`;
 
@@ -33,7 +31,6 @@ export interface CloudAccountForm {
 }
 
 interface AccountSettingsPageProps {
-  profile: UserProfileSettings;
   cloudStatus: CloudAccountStatus | null;
   cloudMode: CloudAuthMode;
   cloudForm: CloudAccountForm;
@@ -52,11 +49,9 @@ interface AccountSettingsPageProps {
   onRedeem: () => void;
   onOpenShop: () => void;
   onLogout: () => void;
-  onProfileChange: (profile: UserProfileSettings) => void;
 }
 
 export function AccountSettingsPage({
-  profile,
   cloudStatus,
   cloudMode,
   cloudForm,
@@ -75,11 +70,7 @@ export function AccountSettingsPage({
   onRedeem,
   onOpenShop,
   onLogout,
-  onProfileChange,
 }: AccountSettingsPageProps) {
-  const [profileDraft, setProfileDraft] = useState<UserProfileSettings>(profile);
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileStatusLine, setProfileStatusLine] = useState("");
   const authenticated = cloudStatus?.authenticated === true;
   const isBusy = Boolean(busyAction);
   const groups = cloudStatus?.groups ?? [];
@@ -96,9 +87,15 @@ export function AccountSettingsPage({
   const currentGroupId = cloudStatus?.currentGroup?.externalGroupId || cloudStatus?.gateway?.defaultGroupId || 0;
   const walletRemaining = entitlements?.wallet.remaining ?? cloudStatus?.wallet?.balance ?? 0;
   const walletStatus = entitlements?.wallet.status || "";
+  const currentPlanName = cloudStatus?.currentGroup?.name || "尚未选择";
+  const officialProviderKinds = providers.filter((provider) => provider.id.startsWith("provider-brevyn-cloud-official-") && provider.enabled).reduce((kinds, provider) => {
+    if (provider.purpose === "embedding") kinds.add("embedding");
+    if (provider.purpose === "vision") kinds.add("vision");
+    if (provider.purpose === "ocr") kinds.add("ocr");
+    return kinds;
+  }, new Set<string>());
   const statusMessage = statusLine || cloudStatus?.lastError || "";
   const statusIsError = /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(statusMessage);
-  const profileDirty = profileDraft.displayName.trim() !== profile.displayName || profileDraft.avatarId !== profile.avatarId;
   const cloudBaseUrlEditable = cloudStatus?.baseUrlEditable === true;
   const cloudEnvironmentLabel = cloudStatus?.environment === "development"
     ? "开发模式"
@@ -112,114 +109,30 @@ export function AccountSettingsPage({
     ? "密码至少 8 位。注册成功后会自动同步账号套餐和官方模型。"
     : "登录后会同步账号、余额、套餐和可用官方模型。";
 
-  useEffect(() => {
-    setProfileDraft(profile);
-    setProfileStatusLine("");
-  }, [profile]);
-
-  async function saveProfile() {
-    const displayName = profileDraft.displayName.trim();
-    if (!displayName) {
-      setProfileStatusLine("昵称不能为空。");
-      return;
-    }
-    setProfileSaving(true);
-    try {
-      const nextProfile = await window.brevyn.app.updateProfile({
-        displayName,
-        avatarId: profileDraft.avatarId,
-      });
-      onProfileChange(nextProfile);
-      setProfileStatusLine("个人信息已保存。");
-    } catch (error) {
-      setProfileStatusLine(errorMessage(error, "保存个人信息失败。"));
-    } finally {
-      setProfileSaving(false);
-    }
-  }
-
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4">
-      <section className="rounded-lg border bg-background/70 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <UserAvatar profile={profileDraft} size="lg" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <UserRound className="h-4 w-4" />
-                个人信息
-              </div>
-              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                用于首页侧边栏展示；Cloud 登录账号保持独立。
-              </div>
-            </div>
-          </div>
-          <ActionButton
-            icon={<Save className={cx("h-3.5 w-3.5", profileSaving && "animate-pulse")} />}
-            label={profileSaving ? "保存中" : "保存"}
-            onClick={() => void saveProfile()}
-            primary
-            disabled={profileSaving || !profileDirty}
-          />
-        </div>
-
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,260px)_1fr]">
-          <Field
-            label="显示名称"
-            value={profileDraft.displayName}
-            onChange={(displayName) => setProfileDraft((current) => ({ ...current, displayName }))}
-            placeholder={profileDisplayName(profile)}
-          />
+    <div className="mx-auto flex max-w-5xl flex-col gap-4">
+      <section className="overflow-hidden rounded-[var(--radius-panel)] bg-card p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)]">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border/45 pb-4">
           <div className="min-w-0">
-            <div className="mb-2 text-[11px] font-medium text-muted-foreground">头像</div>
-            <div className="flex flex-wrap gap-2">
-              {USER_AVATAR_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={cx(
-                    "flex h-11 w-11 items-center justify-center rounded-xl border bg-card transition",
-                    profileDraft.avatarId === option.id
-                      ? "border-foreground/30 bg-emerald-50/70 text-foreground shadow-sm ring-1 ring-emerald-200"
-                      : "text-muted-foreground hover:border-foreground/20 hover:bg-accent/70 hover:text-foreground",
-                  )}
-                  onClick={() => setProfileDraft((current) => ({ ...current, avatarId: option.id }))}
-                  aria-pressed={profileDraft.avatarId === option.id}
-                  aria-label={`选择${option.label}头像`}
-                  title={option.label}
-                >
-                  <UserAvatar avatarId={option.id} size="sm" />
-                </button>
-              ))}
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <Cloud className="h-3.5 w-3.5" />
+              Brevyn Cloud
             </div>
-          </div>
-        </div>
-        {profileStatusLine && (
-          <div className={cx("mt-3 text-[11px] font-medium", profileStatusLine.includes("失败") || profileStatusLine.includes("不能为空") ? "text-destructive" : "text-emerald-700")}>
-            {profileStatusLine}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-lg border bg-background/70 p-4">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Cloud className="h-4 w-4" />
-              Brevyn Cloud 账号
+            <div className="mt-1 flex items-center gap-2 text-base font-semibold text-foreground">
+              账号与官方权限
               <span className={cx(
-                "rounded px-1.5 py-0.5 text-[9px] font-medium",
+                "rounded-[var(--radius-pill)] px-2 py-0.5 text-[9px] font-medium",
                 cloudStatus?.environment === "development"
-                  ? "bg-amber-50 text-amber-700"
+                  ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200/70"
                   : cloudStatus?.environment === "production"
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-muted text-muted-foreground",
+                    ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/70"
+                    : "bg-muted text-muted-foreground ring-1 ring-black/[0.035]",
               )}>
                 {cloudEnvironmentLabel}
               </span>
             </div>
-            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-              登录后自动准备官方模型配置；套餐切换会同步到当前对话可用的模型服务。
+            <div className="mt-1 max-w-2xl text-[11px] leading-5 text-muted-foreground">
+              管理 Cloud 登录状态、余额套餐和官方能力分组。本地会按当前权限同步模型配置。
             </div>
           </div>
           {authenticated && (
@@ -242,12 +155,12 @@ export function AccountSettingsPage({
 
         {!authenticated ? (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
-            <div className="rounded-xl border bg-card/90 p-3 shadow-sm ring-1 ring-border/45">
+            <div className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="inline-flex rounded-lg border bg-background/80 p-1">
+                <div className="inline-flex rounded-[var(--radius-control)] bg-background p-1 shadow-inner ring-1 ring-black/[0.04]">
                   <button
                     type="button"
-                    className={cx("h-8 rounded-md px-4 text-xs font-medium transition", cloudMode === "login" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+                    className={cx("h-8 rounded-[var(--radius-badge)] px-4 text-xs font-semibold transition active:scale-[0.98]", cloudMode === "login" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-card hover:text-foreground")}
                     onClick={() => onModeChange("login")}
                     disabled={isBusy}
                   >
@@ -255,14 +168,14 @@ export function AccountSettingsPage({
                   </button>
                   <button
                     type="button"
-                    className={cx("h-8 rounded-md px-4 text-xs font-medium transition", cloudMode === "register" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+                    className={cx("h-8 rounded-[var(--radius-badge)] px-4 text-xs font-semibold transition active:scale-[0.98]", cloudMode === "register" ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-card hover:text-foreground")}
                     onClick={() => onModeChange("register")}
                     disabled={isBusy}
                   >
                     注册
                   </button>
                 </div>
-                <span className="hidden rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+                <span className="hidden rounded-[var(--radius-pill)] bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
                   {cloudMode === "register" ? "新账号" : "已有账号"}
                 </span>
               </div>
@@ -271,7 +184,7 @@ export function AccountSettingsPage({
                 {cloudBaseUrlEditable ? (
                   <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder={cloudStatus?.defaultBaseUrl || BREVYN_CLOUD_DEVELOPMENT_BASE_URL} />
                 ) : (
-                  <div className="flex min-w-0 items-center gap-2 rounded-lg border bg-background/72 px-2.5 py-2">
+                  <div className="brevyn-control-surface flex min-w-0 items-center gap-2 px-3 py-2.5">
                     <Cloud className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0">
                       <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">官方 Cloud</div>
@@ -288,13 +201,13 @@ export function AccountSettingsPage({
 
               <div className="mt-2 text-[11px] leading-5 text-muted-foreground">{authHelperText}</div>
               {statusMessage && (
-                <div className="mt-3 rounded-lg border border-amber-200/80 bg-amber-50/75 px-3 py-2 text-[11px] leading-5 text-amber-900">
+                <div className="mt-3 rounded-[var(--radius-control)] bg-amber-50/90 px-3 py-2 text-[11px] leading-5 text-amber-900 shadow-sm ring-1 ring-amber-200/60">
                   {statusMessage}
                 </div>
               )}
               <button
                 type="button"
-                className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45"
+                className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={onSubmitAuth}
                 disabled={isBusy || !cloudForm.email.trim() || !cloudForm.password.trim()}
               >
@@ -303,13 +216,13 @@ export function AccountSettingsPage({
               </button>
             </div>
 
-            <div className="rounded-xl border bg-card/80 p-3 shadow-sm ring-1 ring-border/45">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                <Sparkles className="h-4 w-4" />
+            <div className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+              <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] bg-muted text-muted-foreground">
+                <ShieldCheck className="h-4 w-4" />
               </div>
-              <div className="mt-3 text-xs font-semibold text-foreground">登录后自动准备官方服务</div>
+              <div className="mt-3 text-xs font-semibold text-foreground">同步范围</div>
               <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                Brevyn 会把 Cloud 账号、套餐和模型配置同步到本地，不需要手动复制 API Key。
+                登录后会校验账号、读取权益，并生成本地可用的官方模型配置。
               </div>
               <div className="mt-3 space-y-2">
                 <CloudAuthStep icon={<UserRound className="h-3.5 w-3.5" />} label="验证账号" />
@@ -320,37 +233,41 @@ export function AccountSettingsPage({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]">
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                    <UserRound className="h-4 w-4" />
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_0.85fr]">
+              <div className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+                <div className="flex min-w-0 items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-muted text-muted-foreground">
+                      <UserRound className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Signed in</div>
+                      <div className="mt-1 truncate text-base font-semibold text-foreground" title={cloudStatus.user?.email || ""}>{cloudStatus.user?.email || "-"}</div>
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground" title={cloudStatus.user?.displayName || ""}>{cloudStatus.user?.displayName || "已登录"}</div>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-[11px] font-medium text-muted-foreground">当前账号</div>
-                    <div className="mt-1 truncate text-sm font-semibold text-foreground" title={cloudStatus.user?.email || ""}>{cloudStatus.user?.email || "-"}</div>
-                    <div className="mt-1 truncate text-[11px] text-muted-foreground" title={cloudStatus.user?.displayName || ""}>{cloudStatus.user?.displayName || "已登录"}</div>
-                  </div>
+                  {entitlements?.stale && <span className="shrink-0 rounded-[var(--radius-pill)] bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800">旧数据</span>}
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <AccountMetric icon={<Wallet className="h-3.5 w-3.5" />} label="账户余额" value={formatCloudPoints(walletRemaining)} detail={walletStatus ? cloudEntitlementStatusLabel(walletStatus) : "实时余额"} />
+                  <AccountMetric icon={<Cloud className="h-3.5 w-3.5" />} label="当前套餐" value={currentPlanName} detail={`${conversationBalanceGroups.length + conversationSubscriptionGroups.length + fallbackConversationGroups.length} 个对话分组`} />
+                  <AccountMetric icon={<PlugZap className="h-3.5 w-3.5" />} label="官方能力" value={capabilityGroupCount > 0 ? `${capabilityGroupCount} 组` : "待同步"} detail={officialProviderKinds.size > 0 ? `${officialProviderKinds.size} 项已准备` : "Embedding / OCR / Vision"} />
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                      <Wallet className="h-3.5 w-3.5" />
-                      账户积分
-                    </div>
-                    <div className="mt-1 truncate text-base font-semibold text-foreground">{formatCloudPoints(walletRemaining)}</div>
-                  </div>
-                  {entitlements?.stale && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">旧数据</span>}
+              <div className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+                <div className="text-xs font-semibold text-foreground">官方能力状态</div>
+                <div className="mt-1 text-[11px] leading-5 text-muted-foreground">Embedding、OCR、Vision 会跟随 Cloud 分组自动同步。</div>
+                <div className="mt-3 grid gap-2">
+                  <CapabilityMiniState icon={<Database className="h-3.5 w-3.5" />} label="Embedding" active={officialProviderKinds.has("embedding")} />
+                  <CapabilityMiniState icon={<ScanText className="h-3.5 w-3.5" />} label="OCR" active={officialProviderKinds.has("ocr")} />
+                  <CapabilityMiniState icon={<Eye className="h-3.5 w-3.5" />} label="Vision" active={officialProviderKinds.has("vision")} />
                 </div>
-                {walletStatus && <div className="mt-2 text-[10px] text-muted-foreground">{cloudEntitlementStatusLabel(walletStatus)}</div>}
               </div>
             </div>
 
             <form
-              className="rounded-lg border bg-card p-3"
+              className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]"
               onSubmit={(event) => {
                 event.preventDefault();
                 onRedeem();
@@ -363,7 +280,7 @@ export function AccountSettingsPage({
                     兑换卡密
                   </div>
                   <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-	                    兑换后会自动更新余额或套餐。
+                    兑换后会自动更新余额或套餐。
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -373,7 +290,7 @@ export function AccountSettingsPage({
                     onClick={onOpenShop}
                   />
                   {redeemResult ? (
-                    <span className={cx("rounded px-2 py-1 text-[10px] font-medium", redeemResult.status === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
+                    <span className={cx("rounded-[var(--radius-badge)] px-2 py-1 text-[10px] font-medium", redeemResult.status === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
                       {redeemStatusLabel(redeemResult.status)}
                     </span>
                   ) : null}
@@ -381,7 +298,7 @@ export function AccountSettingsPage({
               </div>
 
               <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border bg-background/80 px-2">
+                <div className="brevyn-control-surface flex h-10 min-w-0 items-center gap-2 px-3">
                   <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <input
                     className="min-w-0 flex-1 bg-transparent text-xs font-medium tracking-[0.04em] text-foreground outline-none placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:text-muted-foreground"
@@ -392,7 +309,7 @@ export function AccountSettingsPage({
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-45"
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
                   disabled={isBusy || !redeemCode.trim()}
                 >
                   <RefreshCw className={cx("h-3.5 w-3.5", busyAction === "redeem" && "animate-spin")} />
@@ -410,10 +327,10 @@ export function AccountSettingsPage({
               {statusMessage ? (
                 <div
                   className={cx(
-                    "mt-3 rounded-lg border px-3 py-2 text-[11px] leading-5",
+                    "mt-3 rounded-[var(--radius-control)] px-3 py-2 text-[11px] leading-5 shadow-sm ring-1",
                     statusIsError
-                      ? "border-red-200/80 bg-red-50/85 text-red-800"
-                      : "border-emerald-200/80 bg-emerald-50/85 text-emerald-800",
+                      ? "bg-red-50/90 text-red-800 ring-red-200/70"
+                      : "bg-emerald-50/90 text-emerald-800 ring-emerald-200/70",
                   )}
                 >
                   {statusMessage}
@@ -421,13 +338,13 @@ export function AccountSettingsPage({
               ) : null}
             </form>
 
-	            <div className="space-y-4">
-	              <div className="flex items-center justify-between gap-3">
-	                <div className="min-w-0">
-	                  <div className="text-xs font-semibold text-foreground">套餐</div>
-	                  <div className="mt-1 text-[11px] text-muted-foreground">选择当前要使用的官方模型套餐。</div>
-	                </div>
-	              </div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-foreground">权益分组</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">对话套餐控制聊天额度，官方能力用于 Embedding / OCR / Vision。</div>
+                </div>
+              </div>
 
 	              <PlanSection title="余额套餐" detail={`${conversationBalanceGroups.length} 个对话分组`}>
 	                <div className="grid gap-2 lg:grid-cols-2">
@@ -530,7 +447,7 @@ export function AccountSettingsPage({
 
         <div
           className={cx(
-            "mt-4 min-h-9 rounded-md bg-muted/55 px-2 py-2 text-[11px] leading-5 text-muted-foreground transition-opacity",
+            "mt-4 min-h-9 rounded-[var(--radius-control)] bg-card px-3 py-2 text-[11px] leading-5 text-muted-foreground shadow-inner transition-opacity ring-1 ring-black/[0.035]",
             statusMessage ? "opacity-100" : "pointer-events-none opacity-0",
           )}
           aria-live="polite"
@@ -539,6 +456,35 @@ export function AccountSettingsPage({
           {statusMessage}
         </div>
       </section>
+    </div>
+  );
+}
+
+function AccountMetric({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
+  return (
+    <div className="brevyn-control-surface min-w-0 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+        <span className="text-muted-foreground">{icon}</span>
+        {label}
+      </div>
+      <div className="mt-1 truncate text-sm font-semibold text-foreground" title={value}>{value}</div>
+      <div className="mt-0.5 truncate text-[10px] text-muted-foreground" title={detail}>{detail}</div>
+    </div>
+  );
+}
+
+function CapabilityMiniState({ icon, label, active }: { icon: ReactNode; label: string; active: boolean }) {
+  return (
+    <div className="brevyn-card-surface flex items-center justify-between gap-3 px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cx("flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)]", active ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>
+          {icon}
+        </span>
+        <span className="truncate text-xs font-semibold text-foreground">{label}</span>
+      </div>
+      <span className={cx("shrink-0 rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px] font-semibold", active ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+        {active ? "已准备" : "待同步"}
+      </span>
     </div>
   );
 }

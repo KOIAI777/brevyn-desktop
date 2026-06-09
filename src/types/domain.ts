@@ -977,6 +977,7 @@ export interface AppSettings {
 
 export interface UserProfileSettings {
   displayName: string;
+  /** Emoji string or data:image URL. Legacy fixed avatar ids are still accepted. */
   avatarId: string;
 }
 

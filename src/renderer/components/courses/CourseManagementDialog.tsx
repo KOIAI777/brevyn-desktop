@@ -488,7 +488,7 @@ export function CourseManagementDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
       {confirmDialog}
       {indexingNotice && (
-        <div className="pointer-events-auto absolute left-1/2 top-5 z-[60] w-[min(620px,calc(100vw-40px))] -translate-x-1/2 rounded-2xl border border-red-200 bg-red-50/95 px-4 py-3 text-red-800 shadow-[0_18px_54px_rgba(127,29,29,0.18)] ring-1 ring-white/60 backdrop-blur-xl">
+        <div className="pointer-events-auto absolute left-1/2 top-5 z-[60] w-[min(620px,calc(100vw-40px))] -translate-x-1/2 rounded-[var(--radius-panel)] border border-red-200 bg-red-50/95 px-4 py-3 text-red-800 shadow-[0_18px_54px_rgba(127,29,29,0.18)] ring-1 ring-white/60 backdrop-blur-xl">
           <div className="flex items-start gap-2.5">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="min-w-0 flex-1">
@@ -497,7 +497,7 @@ export function CourseManagementDialog({
             </div>
             <button
               type="button"
-              className="shrink-0 rounded-md p-1 text-red-700/70 transition hover:bg-red-100 hover:text-red-900"
+              className="shrink-0 rounded-[var(--radius-control)] p-1 text-red-700/70 transition hover:bg-red-100 hover:text-red-900"
               onClick={() => setIndexingNotice(null)}
               title="关闭"
             >
@@ -506,8 +506,8 @@ export function CourseManagementDialog({
           </div>
         </div>
       )}
-      <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
-        <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
+      <div className="brevyn-window-surface flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden">
+        <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <BookOpen className="h-4 w-4" />
@@ -517,7 +517,7 @@ export function CourseManagementDialog({
           </div>
           <button
             type="button"
-            className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="no-drag flex h-8 w-8 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.06] transition hover:bg-background hover:text-foreground active:scale-[0.98]"
             onClick={onClose}
             title="关闭课程管理"
           >
@@ -527,18 +527,18 @@ export function CourseManagementDialog({
 
         <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-[360px_1fr]">
           <aside className="min-h-0 space-y-3 overflow-y-auto pr-1 brevyn-scrollbar">
-            <section className="rounded-lg border bg-background/70 p-2">
+            <section className="rounded-[var(--radius-card)] bg-background/70 p-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <button
                 type="button"
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                className="flex w-full items-center justify-between rounded-[var(--radius-control)] px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={() => setShowArchived((value) => !value)}
               >
                 <span>{showArchived ? "显示已归档课程" : "仅显示活跃课程"}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} 已归档</span>
+                <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} 已归档</span>
               </button>
             </section>
             {courseActionError && (
-              <div className="flex gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
+              <div className="flex gap-1.5 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
                 <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                 <span className="min-w-0 break-words">{courseActionError}</span>
               </div>
@@ -548,19 +548,19 @@ export function CourseManagementDialog({
                 <div
                   key={course.id}
                   className={cx(
-                    "flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-3 text-left transition",
+                    "flex w-full min-w-0 items-center gap-2 rounded-[var(--radius-card)] border px-3 py-3 text-left transition",
                     course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
                     course.id === viewingCourseId && !course.archivedAt ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
                   )}
                 >
                   <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => !course.archivedAt && setViewingCourseId(course.id)}>
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)]" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
                       <CourseIcon course={course} className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-1.5">
                         <span className="block truncate text-sm font-semibold">{course.name}</span>
-                        {course.archivedAt && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px]">已归档</span>}
+                        {course.archivedAt && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px]">已归档</span>}
                       </span>
                       <span className="block truncate text-[11px] text-muted-foreground">
                         {course.code} · {course.term}
@@ -570,15 +570,15 @@ export function CourseManagementDialog({
                   </button>
                   <div className="flex shrink-0 items-center gap-1">
                     {course.archivedAt ? (
-                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={courseBusyId === course.id} onClick={() => void restoreCourse(course)}>
+                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={courseBusyId === course.id} onClick={() => void restoreCourse(course)}>
                         {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                       </button>
                     ) : (
-                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={courseBusyId === course.id} onClick={() => void archiveCourse(course)}>
+                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={courseBusyId === course.id} onClick={() => void archiveCourse(course)}>
                         {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
                       </button>
                     )}
-                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
+                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -586,11 +586,11 @@ export function CourseManagementDialog({
               ))}
             </section>
 
-            <section className="rounded-lg border bg-background/70 p-2">
+            <section className="rounded-[var(--radius-card)] bg-background/70 p-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               {!showCreateCourse ? (
                 <button
                   type="button"
-                  className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => setShowCreateCourse(true)}
                   disabled={!canCreateCourse}
                 >
@@ -606,7 +606,7 @@ export function CourseManagementDialog({
                     </div>
                     <button
                       type="button"
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                      className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground"
                       onClick={() => setShowCreateCourse(false)}
                       title="收起新建课程"
                     >
@@ -616,7 +616,7 @@ export function CourseManagementDialog({
                   <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
                     <span>课程名称</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                       value={newCourseName}
                       onChange={(event) => setNewCourseName(event.target.value)}
                       placeholder="例如：宪法学"
@@ -625,7 +625,7 @@ export function CourseManagementDialog({
                   <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
                     <span>课程代码</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                       value={newCourseCode}
                       onChange={(event) => setNewCourseCode(event.target.value)}
                       placeholder="例如：LAW 200"
@@ -634,21 +634,21 @@ export function CourseManagementDialog({
                   <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
                     <span>教师（可选）</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                       value={newCourseInstructor}
                       onChange={(event) => setNewCourseInstructor(event.target.value)}
                       placeholder="例如：Prof. Lee"
                     />
                   </label>
-                  {newCourseError && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
+                  {newCourseError && <div className="mb-2 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1 text-[11px] text-amber-900">{newCourseError}</div>}
                   {!canCreateCourse && !newCourseError && (
-                    <div className="mb-2 rounded-md bg-muted/55 px-2 py-1 text-[11px] leading-5 text-muted-foreground">
+                    <div className="mb-2 rounded-[var(--radius-control)] bg-muted/55 px-2 py-1 text-[11px] leading-5 text-muted-foreground">
                       请先选择或创建学期，再添加课程。
                     </div>
                   )}
                   <button
                     type="button"
-                    className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={createCourse}
                     disabled={creatingCourse || !canCreateCourse}
                   >
@@ -669,7 +669,7 @@ export function CourseManagementDialog({
             </section>
           </aside>
 
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border bg-background/70 p-4">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-[var(--radius-card)] bg-background/70 p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{activeCourse?.name || "未选择课程"}</div>
@@ -683,7 +683,7 @@ export function CourseManagementDialog({
               <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => {
                     resetCourseDetailsDraft(activeCourse);
                     setEditingCourseDetails((value) => !value);
@@ -696,18 +696,18 @@ export function CourseManagementDialog({
               </div>
             </div>
             {courseReadOnlyReason && (
-              <div className="mt-3 flex gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-900">
+              <div className="mt-3 flex gap-1.5 rounded-[var(--radius-control)] bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-900">
                 <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>{courseReadOnlyReason}</span>
               </div>
             )}
             {activeCourse && editingCourseDetails && !activeCourseArchived && (
-              <section className="mt-3 rounded-lg border bg-card p-3">
+              <section className="mt-3 rounded-[var(--radius-card)] bg-card p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
                 <div className="grid gap-2 md:grid-cols-2">
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
                     <span>课程代码</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.code}
                       onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, code: event.target.value }))}
                     />
@@ -715,7 +715,7 @@ export function CourseManagementDialog({
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
                     <span>教师</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.instructor}
                       onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, instructor: event.target.value }))}
                     />
@@ -723,7 +723,7 @@ export function CourseManagementDialog({
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
                     <span>上课时间</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.meetingTime}
                       onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, meetingTime: event.target.value }))}
                     />
@@ -731,7 +731,7 @@ export function CourseManagementDialog({
                   <label className="block space-y-1 text-[11px] text-muted-foreground">
                     <span>地点</span>
                     <input
-                      className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                       value={courseDetailsDraft.location}
                       onChange={(event) => setCourseDetailsDraft((current) => ({ ...current, location: event.target.value }))}
                     />
@@ -744,7 +744,7 @@ export function CourseManagementDialog({
                         key={key}
                         type="button"
                         className={cx(
-                          "flex h-8 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground",
+                          "flex h-8 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground",
                           courseDetailsDraft.icon === key && "border-foreground/30 bg-muted text-foreground ring-1 ring-foreground/10",
                         )}
                         onClick={() => setCourseDetailsDraft((current) => ({ ...current, icon: key }))}
@@ -760,7 +760,7 @@ export function CourseManagementDialog({
                       <button
                         key={color}
                         type="button"
-                        className={cx("h-6 w-6 rounded-md border transition ring-offset-2 ring-offset-card", courseDetailsDraft.color === color && "ring-2 ring-foreground/30")}
+                        className={cx("h-6 w-6 rounded-[var(--radius-badge)] border transition ring-offset-2 ring-offset-card", courseDetailsDraft.color === color && "ring-2 ring-foreground/30")}
                         style={{ backgroundColor: color }}
                         onClick={() => setCourseDetailsDraft((current) => ({ ...current, color }))}
                         title={color}
@@ -770,7 +770,7 @@ export function CourseManagementDialog({
                     <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border bg-background px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                       onClick={() => {
                         resetCourseDetailsDraft(activeCourse);
                         setEditingCourseDetails(false);
@@ -781,7 +781,7 @@ export function CourseManagementDialog({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-2.5 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => void saveCourseDetails()}
                       disabled={savingCourseDetails || !courseDetailsDraft.code.trim()}
                     >
@@ -795,14 +795,14 @@ export function CourseManagementDialog({
             )}
 
             <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1 rounded-lg border bg-card p-1">
+              <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1 rounded-[var(--radius-control)] bg-card p-1 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
                 <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="文件" onClick={() => setCoursePanel("files")} />
                 <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="索引" onClick={() => setCoursePanel("indexing")} />
                 <CoursePanelButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="向量搜索" onClick={() => setCoursePanel("search")} />
               </div>
 
               {!activeCourse && (
-                <div className="min-h-0 flex-1 rounded-lg border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
+                <div className="min-h-0 flex-1 rounded-[var(--radius-card)] border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
                   请先从左侧选择课程，再查看文件、任务、索引任务或向量搜索。
                 </div>
               )}
@@ -832,7 +832,7 @@ export function CourseManagementDialog({
                     detail="每个任务都有自己的 Materials、Drafts 和 Submitted 工作区。"
                   />
                   {taskSections.length === 0 && (
-                    <div className="rounded-lg border border-dashed bg-card/70 px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
+                    <div className="rounded-[var(--radius-card)] border border-dashed bg-card/70 px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
                       还没有任务分区。下面加一个作业、presentation 或 exam，就会自动生成对应文件夹。
                     </div>
                   )}
@@ -903,7 +903,7 @@ function CoursePanelButton({ active, icon, label, onClick }: { active: boolean; 
     <button
       type="button"
       className={cx(
-        "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition",
+        "inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-xs font-medium transition",
         active ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
       onClick={onClick}
@@ -948,7 +948,7 @@ function InlineTaskCreateCard({
 }) {
   const blocked = Boolean(disabled || creating);
   return (
-    <section className="rounded-lg border border-dashed bg-card/78 p-3">
+    <section className="rounded-[var(--radius-card)] border border-dashed bg-card/78 p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold">
@@ -963,7 +963,7 @@ function InlineTaskCreateCard({
         <label className="block space-y-1 text-[11px] text-muted-foreground">
           <span>类型</span>
           <input
-            className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+            className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
             value={taskType}
             onChange={(event) => onTaskTypeChange(event.target.value)}
             placeholder="作业"
@@ -973,7 +973,7 @@ function InlineTaskCreateCard({
         <label className="block space-y-1 text-[11px] text-muted-foreground">
           <span>任务名称</span>
           <input
-            className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+            className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
             value={taskName}
             onChange={(event) => onTaskNameChange(event.target.value)}
             onKeyDown={(event) => {
@@ -985,7 +985,7 @@ function InlineTaskCreateCard({
         </label>
         <button
           type="button"
-          className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={onCreate}
           disabled={blocked || !taskName.trim()}
         >
@@ -1000,7 +1000,7 @@ function InlineTaskCreateCard({
             <button
               key={item}
               type="button"
-              className="rounded-full border bg-background px-2.5 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+              className="rounded-[var(--radius-pill)] border bg-background px-2.5 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
               onClick={() => onTaskTypeChange(item)}
               disabled={blocked}
             >
@@ -1009,7 +1009,7 @@ function InlineTaskCreateCard({
           ))}
         </div>
       )}
-      {error && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
+      {error && <div className="mt-3 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
     </section>
   );
 }
@@ -1038,17 +1038,17 @@ function IndexingProgressPanel({
   const activeCount = visibleJobs.filter((job) => job.status === "queued" || job.status === "indexing").length;
 
   return (
-    <section className="rounded-lg border bg-card p-3">
+    <section className="rounded-[var(--radius-card)] bg-card p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
           <Database className="h-3.5 w-3.5" />
           <span className="truncate">索引</span>
-          {activeCount > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{activeCount} 个进行中</span>}
+          {activeCount > 0 && <span className="rounded-[var(--radius-badge)] bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{activeCount} 个进行中</span>}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-2.5 text-[11px] font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onIndexAll}
             disabled={disabled}
           >
@@ -1057,7 +1057,7 @@ function IndexingProgressPanel({
           </button>
           <button
             type="button"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground"
             onClick={onRefresh}
             title="刷新索引任务"
           >
@@ -1067,14 +1067,14 @@ function IndexingProgressPanel({
       </div>
 
       {visibleJobs.length === 0 ? (
-        <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">暂无索引任务</div>
+        <div className="rounded-[var(--radius-control)] border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">暂无索引任务</div>
       ) : (
         <div className="space-y-2">
           {visibleJobs.slice(0, 5).map((job) => {
             const progress = Math.max(0, Math.min(100, job.progress || 0));
             const cancellable = job.status === "queued" || job.status === "indexing";
             return (
-              <div key={job.id} className="rounded-md border bg-background/70 p-2.5">
+              <div key={job.id} className="rounded-[var(--radius-control)] border bg-background/70 p-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-[11px] font-semibold text-foreground">{job.sectionId ? sectionTitles.get(job.sectionId) || "分区" : "全部分区"}</div>
@@ -1083,11 +1083,11 @@ function IndexingProgressPanel({
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(job.status))}>{displayIndexingStatus(job.status)}</span>
+                    <span className={cx("rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", statusTone(job.status))}>{displayIndexingStatus(job.status)}</span>
                     {cancellable && (
                       <button
                         type="button"
-                        className="flex h-6 w-6 items-center justify-center rounded-md border bg-card text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground transition hover:bg-accent hover:text-foreground"
                         onClick={() => onCancel(job.id)}
                         title="取消索引"
                       >
@@ -1096,11 +1096,11 @@ function IndexingProgressPanel({
                     )}
                   </div>
                 </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className={cx("h-full rounded-full transition-all duration-300", job.status === "failed" ? "bg-red-500" : "bg-foreground")} style={{ width: `${progress}%` }} />
+                <div className="mt-2 h-1.5 overflow-hidden rounded-[var(--radius-pill)] bg-muted">
+                  <div className={cx("h-full rounded-[var(--radius-pill)] transition-all duration-300", job.status === "failed" ? "bg-red-500" : "bg-foreground")} style={{ width: `${progress}%` }} />
                 </div>
                 {job.error && (
-                  <div className="mt-2 flex gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-700">
+                  <div className="mt-2 flex gap-1.5 rounded-[var(--radius-control)] bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-700">
                     <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                     <span className="min-w-0 break-words">{job.error}</span>
                   </div>
@@ -1160,7 +1160,7 @@ function RagDebugPanel({
   }, [query, results]);
 
   return (
-    <section className="rounded-lg border bg-card p-3">
+    <section className="rounded-[var(--radius-card)] bg-card p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
         <Search className="h-3.5 w-3.5" />
         向量搜索调试
@@ -1173,7 +1173,7 @@ function RagDebugPanel({
         }}
       >
         <input
-          className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
+          className="h-8 min-w-0 flex-1 rounded-[var(--radius-control)] border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="搜索已索引片段"
@@ -1181,7 +1181,7 @@ function RagDebugPanel({
         />
         <button
           type="submit"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           disabled={disabled || searching || !query.trim()}
           title="运行向量搜索"
         >
@@ -1190,7 +1190,7 @@ function RagDebugPanel({
       </form>
 
       {error && (
-        <div className="mt-2 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-700">
+        <div className="mt-2 rounded-[var(--radius-control)] bg-red-50 px-2 py-1.5 text-[10px] leading-4 text-red-700">
           <div className="flex gap-1.5">
             <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
             <span className="min-w-0 break-words">{error}</span>
@@ -1200,7 +1200,7 @@ function RagDebugPanel({
 
       <div className="mt-2 max-h-[420px] space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
         {results.length === 0 ? (
-          <div className="rounded-md border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">
+          <div className="rounded-[var(--radius-control)] border border-dashed bg-background/60 px-3 py-4 text-center text-[11px] text-muted-foreground">
             {query.trim() ? "没有召回片段" : "请输入查询"}
           </div>
         ) : (
@@ -1208,10 +1208,10 @@ function RagDebugPanel({
             const citation = result.citation || result.source;
             const displayCitation = compactRagCitation(citation);
             return (
-            <div key={result.id} className="min-w-0 overflow-hidden rounded-md border bg-background/70 p-2.5">
+            <div key={result.id} className="min-w-0 overflow-hidden rounded-[var(--radius-control)] border bg-background/70 p-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 truncate text-[11px] font-semibold" title={result.title}>{result.title}</div>
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{Math.round(result.score * 100)}%</span>
+                <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{Math.round(result.score * 100)}%</span>
               </div>
               <div className="mt-1 line-clamp-3 min-w-0 break-words text-[11px] leading-5 text-muted-foreground">{result.excerpt}</div>
               <div className="mt-1 min-w-0 truncate text-[10px] text-muted-foreground/80" title={citation}>{displayCitation}</div>
@@ -1226,7 +1226,7 @@ function RagDebugPanel({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
               disabled={safePage === 0}
               onClick={() => setPage((current) => Math.max(0, current - 1))}
               title="上一页"
@@ -1235,7 +1235,7 @@ function RagDebugPanel({
             </button>
             <button
               type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] border bg-background transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
               disabled={safePage >= pageCount - 1}
               onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
               title="下一页"
@@ -1350,7 +1350,7 @@ const SectionCard = memo(function SectionCard({
   }
 
   return (
-    <div className="rounded-lg border bg-card px-3 py-3">
+    <div className="rounded-[var(--radius-card)] bg-card px-3 py-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
       {confirmDialog}
       <div className="flex items-start justify-between gap-3">
         <button
@@ -1365,7 +1365,7 @@ const SectionCard = memo(function SectionCard({
               <div className="truncate text-sm font-semibold">{displaySectionTitle(section)}</div>
               <span
                 className={cx(
-                  "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                  "shrink-0 rounded-[var(--radius-pill)] px-1.5 py-0.5 text-[9px] font-medium",
                   section.kind === "course_shared"
                     ? "bg-slate-100 text-slate-700"
                     : section.kind === "lecture"
@@ -1382,7 +1382,7 @@ const SectionCard = memo(function SectionCard({
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className={cx("rounded px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
+          <span className={cx("rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
             {displayIndexingStatus(section.indexingStatus)}
           </span>
           {section.kind === "lecture" && lectureWeekOptions.length > 0 && (
@@ -1399,7 +1399,7 @@ const SectionCard = memo(function SectionCard({
           )}
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={() => onUpload(section.kind === "lecture" && lectureWeekValue ? Number(lectureWeekValue) : undefined)}
             disabled={disabled || uploading}
             title="上传文件到此分区"
@@ -1408,7 +1408,7 @@ const SectionCard = memo(function SectionCard({
           </button>
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={onIndex}
             disabled={disabled || !hasVisibleFiles}
             title={hasVisibleFiles ? "重新索引此分区" : "此分区暂无可索引课程资料"}
@@ -1418,7 +1418,7 @@ const SectionCard = memo(function SectionCard({
         </div>
       </div>
       {open && !hasVisibleFiles && (
-        <div className="mt-3 rounded-md border border-dashed bg-background px-3 py-3 text-center text-[11px] text-muted-foreground">
+        <div className="mt-3 rounded-[var(--radius-control)] border border-dashed bg-background px-3 py-3 text-center text-[11px] text-muted-foreground">
           暂无可索引课程资料。点击上传按钮添加文件。
         </div>
       )}
@@ -1428,7 +1428,7 @@ const SectionCard = memo(function SectionCard({
             lectureWeekGroups.map((group) => {
               const groupOpen = openLectureWeeks[group.id] ?? false;
               return (
-                <div key={group.id} className="overflow-hidden rounded-md border border-border/60 bg-background">
+                <div key={group.id} className="overflow-hidden rounded-[var(--radius-control)] border border-border/60 bg-background">
                   <button
                     type="button"
                     className="flex w-full min-w-0 items-center gap-2 px-2 py-2 text-left text-[12px] hover:bg-accent/60"
@@ -1437,7 +1437,7 @@ const SectionCard = memo(function SectionCard({
                     <ChevronRight className={cx("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", groupOpen && "rotate-90")} />
                     <BookOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate font-medium">{group.title}</span>
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{group.files.length} 个文件</span>
+                    <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{group.files.length} 个文件</span>
                   </button>
                   {groupOpen && (
                     <div className="space-y-1 border-t bg-card/40 p-1.5">
@@ -1472,7 +1472,7 @@ const SectionCard = memo(function SectionCard({
           )}
         </div>
       )}
-      {fileActionError && <div className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-900">{fileActionError}</div>}
+      {fileActionError && <div className="mt-3 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-900">{fileActionError}</div>}
     </div>
   );
 }, areSectionCardPropsEqual);
@@ -1657,14 +1657,14 @@ const SectionFileRow = memo(function SectionFileRow({
 }: SectionFileRowProps) {
   const canRetryIndex = shouldOfferIndexRetry(file);
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5">
+    <div className="flex items-center gap-2 rounded-[var(--radius-control)] border border-border/60 bg-background px-2 py-1.5">
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-[12px]">{file.name}</span>
       <FileIndexingBadge file={file} />
       {file.sizeLabel && <span className="shrink-0 text-[10px] text-muted-foreground">{file.sizeLabel}</span>}
       <button
         type="button"
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground hover:bg-accent hover:text-foreground"
         onClick={onReveal}
         title="在访达中显示"
       >
@@ -1673,7 +1673,7 @@ const SectionFileRow = memo(function SectionFileRow({
       {canRetryIndex && (
         <button
           type="button"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
           onClick={onRetryIndex}
           disabled={retrying}
           title="重新索引此文件"
@@ -1683,7 +1683,7 @@ const SectionFileRow = memo(function SectionFileRow({
       )}
       <button
         type="button"
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground hover:bg-red-50 hover:text-red-700 disabled:opacity-40"
         onClick={onDelete}
         disabled={deleting}
         title="删除文件"

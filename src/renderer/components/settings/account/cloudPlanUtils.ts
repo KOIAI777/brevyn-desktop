@@ -172,8 +172,8 @@ export function cloudEntitlementStatusLabel(status: string): string {
 
 export function planCardClass(current: boolean, usable: boolean): string {
   return cx(
-    "rounded-lg border bg-card p-3 transition-colors",
-    current && "border-emerald-200 bg-emerald-50/35 shadow-sm shadow-emerald-950/[0.03] ring-1 ring-emerald-100",
+    "rounded-[var(--radius-card)] bg-card p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.48)] transition",
+    current && "bg-background shadow-[0_14px_34px_rgba(15,23,42,0.06),inset_0_0_0_1px_hsl(var(--foreground)/0.1)]",
     !usable && "opacity-80",
   );
 }

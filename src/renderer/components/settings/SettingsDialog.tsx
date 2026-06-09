@@ -558,26 +558,28 @@ export function SettingsDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 p-6">
       {providerConfirmDialog}
       {cloudRedeemConfirmDialog}
       {providerToast && (
-        <div className="pointer-events-none absolute top-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-lg ring-1 ring-border/60">
+        <div className="pointer-events-none absolute top-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-[var(--radius-pill)] bg-card px-3 py-2 text-xs font-medium text-foreground shadow-lg ring-1 ring-black/[0.06]">
           <Check className="h-3.5 w-3.5 text-emerald-600" />
           {providerToast.message}
         </div>
       )}
-      <div className="flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
-        <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
+      <div className="brevyn-window-surface flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden">
+        <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Settings className="h-4 w-4" />
-              设置
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.045]">
+                <Settings className="h-3.5 w-3.5" />
+              </span>
+              <span>设置</span>
             </div>
           </div>
           <button
             type="button"
-            className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="no-drag flex h-8 w-8 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.06] transition hover:bg-background hover:text-foreground active:scale-[0.98]"
             onClick={onClose}
             title="关闭设置"
           >
@@ -586,7 +588,7 @@ export function SettingsDialog({
         </div>
 
         <div className="grid min-h-0 flex-1 md:grid-cols-[220px_1fr]">
-          <aside className="border-r bg-background/45 p-3">
+          <aside className="bg-[hsl(var(--surface-chrome))] p-3 shadow-[inset_-1px_0_0_hsl(var(--border)/0.62)]">
             <div className="space-y-1.5">
               <SettingsNavButton
                 active={activePage === "account"}
@@ -633,10 +635,9 @@ export function SettingsDialog({
             </div>
           </aside>
 
-          <main className={cx("min-h-0 p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar")}>
+          <main className={cx("min-h-0 bg-[hsl(var(--surface-panel))] p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {activePage === "account" ? (
               <AccountSettingsPage
-                profile={profile}
                 cloudStatus={cloudStatus}
                 cloudMode={cloudMode}
                 cloudForm={cloudForm}
@@ -655,10 +656,9 @@ export function SettingsDialog({
                 onRedeem={() => void redeemCloudCode()}
                 onOpenShop={() => void openCloudShop()}
                 onLogout={() => void logoutCloudAccount()}
-                onProfileChange={onProfileChange}
               />
             ) : activePage === "general" ? (
-              <GeneralSettingsPage />
+              <GeneralSettingsPage profile={profile} onProfileChange={onProfileChange} />
             ) : activePage === "providers" ? (
               <ProviderSettingsPage {...providerPageProps} />
             ) : activePage === "archive" ? (
@@ -693,10 +693,10 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
   return (
     <button
       type="button"
-      className={cx("flex w-full min-w-0 items-start gap-2 rounded-lg border px-3 py-3 text-left transition", active ? "border-border bg-card text-foreground shadow-sm ring-1 ring-border/60" : "border-transparent text-muted-foreground hover:bg-card hover:text-foreground")}
+      className={cx("flex w-full min-w-0 items-start gap-2 rounded-[var(--radius-card)] px-3 py-3 text-left transition active:scale-[0.99]", active ? "bg-card text-foreground shadow-sm ring-1 ring-black/[0.05]" : "text-muted-foreground hover:bg-card hover:text-foreground")}
       onClick={onClick}
     >
-      <span className={cx("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md", active ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>{icon}</span>
+      <span className={cx("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)]", active ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>{icon}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">{title}</span>
         <span className="block truncate text-[11px]">{detail}</span>
@@ -758,12 +758,12 @@ function RedeemConfirmationMessage({ result, groups }: { result: CloudRedeemCode
         <MiniMetric label="状态" value={redeemConfirmationStatusLabel(result)} />
       </div>
       {isSubscription && (
-        <div className="rounded-md border border-amber-200/80 bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900">
+        <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900 shadow-sm ring-1 ring-amber-200/70">
           订阅套餐的日、周、月额度按对应周期刷新；重复购买同一订阅只延长到期时间，不会叠加当前周期额度。
         </div>
       )}
       {result.status === "gateway_failed" && (
-        <div className="rounded-md border border-amber-200/80 bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900">
+        <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900 shadow-sm ring-1 ring-amber-200/70">
           兑换已记录，但网关同步暂未完成。稍后刷新账号信息，或在后台重试这条兑换记录。
         </div>
       )}

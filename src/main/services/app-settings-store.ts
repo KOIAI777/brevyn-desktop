@@ -8,7 +8,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   profile: {
     displayName: "Koi",
-    avatarId: "prism",
+    avatarId: "🧑‍💻",
   },
 };
 
@@ -96,7 +96,7 @@ function cloneSettings(settings: AppSettings): AppSettings {
 
 function normalizeProfile(profile: Partial<UserProfileSettings>): UserProfileSettings {
   const displayName = String(profile.displayName || DEFAULT_APP_SETTINGS.profile.displayName).trim().slice(0, 40);
-  const avatarId = String(profile.avatarId || DEFAULT_APP_SETTINGS.profile.avatarId).trim().slice(0, 40);
+  const avatarId = String(profile.avatarId || DEFAULT_APP_SETTINGS.profile.avatarId).trim().slice(0, 500_000);
   return {
     displayName: displayName || DEFAULT_APP_SETTINGS.profile.displayName,
     avatarId: avatarId || DEFAULT_APP_SETTINGS.profile.avatarId,

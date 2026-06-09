@@ -90,13 +90,13 @@ export function WorkspaceSidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center overflow-hidden rounded-lg border bg-card/85 py-2 shadow-sm ring-1 ring-border/60 transition-[width,opacity,transform] duration-200">
+      <aside className="brevyn-panel-surface flex w-14 shrink-0 flex-col items-center overflow-hidden py-2 transition-[width,opacity,transform] duration-200">
         {confirmDialog}
-        <button className="no-drag flex h-9 w-9 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onToggle} title="Expand sidebar">
+        <button className="no-drag flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onToggle} title="Expand sidebar">
           <PanelLeftOpen className="h-4 w-4" />
         </button>
         <div className="my-2 h-px w-8 bg-border" />
-        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onCreateThread(activeCourseId, activeTaskId)} title="New thread" disabled={!canCreateThread}>
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onCreateThread(activeCourseId, activeTaskId)} title="New thread" disabled={!canCreateThread}>
           <Plus className="h-4 w-4" />
         </button>
         <div className="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
@@ -104,8 +104,8 @@ export function WorkspaceSidebar({
             <button
               key={thread.id}
               className={cx(
-                "relative flex h-9 w-9 items-center justify-center rounded-lg border text-[11px] font-semibold",
-                thread.id === activeThreadId ? "border-border bg-muted text-foreground" : "border-transparent bg-secondary/70 text-muted-foreground hover:bg-accent hover:text-foreground",
+                "relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-[11px] font-semibold transition active:scale-[0.98]",
+                thread.id === activeThreadId ? "bg-muted text-foreground ring-1 ring-black/[0.05]" : "bg-secondary/70 text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
               title={thread.title}
               onClick={() => onSelectThread(thread)}
@@ -127,13 +127,13 @@ export function WorkspaceSidebar({
           onRename={(thread) => setRenamingThreadId(thread.id)}
         />
         <div className="my-2 h-px w-8 bg-border" />
-        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpenTimetable} title="Timetable">
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenTimetable} title="Timetable">
           <CalendarDays className="h-4 w-4" />
         </button>
-        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpenCourses} title="Courses">
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenCourses} title="Courses">
           <GraduationCap className="h-4 w-4" />
         </button>
-        <button className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpenSettings} title="Settings">
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenSettings} title="Settings">
           <Settings className="h-4 w-4" />
         </button>
       </aside>
@@ -144,7 +144,7 @@ export function WorkspaceSidebar({
     <aside
       data-workspace-sidebar
       className={cx(
-        "group/sidebar relative flex shrink-0 flex-col overflow-hidden rounded-lg border bg-card/90 shadow-sm ring-1 ring-border/60 will-change-[width] transition-[width,opacity,transform] duration-200",
+        "brevyn-panel-surface group/sidebar relative flex shrink-0 flex-col overflow-hidden will-change-[width] transition-[width,opacity,transform] duration-200",
         resizing && "select-none ring-2 ring-ring/20 transition-none",
       )}
       style={{ width }}
@@ -158,15 +158,15 @@ export function WorkspaceSidebar({
       >
         <span className={cx("absolute right-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100", resizing && "opacity-100")} />
       </button>
-      <div className="drag-region flex items-center gap-2 border-b bg-card/70 px-3 py-3">
+      <div className="drag-region flex items-center gap-2 bg-card/70 px-3 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.45)]">
         <button
           type="button"
-          className="no-drag group/profile flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-border/60 bg-background/70 px-2.5 py-2 text-left shadow-sm transition-colors duration-150 hover:border-border hover:bg-accent/45"
+          className="no-drag group/profile flex min-w-0 flex-1 items-center gap-2.5 rounded-[var(--radius-card)] bg-background/70 px-2.5 py-2 text-left shadow-sm ring-1 ring-black/[0.04] transition-colors duration-150 hover:bg-accent/45 active:scale-[0.99]"
           onClick={onOpenSettings}
           title="打开账号设置"
         >
           <span className="relative shrink-0">
-            <UserAvatar profile={profile} size="sm" className="rounded-lg shadow-none transition-transform duration-150 group-hover/profile:scale-[1.03]" />
+            <UserAvatar profile={profile} size="sm" className="rounded-[var(--radius-avatar)] shadow-none transition-transform duration-150 group-hover/profile:scale-[1.03]" />
             <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-[hsl(var(--status-success))]" aria-hidden="true" />
           </span>
           <div className="min-w-0">
@@ -174,18 +174,18 @@ export function WorkspaceSidebar({
             <div className="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/80">Workspace</div>
           </div>
         </button>
-        <button className="no-drag shrink-0 rounded-lg border border-border/60 bg-background/70 p-1.5 text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground" onClick={onToggle} title="Collapse sidebar">
+        <button className="no-drag shrink-0 rounded-[var(--radius-control)] bg-background/70 p-1.5 text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onToggle} title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2.5 brevyn-scrollbar">
         {homeCourse && (
-          <div className="mb-3 rounded-lg border bg-background/70 p-1.5">
+          <div className="brevyn-card-surface mb-3 p-1.5">
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                 title={homeOpen ? "Collapse Home" : "Expand Home"}
                 onClick={() => setHomeOpen((value) => !value)}
               >
@@ -193,12 +193,12 @@ export function WorkspaceSidebar({
               </button>
               <button
                 className={cx(
-                  "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors",
-                  homeCourse.id === activeCourseId ? "bg-muted text-foreground ring-1 ring-border/70" : "text-foreground hover:bg-accent/70",
+                  "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-xs transition-colors active:scale-[0.99]",
+                  homeCourse.id === activeCourseId ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
                 )}
                 onClick={() => onSelectHome(homeCourse.id)}
               >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-foreground text-background">
                   <Home className="h-3.5 w-3.5" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -208,7 +208,7 @@ export function WorkspaceSidebar({
               </button>
               <button
                 type="button"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                 title="New Home TaskAgent session"
                 onClick={() => onCreateThread(homeCourse.id)}
               >
@@ -216,7 +216,7 @@ export function WorkspaceSidebar({
               </button>
             </div>
             {homeOpen && (
-              <div className="ml-9 mt-1 space-y-0.5 border-l border-border/40 pl-2">
+              <div className="ml-9 mt-1 space-y-0.5 rounded-[var(--radius-control)] bg-background/35 p-1">
                 {threads
                   .filter((thread) => thread.courseId === homeCourse.id)
                   .map((thread) => (
@@ -252,7 +252,7 @@ export function WorkspaceSidebar({
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                   title={courseOpen ? `Collapse ${course.name}` : `Expand ${course.name}`}
                   onClick={toggleCourseOpen}
                 >
@@ -260,15 +260,15 @@ export function WorkspaceSidebar({
                 </button>
                 <button
                   className={cx(
-                    "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors",
-                    course.id === activeCourseId && !activeTaskId ? "bg-muted text-foreground ring-1 ring-border/70" : "text-foreground hover:bg-accent/70",
+                    "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-xs transition-colors active:scale-[0.99]",
+                    course.id === activeCourseId && !activeTaskId ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
                   )}
                   onClick={() => {
                     onSelectHome(course.id);
                     toggleCourseOpen();
                   }}
                 >
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ color: course.color, backgroundColor: `${course.color}1f`, boxShadow: `inset 0 0 0 1px ${course.color}33` }}>
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-badge)]" style={{ color: course.color, backgroundColor: `${course.color}1f`, boxShadow: `inset 0 0 0 1px ${course.color}33` }}>
                     <CourseIcon course={course} className="h-3.5 w-3.5" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -281,7 +281,7 @@ export function WorkspaceSidebar({
               </div>
 
               {courseOpen && (
-                <div className="ml-4 mt-1 space-y-1 border-l border-border/60 pl-2">
+                <div className="ml-8 mt-1 space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
                   {courseTasks.map((task) => {
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
                     const taskThreads = threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id);
@@ -290,7 +290,7 @@ export function WorkspaceSidebar({
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                             title={taskOpen ? `Collapse ${task.title}` : `Expand ${task.title}`}
                             onClick={() => setOpenTasks((current) => ({ ...current, [task.id]: !taskOpen }))}
                           >
@@ -298,8 +298,8 @@ export function WorkspaceSidebar({
                           </button>
                           <button
                             className={cx(
-                              "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px]",
-                              task.id === activeTaskId ? "bg-muted/80 text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                              "flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[11px] transition active:scale-[0.99]",
+                              task.id === activeTaskId ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                             onClick={() => onSelectTask(course.id, task.id)}
                           >
@@ -309,7 +309,7 @@ export function WorkspaceSidebar({
                           </button>
                           <button
                             type="button"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                             title="New task session"
                             onClick={() => onCreateThread(course.id, task.id)}
                           >
@@ -317,7 +317,7 @@ export function WorkspaceSidebar({
                           </button>
                           <button
                             type="button"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition group-hover/task:opacity-100 hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground opacity-0 transition group-hover/task:opacity-100 hover:bg-accent hover:text-foreground active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
                             title="归档任务"
                             disabled={archivingTaskId === task.id}
                             onClick={() => void archiveTaskFromSidebar(task)}
@@ -326,7 +326,7 @@ export function WorkspaceSidebar({
                           </button>
                         </div>
                         {taskOpen && taskThreads.length > 0 && (
-                          <div className="ml-4 mt-1 space-y-0.5 border-l border-border/40 pl-2">
+                          <div className="ml-7 mt-1 space-y-0.5 rounded-[var(--radius-badge)] bg-card/45 p-1">
                             {taskThreads.map((thread) => (
                               <ThreadButton
                                 key={thread.id}
@@ -357,7 +357,7 @@ export function WorkspaceSidebar({
         })}
       </div>
 
-      <div className="border-t px-3 pb-3 pt-2">
+      <div className="px-3 pb-3 pt-2 shadow-[inset_0_1px_0_hsl(var(--border)/0.45)]">
         <div className="flex items-center justify-around gap-2">
           <SidebarFooterIconButton icon={<CalendarDays className="h-4 w-4" />} title="Timetable" onClick={onOpenTimetable} />
           <SidebarFooterIconButton icon={<GraduationCap className="h-4 w-4" />} title="Courses" onClick={onOpenCourses} />
@@ -382,14 +382,14 @@ function compareThreadsByUpdatedAtDesc(a: Thread, b: Thread): number {
 }
 
 function SessionCount({ count }: { count: number }) {
-  return <span className="shrink-0 rounded bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
+  return <span className="shrink-0 rounded-[var(--radius-badge)] bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
 }
 
 function SidebarFooterIconButton({ icon, title, onClick }: { icon: ReactNode; title: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98]"
       title={title}
       aria-label={title}
       onClick={onClick}
@@ -450,7 +450,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
 
   return (
     <div
-      className={cx("group flex w-full min-w-0 items-center rounded-md text-[11px]", active ? "bg-muted text-foreground ring-1 ring-border/70" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+      className={cx("group flex w-full min-w-0 items-center rounded-[var(--radius-control)] text-[11px] transition", active ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
       title={thread.title}
       onContextMenu={onContextMenu}
     >
@@ -459,7 +459,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
           ref={inputRef}
           value={draft}
           maxLength={100}
-          className="mx-1 my-1 min-w-0 flex-1 rounded-md border border-border/70 bg-background/90 px-1.5 py-1 text-[11px] text-foreground outline-none ring-0 focus:border-primary/50 focus:bg-background"
+          className="mx-1 my-1 min-w-0 flex-1 rounded-[var(--radius-badge)] bg-background/90 px-1.5 py-1 text-[11px] text-foreground outline-none ring-1 ring-black/[0.05] focus:bg-background focus:ring-primary/30"
           onChange={(event) => setDraft(event.target.value)}
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
@@ -490,7 +490,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
       {!editing && (
         <button
           type="button"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
           title="Rename session"
           onClick={(event) => {
             event.stopPropagation();
@@ -503,7 +503,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
       {canArchive && (
         <button
           type="button"
-          className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
+          className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground focus:opacity-100 group-hover:opacity-70"
           title="Archive session"
           onClick={(event) => {
             event.stopPropagation();
@@ -579,7 +579,7 @@ function ThreadContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[80] w-44 overflow-hidden rounded-xl border border-border/70 bg-card/95 p-1.5 text-xs shadow-xl ring-1 ring-border/60 backdrop-blur-xl"
+      className="fixed z-[80] w-44 overflow-hidden rounded-[var(--radius-panel)] bg-card/95 p-1.5 text-xs shadow-xl ring-1 ring-black/[0.06] backdrop-blur-xl"
       style={{ left: position.left, top: position.top }}
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
@@ -592,7 +592,7 @@ function ThreadContextMenu({
       </div>
       <button
         type="button"
-        className="mt-1 flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-muted-foreground transition hover:bg-accent hover:text-foreground"
+        className="mt-1 flex h-8 w-full items-center gap-2 rounded-[var(--radius-control)] px-2 text-left text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
         onClick={() => {
           onRename(state.thread);
           onClose();

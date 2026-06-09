@@ -152,8 +152,8 @@ export function SemesterManagementDialog({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm">
       {confirmDialog}
-      <div className="flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80">
-        <div className="drag-region flex items-center justify-between border-b bg-muted/25 px-4 py-3">
+      <div className="brevyn-window-surface flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden">
+        <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <CalendarDays className="h-4 w-4" />
@@ -163,7 +163,7 @@ export function SemesterManagementDialog({
           </div>
           <button
             type="button"
-            className="no-drag flex h-8 w-8 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="no-drag flex h-8 w-8 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.06] transition hover:bg-background hover:text-foreground active:scale-[0.98]"
             onClick={onClose}
             title="关闭学期管理"
           >
@@ -200,7 +200,7 @@ export function SemesterManagementDialog({
           </section>
 
           <aside className="space-y-3">
-            <section className="rounded-lg border bg-background/70 p-3">
+            <section className="rounded-[var(--radius-card)] bg-background/70 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
                 <Plus className="h-3.5 w-3.5" />
                 新建学期
@@ -208,7 +208,7 @@ export function SemesterManagementDialog({
               <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
                 <span>学期名称</span>
                 <input
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                  className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                   value={term}
                   onChange={(event) => setTerm(event.target.value)}
                   placeholder="例如：2026 秋季学期"
@@ -217,16 +217,16 @@ export function SemesterManagementDialog({
               <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
                 <span>文件夹名称</span>
                 <input
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
+                  className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20"
                   value={folderName}
                   onChange={(event) => setFolderName(event.target.value)}
                   placeholder="可选，会自动处理非法字符"
                 />
               </label>
-              {error && <div className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
+              {error && <div className="mb-2 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
               <button
                 type="button"
-                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void createSemester()}
                 disabled={creating}
               >
@@ -235,10 +235,10 @@ export function SemesterManagementDialog({
               </button>
             </section>
 
-            <section className="rounded-lg border bg-background/70 p-3 text-[11px] leading-5 text-muted-foreground">
+            <section className="rounded-[var(--radius-card)] bg-background/70 p-3 text-[11px] leading-5 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <div className="mb-1 text-xs font-semibold text-foreground">安全规则</div>
               <p>只有归档后的学期才允许永久删除。归档学期不会单独归档其下课程，恢复学期后课程会保持原状态。</p>
-              <div className="mt-2 rounded-md bg-muted/55 px-2 py-2">共 {allSemesters.length} 个学期 · 已归档 {archivedSemesters.length} 个</div>
+              <div className="mt-2 rounded-[var(--radius-control)] bg-muted/55 px-2 py-2">共 {allSemesters.length} 个学期 · 已归档 {archivedSemesters.length} 个</div>
             </section>
           </aside>
         </div>
@@ -269,14 +269,14 @@ function SemesterGroup({
   onDelete: (semester: SemesterWorkspace) => void;
 }) {
   return (
-    <section className="rounded-lg border bg-background/70 p-3">
+    <section className="rounded-[var(--radius-card)] bg-background/70 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-xs font-semibold">{title}</div>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{semesters.length}</span>
+        <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{semesters.length}</span>
       </div>
 
       {semesters.length === 0 ? (
-        <div className="rounded-md border border-dashed bg-card px-3 py-5 text-center text-xs text-muted-foreground">{emptyLabel}</div>
+        <div className="rounded-[var(--radius-control)] border border-dashed bg-card px-3 py-5 text-center text-xs text-muted-foreground">{emptyLabel}</div>
       ) : (
         <div className="space-y-2">
           {semesters.map((semester) => {
@@ -287,7 +287,7 @@ function SemesterGroup({
               <div
                 key={semester.id}
                 className={cx(
-                  "flex items-center gap-2 rounded-lg border px-3 py-3 transition",
+                  "flex items-center gap-2 rounded-[var(--radius-card)] border px-3 py-3 transition",
                   isArchived ? "bg-muted/45 text-muted-foreground" : "bg-card",
                   isCurrent ? "border-border shadow-sm ring-1 ring-border/60" : "border-border/60",
                 )}
@@ -295,8 +295,8 @@ function SemesterGroup({
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelect(semester)} disabled={isArchived || isBusy}>
                   <div className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate text-sm font-semibold">{semester.term}</span>
-                    {isCurrent && !isArchived && <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] uppercase text-emerald-700">当前</span>}
-                    {isArchived && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase">已归档</span>}
+                    {isCurrent && !isArchived && <span className="shrink-0 rounded-[var(--radius-badge)] bg-emerald-50 px-1.5 py-0.5 text-[9px] uppercase text-emerald-700">当前</span>}
+                    {isArchived && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px] uppercase">已归档</span>}
                   </div>
                   <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                     {semester.semesterNo} · {semester.folderName}
@@ -304,15 +304,15 @@ function SemesterGroup({
                 </button>
                 <div className="flex shrink-0 items-center gap-1">
                   {isArchived ? (
-                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复学期" disabled={isBusy} onClick={() => onRestore(semester)}>
+                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复学期" disabled={isBusy} onClick={() => onRestore(semester)}>
                       {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                     </button>
                   ) : (
-                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" title="归档学期" disabled={isBusy} onClick={() => onArchive(semester)}>
+                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground" title="归档学期" disabled={isBusy} onClick={() => onArchive(semester)}>
                       {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
                     </button>
                   )}
-                  <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:bg-red-50 hover:text-red-700" title={isArchived ? "永久删除" : "请先归档再删除"} disabled={isBusy} onClick={() => onDelete(semester)}>
+                  <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-red-50 hover:text-red-700" title={isArchived ? "永久删除" : "请先归档再删除"} disabled={isBusy} onClick={() => onDelete(semester)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                   {isCurrent && !isArchived && <Check className="h-4 w-4 shrink-0 text-emerald-600" />}

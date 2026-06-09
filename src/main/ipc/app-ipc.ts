@@ -4,17 +4,6 @@ import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 import { requireString } from "./validation";
 
-const USER_PROFILE_AVATAR_IDS = new Set([
-  "prism",
-  "spark",
-  "book",
-  "compass",
-  "landmark",
-  "moon",
-  "gem",
-  "scale",
-]);
-
 export function registerAppIpc(ctx: IpcContext): void {
   const service = ctx.openWithService;
   if (!service) throw new Error("OpenWithService not available");
@@ -25,7 +14,7 @@ export function registerAppIpc(ctx: IpcContext): void {
     const data = input && typeof input === "object" ? input as Record<string, unknown> : {};
     const displayName = typeof data.displayName === "string" ? data.displayName.trim().slice(0, 40) : undefined;
     const avatarId = typeof data.avatarId === "string" ? data.avatarId.trim() : undefined;
-    if (avatarId && !USER_PROFILE_AVATAR_IDS.has(avatarId)) {
+    if (avatarId && !isValidProfileAvatar(avatarId)) {
       throw new Error("头像不可用。");
     }
     if (displayName !== undefined && displayName.length === 0) {
@@ -97,6 +86,12 @@ export function registerAppIpc(ctx: IpcContext): void {
     const requestedPath = requireString(data.path, "Path");
     return ctx.store.previewThreadWorkspacePath(threadId, requestedPath);
   });
+}
+
+function isValidProfileAvatar(value: string): boolean {
+  if (value.length === 0 || value.length > 2_000_000) return false;
+  if (value.startsWith("data:image/")) return /^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(value);
+  return value.length <= 24;
 }
 
 function requireExistingPath(value: unknown): string {

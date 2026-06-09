@@ -1,67 +1,24 @@
-import { CalendarDays, ChevronRight, Eye, EyeOff, PanelRightClose, PanelRightOpen } from "lucide-react";
-import type { Course, SemesterWorkspace, Thread, BrevynTask } from "@/types/domain";
+import { CalendarDays } from "lucide-react";
+import type { SemesterWorkspace } from "@/types/domain";
 
 export function AppTitleBar({
-  course,
-  task,
-  thread,
   semester,
-  fileRailCollapsed,
-  previewRailCollapsed,
-  onToggleFileRail,
-  onTogglePreviewRail,
 }: {
-  course?: Course;
-  task?: BrevynTask;
-  thread?: Thread;
   semester?: SemesterWorkspace | null;
-  fileRailCollapsed: boolean;
-  previewRailCollapsed: boolean;
-  onToggleFileRail: () => void;
-  onTogglePreviewRail: () => void;
 }) {
-  const threadLabel = thread?.title || "No active session";
   return (
-    <header className="drag-region flex h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-card/70 px-2 text-foreground backdrop-blur">
-      <div className="w-[76px] shrink-0" />
+    <header className="drag-region flex h-12 shrink-0 items-center border-b border-border/60 bg-card px-3 text-foreground">
+      <div className="w-20 shrink-0" />
 
       {semester && (
-        <div className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background/65 px-2 text-[11px] font-medium text-muted-foreground sm:flex">
-          <CalendarDays className="h-3.5 w-3.5" />
-          <span className="max-w-[128px] truncate text-foreground">{semester.term}</span>
+        <div
+          className="no-drag hidden h-8 shrink-0 cursor-default items-center gap-2 rounded-[var(--radius-control)] bg-background px-3 text-[13px] font-semibold text-foreground shadow-sm ring-1 ring-black/[0.06] sm:flex"
+          title="当前学期"
+        >
+          <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <span className="max-w-[128px] truncate">{semester.term}</span>
         </div>
       )}
-
-      <div className="min-w-0 flex flex-1 items-center gap-2">
-        <div className="min-w-0 truncate text-sm font-semibold">{course?.name || "Brevyn"}</div>
-        {task && (
-          <>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 truncate text-sm text-muted-foreground">{task.title}</div>
-          </>
-        )}
-        <span className="hidden text-muted-foreground/50 md:inline">·</span>
-        <div className="hidden min-w-0 truncate text-xs text-muted-foreground md:block">{threadLabel}</div>
-      </div>
-
-      <div className="no-drag flex items-center gap-1">
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-          onClick={onTogglePreviewRail}
-          title={previewRailCollapsed ? "Show preview" : "Hide preview"}
-        >
-          {previewRailCollapsed ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-          onClick={onToggleFileRail}
-          title={fileRailCollapsed ? "Show file browser" : "Hide file browser"}
-        >
-          {fileRailCollapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
-        </button>
-      </div>
     </header>
   );
 }
