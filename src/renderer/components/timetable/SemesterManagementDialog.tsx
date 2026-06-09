@@ -150,9 +150,14 @@ export function SemesterManagementDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       {confirmDialog}
-      <div className="brevyn-window-surface flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden">
+      <div className="brevyn-window-surface brevyn-dialog-window flex flex-col overflow-hidden">
         <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">

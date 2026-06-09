@@ -79,7 +79,8 @@ export function useAgentTimelineState({
   const [compactInFlightAfterCount, setCompactInFlightAfterCount] = useState<number | null>(null);
   const [scrollTransitioningCooldown, setScrollTransitioningCooldown] = useState(false);
   const wasRunningRef = useRef(false);
-  const stableGroupsRef = useRef<{ threadId: string; groups: AgentTimelineViewGroup[] } | null>(null);
+  const stableHistoryGroupsRef = useRef<{ threadId: string; groups: AgentTimelineViewGroup[] } | null>(null);
+  const stableLiveTailGroupsRef = useRef<{ threadId: string; groups: AgentTimelineViewGroup[] } | null>(null);
 
   const activeProviderSelection = useMemo(() => parseProviderModelSelection(activeProviderId), [activeProviderId]);
   const activeProvider = useMemo(
@@ -90,13 +91,14 @@ export function useAgentTimelineState({
   const compactInFlight = compactInFlightAfterCount !== null;
   const {
     effectiveRunning,
+    historyRecords,
+    liveTailRecords,
     liveRunning,
     timelineRecords,
-  } = useAgentTimelineRecords({ threadId: thread.id, records, running, compactInFlight });
+  } = useAgentTimelineRecords({ threadId: thread.id, records, running });
   const scrollWasRunningRef = useRef(effectiveRunning);
   const needsInstantResize = !running && liveRunning;
   const scrollTransitioning = needsInstantResize || scrollTransitioningCooldown;
-  const forceProcessOpen = effectiveRunning && !hasRenderableAssistantContent(timelineRecords);
   const runSummary = useMemo(() => latestRunSummary(timelineRecords, Date.now(), effectiveRunning), [effectiveRunning, timelineRecords]);
   const todos = useMemo(() => latestTodoList(timelineRecords), [timelineRecords]);
   const contextUsage = useMemo(
@@ -106,28 +108,56 @@ export function useAgentTimelineState({
   const compacting = useMemo(() => isCompactingContext(records), [records]);
   const effectiveCompacting = compacting || compactInFlight;
   const autoCompactThreshold = autoCompactThresholdPercent(activeProvider);
-  const builtTimelineGroups = useMemo(
-    () => buildTimelineGroupsForRecords(timelineRecords, {
-      effectiveRunning,
-      forceProcessOpen,
+  const historyRunSummary = useMemo(
+    () => latestRunSummary(historyRecords, Date.now(), false),
+    [historyRecords],
+  );
+  const liveTailEffectiveRunning = effectiveRunning && liveTailRecords.length > 0;
+  const liveTailRunSummary = useMemo(
+    () => liveTailRecords.length > 0
+      ? latestRunSummary(liveTailRecords, Date.now(), liveTailEffectiveRunning) ?? runSummary
+      : null,
+    [liveTailEffectiveRunning, liveTailRecords, runSummary],
+  );
+  const liveTailForceProcessOpen = liveTailEffectiveRunning && !hasRenderableAssistantContent(liveTailRecords);
+  const builtHistoryGroups = useMemo(
+    () => buildTimelineGroupsForRecords(historyRecords, {
+      effectiveRunning: false,
+      forceProcessOpen: false,
       processCollapsedByKey,
-      runSummary,
+      runSummary: historyRunSummary,
     }),
-    [effectiveRunning, forceProcessOpen, processCollapsedByKey, runSummary, timelineRecords],
+    [historyRecords, historyRunSummary, processCollapsedByKey],
+  );
+  const builtLiveTailGroups = useMemo(
+    () => buildTimelineGroupsForRecords(liveTailRecords, {
+      effectiveRunning: liveTailEffectiveRunning,
+      forceProcessOpen: liveTailForceProcessOpen,
+      processCollapsedByKey,
+      runSummary: liveTailRunSummary,
+    }),
+    [liveTailEffectiveRunning, liveTailForceProcessOpen, liveTailRecords, liveTailRunSummary, processCollapsedByKey],
   );
   const timelineGroups = useMemo(() => {
-    const previous = stableGroupsRef.current?.threadId === thread.id
-      ? stableGroupsRef.current.groups
+    const previousHistory = stableHistoryGroupsRef.current?.threadId === thread.id
+      ? stableHistoryGroupsRef.current.groups
       : [];
-    const stabilized = stabilizeTimelineViewGroups(previous, builtTimelineGroups);
-    stableGroupsRef.current = { threadId: thread.id, groups: stabilized };
-    return stabilized;
-  }, [builtTimelineGroups, thread.id]);
+    const previousLiveTail = stableLiveTailGroupsRef.current?.threadId === thread.id
+      ? stableLiveTailGroupsRef.current.groups
+      : [];
+    const historyGroups = stabilizeTimelineViewGroups(previousHistory, builtHistoryGroups);
+    const liveTailGroups = stabilizeTimelineViewGroups(previousLiveTail, builtLiveTailGroups);
+    stableHistoryGroupsRef.current = { threadId: thread.id, groups: historyGroups };
+    stableLiveTailGroupsRef.current = { threadId: thread.id, groups: liveTailGroups };
+    return appendLiveTailGroups(historyGroups, liveTailGroups);
+  }, [builtHistoryGroups, builtLiveTailGroups, thread.id]);
 
   useEffect(() => {
     setProcessCollapsedByKey({});
     setScrollTransitioningCooldown(false);
     scrollWasRunningRef.current = false;
+    stableHistoryGroupsRef.current = null;
+    stableLiveTailGroupsRef.current = null;
   }, [thread.id]);
 
   useEffect(() => {
@@ -193,6 +223,25 @@ export function useAgentTimelineState({
     toggleProcessCollapsed,
     handleCompact,
   };
+}
+
+function appendLiveTailGroups(
+  historyGroups: AgentTimelineViewGroup[],
+  liveTailGroups: AgentTimelineViewGroup[],
+): AgentTimelineViewGroup[] {
+  if (liveTailGroups.length === 0) return historyGroups;
+  const historyKeys = new Set(historyGroups.map((group) => group.key));
+  const filteredLiveTailGroups = liveTailGroups.filter((group) => (
+    !historyKeys.has(group.key) || isRunningTimelineGroup(group)
+  ));
+  return filteredLiveTailGroups.length > 0 ? [...historyGroups, ...filteredLiveTailGroups] : historyGroups;
+}
+
+function isRunningTimelineGroup(group: AgentTimelineViewGroup): boolean {
+  if (group.type === "assistant-turn") {
+    return Boolean(group.processItem?.processSummary?.running || group.items.some((item) => item.processSummary?.running));
+  }
+  return Boolean(group.item.processSummary?.running);
 }
 
 function buildTimelineGroupsForRecords(

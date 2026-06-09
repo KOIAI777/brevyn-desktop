@@ -349,10 +349,20 @@ export function singleLine(value: string): string {
 export function normalizeTimelineRecords(
   records: BrevynAgentTimelineRecord[],
   liveRecords: BrevynAgentTimelineRecord[],
-  _running: boolean,
-  _compactInFlight = false,
 ): AgentTimelineRecord[] {
-  const normalized: AgentTimelineRecord[] = [];
+  return splitTimelineRecords(records, liveRecords).timelineRecords;
+}
+
+export interface SplitTimelineRecords {
+  historyRecords: AgentTimelineRecord[];
+  liveTailRecords: AgentTimelineRecord[];
+  timelineRecords: AgentTimelineRecord[];
+}
+
+export function splitTimelineRecords(
+  records: BrevynAgentTimelineRecord[],
+  liveRecords: BrevynAgentTimelineRecord[],
+): SplitTimelineRecords {
   const usedLiveIdentities = new Set<string>();
   const liveRecordsByIdentity = new Map<string, BrevynAgentTimelineRecord>();
   for (const record of liveRecords) {
@@ -360,24 +370,49 @@ export function normalizeTimelineRecords(
     if (identity && !liveRecordsByIdentity.has(identity)) liveRecordsByIdentity.set(identity, record);
   }
 
-  const sourceRecords: BrevynAgentTimelineRecord[] = [];
+  const historyRecords: BrevynAgentTimelineRecord[] = [];
   for (const record of records) {
     const identity = timelineRecordIdentity(record);
     const liveRecord = identity ? liveRecordsByIdentity.get(identity) : undefined;
     if (identity && liveRecord) {
-      sourceRecords.push(liveRecord);
+      historyRecords.push(liveRecord);
       usedLiveIdentities.add(identity);
       continue;
     }
-    sourceRecords.push(record);
+    historyRecords.push(record);
   }
+  const settledHistoryRunIds = settledRunIdsForRecords(historyRecords);
 
+  const liveTailRecords: BrevynAgentTimelineRecord[] = [];
   for (const record of liveRecords) {
     const identity = timelineRecordIdentity(record);
     if (identity && usedLiveIdentities.has(identity)) continue;
-    appendLiveRecordInTurnOrder(sourceRecords, record);
+    if (isSettledLiveTailRecord(record, settledHistoryRunIds)) continue;
+    liveTailRecords.push(record);
     if (identity) usedLiveIdentities.add(identity);
   }
+
+  const normalizedHistoryRecords = normalizeTimelineSourceRecords(historyRecords);
+  const normalizedLiveTailRecords = normalizeTimelineSourceRecords(liveTailRecords);
+
+  return {
+    historyRecords: normalizedHistoryRecords,
+    liveTailRecords: normalizedLiveTailRecords,
+    timelineRecords: appendLiveTailRecords(normalizedHistoryRecords, normalizedLiveTailRecords),
+  };
+}
+
+function appendLiveTailRecords(
+  historyRecords: AgentTimelineRecord[],
+  liveTailRecords: AgentTimelineRecord[],
+): AgentTimelineRecord[] {
+  if (liveTailRecords.length === 0) return historyRecords;
+  if (historyRecords.length === 0) return liveTailRecords;
+  return [...historyRecords, ...liveTailRecords];
+}
+
+function normalizeTimelineSourceRecords(sourceRecords: BrevynAgentTimelineRecord[]): AgentTimelineRecord[] {
+  const normalized: AgentTimelineRecord[] = [];
   const seenRecords = new Set<string>();
 
   for (const record of sourceRecords) {
@@ -394,44 +429,54 @@ export function normalizeTimelineRecords(
   return normalized;
 }
 
-function appendLiveRecordInTurnOrder(records: BrevynAgentTimelineRecord[], record: BrevynAgentTimelineRecord): void {
-  if (isTerminalTimelineRecord(record)) {
-    records.push(record);
-    return;
+function settledRunIdsForRecords(records: BrevynAgentTimelineRecord[]): Set<string> {
+  const settledRunIds = new Set<string>();
+  let currentRunId = "";
+
+  for (const record of records) {
+    if (isRuntimeRecord(record)) {
+      const event = record.event;
+      if (event.type === "run_started") {
+        currentRunId = event.runId;
+        continue;
+      }
+      if (isTerminalRunEventType(event.type) && "runId" in event) {
+        settledRunIds.add(event.runId);
+        if (currentRunId === event.runId) currentRunId = "";
+      }
+      continue;
+    }
+
+    const message = record as SDKMessage;
+    if (message.type === "user" && isUserInputMessage(message)) {
+      currentRunId = "";
+      continue;
+    }
+    if (message.type === "result" && currentRunId) settledRunIds.add(currentRunId);
   }
-  if (isRunBoundaryRecord(record)) {
-    records.push(record);
-    return;
-  }
-  const insertIndex = firstTrailingTerminalRecordIndex(records);
-  if (insertIndex < 0) {
-    records.push(record);
-    return;
-  }
-  records.splice(insertIndex, 0, record);
+
+  return settledRunIds;
 }
 
-function isRunBoundaryRecord(record: BrevynAgentTimelineRecord): boolean {
-  if (isRuntimeRecord(record)) return record.event.type === "run_started";
-  const message = record as SDKMessage;
-  return message.type === "user" && !toolResultBlocks(message).length && userText(message).trim().length > 0;
+function isSettledLiveTailRecord(record: BrevynAgentTimelineRecord, settledRunIds: Set<string>): boolean {
+  const runId = liveRecordRunId(record);
+  if (!runId || !settledRunIds.has(runId)) return false;
+  if (isStreamEventRecord(record)) return true;
+  return isRuntimeRecord(record) && isTerminalRunEventType(record.event.type);
 }
 
-function firstTrailingTerminalRecordIndex(records: BrevynAgentTimelineRecord[]): number {
-  let index = records.length - 1;
-  while (index >= 0 && isTerminalTimelineRecord(records[index])) index -= 1;
-  return index === records.length - 1 ? -1 : index + 1;
+function liveRecordRunId(record: BrevynAgentTimelineRecord): string {
+  if (isRuntimeRecord(record) && "runId" in record.event) return record.event.runId;
+  if (!isStreamEventRecord(record)) return "";
+  const uuid = (record as { uuid?: unknown }).uuid;
+  if (typeof uuid !== "string") return "";
+  const prefix = "live-stream:";
+  if (!uuid.startsWith(prefix)) return "";
+  return uuid.slice(prefix.length).split(":")[0] || "";
 }
 
-function isTerminalTimelineRecord(record: BrevynAgentTimelineRecord | undefined): boolean {
-  if (!record) return false;
-  if (isRuntimeRecord(record)) {
-    return record.event.type === "run_completed"
-      || record.event.type === "run_stopped"
-      || record.event.type === "run_failed"
-      || record.event.type === "run_interrupted";
-  }
-  return (record as SDKMessage).type === "result";
+function isTerminalRunEventType(type: string): boolean {
+  return type === "run_completed" || type === "run_stopped" || type === "run_failed" || type === "run_interrupted";
 }
 
 export function recordKey(record: AgentTimelineRecord, _index?: number): string {

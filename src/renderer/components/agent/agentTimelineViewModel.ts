@@ -560,12 +560,13 @@ function assistantTurnViewItems(
     if (
       slot.assistantStreaming === true
       && (slot.displayKind === "assistant-final" || slot.displayKind === "thinking")
-      && slot.processSummary?.status === "stopped"
+      && slot.processSummary?.status
+      && slot.processSummary.status !== "running"
     ) {
       slots.set(key, {
         ...slot,
         assistantStreaming: false,
-        stoppedByUser: slot.displayKind === "assistant-final",
+        stoppedByUser: slot.processSummary.status === "stopped" && slot.displayKind === "assistant-final",
       });
       continue;
     }

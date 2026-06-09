@@ -162,6 +162,10 @@ function App() {
     <div className="brevyn-app-background flex h-full min-h-0 flex-col text-foreground">
       <AppTitleBar
         semester={workspace.semester}
+        fileRailCollapsed={layoutState.fileRailCollapsed}
+        previewRailCollapsed={layoutState.previewRailCollapsed}
+        onToggleFileRail={() => layoutState.setFileRailCollapsed((value) => !value)}
+        onTogglePreviewRail={() => layoutState.setPreviewRailCollapsed((value) => !value)}
       />
 
       <div className="flex min-h-0 flex-1 gap-2 p-2">

@@ -485,7 +485,12 @@ export function CourseManagementDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       {confirmDialog}
       {indexingNotice && (
         <div className="pointer-events-auto absolute left-1/2 top-5 z-[60] w-[min(620px,calc(100vw-40px))] -translate-x-1/2 rounded-[var(--radius-panel)] border border-red-200 bg-red-50/95 px-4 py-3 text-red-800 shadow-[0_18px_54px_rgba(127,29,29,0.18)] ring-1 ring-white/60 backdrop-blur-xl">
@@ -506,7 +511,7 @@ export function CourseManagementDialog({
           </div>
         </div>
       )}
-      <div className="brevyn-window-surface flex h-[82vh] w-[min(1180px,calc(100vw-48px))] flex-col overflow-hidden">
+      <div className="brevyn-window-surface brevyn-dialog-window flex flex-col overflow-hidden">
         <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">

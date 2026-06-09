@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BrevynAgentRuntimeEvent, ModelProviderConfig } from "@/types/domain";
-import { approvalResolutionMap, assistantText, groupIntoTurns, isRuntimeRecord, latestTurnBounds, normalizeTimelineRecords, recordKey, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
+import { approvalResolutionMap, assistantText, groupIntoTurns, isRuntimeRecord, latestTurnBounds, normalizeTimelineRecords, recordKey, splitTimelineRecords, streamTextDelta, timelineRecordIdentity, type AgentTimelineRecord } from "./agentTimelineModel";
 import { defaultContextUsage, latestContextUsage, shouldAutoCompactContext } from "./agentTimelineContextUsage";
 import { inferContextWindowTokens, withInferredContextWindow } from "../../../shared/model-context-window";
 import { buildTimelineViewGroups, buildTimelineViewItems, stabilizeTimelineViewGroups, type AgentTimelineViewGroup, type AgentTimelineViewItem } from "./useAgentTimelineState";
@@ -202,6 +202,13 @@ function streamEvent(delta: unknown, uuid: string, index?: number): SDKMessage {
     session_id: "session_fixture",
     uuid,
     _createdAt: 3,
+  } as unknown as SDKMessage;
+}
+
+function streamEventAt(delta: unknown, uuid: string, createdAt: number, index?: number): SDKMessage {
+  return {
+    ...streamEvent(delta, uuid, index),
+    _createdAt: createdAt,
   } as unknown as SDKMessage;
 }
 
@@ -470,7 +477,6 @@ const liveMergeRecords = normalizeTimelineRecords(
     streamEvent({ type: "text_delta", text: "world" }, "stream_2"),
     assistant([{ type: "text", text: "Hello world" }], "assistant_stream_final"),
   ],
-  true,
 );
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "user").length, 1);
 assert.equal(liveMergeRecords.filter((record) => (record as SDKMessage).type === "assistant").length, 1);
@@ -481,7 +487,6 @@ const liveAssistantReplacement = assistant([{ type: "text", text: "Live answer r
 const liveReplacementRecords = normalizeTimelineRecords(
   [userText("Replace assistant.", "user_replace_live"), persistedAssistantToReplace],
   [liveAssistantReplacement],
-  true,
 );
 assert.equal(liveReplacementRecords[1], liveAssistantReplacement);
 assert.equal(assistantText(liveReplacementRecords[1] as SDKMessage), "Live answer replacement.");
@@ -497,7 +502,6 @@ const nextRunAfterTerminalRecords = normalizeTimelineRecords(
     userText("Next turn.", "user_next_live"),
     runStarted("deepseek-v4-pro", "run_next_live"),
   ],
-  true,
 );
 assert.deepEqual(
   nextRunAfterTerminalRecords.map((record) => isRuntimeRecord(record) ? record.event.type : (record as SDKMessage).uuid),
@@ -510,6 +514,60 @@ assert.deepEqual(
     "run_started",
   ],
 );
+const liveStreamAfterTerminalRecords = normalizeTimelineRecords(
+  [
+    userText("Previous terminal turn.", "user_previous_terminal_stream"),
+    assistant([{ type: "text", text: "Previous terminal answer." }], "assistant_previous_terminal_stream"),
+    result("result_previous_terminal_stream"),
+    runCompleted("run_previous_terminal_stream"),
+  ],
+  [
+    streamEventAt({ type: "text_delta", text: "Next live answer." }, "stream_after_terminal", Date.parse("2026-05-16T00:00:03.000Z")),
+  ],
+);
+assert.deepEqual(
+  liveStreamAfterTerminalRecords.map((record) => isRuntimeRecord(record) ? record.event.type : (record as SDKMessage).uuid),
+  [
+    "user_previous_terminal_stream",
+    "assistant_previous_terminal_stream",
+    "result_previous_terminal_stream",
+    "run_completed",
+    "stream_after_terminal",
+  ],
+);
+const liveNextTurnStreamRecords = normalizeTimelineRecords(
+  [
+    userText("Old question.", "user_old_tail"),
+    assistant([{ type: "text", text: "Old answer." }], "assistant_old_tail"),
+    result("result_old_tail"),
+    runCompleted("run_old_tail"),
+  ],
+  [
+    userText("New question.", "user_new_tail"),
+    runStarted("deepseek-v4-pro", "run_new_tail"),
+    streamEventAt({ type: "text_delta", text: "New streamed answer." }, "stream_new_tail", Date.parse("2026-05-16T00:00:04.000Z")),
+  ],
+);
+assert.deepEqual(
+  liveNextTurnStreamRecords.map((record) => isRuntimeRecord(record) ? record.event.type : (record as SDKMessage).uuid),
+  [
+    "user_old_tail",
+    "assistant_old_tail",
+    "result_old_tail",
+    "run_completed",
+    "user_new_tail",
+    "run_started",
+    "stream_new_tail",
+  ],
+);
+const liveNextTurnGroups = buildTimelineViewGroups(liveNextTurnStreamRecords, liveNextTurnStreamRecords.map(viewItem), {
+  effectiveRunning: true,
+  runSummary: { runId: "run_new_tail", label: "Thinking", running: true, status: "running" },
+});
+const liveNextAssistantTurns = liveNextTurnGroups.filter((group): group is Extract<AgentTimelineViewGroup, { type: "assistant-turn" }> => group.type === "assistant-turn");
+assert.equal(liveNextAssistantTurns.length, 2);
+assert.equal(liveNextAssistantTurns[0]?.items.find((item) => item.displayKind === "assistant-final")?.assistantContent, "Old answer.");
+assert.equal(liveNextAssistantTurns[1]?.items.find((item) => item.displayKind === "assistant-final")?.assistantContent, "New streamed answer.");
 const nextRunSummary = { runId: "run_next_live", label: "Thinking", running: true, status: "running" as const };
 const nextRunGroups = buildTimelineViewGroups(
   nextRunAfterTerminalRecords,
@@ -584,7 +642,6 @@ const streamBeforeToolRecords = normalizeTimelineRecords(
     streamEvent({ type: "text_delta", text: "I will inspect the workspace first." }, "stream_tool_order_text", 0),
     streamToolStart(1, { type: "tool_use", id: "tool_stream_order_pwd", name: "Bash", input: {} }, "stream_tool_order_start"),
   ],
-  true,
 );
 const streamBeforeToolGroups = buildTimelineViewGroups(streamBeforeToolRecords, streamBeforeToolRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
 const streamBeforeToolItems = streamBeforeToolGroups[1]?.type === "assistant-turn" ? streamBeforeToolGroups[1].items : [];
@@ -609,7 +666,6 @@ const shiftedToolIndexRecords = normalizeTimelineRecords(
     streamToolStart(1, { type: "tool_use", id: "tool_shifted_read_b", name: "Read", input: {} }, "stream_shifted_tool_b"),
     streamToolInput(1, "{\"file_path\":\"tool-group-b.md\"}", "stream_shifted_tool_b_input"),
   ],
-  true,
 );
 const shiftedToolIndexGroups = buildTimelineViewGroups(shiftedToolIndexRecords, shiftedToolIndexRecords.map(viewItem), { activeModelId: "deepseek-v4-pro" });
 const shiftedToolIndexItems = shiftedToolIndexGroups[1]?.type === "assistant-turn" ? shiftedToolIndexGroups[1].items : [];
@@ -755,10 +811,30 @@ const overlappingLiveCompletionRecords: AgentTimelineRecord[] = [
   result("result_stable_completion"),
   { kind: "runtime", event: { type: "run_completed", runId: stableRunSummary.runId, threadId: "thread_fixture", createdAt: "2026-05-16T00:00:01.000Z" } } as AgentTimelineRecord,
 ];
-const normalizedOverlappingCompletion = normalizeTimelineRecords(persistedCompletionRecords, overlappingLiveCompletionRecords, false);
+const normalizedOverlappingCompletion = normalizeTimelineRecords(persistedCompletionRecords, overlappingLiveCompletionRecords);
 assert.equal((normalizedOverlappingCompletion[0] as SDKMessage | undefined)?.type, "user");
 assert.equal((normalizedOverlappingCompletion[1] as Extract<AgentTimelineRecord, { kind: "runtime" }> | undefined)?.kind, "runtime");
 assert.equal((normalizedOverlappingCompletion[2] as SDKMessage | undefined)?.type, "assistant");
+const splitOverlappingCompletion = splitTimelineRecords(persistedCompletionRecords, overlappingLiveCompletionRecords);
+assert.equal(splitOverlappingCompletion.historyRecords.length, persistedCompletionRecords.length);
+assert.equal(splitOverlappingCompletion.liveTailRecords.length, 1);
+const settledLiveStreamCompletionRecords: AgentTimelineRecord[] = [
+  userText("Write a short answer.", "user_stable_completion"),
+  runStarted("deepseek-v4-pro", stableRunSummary.runId),
+  streamEvent({ type: "text_delta", text: "Final answer." }, `live-stream:${stableRunSummary.runId}:0:0:text`),
+  result("result_stable_completion"),
+  runCompleted(stableRunSummary.runId),
+];
+const splitSettledLiveStreamCompletion = splitTimelineRecords(persistedCompletionRecords, settledLiveStreamCompletionRecords);
+assert.equal(splitSettledLiveStreamCompletion.historyRecords.length, persistedCompletionRecords.length);
+assert.equal(splitSettledLiveStreamCompletion.liveTailRecords.length, 0);
+const prefixLiveCompletionRecords: AgentTimelineRecord[] = [
+  userText("Write a short answer.", "user_stable_completion"),
+  runStarted("deepseek-v4-pro", stableRunSummary.runId),
+  streamEvent({ type: "text_delta", text: "Final" }, "stream_stable_completion_prefix"),
+];
+const splitPrefixCompletion = splitTimelineRecords(persistedCompletionRecords, prefixLiveCompletionRecords);
+assert.equal(splitPrefixCompletion.liveTailRecords.length, 1);
 const normalizedOverlappingGroups = buildTimelineViewGroups(
   normalizedOverlappingCompletion,
   normalizedOverlappingCompletion.map(stableTurnItems),
@@ -785,7 +861,6 @@ const approvalPersistedRecords: AgentTimelineRecord[] = [
 const approvalMergedRecords = normalizeTimelineRecords(
   approvalPersistedRecords,
   [approvalResolved(approvalRunId, approvalRequestId)],
-  true,
 );
 const approvalMergedItems = buildTimelineViewItems(approvalMergedRecords, {
   forceProcessOpen: false,
@@ -995,13 +1070,12 @@ const promptSuggestion = {
   suggestion: "Do something else",
   uuid: "prompt_suggestion_1",
 } as unknown as SDKMessage;
-const promptSuggestionRecords = normalizeTimelineRecords([userText("Hi.", "user_prompt_suggestion")], [promptSuggestion], false);
+const promptSuggestionRecords = normalizeTimelineRecords([userText("Hi.", "user_prompt_suggestion")], [promptSuggestion]);
 assert.equal(promptSuggestionRecords.some((record) => (record as SDKMessage).type === "prompt_suggestion"), false);
 
 const permissionDeniedRecords = normalizeTimelineRecords(
   [userText("Run a risky command.", "user_permission_denied"), systemPermissionDenied("permission_denied_1")],
   [],
-  false,
 );
 assert.equal(permissionDeniedRecords.some((record) => (record as SDKMessage & { subtype?: unknown }).subtype === "permission_denied"), true);
 const permissionDeniedGroups = groupIntoTurns(permissionDeniedRecords);
@@ -1154,6 +1228,23 @@ const stoppedStreamText = stoppedStreamTurn?.type === "assistant-turn"
 assert.equal(stoppedStreamText?.assistantContent, "First partial and second partial.");
 assert.equal(stoppedStreamText?.assistantStreaming, false);
 assert.equal(stoppedStreamText?.stoppedByUser, true);
+
+const completedStreamRecords: AgentTimelineRecord[] = [
+  userText("Complete after streamed output.", "user_completed_stream_view"),
+  streamEvent({ type: "text_delta", text: "Completed **markdown** output." }, "stream_completed_view"),
+];
+const completedStreamItems = completedStreamRecords.map((record, index) => ({
+  ...viewItem(record, index),
+  processSummary: index === 0 ? null : { runId: "run_completed_view", label: "已处理", running: false, status: "completed" as const },
+}));
+const completedStreamGroups = buildTimelineViewGroups(completedStreamRecords, completedStreamItems);
+const completedStreamTurn = completedStreamGroups.find((group) => group.type === "assistant-turn");
+const completedStreamText = completedStreamTurn?.type === "assistant-turn"
+  ? completedStreamTurn.items.find((item) => item.displayKind === "assistant-final")
+  : undefined;
+assert.equal(completedStreamText?.assistantContent, "Completed **markdown** output.");
+assert.equal(completedStreamText?.assistantStreaming, false);
+assert.equal(completedStreamText?.stoppedByUser, false);
 
 const claudeProvider = {
   id: "provider_claude",

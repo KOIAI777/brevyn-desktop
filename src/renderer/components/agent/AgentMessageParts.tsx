@@ -118,7 +118,7 @@ export function UserMessageBubble({
   return (
     <div className="group/message flex min-w-0 justify-end">
       <div className="flex min-w-0 max-w-[76%] flex-col items-end">
-        <div className="min-w-0 max-w-full overflow-hidden rounded-[1.35rem] border border-border/70 bg-[linear-gradient(145deg,rgba(255,255,255,0.98),rgba(246,242,232,0.94))] px-4 py-3 text-sm leading-6 text-foreground shadow-sm ring-1 ring-white/70 transition-[box-shadow,border-color,background-color] duration-200">
+        <div className="min-w-0 max-w-full overflow-hidden rounded-[1.35rem] bg-[rgba(244,239,229,0.94)] px-4 py-3 text-sm leading-6 text-foreground transition-colors duration-200">
           {content.trim() && <Markdownish content={content} threadId={threadId} />}
           {attachments.length > 0 && <MessageAttachments attachments={attachments} threadId={threadId} />}
         </div>

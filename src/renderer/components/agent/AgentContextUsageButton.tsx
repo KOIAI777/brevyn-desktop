@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Minimize2 } from "lucide-react";
 import type { ContextUsage } from "@/components/agent/agentTimelineModel";
+import { useAnchoredPopover } from "@/components/agent/useAnchoredPopover";
 
 export function ContextUsageButton({
   usage,
@@ -18,8 +19,17 @@ export function ContextUsageButton({
 }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const popover = useAnchoredPopover({
+    open: open && !compacting && Boolean(usage),
+    anchorRef: buttonRef,
+    popoverRef,
+    width: 256,
+    estimatedHeight: 288,
+    minHeight: 216,
+    gap: 10,
+  });
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current === null) return;
@@ -41,26 +51,6 @@ export function ContextUsageButton({
   };
 
   useEffect(() => () => clearCloseTimer(), []);
-
-  useEffect(() => {
-    if (!open || compacting || !usage) return;
-    const updatePosition = () => {
-      const rect = buttonRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const width = 256;
-      setMenuPosition({
-        left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
-        top: Math.max(8, rect.top - 12),
-      });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [compacting, open, usage]);
 
   if (compacting) {
     return (
@@ -103,8 +93,9 @@ export function ContextUsageButton({
       </button>
       {open && createPortal(
         <div
-          className="fixed z-[120] w-64 -translate-y-full rounded-2xl border border-border/65 bg-[hsl(var(--card))] p-3 text-xs shadow-[0_18px_44px_rgba(64,55,38,0.18)] ring-1 ring-white/80"
-          style={{ left: menuPosition.left, top: menuPosition.top }}
+          ref={popoverRef}
+          className="fixed z-[160] overflow-y-auto rounded-[var(--radius-panel)] border border-border/70 bg-card p-3 text-xs shadow-[0_18px_44px_rgba(64,55,38,0.18)] transition-opacity duration-100 brevyn-scrollbar"
+          style={{ ...popover.style, opacity: popover.ready ? 1 : 0 }}
           onMouseEnter={showMenu}
           onMouseLeave={hideMenuSoon}
         >
