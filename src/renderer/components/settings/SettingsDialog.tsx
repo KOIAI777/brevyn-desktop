@@ -33,6 +33,7 @@ import {
   type CloudProviderModel,
   type CloudRedeemCodeResult,
   type Course,
+  type AppThemeState,
   type GitStatus,
   type ModelProviderConfig,
   type ProviderModel,
@@ -53,9 +54,11 @@ export function SettingsDialog({
   course,
   semester,
   profile,
+  themeState,
   skills,
   gitStatus,
   onProfileChange,
+  onThemeStateChange,
   onSkillsChange,
   onWorkspaceChanged,
   onAgentProviderChanged,
@@ -65,9 +68,11 @@ export function SettingsDialog({
   course?: Course;
   semester?: SemesterWorkspace | null;
   profile: UserProfileSettings;
+  themeState: AppThemeState;
   skills: SkillItem[];
   gitStatus: GitStatus | null;
   onProfileChange: (profile: UserProfileSettings) => void;
+  onThemeStateChange: (themeState: AppThemeState) => void;
   onSkillsChange: (skills: SkillItem[]) => void;
   onWorkspaceChanged?: () => Promise<void> | void;
   onAgentProviderChanged?: (providerSelection: string) => Promise<void> | void;
@@ -663,7 +668,7 @@ export function SettingsDialog({
                 onLogout={() => void logoutCloudAccount()}
               />
             ) : activePage === "general" ? (
-              <GeneralSettingsPage profile={profile} onProfileChange={onProfileChange} />
+              <GeneralSettingsPage profile={profile} themeState={themeState} onProfileChange={onProfileChange} onThemeStateChange={onThemeStateChange} />
             ) : activePage === "providers" ? (
               <ProviderSettingsPage {...providerPageProps} />
             ) : activePage === "archive" ? (

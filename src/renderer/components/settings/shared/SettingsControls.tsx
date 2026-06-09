@@ -83,7 +83,7 @@ export function MiniMetric({ label, value }: { label: string; value: string }) {
 }
 
 export function ProviderLogo({ src }: { src: string }) {
-  return <img src={src} alt="" className="h-4 w-4 shrink-0 rounded-[0.28rem] object-contain" />;
+  return <img src={src} alt="" className="brevyn-model-logo-tile h-4 w-4 shrink-0 rounded-[0.28rem] object-contain p-[2px]" />;
 }
 
 export function TogglePill({

@@ -82,6 +82,7 @@ export function CourseManagementDialog({
   const displayedCourses = showArchived ? [...activeCourses, ...archivedCourses] : activeCourses;
   const activeCourse = displayedCourses.find((course) => course.id === viewingCourseId);
   const activeCourseArchived = Boolean(activeCourse?.archivedAt);
+  const activeCourseIsSemesterHome = activeCourse?.workspaceKind === "semester_home";
   const courseReadOnlyReason = !activeCourse ? "请先选择课程，再修改文件、任务、索引或向量搜索。" : activeCourseArchived ? "请先恢复课程，再修改文件、任务、索引或向量搜索。" : "";
   const [sections, setSections] = useState<CourseFileSection[]>([]);
   const [indexingSectionId, setIndexingSectionId] = useState("");
@@ -123,6 +124,9 @@ export function CourseManagementDialog({
   const foundationSections = useMemo(() => sections.filter((section) => section.kind !== "task"), [sections]);
   const taskSections = useMemo(() => sections.filter((section) => section.kind === "task"), [sections]);
   const hasActiveIndexingJob = useMemo(() => indexingJobs.some((job) => job.status === "queued" || job.status === "indexing"), [indexingJobs]);
+  const foundationSectionDetail = activeCourse?.workspaceKind === "semester_home"
+    ? "学期资料和 Lecture 是固定分区，适合放当前学期共用资料。"
+    : "课程共享和 Lecture 是固定分区，适合放 syllabus、课件和全课共用资料。";
 
   useEffect(() => {
     void loadArchivedCourses();
@@ -288,6 +292,10 @@ export function CourseManagementDialog({
     }
     if (activeCourseArchived) {
       setTaskError(courseReadOnlyReason);
+      return;
+    }
+    if (activeCourseIsSemesterHome) {
+      setTaskError("学期总览只用于管理学期资料，请在具体课程下创建任务。");
       return;
     }
     const title = taskName.trim();
@@ -550,44 +558,16 @@ export function CourseManagementDialog({
             )}
             <section className="space-y-2">
               {displayedCourses.map((course) => (
-                <div
+                <CourseListItem
                   key={course.id}
-                  className={cx(
-                    "flex w-full min-w-0 items-center gap-2 rounded-[var(--radius-card)] border px-3 py-3 text-left transition",
-                    course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
-                    course.id === viewingCourseId && !course.archivedAt ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
-                  )}
-                >
-                  <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => !course.archivedAt && setViewingCourseId(course.id)}>
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)]" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
-                      <CourseIcon course={course} className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <span className="block truncate text-sm font-semibold">{course.name}</span>
-                        {course.archivedAt && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px]">已归档</span>}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {course.code} · {course.term}
-                      </span>
-                      <span className="block truncate text-[10px] text-muted-foreground/80">{course.meetingTime || course.instructor}</span>
-                    </span>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {course.archivedAt ? (
-                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={courseBusyId === course.id} onClick={() => void restoreCourse(course)}>
-                        {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                      </button>
-                    ) : (
-                      <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={courseBusyId === course.id} onClick={() => void archiveCourse(course)}>
-                        {courseBusyId === course.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
-                      </button>
-                    )}
-                    <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={courseBusyId === course.id} onClick={() => void deleteCourse(course)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
+                  course={course}
+                  active={course.id === viewingCourseId && !course.archivedAt}
+                  busy={courseBusyId === course.id}
+                  onSelect={() => !course.archivedAt && setViewingCourseId(course.id)}
+                  onArchive={() => void archiveCourse(course)}
+                  onRestore={() => void restoreCourse(course)}
+                  onDelete={() => void deleteCourse(course)}
+                />
               ))}
             </section>
 
@@ -693,7 +673,7 @@ export function CourseManagementDialog({
                     resetCourseDetailsDraft(activeCourse);
                     setEditingCourseDetails((value) => !value);
                   }}
-                  disabled={!activeCourse?.id || activeCourseArchived || savingCourseDetails}
+                  disabled={!activeCourse?.id || activeCourseArchived || activeCourseIsSemesterHome || savingCourseDetails}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                   详情
@@ -816,7 +796,7 @@ export function CourseManagementDialog({
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
                   <CourseSectionGroupHeader
                     title="基础资料"
-                    detail="课程共享和 Lecture 是固定分区，适合放 syllabus、课件和全课共用资料。"
+                    detail={foundationSectionDetail}
                   />
                   {foundationSections.map((section) => (
                     <SectionCard
@@ -832,38 +812,42 @@ export function CourseManagementDialog({
                       onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
                     />
                   ))}
-                  <CourseSectionGroupHeader
-                    title="任务分区"
-                    detail="每个任务都有自己的 Materials、Drafts 和 Submitted 工作区。"
-                  />
-                  {taskSections.length === 0 && (
-                    <div className="rounded-[var(--radius-card)] border border-dashed bg-card/70 px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
-                      还没有任务分区。下面加一个作业、presentation 或 exam，就会自动生成对应文件夹。
-                    </div>
+                  {!activeCourseIsSemesterHome && (
+                    <>
+                      <CourseSectionGroupHeader
+                        title="任务分区"
+                        detail="每个任务都有自己的 Materials、Drafts 和 Submitted 工作区。"
+                      />
+                      {taskSections.length === 0 && (
+                        <div className="rounded-[var(--radius-card)] border border-dashed bg-card/70 px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
+                          还没有任务分区。下面加一个作业、presentation 或 exam，就会自动生成对应文件夹。
+                        </div>
+                      )}
+                      {taskSections.map((section) => (
+                        <SectionCard
+                          key={section.id}
+                          section={section}
+                          indexing={indexingSectionId === section.id}
+                          disabled={activeCourseArchived || Boolean(indexingSectionId)}
+                          onIndex={() => void indexSection(section.id)}
+                          onUpload={(weekNumber) => uploadToSection(section, weekNumber)}
+                          uploading={uploadingSectionId === section.id}
+                          onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
+                        />
+                      ))}
+                      <InlineTaskCreateCard
+                        taskName={taskName}
+                        taskType={taskType}
+                        creating={creatingTask}
+                        error={taskError}
+                        existingTaskTypes={existingTaskTypes}
+                        disabled={!activeCourse?.id || activeCourseArchived}
+                        onTaskNameChange={setTaskName}
+                        onTaskTypeChange={setTaskType}
+                        onCreate={() => void createTask()}
+                      />
+                    </>
                   )}
-                  {taskSections.map((section) => (
-                    <SectionCard
-                      key={section.id}
-                      section={section}
-                      indexing={indexingSectionId === section.id}
-                      disabled={activeCourseArchived || Boolean(indexingSectionId)}
-                      onIndex={() => void indexSection(section.id)}
-                      onUpload={(weekNumber) => uploadToSection(section, weekNumber)}
-                      uploading={uploadingSectionId === section.id}
-                      onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
-                    />
-                  ))}
-                  <InlineTaskCreateCard
-                    taskName={taskName}
-                    taskType={taskType}
-                    creating={creatingTask}
-                    error={taskError}
-                    existingTaskTypes={existingTaskTypes}
-                    disabled={!activeCourse?.id || activeCourseArchived}
-                    onTaskNameChange={setTaskName}
-                    onTaskTypeChange={setTaskType}
-                    onCreate={() => void createTask()}
-                  />
                 </div>
               )}
 
@@ -916,6 +900,69 @@ function CoursePanelButton({ active, icon, label, onClick }: { active: boolean; 
       {icon}
       {label}
     </button>
+  );
+}
+
+function CourseListItem({
+  course,
+  active,
+  busy,
+  onSelect,
+  onArchive,
+  onRestore,
+  onDelete,
+}: {
+  course: Course;
+  active: boolean;
+  busy: boolean;
+  onSelect: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
+}) {
+  const isSemesterHome = course.workspaceKind === "semester_home";
+
+  return (
+    <div
+      className={cx(
+        "flex w-full min-w-0 items-center gap-2 rounded-[var(--radius-card)] border px-3 py-3 text-left transition",
+        course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
+        active ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
+      )}
+    >
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={onSelect}>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)]" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
+          <CourseIcon course={course} className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="block truncate text-sm font-semibold">{course.name}</span>
+            {isSemesterHome && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px]">学期入口</span>}
+            {course.archivedAt && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px]">已归档</span>}
+          </span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {isSemesterHome ? "学期资料" : `${course.code} · ${course.term}`}
+          </span>
+          <span className="block truncate text-[10px] text-muted-foreground/80">{isSemesterHome ? course.term : course.meetingTime || course.instructor}</span>
+        </span>
+      </button>
+      {!isSemesterHome && (
+        <div className="flex shrink-0 items-center gap-1">
+          {course.archivedAt ? (
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={busy} onClick={onRestore}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+            </button>
+          ) : (
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={busy} onClick={onArchive}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+            </button>
+          )}
+          <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={busy} onClick={onDelete}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1288,7 +1335,7 @@ const SectionCard = memo(function SectionCard({
   onFileDeleted,
 }: SectionCardProps) {
   const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "lecture" ? BookOpen : FileText;
-  const sectionLabel = section.kind === "course_shared" ? "课程共享" : section.kind === "lecture" ? "Lecture" : "任务";
+  const sectionLabel = section.kind === "course_shared" ? (section.courseId === "semester-home" ? "学期资料" : "课程共享") : section.kind === "lecture" ? "Lecture" : "任务";
   const [open, setOpen] = useState(false);
   const [openLectureWeeks, setOpenLectureWeeks] = useState<Record<string, boolean>>({});
   const [lectureWeekValue, setLectureWeekValue] = useState(lectureWeekOptions[0]?.value || "");
@@ -1407,7 +1454,7 @@ const SectionCard = memo(function SectionCard({
             className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             onClick={() => onUpload(section.kind === "lecture" && lectureWeekValue ? Number(lectureWeekValue) : undefined)}
             disabled={disabled || uploading}
-            title="上传文件到此分区"
+            title={`上传到${displaySectionTitle(section)}`}
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           </button>
@@ -1492,7 +1539,7 @@ function statusTone(status: IndexingJob["status"]): string {
 }
 
 function displaySectionTitle(section: CourseFileSection): string {
-  if (section.kind === "course_shared") return section.courseId === "semester-home" || section.title === "All semester files" ? "学期共享" : "课程共享";
+  if (section.kind === "course_shared") return section.courseId === "semester-home" || section.title === "All semester files" ? "学期资料" : "课程共享";
   if (section.kind === "lecture") return section.weekNumber ? `第 ${section.weekNumber} 周课件` : "课件";
   if (section.kind === "task") {
     const title = localizeTaskSectionTitle(section.title);

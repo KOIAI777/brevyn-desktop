@@ -57,7 +57,7 @@ export function ContextUsageButton({
       <button
         type="button"
         disabled
-        className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-800 shadow-sm"
+        className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--status-warning)/0.12)] text-[hsl(var(--status-warning))]"
         title="正在压缩上下文"
       >
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -79,8 +79,8 @@ export function ContextUsageButton({
       <button
         type="button"
         ref={buttonRef}
-        className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background/60 shadow-sm transition hover:scale-[1.03] hover:bg-background ${
-          warning ? "border-amber-200 text-amber-800" : "border-white/50 text-muted-foreground"
+        className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition hover:bg-[hsl(var(--foreground)/0.08)] hover:text-foreground ${
+          warning ? "text-[hsl(var(--status-warning))] hover:bg-[hsl(var(--status-warning)/0.1)]" : "text-muted-foreground"
         }`}
         aria-label="Context usage"
         title="Context usage"
@@ -94,7 +94,7 @@ export function ContextUsageButton({
       {open && createPortal(
         <div
           ref={popoverRef}
-          className="fixed z-[160] overflow-y-auto rounded-[var(--radius-panel)] border border-border/70 bg-card p-3 text-xs shadow-[0_18px_44px_rgba(64,55,38,0.18)] transition-opacity duration-100 brevyn-scrollbar"
+          className="brevyn-popover-surface fixed z-[160] overflow-y-auto rounded-[var(--radius-panel)] p-3 text-xs transition-opacity duration-100 brevyn-scrollbar"
           style={{ ...popover.style, opacity: popover.ready ? 1 : 0 }}
           onMouseEnter={showMenu}
           onMouseLeave={hideMenuSoon}
@@ -107,7 +107,7 @@ export function ContextUsageButton({
               </p>
             </div>
             {percent !== undefined && (
-              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${warning ? "bg-amber-50 text-amber-800" : "bg-muted text-muted-foreground"}`}>
+              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${warning ? "bg-[hsl(var(--status-warning)/0.12)] text-[hsl(var(--status-warning))]" : "bg-muted text-muted-foreground"}`}>
                 {percent}%
               </span>
             )}
@@ -125,7 +125,7 @@ export function ContextUsageButton({
             type="button"
             className={`mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
               warning
-                ? "border-amber-300 bg-amber-500 text-white hover:bg-amber-600"
+                ? "border-transparent bg-[hsl(var(--status-warning))] text-background hover:brightness-95"
                 : "border-border bg-background/70 text-foreground hover:bg-accent"
             }`}
             disabled={compactDisabled}
@@ -155,7 +155,7 @@ function ContextUsageRing({ ratio, warning }: { ratio: number; warning: boolean 
       width="18"
       height="18"
       viewBox="0 0 20 20"
-      className={`relative h-[18px] w-[18px] shrink-0 transition-colors ${warning ? "text-amber-600" : "text-slate-700"}`}
+      className={`relative h-[18px] w-[18px] shrink-0 transition-colors ${warning ? "text-[hsl(var(--status-warning))]" : "text-[hsl(var(--foreground)/0.68)]"}`}
       aria-hidden="true"
     >
       <circle

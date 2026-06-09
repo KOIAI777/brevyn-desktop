@@ -6,7 +6,6 @@ export function useAppDialogState() {
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("account");
   const [coursesOpen, setCoursesOpen] = useState(false);
   const [timetableOpen, setTimetableOpen] = useState(false);
-  const [courseFilesUploadOpen, setCourseFilesUploadOpen] = useState(false);
 
   function openSettings(page: SettingsPage = "account") {
     setSettingsInitialPage(page);
@@ -24,8 +23,5 @@ export function useAppDialogState() {
     timetableOpen,
     openTimetable: () => setTimetableOpen(true),
     closeTimetable: () => setTimetableOpen(false),
-    courseFilesUploadOpen,
-    openCourseFilesUpload: () => setCourseFilesUploadOpen(true),
-    closeCourseFilesUpload: () => setCourseFilesUploadOpen(false),
   };
 }

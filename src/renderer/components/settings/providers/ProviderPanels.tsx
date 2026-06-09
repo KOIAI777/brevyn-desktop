@@ -54,7 +54,7 @@ export function OfficialProviderPanel({
 
       {primaryProvider ? (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/80 bg-white/65 p-2">
-          <img src={getProviderProfileLogo(primaryProvider)} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
+          <img src={getProviderProfileLogo(primaryProvider)} alt="" className="brevyn-model-logo-tile h-8 w-8 shrink-0 rounded-lg object-contain p-1" />
           <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onEdit(primaryProvider)} disabled={busy}>
             <span className="block truncate text-xs font-semibold text-foreground" title={providerDisplayName(primaryProvider)}>{providerDisplayName(primaryProvider)}</span>
             <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
@@ -115,7 +115,7 @@ export function OfficialModelList({
             key={model.id}
             className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border/55 bg-background px-2 py-2 text-left text-muted-foreground"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">
+            <span className="brevyn-model-logo-tile flex h-8 w-8 shrink-0 items-center justify-center rounded-lg p-1">
               <img src={resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind })} alt="" className="h-5 w-5 object-contain" />
             </span>
             <span className="min-w-0 flex-1">

@@ -15,6 +15,7 @@ import type {
   AgentRunInput,
   AgentRunResult,
   AgentGatewayStatus,
+  AppThemePreference,
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
   CloudAccountStatus,
@@ -542,6 +543,14 @@ export class LocalStore {
 
   updateProfile(input: UserProfileUpdateInput): UserProfileSettings {
     return this.appSettings.updateProfile(input).profile;
+  }
+
+  themePreference(): AppThemePreference {
+    return this.appSettings.get().appearance.themePreference;
+  }
+
+  updateThemePreference(preference: AppThemePreference): AppThemePreference {
+    return this.appSettings.updateAppearance({ themePreference: preference }).appearance.themePreference;
   }
 
   cloudStatus(): CloudAccountStatus {

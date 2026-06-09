@@ -50,7 +50,7 @@ export function AgentProviderPicker({
         disabled={providerOptions.length === 0}
         className="inline-block shrink-0"
         style={{ width: "fit-content", minWidth: 132, maxWidth: "min(44vw, 280px)" }}
-        buttonClassName="h-7 rounded-full border border-border/70 bg-background/88 px-2 text-[11px] font-semibold shadow-sm"
+        buttonClassName="h-8 rounded-full !border-transparent !bg-[hsl(var(--foreground)/0.06)] px-2.5 text-[11px] font-semibold !shadow-none hover:!bg-[hsl(var(--foreground)/0.09)]"
         menuClassName="bg-[hsl(var(--card))]"
         menuWidth={menuWidth}
         menuMinWidth={220}
@@ -91,7 +91,7 @@ function measureTextWidth(text: string, font: string): number {
 }
 
 function ModelLogo({ src, label }: { src: string; label: string }) {
-  return <img src={src} alt="" title={label} className="h-4 w-4 shrink-0 rounded-[0.28rem] object-contain" />;
+  return <img src={src} alt="" title={label} className="brevyn-model-logo-tile h-4 w-4 shrink-0 rounded-[0.28rem] object-contain p-[2px]" />;
 }
 
 export function providerModelValue(providerId: string, modelId: string): string {

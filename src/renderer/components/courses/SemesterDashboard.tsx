@@ -1,4 +1,4 @@
-import { ArrowRight, BarChart3, BookOpen, CalendarDays, Home, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpen, CalendarDays, MessageSquare, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import type { BrevynTask, Course, FileStats, SemesterWorkspace, Thread, WorkspaceFileNode } from "@/types/domain";
 import { CourseIcon } from "@/components/courses/CourseIcon";
@@ -56,7 +56,7 @@ export function SemesterDashboard({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-foreground text-background shadow-sm ring-1 ring-border/40">
-                <Home className="h-5 w-5" />
+                <CalendarDays className="h-5 w-5" />
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +141,7 @@ export function SemesterDashboard({
               onClick={onOpenHomeSession}
             >
               <MessageSquare className="h-3.5 w-3.5" />
-              {homeThread ? "打开 Home 会话" : "创建 Home 会话"}
+              {homeThread ? "打开学期会话" : "创建学期会话"}
             </button>
           </section>
         </div>

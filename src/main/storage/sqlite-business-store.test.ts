@@ -74,7 +74,7 @@ function testThread(id = "thread_title_race"): Thread {
     semesterId: "semester_test",
     courseId: "course_test",
     threadType: "task",
-    title: "Home session",
+    title: "学期会话",
     titleSource: "default",
     isDraft: true,
     messageCount: 1,

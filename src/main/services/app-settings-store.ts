@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AppSettings, UserProfileSettings } from "../../types/domain";
+import type { AppSettings, AppThemePreference, UserProfileSettings } from "../../types/domain";
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   agentGateway: {
     openAiResponsesEnabled: false,
+  },
+  appearance: {
+    themePreference: "system",
   },
   profile: {
     displayName: "Koi",
@@ -38,6 +41,15 @@ export class AppSettingsStore {
     return this.update({
       agentGateway: {
         ...this.data.settings.agentGateway,
+        ...patch,
+      },
+    });
+  }
+
+  updateAppearance(patch: Partial<AppSettings["appearance"]>): AppSettings {
+    return this.update({
+      appearance: {
+        ...this.data.settings.appearance,
         ...patch,
       },
     });
@@ -78,6 +90,9 @@ function mergeSettings(base: AppSettings, patch: Partial<AppSettings>): AppSetti
     agentGateway: {
       openAiResponsesEnabled: Boolean(patch.agentGateway?.openAiResponsesEnabled ?? base.agentGateway.openAiResponsesEnabled),
     },
+    appearance: {
+      themePreference: normalizeThemePreference(patch.appearance?.themePreference ?? base.appearance.themePreference),
+    },
     profile: normalizeProfile({
       ...base.profile,
       ...(patch.profile || {}),
@@ -90,8 +105,15 @@ function cloneSettings(settings: AppSettings): AppSettings {
     agentGateway: {
       openAiResponsesEnabled: Boolean(settings.agentGateway.openAiResponsesEnabled),
     },
+    appearance: {
+      themePreference: normalizeThemePreference(settings.appearance.themePreference),
+    },
     profile: normalizeProfile(settings.profile),
   };
+}
+
+function normalizeThemePreference(value: unknown): AppThemePreference {
+  return value === "light" || value === "dark" || value === "system" ? value : DEFAULT_APP_SETTINGS.appearance.themePreference;
 }
 
 function normalizeProfile(profile: Partial<UserProfileSettings>): UserProfileSettings {

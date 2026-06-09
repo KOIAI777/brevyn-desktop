@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, CalendarDays, ChevronRight, GraduationCap, Home, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
+import { Archive, CalendarDays, ChevronRight, GraduationCap, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
@@ -69,6 +69,8 @@ export function WorkspaceSidebar({
   const homeCourse = courses.find((course) => course.workspaceKind === "semester_home");
   const courseList = courses.filter((course) => course.workspaceKind !== "semester_home");
   const canCreateThread = activeCourseId === homeCourse?.id || Boolean(activeTaskId);
+  const homeCourseLabel = homeCourse ? semesterHomeDisplayName(homeCourse.name) : "";
+  const toggleHomeOpen = () => setHomeOpen((value) => !value);
 
   async function archiveTaskFromSidebar(task: BrevynTask) {
     const ok = await confirm({
@@ -181,42 +183,45 @@ export function WorkspaceSidebar({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2.5 brevyn-scrollbar">
         {homeCourse && (
-          <div className="brevyn-card-surface mb-3 p-1.5">
+          <div className="mb-2">
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
-                title={homeOpen ? "Collapse Home" : "Expand Home"}
-                onClick={() => setHomeOpen((value) => !value)}
+                title={homeOpen ? `收起${homeCourseLabel}` : `展开${homeCourseLabel}`}
+                onClick={toggleHomeOpen}
               >
                 <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", homeOpen && "rotate-90")} />
               </button>
               <button
                 className={cx(
                   "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-xs transition-colors active:scale-[0.99]",
-                  homeCourse.id === activeCourseId ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
+                  homeCourse.id === activeCourseId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
                 )}
-                onClick={() => onSelectHome(homeCourse.id)}
+                onClick={() => {
+                  onSelectHome(homeCourse.id);
+                  toggleHomeOpen();
+                }}
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-foreground text-background">
-                  <Home className="h-3.5 w-3.5" />
+                  <GraduationCap className="h-3.5 w-3.5" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold">{homeCourse.name}</span>
-                  <span className="block truncate text-[10px] text-muted-foreground">All semester files</span>
+                  <span className="block truncate font-semibold">{homeCourseLabel}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">学期资料</span>
                 </span>
               </button>
               <button
                 type="button"
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
-                title="New Home TaskAgent session"
+                title="新建学期会话"
                 onClick={() => onCreateThread(homeCourse.id)}
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
             {homeOpen && (
-              <div className="ml-9 mt-1 space-y-0.5 rounded-[var(--radius-control)] bg-background/35 p-1">
+              <div className="ml-8 mt-1 space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
                 {threads
                   .filter((thread) => thread.courseId === homeCourse.id)
                   .map((thread) => (
@@ -261,7 +266,7 @@ export function WorkspaceSidebar({
                 <button
                   className={cx(
                     "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-xs transition-colors active:scale-[0.99]",
-                    course.id === activeCourseId && !activeTaskId ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
+                    course.id === activeCourseId && !activeTaskId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
                   )}
                   onClick={() => {
                     onSelectHome(course.id);
@@ -284,6 +289,7 @@ export function WorkspaceSidebar({
                 <div className="ml-8 mt-1 space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
                   {courseTasks.map((task) => {
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
+                    const toggleTaskOpen = () => setOpenTasks((current) => ({ ...current, [task.id]: !(current[task.id] ?? task.id === activeTaskId) }));
                     const taskThreads = threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id);
                     return (
                       <div key={task.id} className="group/task">
@@ -292,16 +298,19 @@ export function WorkspaceSidebar({
                             type="button"
                             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                             title={taskOpen ? `Collapse ${task.title}` : `Expand ${task.title}`}
-                            onClick={() => setOpenTasks((current) => ({ ...current, [task.id]: !taskOpen }))}
+                            onClick={toggleTaskOpen}
                           >
                             <ChevronRight className={cx("h-3 w-3 transition-transform", taskOpen && "rotate-90")} />
                           </button>
                           <button
                             className={cx(
                               "flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[11px] transition active:scale-[0.99]",
-                              task.id === activeTaskId ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                              task.id === activeTaskId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
-                            onClick={() => onSelectTask(course.id, task.id)}
+                            onClick={() => {
+                              onSelectTask(course.id, task.id);
+                              toggleTaskOpen();
+                            }}
                           >
                             <TaskTypeIcon task={task} />
                             <span className="min-w-0 flex-1 truncate">{task.title}</span>
@@ -381,6 +390,12 @@ function compareThreadsByUpdatedAtDesc(a: Thread, b: Thread): number {
   return safeBTime - safeATime;
 }
 
+function semesterHomeDisplayName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized || normalized === "home" || normalized === "home taskagent" || normalized === "home session") return "学期总览";
+  return name;
+}
+
 function SessionCount({ count }: { count: number }) {
   return <span className="shrink-0 rounded-[var(--radius-badge)] bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
 }
@@ -450,7 +465,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
 
   return (
     <div
-      className={cx("group flex w-full min-w-0 items-center rounded-[var(--radius-control)] text-[11px] transition", active ? "bg-background text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+      className={cx("group flex w-full min-w-0 items-center rounded-[var(--radius-control)] text-[11px] transition", active ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
       title={thread.title}
       onContextMenu={onContextMenu}
     >

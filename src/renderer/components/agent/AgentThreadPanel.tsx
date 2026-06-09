@@ -156,7 +156,7 @@ export function AgentThreadPanel({
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
     <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
-    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(247,244,236,0.62))]">
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--card)/0.92),hsl(var(--surface-warm)/0.84))]">
       <AgentTimelineScrollArea
         thread={thread}
         loading={loading}
@@ -176,7 +176,7 @@ export function AgentThreadPanel({
         scrollToBottomButtonBottom={composerHeight + 40}
       />
 
-      {error && <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">{error}</div>}
+      {error && <div className="brevyn-status-card-warning px-5 py-2 text-xs text-foreground">{error}</div>}
 
       <AgentComposer
         todos={todos}
@@ -308,7 +308,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
       {!isFollowingOutput && (
         <button
           type="button"
-          className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-card/95 text-muted-foreground shadow-[0_10px_28px_rgba(64,55,38,0.14)] ring-1 ring-border/50 transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
+          className="absolute right-8 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-card/95 text-muted-foreground shadow-[0_10px_28px_rgba(64,55,38,0.14)] ring-1 ring-border/50 transition hover:-translate-y-0.5 hover:bg-accent hover:text-foreground"
           style={{ bottom: scrollToBottomButtonBottom }}
           onClick={() => scrollToBottom("smooth")}
           title="回到底部"
@@ -389,7 +389,7 @@ function EmptyThreadWelcome({ thread }: { thread: Thread }) {
       </div>
       <p className="mt-4 text-sm font-semibold text-foreground">{welcome.greeting}</p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{welcome.dateLabel}</p>
-      <div className="mt-4 w-full rounded-2xl border border-white/60 bg-card/72 p-4 text-left shadow-[0_16px_44px_rgba(64,55,38,0.10)] ring-1 ring-border/35 backdrop-blur-xl">
+      <div className="mt-4 w-full rounded-2xl border border-border/45 bg-card/72 p-4 text-left shadow-[0_16px_44px_rgba(64,55,38,0.10)] ring-1 ring-border/35 backdrop-blur-xl">
         <div className="flex items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
             <ListTodo className="h-4 w-4" />
@@ -427,7 +427,7 @@ function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string;
   return {
     greeting,
     dateLabel,
-    title: isHome ? "Home TaskAgent 建议" : "TaskAgent 建议",
+    title: isHome ? "学期总览建议" : "TaskAgent 建议",
     recommendation: isHome
       ? "先让 Brevyn 扫一眼课程、文件和最近线程，再整理出今天最值得推进的一件事。"
       : "先让 Brevyn 阅读任务材料和评分要求，再拆出一个能在 25 分钟内完成的下一步。",
@@ -551,9 +551,9 @@ function PermissionDeniedNotice({ record }: { record: SDKMessage }) {
   const reason = typeof data.decision_reason === "string" && data.decision_reason.trim() ? data.decision_reason.trim() : "";
 
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50/72 p-4 text-xs text-amber-950 shadow-sm ring-1 ring-white/45">
+    <div className="brevyn-status-card-warning rounded-2xl p-4 text-xs text-foreground">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-background text-amber-700">
+        <div className="brevyn-status-icon-warning mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">
           <ShieldAlert className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -734,7 +734,7 @@ function AssistantTurnHeader({
 
   return (
     <div className="mb-1 flex min-w-0 items-center gap-2 px-1 text-[11px] text-muted-foreground">
-      <img src={logo} alt="" className="h-7 w-7 shrink-0 rounded-[0.45rem] object-contain shadow-sm ring-1 ring-border/55" />
+      <img src={logo} alt="" className="brevyn-model-logo-tile h-7 w-7 shrink-0 rounded-[0.45rem] object-contain p-1" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <span className="truncate text-[12px] font-semibold text-foreground/70" title={modelLabel}>{modelLabel}</span>
       </div>
@@ -1228,34 +1228,34 @@ function runSummaryTone(status: RunSummary["status"]): { text: string; dot: stri
   if (status === "running") {
     return {
       text: "text-muted-foreground",
-      dot: "bg-amber-500",
-      detail: "border-amber-200 bg-amber-50/75 text-amber-900",
+      dot: "bg-[hsl(var(--status-warning))]",
+      detail: "brevyn-status-pill-warning",
     };
   }
   if (status === "completed") {
     return {
       text: "text-muted-foreground",
-      dot: "bg-emerald-500",
-      detail: "border-emerald-200 bg-emerald-50/70 text-emerald-900",
+      dot: "bg-[hsl(var(--status-success))]",
+      detail: "brevyn-status-pill-success",
     };
   }
   if (status === "stopped") {
     return {
       text: "text-muted-foreground",
       dot: "bg-stone-400",
-      detail: "border-border bg-muted/45 text-muted-foreground",
+      detail: "bg-[hsl(var(--foreground)/0.055)] text-muted-foreground",
     };
   }
   if (status === "interrupted") {
     return {
-      text: "text-amber-800",
-      dot: "bg-amber-600",
-      detail: "border-amber-200 bg-amber-50/75 text-amber-900",
+      text: "text-[hsl(var(--status-warning))]",
+      dot: "bg-[hsl(var(--status-warning))]",
+      detail: "brevyn-status-pill-warning",
     };
   }
   return {
-    text: "text-red-700",
-    dot: "bg-red-500",
-    detail: "border-red-200 bg-red-50/75 text-red-900",
+    text: "text-[hsl(var(--status-danger))]",
+    dot: "bg-[hsl(var(--status-danger))]",
+    detail: "brevyn-status-pill-danger",
   };
 }

@@ -14,7 +14,7 @@ export function TodoDock({ todos, running }: { todos: AgentTodoItem[]; running: 
           open ? "grid-rows-[1fr] translate-y-0 opacity-100" : "pointer-events-none grid-rows-[0fr] translate-y-2 opacity-0"
         }`}
       >
-        <div className="min-h-0 overflow-hidden rounded-2xl border border-white/60 bg-[hsl(var(--card))] shadow-[0_14px_36px_rgba(64,55,38,0.14)] ring-1 ring-border/35">
+        <div className="brevyn-composer-float min-h-0 overflow-hidden rounded-2xl">
           <div className="p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -40,12 +40,12 @@ export function TodoDock({ todos, running }: { todos: AgentTodoItem[]; running: 
       </div>
       <button
         type="button"
-        className="flex h-9 w-full items-center gap-2 rounded-2xl border border-white/60 bg-[hsl(var(--card))] px-3 text-[11px] shadow-[0_10px_24px_rgba(64,55,38,0.10)] ring-1 ring-border/30 transition hover:bg-card"
+        className="brevyn-composer-tray flex h-9 w-full items-center gap-2 rounded-2xl px-3 text-[11px] transition hover:brightness-[0.985]"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label="Toggle todo list"
       >
-        {running ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-700" /> : <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />}
+        {running ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[hsl(var(--status-warning))]" /> : <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--status-success))]" />}
         <span className="shrink-0 font-semibold text-foreground">{completed}/{todos.length}</span>
         <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
           {focusedTodo?.content || `${pending} pending`}
@@ -60,13 +60,13 @@ function TodoRow({ todo, running }: { todo: AgentTodoItem; running: boolean }) {
   return (
     <div
       className={`flex items-center gap-2 rounded-xl px-2 py-1.5 text-[11px] transition ${
-        todo.status === "in_progress" && running ? "bg-amber-50 text-amber-900" : "text-muted-foreground"
+        todo.status === "in_progress" && running ? "bg-[hsl(var(--foreground)/0.065)] text-foreground" : "text-muted-foreground"
       }`}
     >
       {todo.status === "completed" ? (
-        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+        <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--status-success))]" />
       ) : todo.status === "in_progress" && running ? (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-700" />
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[hsl(var(--status-warning))]" />
       ) : todo.status === "in_progress" ? (
         <Square className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
       ) : (

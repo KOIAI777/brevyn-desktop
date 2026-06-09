@@ -1144,6 +1144,9 @@ function shouldGenerateTitleForRun(thread: Thread): boolean {
   const normalized = thread.title.trim();
   return normalized === "Home TaskAgent" ||
     normalized === "Home session" ||
+    normalized === "学期总览" ||
+    normalized === "学期会话" ||
+    normalized === "新的学期会话" ||
     normalized === "Task session" ||
     normalized.endsWith(" session") ||
     normalized.endsWith(" thread");

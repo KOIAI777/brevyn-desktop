@@ -141,7 +141,7 @@ export function fileDisplayName(node: WorkspaceFileNode): string {
 }
 
 function managedFolderDisplayName(name: string): string {
-  if (name === "Semester shared") return "学期共享";
+  if (name === "Semester shared") return "学期资料";
   if (name === "Course shared") return "课程共享";
   if (name === "Lecture") return "课件";
   if (name === "Task") return "任务";

@@ -212,7 +212,7 @@ export function useWorkspaceSessionController({
   const threadTitleForScope = useCallback((courseId: string, taskId?: string): string => {
     const task = taskId ? (tasksByCourse[courseId] || []).find((item) => item.id === taskId) : undefined;
     const course = courses.find((item) => item.id === courseId);
-    return task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "Home session" : "Task session";
+    return task ? `${task.title} session` : course?.workspaceKind === "semester_home" ? "学期会话" : "Task session";
   }, [courses, tasksByCourse]);
 
   const findEmptyThreadForScope = useCallback((courseId: string, taskId?: string): Thread | undefined => {
@@ -446,7 +446,7 @@ async function ensureHomeThread(threads: Thread[], semesterId: string | undefine
   try {
     const thread = await window.brevyn.threads.create({
       courseId: SEMESTER_HOME_COURSE_ID,
-      title: "Home TaskAgent",
+      title: "学期会话",
       isDraft: true,
     });
     if (!threadBelongsToSemester(thread, semesterId)) return threads;

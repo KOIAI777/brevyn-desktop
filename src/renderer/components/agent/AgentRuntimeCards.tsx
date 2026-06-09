@@ -37,9 +37,9 @@ export function ApprovalCard({
   const dangerous = request.riskLevel === "dangerous";
 
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${dangerous ? "border-red-200 bg-red-50/80" : "border-amber-200 bg-amber-50/80"}`}>
+    <div className={`rounded-2xl p-4 ${dangerous ? "brevyn-status-card-danger" : "brevyn-status-card-warning"}`}>
       <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border bg-background ${dangerous ? "border-red-200 text-red-700" : "border-amber-200 text-amber-700"}`}>
+        <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${dangerous ? "brevyn-status-icon-danger" : "brevyn-status-icon-warning"}`}>
           <ShieldAlert className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -50,11 +50,11 @@ export function ApprovalCard({
             {request.description || "Brevyn needs your approval before running this tool."}
           </p>
           {dangerous && (
-            <p className="mt-1 text-[11px] font-medium text-red-700">
+            <p className="mt-1 text-[11px] font-medium text-[hsl(var(--status-danger))]">
               这个命令看起来有破坏性或影响较大，允许前请再确认一次。
             </p>
           )}
-          <div className="mt-3 rounded-xl border bg-background/80 p-2">
+          <div className="mt-3 rounded-xl bg-[hsl(var(--foreground)/0.045)] p-2">
             <div className="text-[11px] font-medium text-muted-foreground">Tool · {request.toolName}</div>
             <ToolInputPreview
               toolName={request.toolName}
@@ -65,7 +65,7 @@ export function ApprovalCard({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {resolved ? (
-              <span className="inline-flex h-8 items-center rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex h-8 items-center rounded-md bg-[hsl(var(--foreground)/0.055)] px-3 text-xs font-medium text-muted-foreground">
                 {decision === "allow" ? "Approved" : "Denied"}
               </span>
             ) : (
@@ -82,7 +82,7 @@ export function ApprovalCard({
                 <button
                   type="button"
                   disabled={Boolean(pending)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--foreground)/0.06)] px-3 text-xs font-medium text-foreground transition hover:bg-[hsl(var(--foreground)/0.09)] disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => void resolveApproval("deny")}
                 >
                   {pending === "deny" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
@@ -122,9 +122,9 @@ export function AskUserCard({
   }
 
   return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm ring-1 ring-white/40">
+    <div className="brevyn-status-card-info rounded-2xl p-4">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-background text-blue-700">
+        <div className="brevyn-status-icon-info mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">
           <MessageCircleQuestion className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -139,7 +139,7 @@ export function AskUserCard({
               return (
                 <div key={key} className="rounded-xl border bg-background/82 p-3">
                   <div className="mb-2">
-                    {question.header && <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">{question.header}</p>}
+                    {question.header && <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--status-info))]">{question.header}</p>}
                     <p className="text-xs font-semibold text-foreground">{question.question || `Question ${index + 1}`}</p>
                   </div>
                   {question.options.length > 0 ? (
@@ -188,7 +188,7 @@ export function AskUserCard({
           </div>
           <div className="mt-3 flex items-center gap-2">
             {resolved ? (
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--foreground)/0.055)] px-3 text-xs font-medium text-muted-foreground">
                 <Check className="h-3.5 w-3.5" />
                 Answered
               </span>
@@ -234,9 +234,9 @@ export function ExitPlanCard({
   }
 
   return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm ring-1 ring-white/45">
+    <div className="brevyn-status-card-info rounded-2xl p-4">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-background text-blue-700">
+        <div className="brevyn-status-icon-info mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl">
           <ShieldAlert className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -246,11 +246,11 @@ export function ExitPlanCard({
           </p>
           {request.allowedPrompts.length > 0 && (
             <div className="mt-3 rounded-xl border bg-background/82 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">Requested execution scope</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--status-info))]">Requested execution scope</p>
               <div className="mt-2 space-y-1.5">
                 {request.allowedPrompts.map((prompt, index) => (
                   <div key={`${prompt.tool}-${prompt.prompt}-${index}`} className="flex items-start gap-2 text-xs leading-5 text-foreground">
-                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--status-info))]" />
                     <span className="min-w-0 break-words">{prompt.tool}: {prompt.prompt}</span>
                   </div>
                 ))}
@@ -261,14 +261,14 @@ export function ExitPlanCard({
             <textarea
               value={feedback}
               rows={2}
-              className="mt-3 w-full resize-none rounded-xl border bg-background/82 px-3 py-2 text-xs leading-5 text-foreground outline-none transition focus:border-blue-300"
+              className="mt-3 w-full resize-none rounded-xl border border-border/70 bg-background/82 px-3 py-2 text-xs leading-5 text-foreground outline-none transition focus:border-[hsl(var(--status-info)/0.45)]"
               placeholder="Optional feedback if you want Brevyn to revise the plan..."
               onChange={(event) => setFeedback(event.target.value)}
             />
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {resolved ? (
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--foreground)/0.055)] px-3 text-xs font-medium text-muted-foreground">
                 <Check className="h-3.5 w-3.5" />
                 {decision === "approve" ? "Approved" : "Sent back"}
               </span>
@@ -286,7 +286,7 @@ export function ExitPlanCard({
                 <button
                   type="button"
                   disabled={Boolean(pending)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--foreground)/0.06)] px-3 text-xs font-medium text-foreground transition hover:bg-[hsl(var(--foreground)/0.09)] disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => void resolvePlan("deny")}
                 >
                   {pending === "deny" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}

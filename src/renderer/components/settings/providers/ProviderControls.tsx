@@ -48,7 +48,7 @@ export function ProviderProfileRow({
   const official = isOfficialProvider(provider);
   return (
     <div className={cx("group flex items-center gap-2 rounded-lg border p-2 transition-colors", PROVIDER_PROFILE_ROW_HEIGHT_CLASS, active ? "bg-muted text-foreground ring-1 ring-border/70" : "bg-card text-muted-foreground hover:text-foreground")}>
-      <img src={logo} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-border/45 bg-background object-contain p-1 shadow-sm" />
+      <img src={logo} alt="" className="brevyn-model-logo-tile h-8 w-8 shrink-0 rounded-lg object-contain p-1" />
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="block truncate text-xs font-semibold" title={provider.name}>{displayName}</span>
         <span className="mt-0.5 block truncate text-[10px]">
@@ -174,7 +174,7 @@ export function ModelPicker({
               disabled={disabled}
               onClick={() => onPick(model)}
             >
-              <span className={cx("relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", selected ? "border-emerald-200 bg-white" : "border-border/55 bg-background")}>
+              <span className="brevyn-model-logo-tile relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md">
                 <img src={resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind })} alt="" className="h-4.5 w-4.5 object-contain" />
               </span>
               <span className="min-w-0 flex-1">
@@ -306,7 +306,7 @@ function ModelTransferRow({
   const logo = resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind });
   return (
     <div className={cx("grid min-w-0 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-emerald-300 bg-emerald-50/70 text-foreground ring-1 ring-emerald-100" : "border-border/55 bg-card text-muted-foreground")}>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/45 bg-background p-1 shadow-sm">
+      <span className="brevyn-model-logo-tile flex h-8 w-8 shrink-0 items-center justify-center rounded-lg p-1">
         <img src={logo} alt="" className="h-5 w-5 object-contain" />
       </span>
       <button type="button" className="min-w-0 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>

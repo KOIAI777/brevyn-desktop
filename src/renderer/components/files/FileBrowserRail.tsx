@@ -45,7 +45,7 @@ export function FileBrowserRail({
   const [actionError, setActionError] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
   const uploadDisabled = !course || Boolean(course.archivedAt);
-  const uploadTitle = !course ? "请先选择课程再上传文件" : course.archivedAt ? "请先恢复课程再上传文件" : "导入课程文件";
+  const uploadTitle = !course ? "请先选择课程再管理文件" : course.archivedAt ? "请先恢复课程再管理文件" : "打开课程管理";
   const collapseScopeKey = useMemo(() => fileCollapseScopeKey(course?.id, activeTask?.id), [activeTask?.id, course?.id]);
   const contextSections = useMemo(() => buildContextSections(files, course, activeTask), [activeTask, course, files]);
   const courseFileCount = useMemo(
@@ -413,9 +413,9 @@ function buildContextSections(files: WorkspaceFileNode[], course?: Course, activ
     return [
       {
         id: "semester-shared",
-        title: "学期共享",
-        subtitle: "Home 文件",
-        emptyLabel: "还没有学期共享文件。",
+        title: "学期资料",
+        subtitle: "当前学期",
+        emptyLabel: "还没有学期资料。",
         nodes: semesterSharedNodes,
       },
       {

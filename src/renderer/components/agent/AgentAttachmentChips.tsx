@@ -13,7 +13,7 @@ export function AttachmentChip({
 }) {
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-border/70 bg-background/70 py-1 pl-2 pr-1 text-[11px] font-medium text-foreground shadow-sm"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-xl bg-[hsl(var(--foreground)/0.06)] py-1 pl-2 pr-1 text-[11px] font-medium text-foreground"
       title={attachment.path}
     >
       <FileTypeIcon name={attachment.name} size={15} />

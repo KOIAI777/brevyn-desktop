@@ -239,7 +239,7 @@ export const AgentComposer = memo(function AgentComposer({
           />
         )}
         <div
-          className={`pointer-events-auto relative w-full min-w-0 rounded-[1.6rem] border p-2.5 shadow-[0_8px_22px_rgba(64,55,38,0.12)] [backface-visibility:hidden] [transform:translateZ(0)] ${
+          className={`pointer-events-auto relative w-full min-w-0 rounded-[1.65rem] p-3 [backface-visibility:hidden] [transform:translateZ(0)] ${
             draggingFiles
               ? "brevyn-composer-surface-dragging"
               : "brevyn-composer-surface"
@@ -317,7 +317,7 @@ export const AgentComposer = memo(function AgentComposer({
                 canQueueWhileRunning ? (
                   <button
                     type="submit"
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
+                    className="brevyn-composer-send inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
                     aria-label="Queue message"
                     title="加入待确认"
                   >
@@ -326,7 +326,7 @@ export const AgentComposer = memo(function AgentComposer({
                 ) : (
                   <button
                     type="button"
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03]"
+                    className="brevyn-composer-send inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition hover:scale-[1.03]"
                     onClick={() => void onStop()}
                     aria-label="Stop agent run"
                   >
@@ -336,7 +336,7 @@ export const AgentComposer = memo(function AgentComposer({
               ) : (
                 <button
                   type="submit"
-                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="brevyn-composer-send inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-45"
                   aria-label="Send message"
                 >
                   <Send className="h-4 w-4" />
@@ -353,7 +353,7 @@ export const AgentComposer = memo(function AgentComposer({
 function QueueToast({ message }: { message: string }) {
   return (
     <div className="pointer-events-none flex justify-center">
-      <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-900 shadow-[0_8px_22px_rgba(120,88,40,0.14)]">
+      <div className="brevyn-composer-toast rounded-full px-3 py-1.5 text-[11px] font-medium">
         {message}
       </div>
     </div>

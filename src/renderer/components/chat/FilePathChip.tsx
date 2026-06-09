@@ -109,7 +109,7 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
         void handleClick();
       }}
       onMouseDown={(event) => event.stopPropagation()}
-      className="not-prose inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-stone-300/55 bg-[#f8f3e8]/65 px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-stone-700 align-middle shadow-[0_1px_0_rgba(120,113,108,0.08)] transition hover:border-stone-400/65 hover:bg-[#f2eadb]/75 hover:text-stone-900 disabled:cursor-default disabled:hover:border-stone-300/55 disabled:hover:bg-[#f8f3e8]/65"
+      className="not-prose inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border/60 bg-[hsl(var(--surface-warm)/0.72)] px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-muted-foreground align-middle shadow-[0_1px_0_rgba(120,113,108,0.08)] transition hover:border-border hover:bg-accent/75 hover:text-foreground disabled:cursor-default disabled:hover:border-border/60 disabled:hover:bg-[hsl(var(--surface-warm)/0.72)]"
       title={filePath}
     >
       <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center self-center leading-none">

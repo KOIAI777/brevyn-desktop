@@ -1,6 +1,7 @@
 import { ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
 import { IPC_CHANNELS } from "../../types/ipc";
+import { applyThemePreference, currentThemeState, normalizeThemePreference } from "../services/app-theme";
 import type { IpcContext } from "./context";
 import { requireString } from "./validation";
 
@@ -9,6 +10,13 @@ export function registerAppIpc(ctx: IpcContext): void {
   if (!service) throw new Error("OpenWithService not available");
 
   ipcMain.handle(IPC_CHANNELS.appProfile, () => ctx.store.profile());
+
+  ipcMain.handle(IPC_CHANNELS.appTheme, () => currentThemeState(ctx.store.themePreference()));
+
+  ipcMain.handle(IPC_CHANNELS.appUpdateThemePreference, (_event, preference: unknown) => {
+    const nextPreference = ctx.store.updateThemePreference(normalizeThemePreference(preference));
+    return applyThemePreference(nextPreference);
+  });
 
   ipcMain.handle(IPC_CHANNELS.appUpdateProfile, (_event, input: unknown) => {
     const data = input && typeof input === "object" ? input as Record<string, unknown> : {};

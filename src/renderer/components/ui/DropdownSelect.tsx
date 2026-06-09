@@ -211,7 +211,7 @@ export function DropdownSelect({
             role="listbox"
             aria-labelledby={id}
             className={cx(
-              "fixed z-[70] overflow-hidden rounded-lg border bg-card shadow-2xl ring-1 ring-border/80",
+              "brevyn-popover-surface fixed z-[70] overflow-hidden rounded-[var(--radius-card)]",
               menuClassName,
             )}
             style={{ top: position.top, left: position.left, width: position.width, maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}
@@ -233,9 +233,9 @@ export function DropdownSelect({
                       className={cx(
                         "flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition",
                         selected
-                          ? "border-border/75 bg-[rgba(247,244,236,0.92)] text-foreground shadow-sm"
-                          : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
-                        highlighted && "ring-1 ring-foreground/10",
+                          ? "border-transparent bg-[hsl(var(--foreground)/0.07)] text-foreground"
+                          : "border-transparent text-muted-foreground hover:bg-[hsl(var(--foreground)/0.055)] hover:text-foreground",
+                        highlighted && "bg-[hsl(var(--foreground)/0.06)]",
                         option.disabled && "cursor-not-allowed opacity-45",
                       )}
                       style={{ minHeight: menuItemHeight }}

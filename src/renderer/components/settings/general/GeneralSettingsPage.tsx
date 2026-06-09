@@ -1,12 +1,12 @@
 import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
-import { Camera, ImagePlus, Languages } from "lucide-react";
+import { Camera, ImagePlus, Languages, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { ReadOnlyField } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
-import type { UserProfileSettings } from "@/types/domain";
+import type { AppThemePreference, AppThemeState, UserProfileSettings } from "@/types/domain";
 
 interface EmojiMartEmoji {
   native: string;
@@ -14,31 +14,46 @@ interface EmojiMartEmoji {
 
 export function GeneralSettingsPage({
   profile,
+  themeState,
   onProfileChange,
+  onThemeStateChange,
 }: {
   profile: UserProfileSettings;
+  themeState: AppThemeState;
   onProfileChange: (profile: UserProfileSettings) => void;
+  onThemeStateChange: (themeState: AppThemeState) => void;
 }) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(profileDisplayName(profile));
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [statusLine, setStatusLine] = useState("");
+  const [profileStatusLine, setProfileStatusLine] = useState("");
+  const [appearanceStatusLine, setAppearanceStatusLine] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setNameInput(profileDisplayName(profile));
-    setStatusLine("");
+    setProfileStatusLine("");
   }, [profile]);
 
   async function updateProfile(patch: Partial<UserProfileSettings>) {
     try {
       const nextProfile = await window.brevyn.app.updateProfile(patch);
       onProfileChange(nextProfile);
-      setStatusLine("个人信息已保存。");
+      setProfileStatusLine("个人信息已保存。");
       return true;
     } catch (error) {
-      setStatusLine(errorMessage(error, "保存个人信息失败。"));
+      setProfileStatusLine(errorMessage(error, "保存个人信息失败。"));
       return false;
+    }
+  }
+
+  async function updateThemePreference(preference: AppThemePreference) {
+    try {
+      const nextThemeState = await window.brevyn.app.updateThemePreference(preference);
+      onThemeStateChange(nextThemeState);
+      setAppearanceStatusLine("主题已更新。");
+    } catch (error) {
+      setAppearanceStatusLine(errorMessage(error, "保存主题失败。"));
     }
   }
 
@@ -50,7 +65,7 @@ export function GeneralSettingsPage({
   async function saveName() {
     const displayName = nameInput.trim();
     if (!displayName) {
-      setStatusLine("昵称不能为空。");
+      setProfileStatusLine("昵称不能为空。");
       return;
     }
     const saved = await updateProfile({ displayName });
@@ -166,9 +181,61 @@ export function GeneralSettingsPage({
           </div>
         </div>
 
-        {statusLine && (
-          <div className={cx("mt-3 text-[11px] font-medium", statusLine.includes("失败") || statusLine.includes("不能为空") ? "text-destructive" : "text-emerald-700")}>
-            {statusLine}
+        {profileStatusLine && (
+          <div className={cx("mt-3 text-[11px] font-medium", profileStatusLine.includes("失败") || profileStatusLine.includes("不能为空") ? "text-destructive" : "text-emerald-700")}>
+            {profileStatusLine}
+          </div>
+        )}
+      </section>
+
+      <section className="brevyn-panel-surface p-4">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-primary/10 text-primary">
+            <Monitor className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-foreground">界面外观</div>
+            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">设置应用主题，支持跟随 macOS 或手动固定。</div>
+          </div>
+        </div>
+
+        <div className="rounded-[var(--radius-card)] bg-background p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-foreground">主题</div>
+              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                {themeState.preference === "system" ? `跟随 macOS，当前为${themeState.effective === "dark" ? "深色" : "浅色"}` : "手动固定应用外观"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {THEME_OPTIONS.map((option) => {
+              const selected = themeState.preference === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cx(
+                    "flex min-h-[4.75rem] flex-col items-start justify-between rounded-[var(--radius-control)] px-3 py-2.5 text-left text-xs transition active:scale-[0.99]",
+                    selected ? "bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.45)]" : "bg-card text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.48)] hover:bg-accent hover:text-foreground",
+                  )}
+                  onClick={() => void updateThemePreference(option.value)}
+                >
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span className="font-semibold">{option.label}</span>
+                    <option.icon className="h-4 w-4" />
+                  </span>
+                  <span className="text-[10px] leading-4 text-muted-foreground">{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {appearanceStatusLine && (
+          <div className={cx("mt-3 text-[11px] font-medium", appearanceStatusLine.includes("失败") ? "text-destructive" : "text-emerald-700")}>
+            {appearanceStatusLine}
           </div>
         )}
       </section>
@@ -180,7 +247,7 @@ export function GeneralSettingsPage({
           </div>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-foreground">通用设置</div>
-            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">先放全局偏好入口，后面语言、外观和行为设置都可以收在这里。</div>
+            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">语言和基础行为设置放在这里。</div>
           </div>
         </div>
 
@@ -192,3 +259,29 @@ export function GeneralSettingsPage({
     </div>
   );
 }
+
+const THEME_OPTIONS: Array<{
+  value: AppThemePreference;
+  label: string;
+  description: string;
+  icon: typeof Monitor;
+}> = [
+  {
+    value: "system",
+    label: "跟随系统",
+    description: "随 macOS 自动切换",
+    icon: Monitor,
+  },
+  {
+    value: "light",
+    label: "浅色",
+    description: "固定暖白界面",
+    icon: Sun,
+  },
+  {
+    value: "dark",
+    label: "深色",
+    description: "固定黑色界面",
+    icon: Moon,
+  },
+];

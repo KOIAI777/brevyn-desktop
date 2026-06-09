@@ -5,7 +5,7 @@ const LONG_TOOL_TEXT_LINES = 180;
 
 export function ToolDetailsShell({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background/54 shadow-sm ring-1 ring-white/55 ${className}`}>
+    <div className={`min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background/54 shadow-sm ring-1 ring-border/35 ${className}`}>
       {children}
     </div>
   );
@@ -27,7 +27,7 @@ export function ToolCodeBlock({
 
   return (
     <div className="min-w-0 max-w-full overflow-hidden">
-      <pre className={`${maxHeight} max-w-full overflow-auto whitespace-pre-wrap break-words bg-[linear-gradient(135deg,rgba(255,252,244,0.94),rgba(244,238,224,0.86))] px-4 py-3 font-mono text-[12px] leading-6 text-stone-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] [contain:layout_paint_style] brevyn-scrollbar ${className}`}>
+      <pre className={`${maxHeight} max-w-full overflow-auto whitespace-pre-wrap break-words bg-[linear-gradient(135deg,hsl(var(--surface-warm)/0.94),hsl(var(--muted)/0.86))] px-4 py-3 font-mono text-[12px] leading-6 text-muted-foreground shadow-inner [contain:layout_paint_style] brevyn-scrollbar ${className}`}>
         {truncated ? preview : children}
       </pre>
       {truncated && (

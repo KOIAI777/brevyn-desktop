@@ -972,6 +972,9 @@ export interface AppSettings {
   agentGateway: {
     openAiResponsesEnabled: boolean;
   };
+  appearance: {
+    themePreference: AppThemePreference;
+  };
   profile: UserProfileSettings;
 }
 
@@ -984,6 +987,14 @@ export interface UserProfileSettings {
 export interface UserProfileUpdateInput {
   displayName?: string;
   avatarId?: string;
+}
+
+export type AppTheme = "light" | "dark";
+export type AppThemePreference = "system" | AppTheme;
+
+export interface AppThemeState {
+  preference: AppThemePreference;
+  effective: AppTheme;
 }
 
 export interface AgentGatewayStatus {
@@ -1440,6 +1451,9 @@ export interface BrevynAPI {
   app: {
     profile: () => Promise<UserProfileSettings>;
     updateProfile: (input: UserProfileUpdateInput) => Promise<UserProfileSettings>;
+    theme: () => Promise<AppThemeState>;
+    updateThemePreference: (preference: AppThemePreference) => Promise<AppThemeState>;
+    onThemeChanged: (callback: (theme: AppThemeState) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     revealPath: (path: string) => Promise<void>;
     openPathWith: (input: { path: string; optionId: string; appPath?: string }) => Promise<void>;

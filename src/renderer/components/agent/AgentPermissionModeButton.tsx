@@ -18,14 +18,14 @@ const MODE_COPY: Record<AgentPermissionMode, { label: string; description: strin
     label: "完全自动",
     description: "跳过权限确认，仅适合受信任工作区。",
     next: "计划模式",
-    tone: "text-amber-600",
+    tone: "text-[hsl(var(--status-warning))]",
     icon: ShieldAlert,
   },
   plan: {
     label: "计划模式",
     description: "只产出计划，不执行写入或命令。",
     next: "自动审批",
-    tone: "text-slate-600",
+    tone: "text-muted-foreground",
     icon: Map,
   },
 };
@@ -88,7 +88,7 @@ export function AgentPermissionModeButton({
         ref={buttonRef}
         disabled={running}
         onClick={cycleMode}
-        className={`inline-flex h-7 w-8 items-center justify-center rounded-full transition hover:bg-accent/70 disabled:cursor-not-allowed disabled:opacity-45 ${copy.tone}`}
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-[hsl(var(--foreground)/0.08)] disabled:cursor-not-allowed disabled:opacity-45 ${copy.tone}`}
         aria-label={copy.label}
         onMouseEnter={showPopover}
         onMouseLeave={hidePopoverSoon}
@@ -100,7 +100,7 @@ export function AgentPermissionModeButton({
       {open && createPortal(
         <div
           ref={popoverRef}
-          className="fixed z-[160] rounded-[var(--radius-card)] border border-border/70 bg-card text-[11px] text-muted-foreground shadow-[0_14px_34px_rgba(64,55,38,0.16)] transition-opacity duration-100"
+          className="brevyn-popover-surface fixed z-[160] rounded-[var(--radius-card)] text-[11px] text-muted-foreground transition-opacity duration-100"
           style={{ ...popover.style, maxHeight: undefined, opacity: popover.ready ? 1 : 0 }}
           onMouseEnter={showPopover}
           onMouseLeave={hidePopoverSoon}

@@ -23,13 +23,13 @@ export function QueuedMessageDock({
   const sendingLabel = running ? "追加中" : "发送中";
 
   return (
-    <div className="pointer-events-auto w-full rounded-2xl border border-white/60 bg-[hsl(var(--card))] px-3 py-2 shadow-[0_10px_24px_rgba(64,55,38,0.10)] ring-1 ring-border/30">
+    <div className="brevyn-composer-tray pointer-events-auto w-full rounded-2xl px-3 py-2">
       <div className="mb-1.5 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-foreground">待确认消息</p>
           <p className="text-[10px] text-muted-foreground">{helperText}</p>
         </div>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{messages.length}</span>
+        <span className="rounded-full bg-[hsl(var(--foreground)/0.065)] px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">{messages.length}</span>
       </div>
       <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
         {messages.map((message, index) => {
@@ -37,9 +37,9 @@ export function QueuedMessageDock({
           return (
             <div
               key={message.id}
-              className="group flex min-w-0 items-center gap-2 rounded-xl border border-transparent bg-background/48 px-2 py-1.5 text-[11px] transition hover:border-border/70 hover:bg-background/72"
+              className="group flex min-w-0 items-center gap-2 rounded-xl bg-[hsl(var(--foreground)/0.045)] px-2 py-1.5 text-[11px] transition hover:bg-[hsl(var(--foreground)/0.07)]"
             >
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--foreground)/0.07)] text-[10px] font-semibold text-muted-foreground">
                 {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : index + 1}
               </span>
               <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
@@ -69,7 +69,7 @@ export function QueuedMessageDock({
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-[hsl(var(--status-danger)/0.11)] hover:text-[hsl(var(--status-danger))] disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => onDelete(message.id)}
                   disabled={sending}
                   title="删除"

@@ -497,16 +497,15 @@ export class FileService {
     if (!semesterId) return [];
     this.refreshIndexingJobs();
     if (courseId === SEMESTER_HOME_COURSE_ID) {
-      const files = this.listFiles(courseId);
-      const leafFiles = flattenFiles(files);
+      const leafFiles = this.semesterSharedFiles(semesterId);
       const provider = this.embeddingProvider();
       return [
         {
           id: `${courseId}:shared`,
           courseId,
           kind: "course_shared",
-          title: "All semester files",
-          indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:shared`),
+          title: "学期资料",
+          indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:shared`, leafFiles),
           embeddingModel: provider?.selectedModel,
           files: leafFiles,
         },
@@ -524,7 +523,7 @@ export class FileService {
       courseId,
       kind: "lecture",
       title: "Lecture",
-      indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:lecture`),
+      indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:lecture`, lectureFiles),
       embeddingModel,
       files: lectureFiles,
     };
@@ -535,7 +534,7 @@ export class FileService {
       title: `${taskTypeLabel(task.taskType)} / ${task.title}`,
       taskId: task.id,
       taskType: task.taskType,
-      indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:task-${task.id}`),
+      indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:task-${task.id}`, leafFiles.filter((file) => file.taskId === task.id)),
       embeddingModel,
       files: leafFiles.filter((file) => file.taskId === task.id),
     }));
@@ -547,13 +546,20 @@ export class FileService {
         courseId,
         kind: "course_shared",
         title: "Course shared",
-        indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:shared`),
+        indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:shared`, sharedFiles),
         embeddingModel,
         files: sharedFiles,
       },
       lectureSection,
       ...taskSections,
     ];
+  }
+
+  private semesterSharedFiles(semesterId: string): WorkspaceFileNode[] {
+    const root = this.viewCourseRoots(SEMESTER_HOME_COURSE_ID, semesterId)[0];
+    if (!root) return [];
+    const sharedFolder = (root.children || []).find((file) => file.kind === "folder" && file.sectionKind === "course_shared");
+    return sharedFolder ? flattenFiles([sharedFolder]) : [];
   }
 
   indexCourseFiles(courseId: string, sectionId?: string): IndexingJob {
@@ -777,7 +783,7 @@ export class FileService {
     await this.options.ragIndex.rebuildOutdatedSchemaForExplicitReindex();
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) throw new Error("请先选择学期，再索引文件。");
-    const courses = new Map<string, string>([[SEMESTER_HOME_COURSE_ID, "Home"]]);
+    const courses = new Map<string, string>([[SEMESTER_HOME_COURSE_ID, "学期总览"]]);
     for (const course of this.options.businessStore.listCourses(semesterId)) {
       if (course.id !== SEMESTER_HOME_COURSE_ID && !course.archivedAt) courses.set(course.id, course.name || course.code || course.id);
     }
@@ -1155,11 +1161,17 @@ export class FileService {
     return undefined;
   }
 
-  private indexingStatusForSection(courseId: string, sectionId: string): IndexingJob["status"] {
+  private indexingStatusForSection(courseId: string, sectionId: string, files: WorkspaceFileNode[] = []): IndexingJob["status"] {
     const semesterId = currentActiveSemesterId(this.options.businessStore);
     if (!semesterId) return "idle";
     const job = this.options.businessStore.listIndexingJobs(semesterId, courseId).find((item) => item.sectionId === sectionId);
-    if (job) return job.status;
+    if (job && isActiveIndexingJob(job)) return job.status;
+    const indexableFiles = flattenFiles(files).filter(isIndexableWorkspaceFile);
+    if (indexableFiles.length === 0) return "idle";
+    if (indexableFiles.every((file) => file.indexingStatus === "indexed" || Boolean(file.indexedAt))) return "indexed";
+    if (indexableFiles.some((file) => file.indexingStatus === "failed")) return "failed";
+    if (indexableFiles.some((file) => file.indexingStatus === "cancelled")) return "cancelled";
+    if (job?.status === "failed" || job?.status === "cancelled") return job.status;
     return "idle";
   }
 

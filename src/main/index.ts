@@ -7,6 +7,7 @@ import { registerIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../types/ipc";
 import { DocumentEnhancedIndexingExecutor, IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
+import { applyThemePreference, currentWindowBackgroundColor, syncNativeTheme } from "./services/app-theme";
 import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
 import { WORKSPACE_FILE_PREVIEW_PROTOCOL } from "./services/file-service";
 import { isPathInside } from "./services/workspace-paths";
@@ -52,7 +53,7 @@ function createWindow(): void {
     show: false,
     title: "Brevyn",
     icon: iconPath,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0f14" : "#f7f7f4",
+    backgroundColor: currentWindowBackgroundColor(),
     trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
     vibrancy: isMac ? "under-window" : undefined,
@@ -120,6 +121,8 @@ function resolveAppIconPath(): string | undefined {
 }
 
 app.whenReady().then(() => {
+  nativeTheme.themeSource = "system";
+  nativeTheme.on("updated", () => syncNativeTheme(activeThemePreference()));
   Menu.setApplicationMenu(null);
   const dataRoot = brevynDataRoot();
   registerWorkspaceFilePreviewProtocol(dataRoot);
@@ -127,6 +130,7 @@ app.whenReady().then(() => {
   try {
     configureClaudeSdk(dataRoot);
     store = createLocalStore(dataRoot, { isPackaged: app.isPackaged });
+    applyThemePreference(store.themePreference());
     indexingQueue = new IndexingQueueService(store, new DocumentEnhancedIndexingExecutor(new WorkerThreadIndexingExecutor(), store.documentParser, store.ocr), {
       onQueueChanged: scheduleIndexingFilesChangedBroadcast,
     });
@@ -139,6 +143,7 @@ app.whenReady().then(() => {
     registerIpcHandlers({ store });
   }
   createWindow();
+  syncNativeTheme(activeThemePreference());
   initAutoUpdater();
   if (storeReady) {
     startBackgroundServicesAfterFirstPaint(dataRoot);
@@ -147,10 +152,19 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      syncNativeTheme(activeThemePreference());
       if (storeReady) startBackgroundServicesAfterFirstPaint(dataRoot);
     }
   });
 });
+
+function activeThemePreference() {
+  try {
+    return store?.themePreference() ?? "system";
+  } catch {
+    return "system";
+  }
+}
 
 function startBackgroundServicesAfterFirstPaint(dataRoot: string): void {
   const start = () => {

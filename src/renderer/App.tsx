@@ -1,11 +1,10 @@
 import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentAttachment, AgentPermissionMode, UserProfileSettings } from "@/types/domain";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { AgentAttachment, AgentPermissionMode, AppTheme, AppThemeState, UserProfileSettings } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseDashboard } from "@/components/courses/CourseDashboard";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { SemesterDashboard } from "@/components/courses/SemesterDashboard";
-import { CourseFilesUploadDialog } from "@/components/files/CourseFilesUploadDialog";
 import { FileBrowserRail } from "@/components/files/FileBrowserRail";
 import { FilePreviewRail } from "@/components/files/FilePreviewRail";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
@@ -20,6 +19,22 @@ import { SEMESTER_HOME_COURSE_ID, useWorkspaceSessionController } from "@/hooks/
 import { useAppDialogState } from "@/hooks/useAppDialogState";
 import { useWorkspacePreviewCoordinator } from "@/hooks/useWorkspacePreviewCoordinator";
 
+function applyAppTheme(theme: AppTheme): void {
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+}
+
+function applyAppThemeState(state: AppThemeState): void {
+  applyAppTheme(state.effective);
+  window.localStorage.setItem("brevyn.themePreference", state.preference);
+}
+
+function preferredRendererTheme(): AppTheme {
+  const cachedPreference = window.localStorage.getItem("brevyn.themePreference");
+  if (cachedPreference === "light" || cachedPreference === "dark") return cachedPreference;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 function App() {
   const contentGridRef = useRef<HTMLDivElement | null>(null);
   const fileStateRef = useRef<ReturnType<typeof useWorkspaceFilesState> | null>(null);
@@ -27,6 +42,7 @@ function App() {
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
   const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Koi", avatarId: "🧑‍💻" });
+  const [themeState, setThemeState] = useState<AppThemeState>({ preference: "system", effective: preferredRendererTheme() });
 
   const dialogs = useAppDialogState();
   const layoutState = useWorkspaceLayoutState({ contentGridRef });
@@ -73,12 +89,35 @@ function App() {
     onThreadUpdated: workspace.applyThreadUpdate,
   });
   const previewCoordinator = useWorkspacePreviewCoordinator({
-    importCourseFiles: fileState.importCourseFiles,
     setFileRailCollapsed: layoutState.setFileRailCollapsed,
     setPreviewRailCollapsed: layoutState.setPreviewRailCollapsed,
   });
   fileStateRef.current = fileState;
   agentSessionRef.current = agentSession;
+
+  const handleThemeStateChange = useCallback((state: AppThemeState) => {
+    setThemeState(state);
+    applyAppThemeState(state);
+  }, []);
+
+  useLayoutEffect(() => {
+    let mounted = true;
+    applyAppTheme(preferredRendererTheme());
+    void window.brevyn.app.theme()
+      .then((state) => {
+        if (!mounted) return;
+        handleThemeStateChange(state);
+      })
+      .catch(() => undefined);
+    const unsubscribe = window.brevyn.app.onThemeChanged((state) => {
+      if (!mounted) return;
+      handleThemeStateChange(state);
+    });
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [handleThemeStateChange]);
 
   useEffect(() => () => {
     if (previewErrorTimeoutRef.current !== null) {
@@ -308,7 +347,7 @@ function App() {
                           void workspace.createThread(workspace.activeCourse?.id || SEMESTER_HOME_COURSE_ID, workspace.activeTask?.id);
                         }}
                       >
-                        {workspace.needsSemesterSelection ? "Select semester" : workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "Create Home session" : "Select a task to create session"}
+                        {workspace.needsSemesterSelection ? "Select semester" : workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "创建学期会话" : "Select a task to create session"}
                       </button>
                     </>
                   )}
@@ -344,7 +383,7 @@ function App() {
             }}
             onOpenUpload={() => {
               if (workspace.activeCourse?.archivedAt) return;
-              dialogs.openCourseFilesUpload();
+              dialogs.openCourses();
             }}
             resizing={layoutState.resizingRail === "files"}
             onResizeStart={(event) => layoutState.startRailResize("files", event)}
@@ -358,9 +397,11 @@ function App() {
           course={workspace.activeCourse}
           semester={workspace.semester}
           profile={profile}
+          themeState={themeState}
           skills={workspace.skills}
           gitStatus={workspace.gitStatus}
           onProfileChange={setProfile}
+          onThemeStateChange={handleThemeStateChange}
           onSkillsChange={workspace.setSkills}
           onWorkspaceChanged={async () => {
             await workspace.reloadWorkspace(workspace.activeThreadId);
@@ -376,7 +417,7 @@ function App() {
       {dialogs.coursesOpen && (
         <CourseManagementDialog
           semester={workspace.semester}
-          courses={workspace.courses.filter((course) => course.workspaceKind !== "semester_home")}
+          courses={workspace.courses}
           activeCourseId={workspace.activeCourseId}
           onCourseCreated={workspace.handleCourseCreated}
           onCourseUpdated={workspace.handleCourseUpdated}
@@ -396,17 +437,6 @@ function App() {
             await workspace.reloadWorkspace();
           }}
           onClose={dialogs.closeTimetable}
-        />
-      )}
-      {dialogs.courseFilesUploadOpen && (
-        <CourseFilesUploadDialog
-          course={workspace.activeCourse}
-          semester={workspace.semester}
-          courses={workspace.courses}
-          tasksByCourse={workspace.tasksByCourse}
-          activeTaskId={workspace.activeTaskId}
-          onClose={dialogs.closeCourseFilesUpload}
-          onImportFiles={previewCoordinator.importCourseFilesAndReveal}
         />
       )}
     </div>

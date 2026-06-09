@@ -52,7 +52,7 @@ export function ProcessTimelinePanel({
           <span className="transition-opacity duration-300">{summary.label}</span>
         )}
         {summary.permissionMode && !isThinkingOnly && (
-          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${permissionModeBadgeClass(summary.permissionMode)}`}>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${permissionModeBadgeClass(summary.permissionMode)}`}>
             {permissionModeLabel(summary.permissionMode)}
           </span>
         )}
@@ -73,7 +73,7 @@ function permissionModeLabel(mode: AgentPermissionMode): string {
 }
 
 function permissionModeBadgeClass(mode: AgentPermissionMode): string {
-  if (mode === "bypassPermissions") return "border-amber-200 bg-amber-50 text-amber-800";
-  if (mode === "plan") return "border-slate-200 bg-slate-50 text-slate-700";
-  return "border-border bg-background/70 text-muted-foreground";
+  if (mode === "bypassPermissions") return "brevyn-status-pill-warning";
+  if (mode === "plan") return "bg-[hsl(var(--foreground)/0.06)] text-muted-foreground";
+  return "bg-[hsl(var(--foreground)/0.055)] text-muted-foreground";
 }

@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const cachedPreference = window.localStorage.getItem("brevyn.themePreference");
+        const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        const theme = cachedPreference === "light" || cachedPreference === "dark" ? cachedPreference : systemTheme;
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <title>Brevyn</title>
   </head>
   <body>

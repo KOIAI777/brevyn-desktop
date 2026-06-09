@@ -89,13 +89,13 @@ export function semesterHomeCourse(semester?: SemesterWorkspace | null): Course 
   return {
     id: SEMESTER_HOME_COURSE_ID,
     semesterId: semester?.id,
-    name: "Home TaskAgent",
+    name: "学期总览",
     code: semester?.semesterNo || "SEMESTER",
     term: semester?.term || "Spring 2026",
-    instructor: "Workspace",
+    instructor: "学期工作区",
     workspaceKind: "semester_home",
     color: "#111827",
-    description: "Semester-level TaskAgent that can see all course folders and route work into course/task workspaces.",
+    description: "学期级工作区，可查看所有课程文件，并把工作分流到课程或任务空间。",
   };
 }
 

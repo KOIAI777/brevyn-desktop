@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --background: 48 33% 97%;
     --foreground: 60 3% 8%;
     --card: 45 43% 98%;
@@ -45,6 +46,41 @@
     --status-info: 210 49% 61%;
   }
 
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --background: 0 0% 7%;
+    --foreground: 42 18% 92%;
+    --card: 0 0% 11%;
+    --card-foreground: 42 18% 92%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 42 18% 92%;
+    --primary: 18 62% 64%;
+    --primary-foreground: 0 0% 5%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 42 16% 88%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 42 9% 68%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 42 18% 90%;
+    --destructive: 0 62% 58%;
+    --destructive-foreground: 42 34% 94%;
+    --border: 0 0% 24%;
+    --input: 0 0% 24%;
+    --ring: 18 62% 64%;
+    --shadow-window: 0 30px 90px rgba(0, 0, 0, 0.54), 0 0 0 1px rgba(255, 255, 255, 0.055);
+    --shadow-panel: 0 20px 54px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.045);
+    --shadow-card: 0 14px 34px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    --shadow-control: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --surface-warm: 0 0% 13%;
+    --surface-chrome: 0 0% 12%;
+    --surface-panel: 0 0% 9%;
+    --brand-glow: 18 62% 64%;
+    --status-success: 151 45% 57%;
+    --status-warning: 36 72% 58%;
+    --status-danger: 0 62% 58%;
+    --status-info: 207 52% 66%;
+  }
+
   * {
     @apply border-border;
   }
@@ -66,6 +102,7 @@
       sans-serif;
     letter-spacing: 0;
     overflow: hidden;
+    transition: background-color 160ms ease, color 160ms ease;
   }
 
   button,
@@ -160,13 +197,179 @@
   }
 
   .brevyn-composer-surface {
-    background: hsl(var(--surface-warm));
-    border-color: hsl(var(--card) / 0.9);
+    background: hsl(var(--card) / 0.99);
+    box-shadow:
+      0 18px 44px rgba(64, 55, 38, 0.105),
+      inset 0 0 0 1px hsl(var(--foreground) / 0.075);
   }
 
   .brevyn-composer-surface-dragging {
-    background: hsl(var(--status-info) / 0.08);
-    border-color: hsl(var(--status-info) / 0.28);
+    background: hsl(var(--status-info) / 0.1);
+    box-shadow:
+      0 18px 44px rgba(64, 55, 38, 0.09),
+      inset 0 0 0 1px hsl(var(--status-info) / 0.32);
+  }
+
+  .brevyn-composer-tray {
+    background: hsl(var(--card) / 0.96);
+    box-shadow:
+      0 10px 26px rgba(64, 55, 38, 0.075),
+      inset 0 0 0 1px hsl(var(--foreground) / 0.065);
+  }
+
+  .brevyn-composer-float {
+    background: hsl(var(--card) / 0.985);
+    box-shadow:
+      0 16px 38px rgba(64, 55, 38, 0.105),
+      inset 0 0 0 1px hsl(var(--foreground) / 0.07);
+  }
+
+  .brevyn-composer-toast {
+    background: hsl(var(--status-warning) / 0.13);
+    color: hsl(var(--status-warning));
+    box-shadow:
+      0 8px 20px rgba(64, 55, 38, 0.08),
+      inset 0 0 0 1px hsl(var(--status-warning) / 0.2);
+  }
+
+  .brevyn-composer-send {
+    background: hsl(var(--foreground));
+    color: hsl(var(--background));
+    box-shadow: 0 8px 20px hsl(var(--foreground) / 0.13);
+  }
+
+  .brevyn-popover-surface {
+    background: hsl(var(--card));
+    box-shadow:
+      0 18px 42px rgba(64, 55, 38, 0.13),
+      inset 0 0 0 1px hsl(var(--foreground) / 0.07);
+  }
+
+  .brevyn-model-logo-tile {
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.08),
+      0 1px 2px rgba(64, 55, 38, 0.06);
+  }
+
+  .brevyn-status-pill-warning {
+    background: hsl(var(--status-warning) / 0.12);
+    color: hsl(var(--status-warning));
+    box-shadow: inset 0 0 0 1px hsl(var(--status-warning) / 0.18);
+  }
+
+  .brevyn-status-pill-success {
+    background: hsl(var(--status-success) / 0.12);
+    color: hsl(var(--status-success));
+    box-shadow: inset 0 0 0 1px hsl(var(--status-success) / 0.18);
+  }
+
+  .brevyn-status-pill-danger {
+    background: hsl(var(--status-danger) / 0.12);
+    color: hsl(var(--status-danger));
+    box-shadow: inset 0 0 0 1px hsl(var(--status-danger) / 0.18);
+  }
+
+  .brevyn-status-pill-info {
+    background: hsl(var(--status-info) / 0.12);
+    color: hsl(var(--status-info));
+    box-shadow: inset 0 0 0 1px hsl(var(--status-info) / 0.18);
+  }
+
+  .brevyn-status-card-warning {
+    background: hsl(var(--status-warning) / 0.09);
+    box-shadow: inset 0 0 0 1px hsl(var(--status-warning) / 0.18);
+  }
+
+  .brevyn-status-card-success {
+    background: hsl(var(--status-success) / 0.09);
+    box-shadow: inset 0 0 0 1px hsl(var(--status-success) / 0.18);
+  }
+
+  .brevyn-status-card-danger {
+    background: hsl(var(--status-danger) / 0.09);
+    box-shadow: inset 0 0 0 1px hsl(var(--status-danger) / 0.18);
+  }
+
+  .brevyn-status-card-info {
+    background: hsl(var(--status-info) / 0.09);
+    box-shadow: inset 0 0 0 1px hsl(var(--status-info) / 0.18);
+  }
+
+  .brevyn-status-icon-warning {
+    background: hsl(var(--status-warning) / 0.13);
+    color: hsl(var(--status-warning));
+  }
+
+  .brevyn-status-icon-success {
+    background: hsl(var(--status-success) / 0.13);
+    color: hsl(var(--status-success));
+  }
+
+  .brevyn-status-icon-danger {
+    background: hsl(var(--status-danger) / 0.13);
+    color: hsl(var(--status-danger));
+  }
+
+  .brevyn-status-icon-info {
+    background: hsl(var(--status-info) / 0.13);
+    color: hsl(var(--status-info));
+  }
+
+  :root[data-theme="dark"] .brevyn-composer-surface {
+    background: hsl(0 0% 15%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.062),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+
+  :root[data-theme="dark"] .brevyn-composer-surface-dragging {
+    background: hsl(var(--status-info) / 0.16);
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--status-info) / 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+
+  :root[data-theme="dark"] .brevyn-composer-tray {
+    background: hsl(0 0% 13%);
+    box-shadow:
+      0 12px 30px rgba(0, 0, 0, 0.28),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.055);
+  }
+
+  :root[data-theme="dark"] .brevyn-composer-float {
+    background: hsl(0 0% 14%);
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.34),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+
+  :root[data-theme="dark"] .brevyn-composer-toast {
+    background: hsl(var(--status-warning) / 0.14);
+    color: hsl(var(--status-warning));
+    box-shadow:
+      0 10px 24px rgba(0, 0, 0, 0.26),
+      inset 0 0 0 1px hsl(var(--status-warning) / 0.18);
+  }
+
+  :root[data-theme="dark"] .brevyn-composer-send {
+    background: hsl(0 0% 92%);
+    color: hsl(0 0% 6%);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  }
+
+  :root[data-theme="dark"] .brevyn-popover-surface {
+    background: hsl(0 0% 12%);
+    box-shadow:
+      0 18px 46px rgba(0, 0, 0, 0.38),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+
+  :root[data-theme="dark"] .brevyn-model-logo-tile {
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+      0 1px 2px rgba(0, 0, 0, 0.24);
   }
 
   .brevyn-window-surface {
