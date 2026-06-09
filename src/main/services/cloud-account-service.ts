@@ -354,9 +354,12 @@ export class CloudAccountService {
 
     let cloud = await this.refresh({ forceEntitlements: true, reason: "redeem" });
     let provider: ModelProviderConfig | undefined;
-    let providers: ModelProviderConfig[] | undefined;
+    const syncedProviders: ModelProviderConfig[] = [];
     let providerSyncStatus: CloudRedeemCodeResult["providerSyncStatus"];
-    let providerSyncDetail = "";
+    const providerSyncDetails: string[] = [];
+    let providerSyncFailed = false;
+    let providerSyncProvisioning = false;
+    let providerSyncSucceeded = false;
     const externalGroupId = positiveInteger(redeemed.result.redemption.externalGroupId);
 
     if (externalGroupId > 0 && redeemed.status !== "gateway_failed") {
@@ -364,14 +367,39 @@ export class CloudAccountService {
         const synced = await this.activateOfficialProvider({ externalGroupId });
         cloud = synced.cloud;
         provider = synced.provider;
-        providers = synced.providers;
-        providerSyncStatus = synced.status;
-        providerSyncDetail = synced.detail || "";
+        syncedProviders.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
+        providerSyncSucceeded = synced.status === "synced";
+        providerSyncProvisioning = providerSyncProvisioning || synced.status === "provisioning";
+        if (synced.detail) providerSyncDetails.push(synced.detail);
       } catch (error) {
-        providerSyncStatus = "failed";
-        providerSyncDetail = errorMessage(error);
+        providerSyncFailed = true;
+        providerSyncDetails.push(`兑换套餐同步失败：${errorMessage(error)}`);
+      }
+      try {
+        const synced = await this.syncOfficialCapabilityProviders();
+        if (synced) {
+          cloud = synced.cloud;
+          if (!provider) provider = synced.provider;
+          syncedProviders.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
+          providerSyncSucceeded = providerSyncSucceeded || synced.status === "synced";
+          providerSyncProvisioning = providerSyncProvisioning || synced.status === "provisioning";
+          if (synced.detail) providerSyncDetails.push(synced.detail);
+        }
+      } catch (error) {
+        providerSyncFailed = true;
+        providerSyncDetails.push(`官方能力同步失败：${errorMessage(error)}`);
       }
     }
+    if (providerSyncFailed && !providerSyncSucceeded && !providerSyncProvisioning) {
+      providerSyncStatus = "failed";
+    } else if (providerSyncProvisioning && !providerSyncSucceeded) {
+      providerSyncStatus = "provisioning";
+    } else if (providerSyncSucceeded || syncedProviders.length > 0) {
+      providerSyncStatus = "synced";
+    }
+    const providers = dedupeProvidersById(syncedProviders);
+    if (!provider && providers.length > 0) provider = providers.find((item) => item.purpose === "agent") ?? providers[0];
+    const providerSyncDetail = providerSyncDetails.filter(Boolean).join("；");
 
     return {
       status: stringValue(redeemed.status) || "ok",
@@ -379,7 +407,7 @@ export class CloudAccountService {
       result: sanitizeRedeemResult(redeemed.result),
       cloud,
       provider,
-      providers,
+      providers: providers.length > 0 ? providers : undefined,
       providerSyncStatus,
       providerSyncDetail,
     };
@@ -529,6 +557,47 @@ export class CloudAccountService {
       ...(this.data.entitlements?.balanceGroups ?? []),
       ...(this.data.entitlements?.subscriptionGroups ?? []),
     ].filter(hasOfficialCapability);
+  }
+
+  private async syncOfficialCapabilityProviders(): Promise<CloudOfficialProviderSyncResult | undefined> {
+    const groupIds: number[] = [];
+    const seen = new Set<number>();
+    for (const group of this.officialCapabilityGroups()) {
+      const externalGroupId = positiveInteger(group.externalGroupId);
+      if (externalGroupId <= 0 || seen.has(externalGroupId)) continue;
+      seen.add(externalGroupId);
+      groupIds.push(externalGroupId);
+    }
+    if (groupIds.length === 0) return undefined;
+
+    const providers: ModelProviderConfig[] = [];
+    const details: string[] = [];
+    const errors: string[] = [];
+    let status: CloudOfficialProviderSyncResult["status"] = "synced";
+    let cloud = this.status();
+    for (const externalGroupId of groupIds) {
+      try {
+        const synced = await this.syncOfficialProvider({ externalGroupId });
+        cloud = synced.cloud;
+        if (synced.status === "provisioning") status = "provisioning";
+        providers.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
+        if (synced.detail) details.push(synced.detail);
+      } catch (error) {
+        errors.push(`group #${externalGroupId}：${errorMessage(error)}`);
+      }
+    }
+    const deduped = dedupeProvidersById(providers);
+    if (deduped.length === 0 && errors.length > 0) {
+      throw new Error(errors.join("；"));
+    }
+    if (errors.length > 0) details.push(`部分官方能力同步失败：${errors.join("；")}`);
+    return {
+      status,
+      detail: details.join("；"),
+      provider: deduped.find((item) => item.purpose === "agent") ?? deduped[0],
+      providers: deduped,
+      cloud,
+    };
   }
 
   private async request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
@@ -766,6 +835,17 @@ function normalizeCloudProviderModels(models: unknown, selectedModel: string): P
   const selected = stringValue(selectedModel).trim();
   if (selected && !unique.has(selected)) unique.set(selected, { id: selected, name: selected, enabled: true });
   return [...unique.values()];
+}
+
+function dedupeProvidersById(providers: ModelProviderConfig[]): ModelProviderConfig[] {
+  const seen = new Set<string>();
+  const out: ModelProviderConfig[] = [];
+  for (const provider of providers) {
+    if (!provider.id || seen.has(provider.id)) continue;
+    seen.add(provider.id);
+    out.push(provider);
+  }
+  return out;
 }
 
 function selectedEnabledModel(selectedModel: string, models: ProviderModel[]): string {
