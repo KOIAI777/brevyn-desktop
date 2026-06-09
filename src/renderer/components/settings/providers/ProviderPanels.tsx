@@ -31,16 +31,23 @@ export function OfficialProviderPanel({
   }));
 
   return (
-    <section className="overflow-hidden rounded-lg border border-emerald-200/75 bg-[linear-gradient(135deg,rgba(236,253,245,0.92),rgba(255,255,255,0.78)_54%,rgba(240,253,244,0.78))] p-3 shadow-sm shadow-emerald-950/[0.03]">
+    <section
+      className={cx(
+        "overflow-hidden rounded-lg border p-3 shadow-sm ring-1",
+        enabled
+          ? "border-[hsl(var(--status-success)/0.26)] bg-[linear-gradient(135deg,hsl(var(--status-success)/0.13),hsl(var(--card)/0.94)_48%,hsl(var(--surface-warm)/0.76))] ring-[hsl(var(--status-success)/0.11)]"
+          : "border-border/70 bg-card/85 ring-border/35",
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-200 bg-white/80 text-emerald-700 shadow-sm">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--status-success)/0.24)] bg-[hsl(var(--status-success)/0.12)] text-[hsl(var(--status-success))] shadow-sm">
             <ShieldCheck className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-foreground">
               Brevyn 官方模型
-              <span className={cx("rounded-full px-1.5 py-0.5 text-[10px] font-medium", enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+              <span className={cx("rounded-full px-1.5 py-0.5 text-[10px] font-medium", enabled ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))] shadow-[inset_0_0_0_1px_hsl(var(--status-success)/0.18)]" : "bg-muted text-muted-foreground")}>
                 {enabled ? "已启用" : "已关闭"}
               </span>
             </div>
@@ -53,7 +60,7 @@ export function OfficialProviderPanel({
       </div>
 
       {primaryProvider ? (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/80 bg-white/65 p-2">
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/60 bg-background/62 p-2 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.035)]">
           <img src={getProviderProfileLogo(primaryProvider)} alt="" className="brevyn-model-logo-tile h-8 w-8 shrink-0 rounded-lg object-contain p-1" />
           <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onEdit(primaryProvider)} disabled={busy}>
             <span className="block truncate text-xs font-semibold text-foreground" title={providerDisplayName(primaryProvider)}>{providerDisplayName(primaryProvider)}</span>
@@ -64,7 +71,7 @@ export function OfficialProviderPanel({
           <IconActionButton icon={<Eye className="h-3.5 w-3.5" />} label="查看官方模型" onClick={() => onEdit(primaryProvider)} disabled={busy} />
         </div>
       ) : (
-        <div className="mt-3 rounded-lg border border-dashed border-emerald-200/80 bg-white/55 px-3 py-6 text-center text-xs text-muted-foreground">
+        <div className="mt-3 rounded-lg border border-dashed border-border/70 bg-background/50 px-3 py-6 text-center text-xs text-muted-foreground">
           账号同步后会在这里显示官方模型配置。
         </div>
       )}
@@ -77,7 +84,7 @@ export function OfficialProviderPanel({
               type="button"
               className={cx(
                 "inline-flex max-w-[190px] items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-60",
-                provider.enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-white/80 bg-white/55 text-muted-foreground hover:bg-white/80 hover:text-foreground",
+                provider.enabled ? "border-[hsl(var(--status-success)/0.26)] bg-[hsl(var(--status-success)/0.12)] text-[hsl(var(--status-success))]" : "border-border/60 bg-background/48 text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
               title={`${label} · ${(provider.models ?? []).length} 个模型`}
               disabled={busy}
@@ -169,7 +176,7 @@ export function AgentGatewayAdvancedPanel({
           type="button"
           className={cx(
             "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
-            enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+            enabled ? "border-[hsl(var(--status-success)/0.26)] bg-[hsl(var(--status-success)/0.12)] text-[hsl(var(--status-success))] hover:bg-[hsl(var(--status-success)/0.18)]" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
           )}
           onClick={() => onToggle(!enabled)}
           disabled={busy || status?.state === "starting" || status?.state === "stopping"}

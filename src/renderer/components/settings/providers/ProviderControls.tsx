@@ -82,7 +82,7 @@ export function ProviderSwitch({ enabled, label, onClick, disabled }: { enabled:
       onClick={onClick}
       className={cx(
         "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:cursor-not-allowed",
-        enabled ? "border-emerald-500 bg-emerald-500" : "border-border bg-muted hover:bg-muted/80",
+        enabled ? "border-[hsl(var(--status-success)/0.85)] bg-[hsl(var(--status-success))]" : "border-border bg-muted hover:bg-muted/80",
       )}
     >
       <span
@@ -168,8 +168,8 @@ export function ModelPicker({
                 disabled
                   ? "cursor-not-allowed border-border/45 bg-muted/35 text-muted-foreground/70"
                   : selected
-                    ? "border-emerald-300 bg-emerald-50/80 text-foreground shadow-sm ring-1 ring-emerald-100"
-                    : "border-border/55 bg-background text-muted-foreground hover:border-emerald-200 hover:bg-emerald-50/35 hover:text-foreground",
+                    ? "border-[hsl(var(--status-success)/0.32)] bg-[hsl(var(--status-success)/0.11)] text-foreground shadow-sm ring-1 ring-[hsl(var(--status-success)/0.16)]"
+                    : "border-border/55 bg-background text-muted-foreground hover:border-[hsl(var(--status-success)/0.24)] hover:bg-[hsl(var(--status-success)/0.08)] hover:text-foreground",
               )}
               disabled={disabled}
               onClick={() => onPick(model)}
@@ -179,9 +179,9 @@ export function ModelPicker({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium text-foreground">{model.name}</span>
-                <span className={cx("block truncate text-[10px]", selected ? "text-emerald-900/70" : "text-muted-foreground")}>{model.id}</span>
+                <span className={cx("block truncate text-[10px]", selected ? "text-[hsl(var(--status-success))]" : "text-muted-foreground")}>{model.id}</span>
                 {model.contextWindowTokens && (
-                  <span className={cx("mt-0.5 block text-[10px]", selected ? "text-emerald-900/65" : "text-muted-foreground")}>
+                  <span className={cx("mt-0.5 block text-[10px]", selected ? "text-[hsl(var(--status-success))]" : "text-muted-foreground")}>
                     {formatContextWindow(model.contextWindowTokens)} 上下文
                   </span>
                 )}
@@ -305,14 +305,14 @@ function ModelTransferRow({
   const contextWindowValue = model.contextWindowTokens ? model.contextWindowTokens.toLocaleString() : "";
   const logo = resolveModelProviderLogo({ modelId: model.id, baseUrl, providerKind });
   return (
-    <div className={cx("grid min-w-0 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-emerald-300 bg-emerald-50/70 text-foreground ring-1 ring-emerald-100" : "border-border/55 bg-card text-muted-foreground")}>
+    <div className={cx("grid min-w-0 grid-cols-[auto_minmax(0,1fr)_7.5rem_auto_auto] items-center gap-2 rounded-md border px-2 py-2 text-[11px] transition-colors", selected ? "border-[hsl(var(--status-success)/0.32)] bg-[hsl(var(--status-success)/0.1)] text-foreground ring-1 ring-[hsl(var(--status-success)/0.15)]" : "border-border/55 bg-card text-muted-foreground")}>
       <span className="brevyn-model-logo-tile flex h-8 w-8 shrink-0 items-center justify-center rounded-lg p-1">
         <img src={logo} alt="" className="h-5 w-5 object-contain" />
       </span>
       <button type="button" className="min-w-0 text-left" onClick={onMakeDefault} disabled={!onMakeDefault} title={model.id}>
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium text-foreground">{model.name}</span>
-          {selected && <span className="shrink-0 rounded-full border border-emerald-200 bg-white px-1.5 py-0.5 text-[9px] text-emerald-800">默认</span>}
+          {selected && <span className="shrink-0 rounded-full border border-[hsl(var(--status-success)/0.26)] bg-[hsl(var(--status-success)/0.12)] px-1.5 py-0.5 text-[9px] text-[hsl(var(--status-success))]">默认</span>}
         </span>
         <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{model.id}</span>
         <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">

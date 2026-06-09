@@ -270,7 +270,7 @@ export function ProviderSettingsPage({
                 {officialProviderGroupLabel(selectedProvider)}
               </div>
             </div>
-            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", draft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", draft.enabled ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))] shadow-[inset_0_0_0_1px_hsl(var(--status-success)/0.18)]" : "bg-muted text-muted-foreground")}>
               {draft.enabled ? "已启用" : "已关闭"}
             </span>
           </div>
@@ -311,7 +311,7 @@ export function ProviderSettingsPage({
                 {officialProviderGroupLabel(selectedEmbeddingProvider)}
               </div>
             </div>
-            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", embeddingDraft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", embeddingDraft.enabled ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))] shadow-[inset_0_0_0_1px_hsl(var(--status-success)/0.18)]" : "bg-muted text-muted-foreground")}>
               {embeddingDraft.enabled ? "已启用" : "已关闭"}
             </span>
           </div>
@@ -360,7 +360,7 @@ export function ProviderSettingsPage({
                 {officialProviderGroupLabel(selectedVisionProvider)}
               </div>
             </div>
-            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", visionDraft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", visionDraft.enabled ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))] shadow-[inset_0_0_0_1px_hsl(var(--status-success)/0.18)]" : "bg-muted text-muted-foreground")}>
               {visionDraft.enabled ? "已启用" : "已关闭"}
             </span>
           </div>
@@ -408,7 +408,7 @@ export function ProviderSettingsPage({
                 {officialProviderGroupLabel(selectedOcrProvider)}
               </div>
             </div>
-            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", ocrDraft.enabled ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
+            <span className={cx("shrink-0 rounded-full px-2 py-1 text-[10px] font-medium", ocrDraft.enabled ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))] shadow-[inset_0_0_0_1px_hsl(var(--status-success)/0.18)]" : "bg-muted text-muted-foreground")}>
               {ocrDraft.enabled ? "已启用" : "已关闭"}
             </span>
           </div>
@@ -631,7 +631,7 @@ export function ProviderSettingsPage({
             {embeddingProviders.length === 0 && <div className="rounded-lg border border-dashed bg-card px-3 py-8 text-center text-xs text-muted-foreground">暂无 Embedding 配置。新建后会显示在这里。</div>}
           </div>
           {embeddingReindexNotice && (
-            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+            <div className="mt-3 rounded-md border border-[hsl(var(--status-warning)/0.25)] bg-[hsl(var(--status-warning)/0.1)] px-3 py-2 text-[11px] leading-5 text-[hsl(var(--status-warning))]">
               <div className="flex gap-2">
                 <Database className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div className="min-w-0 flex-1">
@@ -640,7 +640,7 @@ export function ProviderSettingsPage({
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[hsl(var(--status-warning)/0.28)] bg-[hsl(var(--status-warning)/0.12)] px-2 text-[10px] font-medium text-[hsl(var(--status-warning))] transition hover:bg-[hsl(var(--status-warning)/0.18)] disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={reindexingActiveSemester}
                       onClick={onReindexActiveSemester}
                     >
@@ -649,7 +649,7 @@ export function ProviderSettingsPage({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-medium text-amber-900 transition hover:bg-amber-100"
+                      className="inline-flex h-7 items-center rounded-md px-2 text-[10px] font-medium text-[hsl(var(--status-warning))] transition hover:bg-[hsl(var(--status-warning)/0.14)]"
                       onClick={onDismissEmbeddingReindexNotice}
                     >
                       稍后

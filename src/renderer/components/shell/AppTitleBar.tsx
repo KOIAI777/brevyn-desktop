@@ -2,6 +2,7 @@ import { CalendarDays, Eye, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 import type { SemesterWorkspace } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { parseDateOnly, semesterWeekNumberForDate } from "../../../shared/semester-weeks";
 
 export function AppTitleBar({
   semester,
@@ -16,6 +17,10 @@ export function AppTitleBar({
   onToggleFileRail: () => void;
   onTogglePreviewRail: () => void;
 }) {
+  const today = new Date();
+  const currentWeek = semester ? semesterWeekNumberForDate(semester, today) : undefined;
+  const semesterStateLabel = semester ? getSemesterStateLabel(semester, today, currentWeek) : undefined;
+
   return (
     <header className="drag-region flex h-12 shrink-0 items-center border-b border-border/60 bg-card px-3 text-foreground">
       <div className="w-20 shrink-0" />
@@ -27,6 +32,11 @@ export function AppTitleBar({
         >
           <CalendarDays className="h-4 w-4 text-muted-foreground" />
           <span className="max-w-[128px] truncate">{semester.term}</span>
+          {semesterStateLabel && (
+            <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+              {semesterStateLabel}
+            </span>
+          )}
         </div>
       )}
       <div className="no-drag ml-auto flex shrink-0 items-center gap-1.5">
@@ -49,6 +59,16 @@ export function AppTitleBar({
       </div>
     </header>
   );
+}
+
+function getSemesterStateLabel(semester: SemesterWorkspace, today: Date, currentWeek?: number): string | undefined {
+  if (currentWeek) return `第 ${currentWeek} 周`;
+  const start = parseDateOnly(semester.startsAt);
+  const end = parseDateOnly(semester.endsAt);
+  if (!start || !end) return undefined;
+  if (today < start) return "未开始";
+  if (today > end) return "已结束";
+  return undefined;
 }
 
 function TitleBarIconButton({

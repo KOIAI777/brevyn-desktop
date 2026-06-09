@@ -188,7 +188,7 @@ export function CourseDashboard({
             </div>
           ) : (
             <div className="rounded-xl border border-dashed bg-background/65 px-4 py-6 text-center text-xs leading-5 text-muted-foreground">
-              还没有课件文件。可以从文件栏或课程管理里上传每周课程材料。
+              还没有课件文件。可以从文件栏或我的课程里上传每周课程材料。
             </div>
           )}
         </section>

@@ -5,10 +5,10 @@ import {
   FileText,
   Gavel,
   Globe2,
-  GraduationCap,
   Landmark,
   Library,
   Microscope,
+  NotebookTabs,
   Presentation,
   Scale,
 } from "lucide-react";
@@ -18,7 +18,7 @@ import type { Course, CourseIconKey } from "@/types/domain";
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
 export const COURSE_ICON_OPTIONS: Array<{ key: CourseIconKey; label: string; Icon: IconComponent }> = [
-  { key: "graduation-cap", label: "学术", Icon: GraduationCap },
+  { key: "graduation-cap", label: "课程", Icon: NotebookTabs },
   { key: "book-open", label: "阅读", Icon: BookOpen },
   { key: "scale", label: "法律", Icon: Scale },
   { key: "landmark", label: "学院", Icon: Landmark },
@@ -35,6 +35,6 @@ export const COURSE_ICON_OPTIONS: Array<{ key: CourseIconKey; label: string; Ico
 const iconMap = new Map<CourseIconKey, IconComponent>(COURSE_ICON_OPTIONS.map((option) => [option.key, option.Icon]));
 
 export function CourseIcon({ course, className }: { course: Pick<Course, "icon">; className?: string }) {
-  const Icon = course.icon ? iconMap.get(course.icon) || GraduationCap : GraduationCap;
+  const Icon = course.icon ? iconMap.get(course.icon) || NotebookTabs : NotebookTabs;
   return <Icon className={className} />;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, CalendarDays, ChevronRight, GraduationCap, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
+import { Archive, CalendarDays, ChevronRight, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
@@ -75,7 +75,7 @@ export function WorkspaceSidebar({
   async function archiveTaskFromSidebar(task: BrevynTask) {
     const ok = await confirm({
       title: `归档「${task.title}」？`,
-      message: "该任务和它的会话会从侧边栏隐藏，文件不会删除。你可以在课程管理里恢复。",
+      message: "该任务和它的会话会从侧边栏隐藏，文件不会删除。你可以在我的课程里恢复。",
       confirmLabel: "归档",
       cancelLabel: "保留",
     });
@@ -133,7 +133,7 @@ export function WorkspaceSidebar({
           <CalendarDays className="h-4 w-4" />
         </button>
         <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenCourses} title="Courses">
-          <GraduationCap className="h-4 w-4" />
+          <NotebookTabs className="h-4 w-4" />
         </button>
         <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenSettings} title="Settings">
           <Settings className="h-4 w-4" />
@@ -204,7 +204,7 @@ export function WorkspaceSidebar({
                 }}
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-foreground text-background">
-                  <GraduationCap className="h-3.5 w-3.5" />
+                  <NotebookTabs className="h-3.5 w-3.5" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{homeCourseLabel}</span>
@@ -369,7 +369,7 @@ export function WorkspaceSidebar({
       <div className="px-3 pb-3 pt-2 shadow-[inset_0_1px_0_hsl(var(--border)/0.45)]">
         <div className="flex items-center justify-around gap-2">
           <SidebarFooterIconButton icon={<CalendarDays className="h-4 w-4" />} title="Timetable" onClick={onOpenTimetable} />
-          <SidebarFooterIconButton icon={<GraduationCap className="h-4 w-4" />} title="Courses" onClick={onOpenCourses} />
+          <SidebarFooterIconButton icon={<NotebookTabs className="h-4 w-4" />} title="Courses" onClick={onOpenCourses} />
           <SidebarFooterIconButton icon={<Settings className="h-4 w-4" />} title="Settings" onClick={onOpenSettings} />
         </div>
       </div>

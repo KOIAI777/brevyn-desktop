@@ -1,4 +1,4 @@
-import { ArrowRight, BarChart3, BookOpen, CalendarDays, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowRight, BarChart3, CalendarDays, MessageSquare, NotebookTabs, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import type { BrevynTask, Course, FileStats, SemesterWorkspace, Thread, WorkspaceFileNode } from "@/types/domain";
 import { CourseIcon } from "@/components/courses/CourseIcon";
@@ -72,7 +72,7 @@ export function SemesterDashboard({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
                 onClick={onOpenHomeSession}
               >
-                打开跨课程会话
+                询问本学期
                 <ArrowRight className="h-3.5 w-3.5" />
               </button>
               <button
@@ -80,8 +80,8 @@ export function SemesterDashboard({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={onOpenCourses}
               >
-                <BookOpen className="h-3.5 w-3.5" />
-                管理课程
+                <NotebookTabs className="h-3.5 w-3.5" />
+                我的课程
               </button>
             </div>
           </div>
@@ -132,7 +132,7 @@ export function SemesterDashboard({
               </button>
             ) : (
               <div className="mt-3 rounded-xl border border-dashed bg-background/65 p-4 text-xs leading-5 text-muted-foreground">
-                还没有活跃任务。可以从课程管理里创建任务，或先打开跨课程会话做本周规划。
+                还没有活跃任务。可以从我的课程里创建任务，或先询问本学期做本周规划。
               </div>
             )}
             <button
@@ -141,7 +141,7 @@ export function SemesterDashboard({
               onClick={onOpenHomeSession}
             >
               <MessageSquare className="h-3.5 w-3.5" />
-              {homeThread ? "打开学期会话" : "创建学期会话"}
+              询问本学期
             </button>
           </section>
         </div>
@@ -150,7 +150,7 @@ export function SemesterDashboard({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold">
-                <CalendarDays className="h-4 w-4" />
+                <NotebookTabs className="h-4 w-4" />
                 课程状态
               </div>
             </div>
@@ -188,7 +188,7 @@ export function SemesterDashboard({
             </div>
           ) : (
             <div className="rounded-xl border border-dashed bg-background/65 px-4 py-8 text-center text-xs leading-5 text-muted-foreground">
-              当前学期还没有课程。先在课程管理里添加课程。
+              当前学期还没有课程。先在我的课程里添加课程。
             </div>
           )}
         </section>

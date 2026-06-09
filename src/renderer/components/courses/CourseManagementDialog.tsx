@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Layers3,
   Loader2,
+  NotebookTabs,
   Pencil,
   Plus,
   RefreshCw,
@@ -31,6 +32,7 @@ import { VisionRecognitionImportButton } from "@/components/vision/VisionRecogni
 import { lectureWeekNumberFromPath, semesterWeekNumbers } from "../../../shared/semester-weeks";
 
 const DEFAULT_TASK_TYPE = "作业";
+const TASK_TYPE_PRESETS: TaskType[] = ["作业", "Essay", "Presentation", "Exam", "Project"];
 const RAG_RESULTS_PAGE_SIZE = 5;
 const MAX_LECTURE_WEEK_OPTIONS = 30;
 const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
@@ -83,7 +85,7 @@ export function CourseManagementDialog({
   const activeCourse = displayedCourses.find((course) => course.id === viewingCourseId);
   const activeCourseArchived = Boolean(activeCourse?.archivedAt);
   const activeCourseIsSemesterHome = activeCourse?.workspaceKind === "semester_home";
-  const courseReadOnlyReason = !activeCourse ? "请先选择课程，再修改文件、任务、索引或向量搜索。" : activeCourseArchived ? "请先恢复课程，再修改文件、任务、索引或向量搜索。" : "";
+  const courseReadOnlyReason = !activeCourse ? "请先选择课程。" : activeCourseArchived ? "请先恢复课程，再继续编辑。" : "";
   const [sections, setSections] = useState<CourseFileSection[]>([]);
   const [indexingSectionId, setIndexingSectionId] = useState("");
   const [indexingJobs, setIndexingJobs] = useState<IndexingJob[]>([]);
@@ -124,9 +126,7 @@ export function CourseManagementDialog({
   const foundationSections = useMemo(() => sections.filter((section) => section.kind !== "task"), [sections]);
   const taskSections = useMemo(() => sections.filter((section) => section.kind === "task"), [sections]);
   const hasActiveIndexingJob = useMemo(() => indexingJobs.some((job) => job.status === "queued" || job.status === "indexing"), [indexingJobs]);
-  const foundationSectionDetail = activeCourse?.workspaceKind === "semester_home"
-    ? "学期资料和 Lecture 是固定分区，适合放当前学期共用资料。"
-    : "课程共享和 Lecture 是固定分区，适合放 syllabus、课件和全课共用资料。";
+  const activeCourseMeta = activeCourse ? courseMetaItems(activeCourse) : [];
 
   useEffect(() => {
     void loadArchivedCourses();
@@ -523,31 +523,33 @@ export function CourseManagementDialog({
         <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <BookOpen className="h-4 w-4" />
-              课程管理
+              <NotebookTabs className="h-4 w-4" />
+              我的课程
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">课程识别、文件整理、任务分区和向量索引</div>
+            <div className="truncate text-[11px] text-muted-foreground">课程、资料、任务</div>
           </div>
           <button
             type="button"
             className="no-drag flex h-8 w-8 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.06] transition hover:bg-background hover:text-foreground active:scale-[0.98]"
             onClick={onClose}
-            title="关闭课程管理"
+            title="关闭我的课程"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-[360px_1fr]">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 md:grid-cols-[320px_1fr]">
           <aside className="min-h-0 space-y-3 overflow-y-auto pr-1 brevyn-scrollbar">
             <section className="rounded-[var(--radius-card)] bg-background/70 p-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <button
                 type="button"
-                className="flex w-full items-center justify-between rounded-[var(--radius-control)] px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                className="flex w-full items-center justify-between rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={() => setShowArchived((value) => !value)}
               >
-                <span>{showArchived ? "显示已归档课程" : "仅显示活跃课程"}</span>
-                <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px]">{archivedCourses.length} 已归档</span>
+                <span className="font-medium text-foreground">课程</span>
+                <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px]">
+                  {showArchived ? "含归档" : `${archivedCourses.length} 归档`}
+                </span>
               </button>
             </section>
             {courseActionError && (
@@ -580,26 +582,26 @@ export function CourseManagementDialog({
                   disabled={!canCreateCourse}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  新建课程
+                  添加课程
                 </button>
               ) : (
                 <div className="p-1">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs font-semibold">
                       <Plus className="h-3.5 w-3.5" />
-                      新建课程
+                      添加课程
                     </div>
                     <button
                       type="button"
                       className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground"
                       onClick={() => setShowCreateCourse(false)}
-                      title="收起新建课程"
+                      title="收起添加课程"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                   <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                    <span>课程名称</span>
+                    <span>名称</span>
                     <input
                       className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                       value={newCourseName}
@@ -608,7 +610,7 @@ export function CourseManagementDialog({
                     />
                   </label>
                   <label className="mb-2 block space-y-1 text-[11px] text-muted-foreground">
-                    <span>课程代码</span>
+                    <span>代码</span>
                     <input
                       className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring/20"
                       value={newCourseCode}
@@ -638,7 +640,7 @@ export function CourseManagementDialog({
                     disabled={creatingCourse || !canCreateCourse}
                   >
                     {creatingCourse ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                    {creatingCourse ? "正在创建..." : "创建课程"}
+                    {creatingCourse ? "正在添加..." : "添加课程"}
                   </button>
                   <VisionRecognitionImportButton
                     kind="course_timetable"
@@ -658,14 +660,22 @@ export function CourseManagementDialog({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">{activeCourse?.name || "未选择课程"}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {activeCourse?.code || "Brevyn"} · {activeCourse?.term || "本地"} · {activeCourse?.instructor || "教师待定"}
-                </div>
-                <div className="mt-1 truncate text-[11px] text-muted-foreground/80">
-                  {activeCourse?.meetingTime || "时间待定"} · {activeCourse?.location || "地点待定"}
-                </div>
+                {activeCourseMeta.length > 0 && (
+                  <div className="mt-2 flex max-w-full flex-wrap gap-1.5">
+                    {activeCourseMeta.map((item) => (
+                      <span key={item} className="max-w-[14rem] truncate rounded-[var(--radius-badge)] bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
+                {coursePanel !== "files" && (
+                  <CoursePanelIconButton active={false} icon={<FolderOpen className="h-3.5 w-3.5" />} label="返回资料" onClick={() => setCoursePanel("files")} />
+                )}
+                <CoursePanelIconButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="索引" onClick={() => setCoursePanel("indexing")} />
+                <CoursePanelIconButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="搜索" onClick={() => setCoursePanel("search")} />
                 <button
                   type="button"
                   className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border bg-card px-2.5 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -676,7 +686,7 @@ export function CourseManagementDialog({
                   disabled={!activeCourse?.id || activeCourseArchived || activeCourseIsSemesterHome || savingCourseDetails}
                 >
                   <Pencil className="h-3.5 w-3.5" />
-                  详情
+                  编辑
                 </button>
               </div>
             </div>
@@ -780,23 +790,16 @@ export function CourseManagementDialog({
             )}
 
             <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="mb-3 flex shrink-0 flex-wrap items-center gap-1 rounded-[var(--radius-control)] bg-card p-1 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
-                <CoursePanelButton active={coursePanel === "files"} icon={<FolderOpen className="h-3.5 w-3.5" />} label="文件" onClick={() => setCoursePanel("files")} />
-                <CoursePanelButton active={coursePanel === "indexing"} icon={<Database className="h-3.5 w-3.5" />} label="索引" onClick={() => setCoursePanel("indexing")} />
-                <CoursePanelButton active={coursePanel === "search"} icon={<Search className="h-3.5 w-3.5" />} label="向量搜索" onClick={() => setCoursePanel("search")} />
-              </div>
-
               {!activeCourse && (
                 <div className="min-h-0 flex-1 rounded-[var(--radius-card)] border border-dashed bg-card px-4 py-10 text-center text-xs leading-5 text-muted-foreground">
-                  请先从左侧选择课程，再查看文件、任务、索引任务或向量搜索。
+                  从左侧选择一门课程。
                 </div>
               )}
 
               {activeCourse && coursePanel === "files" && (
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
                   <CourseSectionGroupHeader
-                    title="基础资料"
-                    detail={foundationSectionDetail}
+                    title={activeCourseIsSemesterHome ? "学期资料" : "课程资料"}
                   />
                   {foundationSections.map((section) => (
                     <SectionCard
@@ -815,14 +818,8 @@ export function CourseManagementDialog({
                   {!activeCourseIsSemesterHome && (
                     <>
                       <CourseSectionGroupHeader
-                        title="任务分区"
-                        detail="每个任务都有自己的 Materials、Drafts 和 Submitted 工作区。"
+                        title="课程作业"
                       />
-                      {taskSections.length === 0 && (
-                        <div className="rounded-[var(--radius-card)] border border-dashed bg-card/70 px-3 py-5 text-center text-xs leading-5 text-muted-foreground">
-                          还没有任务分区。下面加一个作业、presentation 或 exam，就会自动生成对应文件夹。
-                        </div>
-                      )}
                       {taskSections.map((section) => (
                         <SectionCard
                           key={section.id}
@@ -841,6 +838,7 @@ export function CourseManagementDialog({
                         creating={creatingTask}
                         error={taskError}
                         existingTaskTypes={existingTaskTypes}
+                        empty={taskSections.length === 0}
                         disabled={!activeCourse?.id || activeCourseArchived}
                         onTaskNameChange={setTaskName}
                         onTaskTypeChange={setTaskType}
@@ -887,20 +885,30 @@ export function CourseManagementDialog({
   );
 }
 
-function CoursePanelButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
+function CoursePanelIconButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       className={cx(
-        "inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-xs font-medium transition",
+        "inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-control)] transition",
         active ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
       onClick={onClick}
+      title={label}
+      aria-label={label}
     >
       {icon}
-      {label}
     </button>
   );
+}
+
+function courseMetaItems(course: Course): string[] {
+  if (course.workspaceKind === "semester_home") return compactStrings([course.term]);
+  return compactStrings([course.code, course.term, course.instructor, course.meetingTime, course.location]);
+}
+
+function compactStrings(values: Array<string | undefined>): string[] {
+  return values.filter((value): value is string => Boolean(value));
 }
 
 function CourseListItem({
@@ -921,43 +929,72 @@ function CourseListItem({
   onDelete: () => void;
 }) {
   const isSemesterHome = course.workspaceKind === "semester_home";
+  const selectable = !course.archivedAt;
+  const iconStyle = isSemesterHome
+    ? {
+        color: "hsl(var(--status-info))",
+        backgroundColor: "hsl(var(--status-info) / 0.13)",
+        boxShadow: "inset 0 0 0 1px hsl(var(--status-info) / 0.18)",
+      }
+    : { color: course.color, backgroundColor: `${course.color}1f` };
+  const detail = isSemesterHome
+    ? "学期资料"
+    : [course.code, course.instructor || course.meetingTime].filter(Boolean).join(" · ");
 
   return (
     <div
+      role={selectable ? "button" : undefined}
+      tabIndex={selectable ? 0 : undefined}
       className={cx(
-        "flex w-full min-w-0 items-center gap-2 rounded-[var(--radius-card)] border px-3 py-3 text-left transition",
+        "group/course flex w-full min-w-0 items-center gap-2 rounded-[var(--radius-card)] border px-3 py-2.5 text-left transition",
         course.archivedAt ? "bg-muted/45 text-muted-foreground" : "bg-background/70",
+        selectable && "cursor-pointer",
         active ? "border-foreground/25 bg-accent/45 shadow-sm ring-1 ring-foreground/10" : "border-border/60 hover:bg-accent/55",
       )}
+      onClick={() => {
+        if (selectable) onSelect();
+      }}
+      onKeyDown={(event) => {
+        if (!selectable) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect();
+      }}
     >
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={onSelect}>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)]" style={{ color: course.color, backgroundColor: `${course.color}1f` }}>
+      <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)]" style={iconStyle}>
           <CourseIcon course={course} className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="block truncate text-sm font-semibold">{course.name}</span>
+            <span className="block truncate text-[13px] font-semibold">{course.name}</span>
             {isSemesterHome && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px]">学期入口</span>}
             {course.archivedAt && <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px]">已归档</span>}
           </span>
-          <span className="block truncate text-[11px] text-muted-foreground">
-            {isSemesterHome ? "学期资料" : `${course.code} · ${course.term}`}
-          </span>
-          <span className="block truncate text-[10px] text-muted-foreground/80">{isSemesterHome ? course.term : course.meetingTime || course.instructor}</span>
+          <span className="block truncate text-[11px] text-muted-foreground">{detail || course.term}</span>
         </span>
-      </button>
+      </div>
       {!isSemesterHome && (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/course:opacity-100 group-focus-within/course:opacity-100">
           {course.archivedAt ? (
-            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={busy} onClick={onRestore}>
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="恢复课程" disabled={busy} onClick={(event) => {
+              event.stopPropagation();
+              onRestore();
+            }}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
             </button>
           ) : (
-            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={busy} onClick={onArchive}>
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-accent hover:text-foreground" title="归档课程" disabled={busy} onClick={(event) => {
+              event.stopPropagation();
+              onArchive();
+            }}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
             </button>
           )}
-          <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={busy} onClick={onDelete}>
+          <button type="button" className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-card text-muted-foreground hover:bg-red-50 hover:text-red-700" title={course.archivedAt ? "永久删除" : "请先归档再删除"} disabled={busy} onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}>
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -966,12 +1003,11 @@ function CourseListItem({
   );
 }
 
-function CourseSectionGroupHeader({ title, detail }: { title: string; detail: string }) {
+function CourseSectionGroupHeader({ title }: { title: string; detail?: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 pt-2 first:pt-0">
+    <div className="flex items-center justify-between gap-3 pb-1 pt-5 first:pt-0">
       <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</div>
-        <div className="mt-0.5 truncate text-[10px] text-muted-foreground/80">{detail}</div>
+        <div className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</div>
       </div>
     </div>
   );
@@ -983,6 +1019,7 @@ function InlineTaskCreateCard({
   creating,
   error,
   existingTaskTypes,
+  empty,
   disabled,
   onTaskNameChange,
   onTaskTypeChange,
@@ -993,22 +1030,97 @@ function InlineTaskCreateCard({
   creating: boolean;
   error: string;
   existingTaskTypes: string[];
+  empty?: boolean;
   disabled?: boolean;
   onTaskNameChange: (value: string) => void;
   onTaskTypeChange: (value: TaskType) => void;
   onCreate: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const wasCreatingRef = useRef(false);
   const blocked = Boolean(disabled || creating);
+  const taskTypeOptions = useMemo(() => Array.from(new Set([...TASK_TYPE_PRESETS, ...existingTaskTypes])).slice(0, 8), [existingTaskTypes]);
+
+  useEffect(() => {
+    if (error) setExpanded(true);
+  }, [error]);
+
+  useEffect(() => {
+    if (creating) {
+      wasCreatingRef.current = true;
+      return;
+    }
+    if (!wasCreatingRef.current) return;
+    wasCreatingRef.current = false;
+    if (!error && !taskName.trim()) setExpanded(false);
+  }, [creating, error, taskName]);
+
+  if (!expanded) {
+    if (empty) {
+      return (
+        <section className="rounded-[var(--radius-card)] border border-dashed bg-card/58 px-3 py-5 text-center">
+          <div className="text-xs font-medium text-foreground">还没有课程作业。</div>
+          <button
+            type="button"
+            className="mt-3 inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => setExpanded(true)}
+            disabled={disabled}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            新建作业
+          </button>
+        </section>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className="flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-card)] bg-card/50 text-xs font-medium text-muted-foreground transition hover:bg-accent/65 hover:text-foreground active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={() => setExpanded(true)}
+        disabled={disabled}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        新建作业
+      </button>
+    );
+  }
+
   return (
-    <section className="rounded-[var(--radius-card)] border border-dashed bg-card/78 p-3">
+    <section className="rounded-[var(--radius-card)] bg-card p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)]">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold">
             <Plus className="h-3.5 w-3.5" />
-            新增任务分区
+            新建课程作业
           </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">直接在任务列表下方创建，创建后会出现在上面的任务分区里。</div>
         </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => setExpanded(false)}
+          disabled={creating}
+          title="收起"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {taskTypeOptions.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={cx(
+              "rounded-[var(--radius-pill)] px-2.5 py-1 text-[10px] font-medium transition disabled:cursor-not-allowed disabled:opacity-45",
+              item === taskType ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            onClick={() => onTaskTypeChange(item)}
+            disabled={blocked}
+          >
+            {item}
+          </button>
+        ))}
       </div>
 
       <div className="grid gap-2 md:grid-cols-[10rem_minmax(0,1fr)_auto]">
@@ -1023,7 +1135,7 @@ function InlineTaskCreateCard({
           />
         </label>
         <label className="block space-y-1 text-[11px] text-muted-foreground">
-          <span>任务名称</span>
+          <span>名称</span>
           <input
             className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
             value={taskName}
@@ -1031,7 +1143,7 @@ function InlineTaskCreateCard({
             onKeyDown={(event) => {
               if (event.key === "Enter" && !blocked && taskName.trim()) onCreate();
             }}
-            placeholder="例如：debate / essay draft / presentation"
+            placeholder="例如：Essay 1 / Final Presentation"
             disabled={blocked}
           />
         </label>
@@ -1046,21 +1158,6 @@ function InlineTaskCreateCard({
         </button>
       </div>
 
-      {existingTaskTypes.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {existingTaskTypes.slice(0, 8).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className="rounded-[var(--radius-pill)] border bg-background px-2.5 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-              onClick={() => onTaskTypeChange(item)}
-              disabled={blocked}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      )}
       {error && <div className="mt-3 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
     </section>
   );
@@ -1335,7 +1432,6 @@ const SectionCard = memo(function SectionCard({
   onFileDeleted,
 }: SectionCardProps) {
   const Icon = section.kind === "course_shared" ? FolderOpen : section.kind === "lecture" ? BookOpen : FileText;
-  const sectionLabel = section.kind === "course_shared" ? (section.courseId === "semester-home" ? "学期资料" : "课程共享") : section.kind === "lecture" ? "Lecture" : "任务";
   const [open, setOpen] = useState(false);
   const [openLectureWeeks, setOpenLectureWeeks] = useState<Record<string, boolean>>({});
   const [lectureWeekValue, setLectureWeekValue] = useState(lectureWeekOptions[0]?.value || "");
@@ -1415,21 +1511,9 @@ const SectionCard = memo(function SectionCard({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <div className="truncate text-sm font-semibold">{displaySectionTitle(section)}</div>
-              <span
-                className={cx(
-                  "shrink-0 rounded-[var(--radius-pill)] px-1.5 py-0.5 text-[9px] font-medium",
-                  section.kind === "course_shared"
-                    ? "bg-slate-100 text-slate-700"
-                    : section.kind === "lecture"
-                      ? "bg-blue-50 text-blue-700"
-                      : "bg-amber-50 text-amber-700",
-                )}
-              >
-                {sectionLabel}
-              </span>
             </div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {visibleFiles.length} 个课程资料 · {section.embeddingModel || "未配置向量服务商"}
+              {visibleFiles.length} 个文件
             </div>
           </div>
         </button>
@@ -1539,7 +1623,7 @@ function statusTone(status: IndexingJob["status"]): string {
 }
 
 function displaySectionTitle(section: CourseFileSection): string {
-  if (section.kind === "course_shared") return section.courseId === "semester-home" || section.title === "All semester files" ? "学期资料" : "课程共享";
+  if (section.kind === "course_shared") return section.courseId === "semester-home" || section.title === "All semester files" ? "学期资料" : "共享资料";
   if (section.kind === "lecture") return section.weekNumber ? `第 ${section.weekNumber} 周课件` : "课件";
   if (section.kind === "task") {
     const title = localizeTaskSectionTitle(section.title);

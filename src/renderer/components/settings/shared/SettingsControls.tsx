@@ -102,7 +102,12 @@ export function TogglePill({
   return (
     <button
       type="button"
-      className={cx("inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-[11px] font-medium shadow-sm ring-1 ring-black/[0.035] disabled:cursor-not-allowed disabled:opacity-45", enabled ? "bg-emerald-100 text-emerald-800 ring-emerald-200/60" : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground")}
+      className={cx(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-[11px] font-medium shadow-sm ring-1 ring-black/[0.035] disabled:cursor-not-allowed disabled:opacity-45",
+        enabled
+          ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))] ring-[hsl(var(--status-success)/0.2)]"
+          : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
       disabled={disabled}
       onClick={(event) => {
         event.stopPropagation();

@@ -45,7 +45,7 @@ export function FileBrowserRail({
   const [actionError, setActionError] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
   const uploadDisabled = !course || Boolean(course.archivedAt);
-  const uploadTitle = !course ? "请先选择课程再管理文件" : course.archivedAt ? "请先恢复课程再管理文件" : "打开课程管理";
+  const uploadTitle = !course ? "请先选择课程再管理文件" : course.archivedAt ? "请先恢复课程再管理文件" : "打开我的课程";
   const collapseScopeKey = useMemo(() => fileCollapseScopeKey(course?.id, activeTask?.id), [activeTask?.id, course?.id]);
   const contextSections = useMemo(() => buildContextSections(files, course, activeTask), [activeTask, course, files]);
   const courseFileCount = useMemo(
