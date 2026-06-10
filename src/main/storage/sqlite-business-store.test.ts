@@ -23,6 +23,11 @@ try {
   const restoredTask = store.restoreTask(task.id);
   assert.equal(restoredTask?.archivedAt, undefined);
   assert.equal(store.listTasks("semester_test", "course_test").length, 1);
+  const renamedTask = store.updateTask({ id: task.id, title: "Final Essay", taskType: "Essay" });
+  assert.equal(renamedTask?.id, task.id);
+  assert.equal(renamedTask?.title, "Final Essay");
+  assert.equal(renamedTask?.taskType, "Essay");
+  assert.equal(store.getTask(task.id)?.title, "Final Essay");
 
   const thread = testThread();
   store.saveThread(thread);

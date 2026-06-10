@@ -422,6 +422,7 @@ function App() {
           onCourseCreated={workspace.handleCourseCreated}
           onCourseUpdated={workspace.handleCourseUpdated}
           onTaskCreated={workspace.handleTaskCreated}
+          onTaskUpdated={workspace.handleTaskUpdated}
           onWorkspaceChanged={async () => {
             await workspace.reloadWorkspace();
           }}

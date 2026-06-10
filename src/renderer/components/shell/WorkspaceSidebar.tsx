@@ -186,18 +186,11 @@ export function WorkspaceSidebar({
           <div className="mb-2">
             <div className="flex items-center gap-1">
               <button
-                type="button"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
-                title={homeOpen ? `收起${homeCourseLabel}` : `展开${homeCourseLabel}`}
-                onClick={toggleHomeOpen}
-              >
-                <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", homeOpen && "rotate-90")} />
-              </button>
-              <button
                 className={cx(
-                  "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-xs transition-colors active:scale-[0.99]",
+                  "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-xs transition-colors active:scale-[0.99]",
                   homeCourse.id === activeCourseId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
                 )}
+                title={homeOpen ? `收起${homeCourseLabel}` : `展开${homeCourseLabel}`}
                 onClick={() => {
                   onSelectHome(homeCourse.id);
                   toggleHomeOpen();
@@ -220,8 +213,8 @@ export function WorkspaceSidebar({
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
-            {homeOpen && (
-              <div className="ml-8 mt-1 space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
+            <SidebarCollapse open={homeOpen} className="ml-7 mt-1">
+              <div className="space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
                 {threads
                   .filter((thread) => thread.courseId === homeCourse.id)
                   .map((thread) => (
@@ -243,7 +236,7 @@ export function WorkspaceSidebar({
                     />
                   ))}
               </div>
-            )}
+            </SidebarCollapse>
           </div>
         )}
 
@@ -256,18 +249,11 @@ export function WorkspaceSidebar({
             <div key={course.id} className="mb-2">
               <div className="flex items-center gap-1">
                 <button
-                  type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
-                  title={courseOpen ? `Collapse ${course.name}` : `Expand ${course.name}`}
-                  onClick={toggleCourseOpen}
-                >
-                  <ChevronRight className={cx("h-3.5 w-3.5 transition-transform", courseOpen && "rotate-90")} />
-                </button>
-                <button
                   className={cx(
-                    "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-left text-xs transition-colors active:scale-[0.99]",
+                    "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-xs transition-colors active:scale-[0.99]",
                     course.id === activeCourseId && !activeTaskId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
                   )}
+                  title={courseOpen ? `Collapse ${course.name}` : `Expand ${course.name}`}
                   onClick={() => {
                     onSelectHome(course.id);
                     toggleCourseOpen();
@@ -285,8 +271,8 @@ export function WorkspaceSidebar({
                 </button>
               </div>
 
-              {courseOpen && (
-                <div className="ml-8 mt-1 space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
+              <SidebarCollapse open={courseOpen} className="ml-7 mt-1">
+                <div className="space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
                   {courseTasks.map((task) => {
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
                     const toggleTaskOpen = () => setOpenTasks((current) => ({ ...current, [task.id]: !(current[task.id] ?? task.id === activeTaskId) }));
@@ -334,8 +320,8 @@ export function WorkspaceSidebar({
                             <Archive className="h-3 w-3" />
                           </button>
                         </div>
-                        {taskOpen && taskThreads.length > 0 && (
-                          <div className="ml-7 mt-1 space-y-0.5 rounded-[var(--radius-badge)] bg-card/45 p-1">
+                        <SidebarCollapse open={taskOpen && taskThreads.length > 0} className="ml-7 mt-1">
+                          <div className="space-y-0.5 rounded-[var(--radius-badge)] bg-card/45 p-1">
                             {taskThreads.map((thread) => (
                               <ThreadButton
                                 key={thread.id}
@@ -355,12 +341,12 @@ export function WorkspaceSidebar({
                               />
                             ))}
                           </div>
-                        )}
+                        </SidebarCollapse>
                       </div>
                     );
                   })}
                 </div>
-              )}
+              </SidebarCollapse>
             </div>
           );
         })}
@@ -394,6 +380,21 @@ function semesterHomeDisplayName(name: string): string {
   const normalized = name.trim().toLowerCase();
   if (!normalized || normalized === "home" || normalized === "home taskagent" || normalized === "home session") return "学期总览";
   return name;
+}
+
+function SidebarCollapse({ open, className, children }: { open: boolean; className?: string; children: ReactNode }) {
+  return (
+    <div
+      aria-hidden={!open}
+      className={cx(
+        "grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out",
+        open ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0",
+        className,
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
 }
 
 function SessionCount({ count }: { count: number }) {

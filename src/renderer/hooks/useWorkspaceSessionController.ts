@@ -341,6 +341,15 @@ export function useWorkspaceSessionController({
       ...current,
       [task.courseId]: [...(current[task.courseId] || []), task],
     }));
+    onReloadCourseFilesRef.current(task.courseId);
+  }, []);
+
+  const handleTaskUpdated = useCallback((task: BrevynTask) => {
+    setTasksByCourse((current) => ({
+      ...current,
+      [task.courseId]: (current[task.courseId] || []).map((item) => (item.id === task.id ? task : item)),
+    }));
+    onReloadCourseFilesRef.current(task.courseId);
   }, []);
 
   return {
@@ -382,6 +391,7 @@ export function useWorkspaceSessionController({
     handleCourseCreated,
     handleCourseUpdated,
     handleTaskCreated,
+    handleTaskUpdated,
   };
 }
 

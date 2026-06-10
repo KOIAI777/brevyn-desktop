@@ -105,6 +105,8 @@ export function normalizeUpdateTaskInput(value: unknown): UpdateTaskInput {
   const input = requireObject(value, "Task update input");
   return {
     id: requireString(input.id, "Task id"),
+    title: optionalString(input.title),
+    taskType: optionalString(input.taskType),
     dueAt: input.dueAt === null ? null : optionalString(input.dueAt),
     status: normalizeTaskStatus(input.status),
     summary: input.summary === undefined ? undefined : stringValue(input.summary),
@@ -437,4 +439,6 @@ const COURSE_ICON_KEYS = new Set<CourseIconKey>([
   "calculator",
   "globe",
   "presentation",
+  "square-pen",
+  "clipboard-list",
 ]);

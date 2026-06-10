@@ -21,7 +21,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Course, CourseFileSection, IndexingJob, RagSearchResult, SemesterWorkspace, TaskType, BrevynTask, WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -36,6 +36,8 @@ const TASK_TYPE_PRESETS: TaskType[] = ["作业", "Essay", "Presentation", "Exam"
 const RAG_RESULTS_PAGE_SIZE = 5;
 const MAX_LECTURE_WEEK_OPTIONS = 30;
 const COURSE_COLORS = ["#111827", "#2563eb", "#059669", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#be123c"];
+const DEFAULT_COURSE_ICON: Course["icon"] = "graduation-cap";
+const COURSE_ICON_OPTION_KEYS = new Set<Course["icon"]>(COURSE_ICON_OPTIONS.map((option) => option.key));
 type CoursePanel = "files" | "indexing" | "search";
 type AutoOpenLectureWeek = { sectionId: string; weekNumber: number; token: number };
 
@@ -46,6 +48,7 @@ export function CourseManagementDialog({
   onCourseCreated,
   onCourseUpdated,
   onTaskCreated,
+  onTaskUpdated,
   onWorkspaceChanged,
   onClose,
 }: {
@@ -55,6 +58,7 @@ export function CourseManagementDialog({
   onCourseCreated: (course: Course) => void;
   onCourseUpdated: (course: Course) => void;
   onTaskCreated: (task: BrevynTask) => void;
+  onTaskUpdated: (task: BrevynTask) => void;
   onWorkspaceChanged?: () => Promise<void> | void;
   onClose: () => void;
 }) {
@@ -71,7 +75,7 @@ export function CourseManagementDialog({
     meetingTime: "",
     location: "",
     color: "#111827",
-    icon: "graduation-cap" as Course["icon"],
+    icon: DEFAULT_COURSE_ICON,
   });
   const [coursePanel, setCoursePanel] = useState<CoursePanel>("files");
 
@@ -99,6 +103,10 @@ export function CourseManagementDialog({
   const [taskType, setTaskType] = useState<TaskType>(DEFAULT_TASK_TYPE);
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState("");
+  const [editingTaskId, setEditingTaskId] = useState("");
+  const [taskEditDraft, setTaskEditDraft] = useState({ title: "", taskType: DEFAULT_TASK_TYPE as TaskType });
+  const [savingTaskId, setSavingTaskId] = useState("");
+  const [taskEditError, setTaskEditError] = useState("");
   const [newCourseName, setNewCourseName] = useState("");
   const [newCourseCode, setNewCourseCode] = useState("");
   const [newCourseInstructor, setNewCourseInstructor] = useState("");
@@ -140,6 +148,9 @@ export function CourseManagementDialog({
     indexingFailureBaselineCourseRef.current = "";
     ragSearchRequestRef.current += 1;
     setTaskError("");
+    setEditingTaskId("");
+    setTaskEditError("");
+    setSavingTaskId("");
     setCourseActionError("");
     setEditingCourseDetails(false);
     resetCourseDetailsDraft(activeCourse);
@@ -256,7 +267,7 @@ export function CourseManagementDialog({
       meetingTime: course?.meetingTime || "",
       location: course?.location || "",
       color: course?.color || "#111827",
-      icon: course?.icon || "graduation-cap",
+      icon: normalizeCourseIconDraft(course?.icon),
     });
   }
 
@@ -318,6 +329,58 @@ export function CourseManagementDialog({
       setTaskError(errorMessage(error, "创建任务失败。"));
     } finally {
       setCreatingTask(false);
+    }
+  }
+
+  function startTaskEdit(section: CourseFileSection) {
+    if (section.kind !== "task" || !section.taskId) return;
+    setTaskEditError("");
+    setEditingTaskId(section.taskId);
+    setTaskEditDraft({
+      title: taskNameFromSection(section),
+      taskType: section.taskType || DEFAULT_TASK_TYPE,
+    });
+  }
+
+  function cancelTaskEdit() {
+    setEditingTaskId("");
+    setTaskEditError("");
+    setSavingTaskId("");
+    setTaskEditDraft({ title: "", taskType: DEFAULT_TASK_TYPE });
+  }
+
+  async function saveTaskEdit() {
+    if (!editingTaskId || savingTaskId) return;
+    if (!activeCourse?.id) {
+      setTaskEditError(courseReadOnlyReason);
+      return;
+    }
+    if (activeCourseArchived) {
+      setTaskEditError(courseReadOnlyReason);
+      return;
+    }
+    const title = taskEditDraft.title.trim();
+    const nextTaskType = taskEditDraft.taskType.trim() || DEFAULT_TASK_TYPE;
+    if (!title) {
+      setTaskEditError("作业名称不能为空。");
+      return;
+    }
+    setSavingTaskId(editingTaskId);
+    setTaskEditError("");
+    try {
+      const updated = await window.brevyn.tasks.update({
+        id: editingTaskId,
+        title,
+        taskType: nextTaskType,
+      });
+      onTaskUpdated(updated);
+      setEditingTaskId("");
+      setTaskEditDraft({ title: "", taskType: DEFAULT_TASK_TYPE });
+      await loadCourseView(activeCourse.id);
+    } catch (error) {
+      setTaskEditError(errorMessage(error, "更新课程作业失败。"));
+    } finally {
+      setSavingTaskId("");
     }
   }
 
@@ -821,16 +884,33 @@ export function CourseManagementDialog({
                         title="课程作业"
                       />
                       {taskSections.map((section) => (
-                        <SectionCard
-                          key={section.id}
-                          section={section}
-                          indexing={indexingSectionId === section.id}
-                          disabled={activeCourseArchived || Boolean(indexingSectionId)}
-                          onIndex={() => void indexSection(section.id)}
-                          onUpload={(weekNumber) => uploadToSection(section, weekNumber)}
-                          uploading={uploadingSectionId === section.id}
-                          onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
-                        />
+                        <div key={section.id} className="space-y-2">
+                          <SectionCard
+                            section={section}
+                            indexing={indexingSectionId === section.id}
+                            disabled={activeCourseArchived || Boolean(indexingSectionId)}
+                            editingTask={editingTaskId === section.taskId}
+                            onEditTask={() => startTaskEdit(section)}
+                            onIndex={() => void indexSection(section.id)}
+                            onUpload={(weekNumber) => uploadToSection(section, weekNumber)}
+                            uploading={uploadingSectionId === section.id}
+                            onFileDeleted={() => activeCourse?.id && void loadCourseView(activeCourse.id)}
+                          />
+                          {editingTaskId === section.taskId && (
+                            <InlineTaskEditCard
+                              title={taskEditDraft.title}
+                              taskType={taskEditDraft.taskType}
+                              saving={savingTaskId === editingTaskId}
+                              error={taskEditError}
+                              existingTaskTypes={existingTaskTypes}
+                              disabled={activeCourseArchived}
+                              onTitleChange={(title) => setTaskEditDraft((current) => ({ ...current, title }))}
+                              onTaskTypeChange={(nextTaskType) => setTaskEditDraft((current) => ({ ...current, taskType: nextTaskType }))}
+                              onCancel={cancelTaskEdit}
+                              onSave={() => void saveTaskEdit()}
+                            />
+                          )}
+                        </div>
                       ))}
                       <InlineTaskCreateCard
                         taskName={taskName}
@@ -905,6 +985,17 @@ function CoursePanelIconButton({ active, icon, label, onClick }: { active: boole
 function courseMetaItems(course: Course): string[] {
   if (course.workspaceKind === "semester_home") return compactStrings([course.term]);
   return compactStrings([course.code, course.term, course.instructor, course.meetingTime, course.location]);
+}
+
+function normalizeCourseIconDraft(icon?: Course["icon"]): Course["icon"] {
+  const aliased = icon === "library"
+    ? DEFAULT_COURSE_ICON
+    : icon === "file-text"
+      ? "square-pen"
+      : icon === "gavel"
+        ? "scale"
+        : icon;
+  return COURSE_ICON_OPTION_KEYS.has(aliased) ? aliased : DEFAULT_COURSE_ICON;
 }
 
 function compactStrings(values: Array<string | undefined>): string[] {
@@ -1141,6 +1232,7 @@ function InlineTaskCreateCard({
             value={taskName}
             onChange={(event) => onTaskNameChange(event.target.value)}
             onKeyDown={(event) => {
+              if (isComposingText(event)) return;
               if (event.key === "Enter" && !blocked && taskName.trim()) onCreate();
             }}
             placeholder="例如：Essay 1 / Final Presentation"
@@ -1155,6 +1247,116 @@ function InlineTaskCreateCard({
         >
           {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
           {creating ? "创建中" : "添加"}
+        </button>
+      </div>
+
+      {error && <div className="mt-3 rounded-[var(--radius-control)] bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">{error}</div>}
+    </section>
+  );
+}
+
+function InlineTaskEditCard({
+  title,
+  taskType,
+  saving,
+  error,
+  existingTaskTypes,
+  disabled,
+  onTitleChange,
+  onTaskTypeChange,
+  onCancel,
+  onSave,
+}: {
+  title: string;
+  taskType: TaskType;
+  saving: boolean;
+  error: string;
+  existingTaskTypes: string[];
+  disabled?: boolean;
+  onTitleChange: (value: string) => void;
+  onTaskTypeChange: (value: TaskType) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const blocked = Boolean(disabled || saving);
+  const taskTypeOptions = useMemo(() => Array.from(new Set([...TASK_TYPE_PRESETS, ...existingTaskTypes, taskType].filter(Boolean))).slice(0, 8), [existingTaskTypes, taskType]);
+
+  return (
+    <section className="rounded-[var(--radius-card)] bg-card p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.48)]">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold">
+          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+          编辑课程作业
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={onCancel}
+          disabled={saving}
+          title="取消"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {taskTypeOptions.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={cx(
+              "rounded-[var(--radius-pill)] px-2.5 py-1 text-[10px] font-medium transition disabled:cursor-not-allowed disabled:opacity-45",
+              item === taskType ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            onClick={() => onTaskTypeChange(item)}
+            disabled={blocked}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-[10rem_minmax(0,1fr)_auto_auto]">
+        <label className="block space-y-1 text-[11px] text-muted-foreground">
+          <span>类型</span>
+          <input
+            className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+            value={taskType}
+            onChange={(event) => onTaskTypeChange(event.target.value)}
+            placeholder="作业"
+            disabled={blocked}
+          />
+        </label>
+        <label className="block space-y-1 text-[11px] text-muted-foreground">
+          <span>名称</span>
+          <input
+            className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+            value={title}
+            onChange={(event) => onTitleChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (isComposingText(event)) return;
+              if (event.key === "Enter" && !blocked && title.trim()) onSave();
+            }}
+            placeholder="例如：Essay 1 / Final Presentation"
+            disabled={blocked}
+          />
+        </label>
+        <button
+          type="button"
+          className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border bg-background px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={onCancel}
+          disabled={saving}
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          className="mt-5 inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={onSave}
+          disabled={blocked || !title.trim()}
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          保存
         </button>
       </div>
 
@@ -1412,6 +1614,8 @@ type SectionCardProps = {
   section: CourseFileSection;
   indexing: boolean;
   disabled?: boolean;
+  editingTask?: boolean;
+  onEditTask?: () => void;
   onIndex: () => void;
   onUpload: (weekNumber?: number) => void;
   uploading: boolean;
@@ -1424,6 +1628,8 @@ const SectionCard = memo(function SectionCard({
   section,
   indexing,
   disabled,
+  editingTask,
+  onEditTask,
   onIndex,
   onUpload,
   uploading,
@@ -1521,6 +1727,20 @@ const SectionCard = memo(function SectionCard({
           <span className={cx("rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
             {displayIndexingStatus(section.indexingStatus)}
           </span>
+          {section.kind === "task" && onEditTask && (
+            <button
+              type="button"
+              className={cx(
+                "flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] border bg-background text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                editingTask && "bg-accent text-foreground",
+              )}
+              onClick={onEditTask}
+              disabled={disabled}
+              title="编辑课程作业"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
           {section.kind === "lecture" && lectureWeekOptions.length > 0 && (
             <DropdownSelect
               className="w-28"
@@ -1631,6 +1851,17 @@ function displaySectionTitle(section: CourseFileSection): string {
     return [title || section.taskType || "任务", bucketLabel].filter(Boolean).join(" · ");
   }
   return section.title;
+}
+
+function taskNameFromSection(section: CourseFileSection): string {
+  const title = localizeTaskSectionTitle(section.title).trim();
+  const separator = " / ";
+  if (!title.includes(separator)) return title;
+  return title.split(separator).slice(1).join(separator).trim() || title;
+}
+
+function isComposingText(event: KeyboardEvent<HTMLInputElement>): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
 }
 
 function reconcileCourseSections(current: CourseFileSection[], next: CourseFileSection[]): CourseFileSection[] {
@@ -1749,6 +1980,8 @@ function areSectionCardPropsEqual(a: SectionCardProps, b: SectionCardProps): boo
     a.section === b.section &&
     a.indexing === b.indexing &&
     Boolean(a.disabled) === Boolean(b.disabled) &&
+    Boolean(a.editingTask) === Boolean(b.editingTask) &&
+    a.onEditTask === b.onEditTask &&
     a.uploading === b.uploading &&
     areDropdownOptionsEqual(a.lectureWeekOptions || [], b.lectureWeekOptions || []) &&
     areAutoOpenLectureWeeksEqual(a.autoOpenWeek || null, b.autoOpenWeek || null)

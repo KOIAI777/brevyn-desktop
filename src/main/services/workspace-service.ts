@@ -64,6 +64,8 @@ const courseIconKeys = new Set([
   "calculator",
   "globe",
   "presentation",
+  "square-pen",
+  "clipboard-list",
 ]);
 
 function normalizeCourseColor(value: string, fallback: string): string {

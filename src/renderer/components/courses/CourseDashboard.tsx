@@ -67,11 +67,11 @@ export function CourseDashboard({
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-xl font-semibold tracking-[-0.02em] text-foreground">课程概览</h2>
+                    <h2 className="truncate text-xl font-semibold tracking-[-0.02em] text-foreground">{course.name}</h2>
                     <span className="rounded-full border bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{course.code}</span>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {semester?.term || course.term} · 任务、会话与文件统计
+                    {semester?.term || course.term} · 课程作业、课件和会话入口
                   </p>
                 </div>
               </div>
@@ -79,11 +79,12 @@ export function CourseDashboard({
                 {recentTask && (
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
+                    className="inline-flex h-8 max-w-[18rem] items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
                     onClick={() => openTask(recentTask, course.id, onSelectTask, onCreateThread)}
+                    title={recentTask.task.title}
                   >
-                    继续最近任务
-                    <ArrowRight className="h-3.5 w-3.5" />
+                    <span className="truncate">继续 {recentTask.task.title}</span>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0" />
                   </button>
                 )}
                 <button
@@ -92,18 +93,69 @@ export function CourseDashboard({
                   onClick={onOpenTasks}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  管理任务
+                  新建课程作业
                 </button>
               </div>
             </div>
 
             <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="活跃任务" value={activeTasks.toString()} hint={`共 ${tasks.length} 个`} />
+              <MetricCard label="课程作业" value={activeTasks.toString()} hint={`共 ${tasks.length} 个`} />
               <MetricCard label="会话" value={courseThreads.length.toString()} hint={`${threadsWithMessages} 个已有消息`} />
-              <MetricCard label="课程文件" value={courseFileCount.toString()} hint={`${sectionCount} 个分区`} />
-              <MetricCard label="草稿文件" value={draftFiles.length.toString()} hint={`本周更新 ${filesTouchedThisWeek} 个`} />
+              <MetricCard label="资料" value={courseFileCount.toString()} hint={`${sectionCount} 个分区`} />
+              <MetricCard label="草稿" value={draftFiles.length.toString()} hint={`本周更新 ${filesTouchedThisWeek} 个`} />
             </div>
           </div>
+        </section>
+
+        <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <CalendarClock className="h-4 w-4" />
+                课程作业
+              </div>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              onClick={onOpenTasks}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              新建作业
+            </button>
+          </div>
+
+          {taskCards.length > 0 ? (
+            <div className="grid gap-2 md:grid-cols-2">
+              {taskCards.slice(0, 6).map((task) => (
+                <button
+                  key={task.task.id}
+                  type="button"
+                  className="group flex min-w-0 items-center gap-3 rounded-xl border bg-background/68 p-3 text-left transition hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-sm"
+                  onClick={() => openTask(task, course.id, onSelectTask, onCreateThread)}
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card ring-1 ring-border/60">
+                    <TaskTypeIcon task={task.task} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-semibold text-foreground">{task.task.title}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span>{task.fileCount} 个文件</span>
+                      <span>·</span>
+                      <span>{task.threadCount} 个会话</span>
+                      <span>·</span>
+                      <span>{task.lastTouchedLabel}</span>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed bg-background/65 px-4 py-8 text-center text-xs leading-5 text-muted-foreground">
+              还没有课程作业。先为下一份 essay、展示或复习目标创建一个入口。
+            </div>
+          )}
         </section>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
@@ -112,7 +164,7 @@ export function CourseDashboard({
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <BarChart3 className="h-4 w-4" />
-                  活动热力图
+                  活动记录
                 </div>
               </div>
             </div>
@@ -121,42 +173,23 @@ export function CourseDashboard({
 
           <section className="min-w-[21rem] rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <Sparkles className="h-4 w-4" />
-              建议下一步
+              <BookOpen className="h-4 w-4" />
+              资料入口
             </div>
-            {recentTask ? (
-              <div className="mt-3 rounded-xl border bg-background/70 p-3">
-                <div className="flex items-start gap-2">
-                  <TaskTypeIcon task={recentTask.task} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{recentTask.task.title}</div>
-                    <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                      {recentTask.fileCount} 个文件 · {recentTask.threadCount} 个会话 · {recentTask.lastTouchedLabel}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
-                  onClick={() => openTask(recentTask, course.id, onSelectTask, onCreateThread)}
-                >
-                  {recentTask.threadCount > 0 ? "打开任务" : "开始任务会话"}
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </button>
+            <div className="mt-3 rounded-xl border bg-background/70 p-3">
+              <div className="text-xs font-semibold text-foreground">{lectureFiles.length > 0 ? `${lectureFiles.length} 个课件文件` : "还没有课件资料"}</div>
+              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                {lectureWeeks.length > 0 ? `${lectureWeeks.length} 个周次 · 本周更新 ${filesTouchedThisWeek} 个文件` : "上传 syllabus、reading 或每周课件后，这里会成为课程资料入口。"}
               </div>
-            ) : (
-              <div className="mt-3 rounded-xl border border-dashed bg-background/65 p-4 text-xs leading-5 text-muted-foreground">
-                为作业、展示、阅读回应或考试复习创建任务。会话会保存在任务下，而不是混在课程容器里。
-                <button
-                  type="button"
-                  className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-accent"
-                  onClick={onOpenTasks}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  创建第一个任务
-                </button>
-              </div>
-            )}
+              <button
+                type="button"
+                className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-accent"
+                onClick={onOpenTasks}
+              >
+                管理课程资料
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </section>
         </div>
 
@@ -193,56 +226,6 @@ export function CourseDashboard({
           )}
         </section>
 
-        <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <CalendarClock className="h-4 w-4" />
-                任务进展
-              </div>
-            </div>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
-              onClick={onOpenTasks}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              新建任务
-            </button>
-          </div>
-
-          {taskCards.length > 0 ? (
-            <div className="grid gap-2 md:grid-cols-2">
-              {taskCards.slice(0, 6).map((task) => (
-                <button
-                  key={task.task.id}
-                  type="button"
-                  className="group flex min-w-0 items-center gap-3 rounded-xl border bg-background/68 p-3 text-left transition hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-sm"
-                  onClick={() => openTask(task, course.id, onSelectTask, onCreateThread)}
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card ring-1 ring-border/60">
-                    <TaskTypeIcon task={task.task} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold text-foreground">{task.task.title}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-                      <span>{task.fileCount} 个文件</span>
-                      <span>·</span>
-                      <span>{task.threadCount} 个会话</span>
-                      <span>·</span>
-                      <span>{task.lastTouchedLabel}</span>
-                    </div>
-                  </div>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed bg-background/65 px-4 py-8 text-center text-xs leading-5 text-muted-foreground">
-              还没有任务。先为下一份作业、展示或复习目标创建一个任务。
-            </div>
-          )}
-        </section>
       </div>
     </div>
   );

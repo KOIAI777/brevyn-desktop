@@ -18,7 +18,7 @@ import type {
   WorkspaceFileNode,
 } from "../../types/domain";
 import type { IndexingTaskInsert, IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
-import { SEMESTER_HOME_COURSE_ID } from "../services/workspace-paths";
+import { DEFAULT_TASK_TYPE, SEMESTER_HOME_COURSE_ID } from "../services/workspace-paths";
 
 type SQLiteStatementSync = {
   all: (...params: unknown[]) => unknown[];
@@ -438,11 +438,15 @@ export class SQLiteBusinessStore {
     if (!row) return null;
 
     const existing = rowToTask(row);
+    const title = input.title === undefined ? existing.title : input.title.trim() || existing.title;
+    const taskType = input.taskType === undefined ? existing.taskType : input.taskType.trim() || DEFAULT_TASK_TYPE;
     const dueAt = input.dueAt === undefined ? existing.dueAt : input.dueAt?.trim() || undefined;
     const status = input.status ?? existing.status;
     const summary = input.summary === undefined ? existing.summary : input.summary;
     const nextTask: BrevynTask = {
       ...existing,
+      title,
+      taskType,
       dueAt,
       status,
       summary,

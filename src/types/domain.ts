@@ -29,7 +29,9 @@ export type CourseIconKey =
   | "microscope"
   | "calculator"
   | "globe"
-  | "presentation";
+  | "presentation"
+  | "square-pen"
+  | "clipboard-list";
 
 export interface SemesterWorkspace {
   id: string;
@@ -146,6 +148,8 @@ export interface CreateTaskInput {
 
 export interface UpdateTaskInput {
   id: string;
+  title?: string;
+  taskType?: TaskType;
   status?: TaskStatus;
   dueAt?: string | null;
   summary?: string;
