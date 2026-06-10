@@ -66,6 +66,8 @@ const DEFAULT_TOP_K = 6;
 const EMBEDDING_BATCH_SIZE = 24;
 const MIN_EMBEDDING_BATCH_SIZE = 1;
 const EMBEDDING_REQUEST_TIMEOUT_MS = 45_000;
+const EMBEDDING_REQUEST_MAX_ATTEMPTS = 3;
+const EMBEDDING_RETRY_BASE_DELAY_MS = 800;
 const VECTOR_WRITE_TIMEOUT_MS = 60_000;
 const SCHEMA_REBUILD_MESSAGE = "Embedding index schema is outdated. Please re-index the current semester from Settings -> Provider.";
 const REQUIRED_RAG_FIELDS = [
@@ -347,6 +349,25 @@ export class RagIndexService {
   }
 
   private async embedBatchWithAdaptiveSplit(
+    batch: string[],
+    provider: ModelProviderConfig,
+    apiKey: string,
+    adapter = getEmbeddingProviderAdapter(provider),
+  ): Promise<number[][]> {
+    for (let attempt = 1; attempt <= EMBEDDING_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.embedBatchOnceWithAdaptiveSplit(batch, provider, apiKey, adapter);
+      } catch (error) {
+        if (attempt >= EMBEDDING_REQUEST_MAX_ATTEMPTS || !isRetryableEmbeddingError(error)) {
+          throw error;
+        }
+        await delay(EMBEDDING_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+      }
+    }
+    throw new Error("Embedding request failed after retries.");
+  }
+
+  private async embedBatchOnceWithAdaptiveSplit(
     batch: string[],
     provider: ModelProviderConfig,
     apiKey: string,
@@ -670,6 +691,36 @@ async function responseText(response: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+function isRetryableEmbeddingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("429") ||
+    normalized.includes("408") ||
+    normalized.includes("500") ||
+    normalized.includes("502") ||
+    normalized.includes("503") ||
+    normalized.includes("504") ||
+    normalized.includes("timeout") ||
+    normalized.includes("timed out") ||
+    normalized.includes("terminated") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("econnreset") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("socket") ||
+    normalized.includes("connection") ||
+    normalized.includes("network") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("temporar") ||
+    normalized.includes("overloaded") ||
+    normalized.includes("try again")
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {

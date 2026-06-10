@@ -1,6 +1,5 @@
-import { Archive, ArrowRight, BookOpen, CalendarDays, CheckCircle2, FolderOpen, GraduationCap, Loader2, Plus, Sparkles } from "lucide-react";
+import { Archive, ArrowRight, CalendarDays, CheckCircle2, GraduationCap, Loader2, Plus } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
-import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
 import type { SemesterWorkspace } from "@/types/domain";
 
 type OnboardingMode = "no-semester" | "select-semester";
@@ -21,16 +20,34 @@ export function WorkspaceOnboardingDashboard({
   onWorkspaceChanged: () => Promise<void> | void;
 }) {
   const [term, setTerm] = useState("");
-  const [folderName, setFolderName] = useState("");
+  const [weekCount, setWeekCount] = useState("16");
   const [creating, setCreating] = useState(false);
   const [selectingSemesterId, setSelectingSemesterId] = useState("");
   const [error, setError] = useState("");
   const hasSemesters = semesters.length > 0;
+  const copy = mode === "select-semester"
+    ? {
+        eyebrow: "学期入口",
+        status: "未选择学期",
+        title: "回到一个学期。",
+        description: "选择要继续的学期，Brevyn 会恢复它的课程、资料、作业和会话。你也可以从这里新建一个学期。",
+      }
+    : {
+        eyebrow: "Brevyn 学术工作台",
+        status: "未创建学期",
+        title: "为学习建立一个原点。",
+        description: "Brevyn 是一个本地优先的学术工作台。它把课程、资料、作业和对话放进同一个学期脉络里，让零散的学习慢慢沉淀成可继续的记录。",
+      };
 
   async function createSemester() {
     const nextTerm = term.trim();
+    const nextWeekCount = normalizeWeekCountInput(weekCount);
     if (!nextTerm) {
       setError("请先填写学期名称。");
+      return;
+    }
+    if (!nextWeekCount) {
+      setError("请填写 1-30 之间的学期周数。");
       return;
     }
     setCreating(true);
@@ -38,10 +55,10 @@ export function WorkspaceOnboardingDashboard({
     try {
       await window.brevyn.semester.create({
         term: nextTerm,
-        folderName: folderName.trim() || undefined,
+        weekCount: nextWeekCount,
       });
       setTerm("");
-      setFolderName("");
+      setWeekCount("16");
       await onWorkspaceChanged();
     } catch (reason) {
       setError(errorMessage(reason, "创建学期失败。"));
@@ -65,98 +82,97 @@ export function WorkspaceOnboardingDashboard({
   return (
     <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[58rem] max-w-5xl flex-col gap-4">
-        <section className="overflow-hidden rounded-2xl border bg-card/92 shadow-sm ring-1 ring-border/60">
-          <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_23rem]">
-            <div className="relative overflow-hidden p-6">
-              <div className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-[hsl(var(--status-info)/0.11)] blur-3xl" />
-              <div className="pointer-events-none absolute -bottom-28 left-8 h-48 w-48 rounded-full bg-[hsl(var(--status-warning)/0.10)] blur-3xl" />
-              <div className="relative">
-                <div className="inline-flex items-center gap-2 rounded-full border bg-background/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  <GraduationCap className="h-3.5 w-3.5" />
-                  Brevyn Academic Workspace
-                </div>
-                <h2 className="mt-5 max-w-2xl text-3xl font-semibold tracking-[-0.045em] text-foreground">
-                  {mode === "select-semester" ? "选择一个学期，继续你的课程工作区。" : "先建立学期，再让课程、资料和会话有秩序地展开。"}
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Brevyn 会以学期为边界整理课程资料、作业会话和本地索引。第一次使用时，建议先识别校历；如果暂时没有校历，也可以手动创建一个学期。
-                </p>
+        <section className="relative overflow-hidden rounded-[var(--radius-window)] bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--surface-panel)/0.94))] shadow-[var(--shadow-panel)]">
+          <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
+          <div className="pointer-events-none absolute -bottom-12 right-8 select-none text-[9rem] font-semibold leading-none tracking-[-0.08em] text-foreground/5">
+            01
+          </div>
+          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-6 py-5">
+            <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <GraduationCap className="h-4 w-4" />
+              <span className="truncate">{copy.eyebrow}</span>
+            </div>
+            <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+              {copy.status}
+            </span>
+          </header>
 
-                <div className="mt-5 grid gap-2 sm:grid-cols-3">
-                  <OnboardingStep icon={<CalendarDays className="h-4 w-4" />} title="1. 建立学期" text="确定时间边界和资料目录。" />
-                  <OnboardingStep icon={<BookOpen className="h-4 w-4" />} title="2. 添加课程" text="导入课表或手动添加课程。" />
-                  <OnboardingStep icon={<Sparkles className="h-4 w-4" />} title="3. 开始协作" text="按课程作业沉淀会话。" />
-                </div>
+          <div className="relative z-[1] grid min-h-[30rem] gap-8 px-7 py-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
+            <div className="flex min-w-0 flex-col justify-center">
+              <div className="inline-flex w-fit items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <CalendarDays className="h-4 w-4" />
+                学期入口
+              </div>
+              <h2 className="mt-6 max-w-2xl text-[3rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">{copy.title}</h2>
+              <p className="mt-5 max-w-xl text-[15px] leading-7 text-muted-foreground">{copy.description}</p>
+
+              <div className="mt-9 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
+                <OnboardingMilestone index="01" title="学期" text="命名当前阶段" />
+                <OnboardingMilestone index="02" title="课程" text="添加课程入口" />
+                <OnboardingMilestone index="03" title="作业" text="沉淀资料会话" />
               </div>
             </div>
 
-            <aside className="border-t bg-background/46 p-4 shadow-[inset_0_1px_0_hsl(var(--border)/0.5)] lg:border-l lg:border-t-0 lg:shadow-[inset_1px_0_0_hsl(var(--border)/0.5)]">
-              <div className="rounded-2xl bg-card/86 p-3 shadow-sm ring-1 ring-border/60">
-                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  推荐入口
+            <aside className="flex min-w-0 items-center">
+              <div className="w-full rounded-[var(--radius-panel)] bg-background/78 p-4 shadow-[0_18px_40px_hsl(var(--foreground)/0.06),inset_0_0_0_1px_hsl(var(--border)/0.52)]">
+                <div className="text-[13px] font-semibold text-foreground">新建学期</div>
+                <div className="mt-2">
+                  <p className="text-[11px] leading-5 text-muted-foreground">
+                    填写名称和周数。目录和归档可以稍后在学期管理中调整。
+                  </p>
                 </div>
-                <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                  有校历截图或图片时，识别校历会自动创建学期并补全年周次信息。
-                </p>
-                <div className="mt-3 flex flex-col gap-2">
-                  <VisionRecognitionImportButton
-                    kind="academic_calendar"
-                    variant="primary"
-                    className="h-9 justify-center rounded-[var(--radius-control)]"
-                    onImported={async () => {
-                      await onWorkspaceChanged();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-control)] border bg-background/80 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
-                    onClick={onOpenSemesterSettings}
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                    打开学期管理
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 rounded-2xl bg-card/86 p-3 shadow-sm ring-1 ring-border/60">
-                <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-foreground">
-                  <Plus className="h-3.5 w-3.5" />
-                  手动创建学期
-                </div>
-                <div className="space-y-2">
-                  <label className="block space-y-1 text-[11px] text-muted-foreground">
+                <div className="mt-5 space-y-4">
+                  <label className="block space-y-2 text-[11px] text-muted-foreground">
                     <span>学期名称</span>
                     <input
-                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+                      className="h-10 w-full rounded-[var(--radius-control)] border bg-card px-3 text-sm font-medium text-foreground outline-none transition placeholder:text-muted-foreground/55 focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
                       value={term}
                       onChange={(event) => setTerm(event.target.value)}
                       onKeyDown={(event) => {
                         if (isComposingText(event)) return;
-                        if (event.key === "Enter" && !creating && term.trim()) void createSemester();
+                        if (event.key === "Enter" && !creating && term.trim() && normalizeWeekCountInput(weekCount)) void createSemester();
                       }}
                       placeholder="例如：2026 秋季学期"
                       disabled={creating}
                     />
                   </label>
-                  <label className="block space-y-1 text-[11px] text-muted-foreground">
-                    <span>文件夹名称（可选）</span>
+                  <label className="block space-y-2 text-[11px] text-muted-foreground">
+                    <span>学期周数</span>
                     <input
-                      className="h-8 w-full rounded-[var(--radius-control)] border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
-                      value={folderName}
-                      onChange={(event) => setFolderName(event.target.value)}
-                      placeholder="留空则自动生成"
+                      className="h-10 w-full rounded-[var(--radius-control)] border bg-card px-3 text-sm font-medium text-foreground outline-none transition placeholder:text-muted-foreground/55 focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-55"
+                      type="number"
+                      min={1}
+                      max={30}
+                      step={1}
+                      inputMode="numeric"
+                      value={weekCount}
+                      onChange={(event) => setWeekCount(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !creating && term.trim() && normalizeWeekCountInput(weekCount)) void createSemester();
+                      }}
+                      placeholder="16"
                       disabled={creating}
                     />
+                    <span className="block text-[10px] leading-4 text-muted-foreground/75">
+                      用于生成 Week 1 到 Week N 的课件目录。
+                    </span>
                   </label>
                   <button
                     type="button"
-                    className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() => void createSemester()}
-                    disabled={creating || !term.trim()}
+                    disabled={creating || !term.trim() || !normalizeWeekCountInput(weekCount)}
                   >
                     {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                    {creating ? "正在创建" : "创建并进入"}
+                    {creating ? "正在建立" : "建立并进入"}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
+                    onClick={onOpenSemesterSettings}
+                  >
+                    更多学期设置
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
@@ -171,7 +187,7 @@ export function WorkspaceOnboardingDashboard({
         )}
 
         {hasSemesters && (
-          <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
+          <section className="rounded-[var(--radius-panel)] bg-card p-4 shadow-[var(--shadow-panel)]">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -193,11 +209,11 @@ export function WorkspaceOnboardingDashboard({
                 <button
                   key={semester.id}
                   type="button"
-                  className="group flex min-w-0 items-center gap-3 rounded-xl border bg-background/68 p-3 text-left transition hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-sm disabled:cursor-wait disabled:opacity-70"
+                  className="group flex min-w-0 items-center gap-3 rounded-[var(--radius-card)] bg-background/68 p-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)] transition hover:bg-accent/50 disabled:cursor-wait disabled:opacity-70"
                   disabled={Boolean(selectingSemesterId)}
                   onClick={() => void selectSemester(semester)}
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card text-muted-foreground ring-1 ring-border/60">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground ring-1 ring-border/60">
                     {selectingSemesterId === semester.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -211,15 +227,15 @@ export function WorkspaceOnboardingDashboard({
           </section>
         )}
 
-        <section className="rounded-2xl border bg-card/82 p-4 text-xs leading-5 text-muted-foreground shadow-sm ring-1 ring-border/50">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <section className="px-1 text-xs leading-5 text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/45 pt-4">
             <div className="max-w-2xl">
-              <div className="mb-1 font-semibold text-foreground">找不到之前的学期？</div>
-              <p>如果你把旧学期归档了，它不会出现在当前工作区。可以进入归档页恢复，永久删除仍会有二次确认。</p>
+              <div className="mb-1 font-semibold text-foreground">已有历史学期？</div>
+              <p>归档学期不会出现在当前工作区。需要继续时，可以从归档中恢复。</p>
             </div>
             <button
               type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              className="inline-flex h-8 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
               onClick={onOpenArchive}
             >
               <Archive className="h-3.5 w-3.5" />
@@ -232,16 +248,12 @@ export function WorkspaceOnboardingDashboard({
   );
 }
 
-function OnboardingStep({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+function OnboardingMilestone({ index, title, text }: { index: string; title: string; text: string }) {
   return (
-    <div className="rounded-2xl bg-background/58 p-3 shadow-sm ring-1 ring-border/58">
-      <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-        <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground ring-1 ring-border/60">
-          {icon}
-        </span>
-        {title}
-      </div>
-      <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{text}</p>
+    <div className="min-w-0 px-4 py-3 first:pl-0 last:pr-0">
+      <div className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">{index}</div>
+      <div className="mt-2 text-sm font-semibold tracking-[-0.02em] text-foreground">{title}</div>
+      <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{text}</p>
     </div>
   );
 }
@@ -254,4 +266,12 @@ function errorMessage(error: unknown, fallback: string): string {
 
 function isComposingText(event: KeyboardEvent<HTMLInputElement>): boolean {
   return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
+function normalizeWeekCountInput(value: string): number | undefined {
+  const numeric = Number(value.trim());
+  if (!Number.isFinite(numeric)) return undefined;
+  const weekCount = Math.trunc(numeric);
+  if (weekCount < 1 || weekCount > 30) return undefined;
+  return weekCount;
 }

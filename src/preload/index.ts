@@ -27,6 +27,7 @@ import type {
   AppThemeState,
   BrevynAgentEvent,
   FileImportInput,
+  DeleteFileInput,
   ProviderDraftInput,
   RecognizedAcademicCalendar,
   RecognizedCourseTimetable,
@@ -106,7 +107,7 @@ const api: BrevynAPI = {
     cancelIndexing: (jobId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesIndexingCancel, jobId),
     open: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesOpen, fileId),
     rename: (input: { fileId: string; name: string }) => ipcRenderer.invoke(IPC_CHANNELS.filesRename, input),
-    delete: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesDelete, fileId),
+    delete: (input: string | DeleteFileInput) => ipcRenderer.invoke(IPC_CHANNELS.filesDelete, input),
     reveal: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.filesReveal, fileId),
     onChanged: (callback: () => void) => {
       const listener = () => callback();

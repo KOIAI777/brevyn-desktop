@@ -18,6 +18,7 @@ import type {
   AppThemePreference,
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
+  DeleteFileInput,
   CloudAccountStatus,
   CloudActivateOfficialProviderInput,
   CloudAuthInput,
@@ -171,7 +172,9 @@ export class LocalStore {
     this.ocr = new OcrRecognitionService({
       providers: this.providers,
     });
-    this.documentParser = new DocumentParseService();
+    this.documentParser = new DocumentParseService({
+      providers: this.providers,
+    });
     const agentEventBus = new AgentEventBus();
     agentEventBus.on((event) => {
       if (isTerminalAgentRunEvent(event)) {
@@ -365,8 +368,8 @@ export class LocalStore {
     return this.files.renameFile(fileId, name);
   }
 
-  deleteFile(fileId: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
-    return this.files.deleteFile(fileId);
+  deleteFile(input: string | DeleteFileInput): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
+    return this.files.deleteFile(input);
   }
 
   courseFileSections(courseId: string): CourseFileSection[] {

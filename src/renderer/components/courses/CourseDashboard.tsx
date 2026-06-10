@@ -52,6 +52,20 @@ export function CourseDashboard({
   } = dashboardStats;
   const courseColor = course.color || "#2563eb";
 
+  if (tasks.length === 0) {
+    return (
+      <EmptyCourseTaskStart
+        course={course}
+        semester={semester}
+        courseColor={courseColor}
+        courseFileCount={courseFileCount}
+        courseThreadsCount={courseThreads.length}
+        lectureFileCount={lectureFiles.length}
+        onOpenTasks={onOpenTasks}
+      />
+    );
+  }
+
   return (
     <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
@@ -227,6 +241,144 @@ export function CourseDashboard({
         </section>
 
       </div>
+    </div>
+  );
+}
+
+function EmptyCourseTaskStart({
+  course,
+  semester,
+  courseColor,
+  courseFileCount,
+  courseThreadsCount,
+  lectureFileCount,
+  onOpenTasks,
+}: {
+  course: Course;
+  semester?: SemesterWorkspace | null;
+  courseColor: string;
+  courseFileCount: number;
+  courseThreadsCount: number;
+  lectureFileCount: number;
+  onOpenTasks: () => void;
+}) {
+  return (
+    <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
+      <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col">
+        <section className="relative overflow-hidden rounded-[var(--radius-window)] bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--surface-panel)/0.94))] shadow-[var(--shadow-panel)]">
+          <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
+          <div className="pointer-events-none absolute -bottom-12 right-8 select-none text-[9rem] font-semibold leading-none tracking-[-0.08em] text-foreground/5">
+            03
+          </div>
+
+          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-6 py-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)]"
+                style={{ color: courseColor, backgroundColor: `${courseColor}18`, boxShadow: `inset 0 0 0 1px ${courseColor}30` }}
+              >
+                <CourseIcon course={course} className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[13px] font-semibold tracking-[-0.02em] text-foreground">{course.name}</span>
+                  {course.code && (
+                    <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      {course.code}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">{semester?.term || course.term || "当前学期"}</div>
+              </div>
+            </div>
+            <span className="shrink-0 rounded-[var(--radius-badge)] bg-muted px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+              0 个课程作业
+            </span>
+          </header>
+
+          <div className="relative z-[1] grid min-h-[30rem] gap-8 px-7 py-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
+            <div className="flex min-w-0 flex-col justify-center">
+              <div className="inline-flex w-fit items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <CalendarClock className="h-4 w-4" />
+                课程作业
+              </div>
+              <h2 className="mt-6 max-w-2xl text-[3rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">
+                让任务就位。
+              </h2>
+              <p className="mt-5 max-w-xl text-[15px] leading-7 text-muted-foreground">
+                课程是工作区，课程作业是具体目标。为 essay、project、exam 或复习计划建立一个作业空间，资料、草稿和会话会围绕它继续沉淀。
+              </p>
+
+              <div className="mt-9 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
+                <EmptyTaskMilestone index="01" title="要求" text="放入 brief 与 rubric" />
+                <EmptyTaskMilestone index="02" title="资料" text="收集 readings 与 notes" />
+                <EmptyTaskMilestone index="03" title="会话" text="围绕目标推进" />
+              </div>
+            </div>
+
+            <aside className="flex min-w-0 items-center">
+              <div className="w-full overflow-hidden rounded-[var(--radius-panel)] bg-background/78 shadow-[0_18px_40px_hsl(var(--foreground)/0.06),inset_0_0_0_1px_hsl(var(--border)/0.52)]">
+                <div className="border-b border-border/50 px-4 py-3">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+                    <Sparkles className="h-4 w-4" />
+                    创建课程作业
+                  </div>
+                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                    先从名称开始。图标、截止日期和资料可以稍后补充。
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="group flex w-full items-center justify-between gap-5 px-4 py-4 text-left transition hover:bg-accent/45 active:scale-[0.995]"
+                  onClick={onOpenTasks}
+                >
+                  <span className="flex min-w-0 items-start gap-3">
+                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-foreground text-background">
+                      <Plus className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold tracking-[-0.02em] text-foreground">新建课程作业</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">为这门课创建 essay、项目、考试或复习入口。</span>
+                    </span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </button>
+
+                <div className="mx-4 h-px bg-border/45" />
+
+                <div className="px-4 py-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">课程空间</div>
+                  <div className="mt-3 grid gap-2 text-xs">
+                    <CourseTaskSpaceRow label="课程资料" value={`${courseFileCount} 个文件`} />
+                    <CourseTaskSpaceRow label="课件" value={`${lectureFileCount} 个文件`} />
+                    <CourseTaskSpaceRow label="会话" value={`${courseThreadsCount} 个`} />
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function EmptyTaskMilestone({ index, title, text }: { index: string; title: string; text: string }) {
+  return (
+    <div className="min-w-0 px-4 py-3 first:pl-0 last:pr-0">
+      <div className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground">{index}</div>
+      <div className="mt-2 text-sm font-semibold tracking-[-0.02em] text-foreground">{title}</div>
+      <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{text}</p>
+    </div>
+  );
+}
+
+function CourseTaskSpaceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border/40 py-2 first:border-t-0 first:pt-0 last:pb-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }

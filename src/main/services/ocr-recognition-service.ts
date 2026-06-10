@@ -23,6 +23,8 @@ interface OcrEnhanceInput {
 
 const MAX_OCR_FILE_BYTES = 18 * 1024 * 1024;
 const OCR_TIMEOUT_MS = 180_000;
+const DOC_PARSE_MODEL_ID = "brevyn-doc-parse";
+const DOCUMENT_PARSE_MODE = "precision";
 
 export class OcrRecognitionService {
   constructor(private readonly options: OcrRecognitionServiceOptions) {}
@@ -76,7 +78,7 @@ export class OcrRecognitionService {
         method: "POST",
         headers: multimodalHeaders(input.provider, input.apiKey),
         signal: controller.signal,
-        body: JSON.stringify(multimodalRequestBody(input.provider, file, ocrPrompt(input), 8192)),
+        body: JSON.stringify(withDocumentParseMode(input.provider, multimodalRequestBody(input.provider, file, ocrPrompt(input), 8192))),
       });
       const text = await response.text();
       if (!response.ok) throw new Error(`OCR request failed (${response.status}): ${text}`);
@@ -90,6 +92,24 @@ export class OcrRecognitionService {
       clearTimeout(timeout);
     }
   }
+}
+
+function withDocumentParseMode(provider: ModelProviderConfig, body: unknown): unknown {
+  if (provider.protocol !== "openai_responses") return body;
+  if (provider.selectedModel.trim().toLowerCase() !== DOC_PARSE_MODEL_ID) return body;
+  return {
+    ...objectValue(body),
+    parse_options: {
+      ...objectValue(objectValue(body).parse_options),
+      mode: DOCUMENT_PARSE_MODE,
+      ocr: true,
+      formula: true,
+      table: true,
+      is_ocr: true,
+      enable_formula: true,
+      enable_table: true,
+    },
+  };
 }
 
 function shouldRunOcr(input: OcrEnhanceInput): boolean {
@@ -230,6 +250,10 @@ function parseJson(value: string): unknown {
   } catch {
     throw new Error(`OCR provider returned invalid JSON: ${value.slice(0, 300)}`);
   }
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function mediaTypeForPath(path: string): string {

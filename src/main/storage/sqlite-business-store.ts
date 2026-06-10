@@ -47,6 +47,7 @@ type IndexingTaskLease = { workerId: string; lockedUntil?: string };
 const require = createRequire(__filename);
 const BUSINESS_SCHEMA_VERSION = 1;
 const BUSINESS_SCHEMA_NAME = "business_schema_v1";
+const DEFAULT_INDEXING_TASK_MAX_ATTEMPTS = 5;
 const now = () => new Date().toISOString();
 
 export class SQLiteBusinessStore {
@@ -234,6 +235,22 @@ export class SQLiteBusinessStore {
       )
       .get(fileId) as Row | undefined;
     return Boolean(row);
+  }
+
+  activeIndexingJobsForFiles(fileIds: string[]): IndexingJob[] {
+    const ids = [...new Set(fileIds.filter(Boolean))];
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(", ");
+    return this.all(
+      `select distinct indexing_jobs.*
+       from indexing_jobs
+       join indexing_tasks on indexing_tasks.job_id = indexing_jobs.id
+       where indexing_tasks.file_id in (${placeholders})
+         and indexing_tasks.status in ('queued', 'running')
+         and indexing_jobs.status in ('queued', 'indexing')
+       order by indexing_jobs.updated_at desc`,
+      ...ids,
+    ).map(rowToIndexingJob);
   }
 
   listThreads(semesterId?: string, courseId?: string): Thread[] {
@@ -1210,7 +1227,7 @@ export class SQLiteBusinessStore {
       task.sectionId ?? null,
       task.fileId,
       task.kind,
-      task.maxAttempts ?? 3,
+      task.maxAttempts ?? DEFAULT_INDEXING_TASK_MAX_ATTEMPTS,
       task.nextRunAt ?? timestamp,
       json(task.payload),
       timestamp,
@@ -1449,7 +1466,7 @@ export class SQLiteBusinessStore {
           kind text not null,
           status text not null,
           attempts integer not null default 0,
-          max_attempts integer not null default 3,
+          max_attempts integer not null default 5,
           locked_by text,
           locked_until text,
           next_run_at text not null,
@@ -1497,7 +1514,7 @@ export class SQLiteBusinessStore {
         kind text not null,
         status text not null,
         attempts integer not null default 0,
-        max_attempts integer not null default 3,
+        max_attempts integer not null default 5,
         locked_by text,
         locked_until text,
         next_run_at text not null,
@@ -1726,6 +1743,8 @@ function fileBusinessJson(file: WorkspaceFileNode): Partial<WorkspaceFileNode> {
     indexingProgress: _indexingProgress,
     indexingError: _indexingError,
     indexingWarning: _indexingWarning,
+    indexingParser: _indexingParser,
+    indexingParserDetail: _indexingParserDetail,
     indexingUpdatedAt: _indexingUpdatedAt,
     indexedAt: _indexedAt,
     ...raw
@@ -1772,6 +1791,8 @@ function rowToWorkspaceFileNode(row: Row): WorkspaceFileNode {
     indexingProgress: indexing.progress,
     indexingError: indexing.error,
     indexingWarning: indexing.warning,
+    indexingParser: indexing.parser,
+    indexingParserDetail: indexing.parserDetail,
     indexingUpdatedAt: indexing.updatedAt,
     indexedAt: nullableString(row.indexed_at),
     updatedAt: stringValue(row.updated_at),
@@ -1801,6 +1822,8 @@ function fileIndexingStatusFromRow(row: Row): {
   progress?: number;
   error?: string;
   warning?: string;
+  parser?: string;
+  parserDetail?: string;
   updatedAt?: string;
 } {
   if (stringValue(row.kind) === "folder") {
@@ -1811,24 +1834,26 @@ function fileIndexingStatusFromRow(row: Row): {
   const warnings = Array.isArray(result.result?.warnings) ? result.result.warnings.filter(Boolean) : [];
   const metadata = result.result?.metadata || {};
   const coverageStatus = typeof metadata.coverageStatus === "string" ? metadata.coverageStatus : "";
+  const parser = typeof metadata.parser === "string" ? metadata.parser : "";
+  const parserDetail = indexingParserDetail(metadata);
   const progress = numberValue(row.indexing_task_progress);
   const updatedAt = nullableString(row.indexing_task_updated_at) || nullableString(row.indexed_at);
-  if (taskStatus === "queued") return { status: "queued", progress, updatedAt };
-  if (taskStatus === "running") return { status: "indexing", progress, updatedAt };
-  if (taskStatus === "failed") return { status: "failed", progress, error: nullableString(row.indexing_task_error), updatedAt };
-  if (taskStatus === "cancelled") return { status: "cancelled", progress, updatedAt };
+  if (taskStatus === "queued") return { status: "queued", progress, parser, parserDetail, updatedAt };
+  if (taskStatus === "running") return { status: "indexing", progress, parser, parserDetail, updatedAt };
+  if (taskStatus === "failed") return { status: "failed", progress, error: nullableString(row.indexing_task_error), parser, parserDetail, updatedAt };
+  if (taskStatus === "cancelled") return { status: "cancelled", progress, parser, parserDetail, updatedAt };
   if (taskStatus === "done") {
     const chunkCount = result.result?.chunkCount || 0;
     const message = coverageWarningMessage(metadata, warnings);
     if (chunkCount === 0 && warnings.length > 0) {
-      return { status: "skipped", progress: 100, warning: warnings[0], updatedAt };
+      return { status: "skipped", progress: 100, warning: warnings[0], parser, parserDetail, updatedAt };
     }
     if (coverageStatus === "partial") {
-      return { status: "partial", progress: 100, warning: message || warnings[0], updatedAt };
+      return { status: "partial", progress: 100, warning: message || warnings[0], parser, parserDetail, updatedAt };
     }
-    return { status: "indexed", progress: 100, warning: message, updatedAt };
+    return { status: "indexed", progress: 100, warning: message, parser, parserDetail, updatedAt };
   }
-  return nullableString(row.indexed_at) ? { status: "indexed", progress: 100, updatedAt } : { status: "idle" };
+  return nullableString(row.indexed_at) ? { status: "indexed", progress: 100, parser, parserDetail, updatedAt } : { status: "idle", parser, parserDetail };
 }
 
 function coverageWarningMessage(metadata: Record<string, unknown>, warnings: string[]): string | undefined {
@@ -1843,8 +1868,26 @@ function coverageWarningMessage(metadata: Record<string, unknown>, warnings: str
   if (empty > 0) parts.push(`${empty} ${unit}没有可提取文字`);
   const truncated = metadata.truncated === true;
   if (truncated) parts.push("文本超过上限，已截断");
-  if (parts.length > 0) return parts.join(" · ");
+  const documentParseWarning = warnings.find((warning) => warning.includes("MinerU document parsing"));
+  if (parts.length > 0) return [parts.join(" · "), documentParseWarning].filter(Boolean).join(" · ");
+  if (documentParseWarning) return documentParseWarning;
   return warnings[0];
+}
+
+function indexingParserDetail(metadata: Record<string, unknown>): string | undefined {
+  const parser = typeof metadata.parser === "string" ? metadata.parser.trim() : "";
+  if (!parser) return undefined;
+  const documentProvider = typeof metadata.documentParseProvider === "string" ? metadata.documentParseProvider.trim() : "";
+  const documentModel = typeof metadata.documentParseModel === "string" ? metadata.documentParseModel.trim() : "";
+  const ocrProvider = typeof metadata.ocrProvider === "string" ? metadata.ocrProvider.trim() : "";
+  const ocrModel = typeof metadata.ocrModel === "string" ? metadata.ocrModel.trim() : "";
+  if (documentProvider || documentModel) {
+    return [parser, documentProvider, documentModel].filter(Boolean).join(" · ");
+  }
+  if (ocrProvider || ocrModel) {
+    return [parser, ocrProvider, ocrModel].filter(Boolean).join(" · ");
+  }
+  return parser;
 }
 
 function shouldRetryIndexingError(message: string): boolean {
@@ -1888,7 +1931,8 @@ function shouldRetryIndexingError(message: string): boolean {
     normalized.includes("rate limit") ||
     normalized.includes("temporar") ||
     normalized.includes("overloaded") ||
-    normalized.includes("try again")
+    normalized.includes("try again") ||
+    normalized.includes("terminated")
   );
 }
 
@@ -1940,7 +1984,7 @@ function rowToIndexingTask(row: Row): IndexingTaskRecord {
     kind: stringValue(row.kind) as IndexingTaskRecord["kind"],
     status: stringValue(row.status) as IndexingTaskRecord["status"],
     attempts: numberValue(row.attempts) || 0,
-    maxAttempts: numberValue(row.max_attempts) || 3,
+    maxAttempts: numberValue(row.max_attempts) || DEFAULT_INDEXING_TASK_MAX_ATTEMPTS,
     lockedBy: nullableString(row.locked_by),
     lockedUntil: nullableString(row.locked_until),
     nextRunAt: stringValue(row.next_run_at),

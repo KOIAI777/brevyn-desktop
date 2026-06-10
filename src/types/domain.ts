@@ -52,6 +52,7 @@ export interface SemesterWorkspace {
   folderName: string;
   startsAt?: string;
   endsAt?: string;
+  weekCount?: number;
   source: "manual" | "filesystem" | "vision";
   recognizedAt?: string;
   archivedAt?: string;
@@ -63,6 +64,7 @@ export interface CreateSemesterInput {
   semesterNo?: string;
   startsAt?: string;
   endsAt?: string;
+  weekCount?: number;
 }
 
 export interface CreateCourseInput {
@@ -274,6 +276,8 @@ export interface WorkspaceFileNode {
   indexingProgress?: number;
   indexingError?: string;
   indexingWarning?: string;
+  indexingParser?: string;
+  indexingParserDetail?: string;
   indexingUpdatedAt?: string;
   indexedAt?: string;
   updatedAt: string;
@@ -478,6 +482,11 @@ export interface FileImportResult {
   indexingJob: IndexingJob | null;
   indexingError?: string;
   indexingNotice?: string;
+}
+
+export interface DeleteFileInput {
+  fileId: string;
+  forceCancelIndexing?: boolean;
 }
 
 export type ProviderPurpose = "agent" | "embedding" | "vision" | "ocr";
@@ -1401,7 +1410,7 @@ export interface BrevynAPI {
     cancelIndexing: (jobId: string) => Promise<IndexingJob | null>;
     open: (fileId: string) => Promise<void>;
     rename: (input: { fileId: string; name: string }) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
-    delete: (fileId: string) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
+    delete: (input: string | DeleteFileInput) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
     reveal: (fileId: string) => Promise<void>;
     onChanged: (callback: () => void) => () => void;
   };

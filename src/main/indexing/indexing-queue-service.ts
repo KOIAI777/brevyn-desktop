@@ -3,6 +3,8 @@ import type { LocalStore } from "../services/local-store";
 import type { IndexingExecutor } from "./indexing-worker-executor";
 import type { IndexingTaskRecord } from "./indexing-types";
 
+const DEFAULT_INDEXING_CONCURRENCY = 3;
+
 export interface IndexingQueueOptions {
   concurrency?: number;
   pollMs?: number;
@@ -25,7 +27,7 @@ export class IndexingQueueService {
     private readonly executor: IndexingExecutor,
     private readonly options: IndexingQueueOptions = {},
   ) {
-    this.concurrency = options.concurrency ?? 2;
+    this.concurrency = options.concurrency ?? DEFAULT_INDEXING_CONCURRENCY;
     this.pollMs = options.pollMs ?? 1_500;
     this.lockMs = options.lockMs ?? 90_000;
   }

@@ -29,9 +29,9 @@ import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DropdownSelect, type DropdownOption } from "@/components/ui/DropdownSelect";
 import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon";
 import { TaskIcon, TASK_ICON_OPTIONS, resolveTaskIcon } from "@/components/courses/TaskIcon";
-import { FileIndexingBadge } from "@/components/files/FileIndexingBadge";
+import { FileIndexingBadge, IndexingStatusBadge } from "@/components/files/FileIndexingBadge";
 import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
-import { lectureWeekNumberFromPath, semesterWeekNumbers } from "../../../shared/semester-weeks";
+import { lectureWeekNumberFromPath, semesterLectureWeekNumbers } from "../../../shared/semester-weeks";
 
 const DEFAULT_TASK_TYPE = "作业";
 const TASK_TYPE_PRESETS: TaskType[] = ["作业", "Essay", "Presentation", "Exam", "Project"];
@@ -175,7 +175,7 @@ export function CourseManagementDialog({
   useEffect(() => {
     if (!activeCourse?.id) return;
     const timer = window.setInterval(() => {
-      void loadCourseView(activeCourse.id);
+      void loadCourseView(activeCourse.id, { showLoading: false });
     }, hasActiveIndexingJob ? 1600 : 5000);
     return () => window.clearInterval(timer);
   }, [activeCourse?.id, hasActiveIndexingJob]);
@@ -215,10 +215,10 @@ export function CourseManagementDialog({
     }
   }
 
-  async function loadCourseView(courseId: string): Promise<boolean> {
+  async function loadCourseView(courseId: string, options: { showLoading?: boolean } = {}): Promise<boolean> {
     const requestId = courseViewRequestRef.current + 1;
     courseViewRequestRef.current = requestId;
-    setLoadingIndexingJobs(true);
+    if (options.showLoading !== false) setLoadingIndexingJobs(true);
     try {
       const [nextSections, nextIndexingJobs] = await Promise.all([
         window.brevyn.files.sections(courseId),
@@ -456,7 +456,9 @@ export function CourseManagementDialog({
       setRagError("");
       await loadCourseView(activeCourse.id);
       if (existingActiveJob) {
-        setCourseActionError("这门课已有索引任务在进行中，已打开现有进度，不会重复创建任务。");
+        setCourseActionError(sectionId && existingActiveJob.sectionId
+          ? "这个分区已有索引任务在进行中，已打开现有进度，不会重复创建任务。"
+          : "这门课已有索引任务在进行中，已打开现有进度，不会重复创建任务。");
       }
     } catch (error) {
       setCourseActionError(errorMessage(error, "启动索引失败。"));
@@ -927,7 +929,7 @@ export function CourseManagementDialog({
               )}
 
               {activeCourse && coursePanel === "files" && (
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 brevyn-scrollbar">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 [contain:layout_paint] [overflow-anchor:none] [scrollbar-gutter:stable] brevyn-scrollbar">
                   <CourseSectionGroupHeader
                     title={activeCourseIsSemesterHome ? "学期资料" : "课程资料"}
                   />
@@ -1585,10 +1587,11 @@ function latestIndexingJobsBySection(jobs: IndexingJob[]): IndexingJob[] {
   return Array.from(latest.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
-function findActiveIndexingJob(jobs: IndexingJob[], _sectionId?: string): IndexingJob | undefined {
+function findActiveIndexingJob(jobs: IndexingJob[], sectionId?: string): IndexingJob | undefined {
   return jobs.find((job) => {
     if (job.status !== "queued" && job.status !== "indexing") return false;
-    return true;
+    if (!sectionId) return true;
+    return !job.sectionId || job.sectionId === sectionId;
   });
 }
 
@@ -1788,7 +1791,25 @@ const SectionCard = memo(function SectionCard({
       await window.brevyn.files.delete(fileId);
       onFileDeleted();
     } catch (error) {
-      setFileActionError(error instanceof Error ? error.message : "删除失败");
+      if (isActiveIndexingDeleteError(error)) {
+        const forceDelete = await confirm({
+          title: "取消索引并删除？",
+          message: "这个文件正在进入课程知识库。取消后会停止相关索引任务，并删除本地副本和已生成的知识库片段。",
+          confirmLabel: "取消索引并删除",
+          cancelLabel: "保留文件",
+          tone: "danger",
+        });
+        if (!forceDelete) return;
+        try {
+          await window.brevyn.files.delete({ fileId, forceCancelIndexing: true });
+          onFileDeleted();
+          return;
+        } catch (forceError) {
+          setFileActionError(errorMessage(forceError, "删除失败。"));
+          return;
+        }
+      }
+      setFileActionError(errorMessage(error, "删除失败。"));
     } finally {
       setDeletingFileId("");
     }
@@ -1840,9 +1861,13 @@ const SectionCard = memo(function SectionCard({
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className={cx("rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", statusTone(section.indexingStatus))}>
-            {displayIndexingStatus(section.indexingStatus)}
-          </span>
+          <IndexingStatusBadge
+            status={section.indexingStatus}
+            label={displayIndexingStatus(section.indexingStatus)}
+            title={sectionStatusTitle(section, visibleFiles)}
+            description={sectionStatusDescription(section, visibleFiles)}
+            rows={sectionStatusRows(section, visibleFiles)}
+          />
           {section.kind === "task" && onEditTask && (
             <button
               type="button"
@@ -1969,6 +1994,46 @@ function statusTone(status: IndexingJob["status"]): string {
   return "bg-muted text-muted-foreground";
 }
 
+function sectionStatusTitle(section: CourseFileSection, files: WorkspaceFileNode[]): string {
+  return `${displaySectionTitle(section)} · ${displayIndexingStatus(section.indexingStatus)}`;
+}
+
+function sectionStatusDescription(section: CourseFileSection, files: WorkspaceFileNode[]): string {
+  const summary = sectionIndexingSummary(files);
+  if (files.length === 0) return "这个分区还没有可索引文件。";
+  if (section.indexingStatus === "indexing") return "正在把这个分区的文件写入课程知识库。";
+  if (section.indexingStatus === "queued") return "这个分区已经进入索引队列。";
+  if (section.indexingStatus === "failed") return summary.failed > 0 ? `${summary.failed} 个文件索引失败。` : "这个分区的索引任务失败。";
+  if (section.indexingStatus === "cancelled") return "这个分区的索引任务已取消。";
+  if (summary.partial > 0) return `${summary.partial} 个文件只完成了部分索引，悬停到具体文件可查看原因。`;
+  if (summary.failed > 0) return `${summary.failed} 个文件索引失败，悬停到具体文件可查看原因。`;
+  if (summary.indexed > 0) return `${summary.indexed} 个文件已进入课程知识库。`;
+  return "这个分区暂无已完成的索引结果。";
+}
+
+function sectionStatusRows(section: CourseFileSection, files: WorkspaceFileNode[]): Array<{ label: string; value: string }> {
+  const summary = sectionIndexingSummary(files);
+  return [
+    { label: "状态", value: displayIndexingStatus(section.indexingStatus) },
+    { label: "文件", value: `${files.length} 个` },
+    { label: "已索引", value: summary.indexed > 0 ? `${summary.indexed} 个` : "" },
+    { label: "部分", value: summary.partial > 0 ? `${summary.partial} 个` : "" },
+    { label: "失败", value: summary.failed > 0 ? `${summary.failed} 个` : "" },
+    { label: "进行中", value: summary.active > 0 ? `${summary.active} 个` : "" },
+  ];
+}
+
+function sectionIndexingSummary(files: WorkspaceFileNode[]): { indexed: number; partial: number; failed: number; active: number } {
+  return files.reduce((summary, file) => {
+    const status = file.indexingStatus || (file.indexedAt ? "indexed" : "idle");
+    if (status === "indexed") summary.indexed += 1;
+    else if (status === "partial" || status === "warning" || status === "skipped") summary.partial += 1;
+    else if (status === "failed") summary.failed += 1;
+    else if (status === "queued" || status === "indexing") summary.active += 1;
+    return summary;
+  }, { indexed: 0, partial: 0, failed: 0, active: 0 });
+}
+
 function displaySectionTitle(section: CourseFileSection): string {
   if (section.kind === "course_shared") return section.courseId === "semester-home" || section.title === "All semester files" ? "学期资料" : "共享资料";
   if (section.kind === "lecture") return section.weekNumber ? `第 ${section.weekNumber} 周课件` : "课件";
@@ -2065,10 +2130,10 @@ function areWorkspaceFileNodesEqual(a: WorkspaceFileNode, b: WorkspaceFileNode):
     a.ragEligible === b.ragEligible &&
     a.sourceKind === b.sourceKind &&
     a.indexingStatus === b.indexingStatus &&
-    a.indexingProgress === b.indexingProgress &&
     a.indexingError === b.indexingError &&
     a.indexingWarning === b.indexingWarning &&
-    a.indexingUpdatedAt === b.indexingUpdatedAt &&
+    a.indexingParser === b.indexingParser &&
+    a.indexingParserDetail === b.indexingParserDetail &&
     a.indexedAt === b.indexedAt &&
     a.updatedAt === b.updatedAt &&
     a.children === b.children
@@ -2156,7 +2221,7 @@ const SectionFileRow = memo(function SectionFileRow({
 }: SectionFileRowProps) {
   const canRetryIndex = shouldOfferIndexRetry(file);
   return (
-    <div className="flex items-center gap-2 rounded-[var(--radius-control)] border border-border/60 bg-background px-2 py-1.5">
+    <div className="flex min-h-10 items-center gap-2 rounded-[var(--radius-control)] border border-border/60 bg-background px-2 py-1.5 [contain:layout_paint_style]">
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-[12px]">{file.name}</span>
       <FileIndexingBadge file={file} />
@@ -2271,7 +2336,7 @@ function localizePathSegment(value: string): string {
 }
 
 function semesterWeekOptions(semester?: SemesterWorkspace | null): DropdownOption[] {
-  return semesterWeekNumbers(semester).slice(0, MAX_LECTURE_WEEK_OPTIONS).map((week) => ({
+  return semesterLectureWeekNumbers(semester).slice(0, MAX_LECTURE_WEEK_OPTIONS).map((week) => ({
     value: String(week),
     label: `Week ${week}`,
     detail: `第 ${week} 周`,
@@ -2288,4 +2353,9 @@ function errorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error || "");
   const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
   return message || fallback;
+}
+
+function isActiveIndexingDeleteError(error: unknown): boolean {
+  const message = errorMessage(error, "");
+  return message.includes("正在进入知识库") || message.includes("Wait for indexing to finish before deleting this file");
 }

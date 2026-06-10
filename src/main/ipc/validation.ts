@@ -14,6 +14,7 @@ import type {
   CreateSemesterInput,
   CreateTaskInput,
   CreateThreadInput,
+  DeleteFileInput,
   FileImportInput,
   RecognizedAcademicCalendar,
   RecognizedCalendarEvent,
@@ -43,6 +44,15 @@ export function optionalString(value: unknown): string | undefined {
   return text || undefined;
 }
 
+function optionalIntegerInRange(value: unknown, min: number, max: number): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const numeric = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isFinite(numeric)) return undefined;
+  const integer = Math.trunc(numeric);
+  if (integer < min || integer > max) return undefined;
+  return integer;
+}
+
 export function requireObject(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
@@ -58,6 +68,7 @@ export function normalizeCreateSemesterInput(value: unknown): CreateSemesterInpu
     semesterNo: optionalString(input.semesterNo),
     startsAt: optionalString(input.startsAt),
     endsAt: optionalString(input.endsAt),
+    weekCount: optionalIntegerInRange(input.weekCount, 1, 30),
   };
 }
 
@@ -179,6 +190,17 @@ export function normalizeFileImportInput(value: unknown): FileImportInput {
     weekNumber: normalizeNumber(input.weekNumber),
     taskId: optionalString(input.taskId),
     taskFileBucket: normalizeTaskFileBucket(input.taskFileBucket),
+  };
+}
+
+export function normalizeDeleteFileInput(value: unknown): DeleteFileInput {
+  if (typeof value === "string") {
+    return { fileId: requireString(value, "File id") };
+  }
+  const input = requireObject(value, "File delete input");
+  return {
+    fileId: requireString(input.fileId, "File id"),
+    forceCancelIndexing: input.forceCancelIndexing === true,
   };
 }
 

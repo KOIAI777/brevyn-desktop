@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { OpenDialogOptions } from "electron";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
-import { normalizeFileImportInput, optionalString, requireString } from "./validation";
+import { normalizeDeleteFileInput, normalizeFileImportInput, optionalString, requireString } from "./validation";
 
 export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.filesTree, (_event, courseId?: unknown) => store.listFiles(optionalString(courseId)));
@@ -67,8 +67,8 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });
-  ipcMain.handle(IPC_CHANNELS.filesDelete, async (event, fileId: unknown) => {
-    const result = await store.deleteFile(requireString(fileId, "文件 ID"));
+  ipcMain.handle(IPC_CHANNELS.filesDelete, async (event, rawInput: unknown) => {
+    const result = await store.deleteFile(normalizeDeleteFileInput(rawInput));
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });

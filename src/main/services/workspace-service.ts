@@ -120,6 +120,7 @@ export class WorkspaceService {
       folderName: sanitizeFsSegment(input.folderName?.trim() || term),
       startsAt: input.startsAt,
       endsAt: input.endsAt,
+      weekCount: input.weekCount,
       source: "manual",
       recognizedAt: timestamp,
     };

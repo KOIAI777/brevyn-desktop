@@ -1,8 +1,10 @@
 import type { SemesterWorkspace } from "../types/domain";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_MANUAL_WEEK_COUNT = 30;
 
 type SemesterDateRange = Pick<SemesterWorkspace, "startsAt" | "endsAt">;
+type SemesterWeekConfig = Pick<SemesterWorkspace, "startsAt" | "endsAt" | "weekCount">;
 
 export interface SemesterWeekRange {
   weekNumber: number;
@@ -28,6 +30,19 @@ export function semesterWeekRanges(semester?: SemesterDateRange | null): Semeste
 
 export function semesterWeekNumbers(semester?: SemesterDateRange | null): number[] {
   return semesterWeekRanges(semester).map((range) => range.weekNumber);
+}
+
+export function semesterLectureWeekNumbers(semester?: SemesterWeekConfig | null): number[] {
+  const weekCount = normalizedSemesterWeekCount(semester?.weekCount);
+  if (weekCount) return Array.from({ length: weekCount }, (_item, index) => index + 1);
+  return semesterWeekNumbers(semester);
+}
+
+export function normalizedSemesterWeekCount(value?: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const weekCount = Math.trunc(value);
+  if (weekCount < 1) return undefined;
+  return Math.min(weekCount, MAX_MANUAL_WEEK_COUNT);
 }
 
 export function semesterWeekNumberForDate(semester: SemesterDateRange | null | undefined, value: Date | string): number | undefined {

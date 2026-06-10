@@ -147,9 +147,22 @@ export function FileBrowserRail({
         tone: "danger",
       });
       if (!ok) return;
-      await window.brevyn.files.delete(file.id);
+      try {
+        await window.brevyn.files.delete(file.id);
+      } catch (deleteError) {
+        if (!isActiveIndexingDeleteError(deleteError)) throw deleteError;
+        const forceDelete = await confirm({
+          title: "取消索引并删除？",
+          message: "这个项目正在进入课程知识库。取消后会停止相关索引任务，并删除本地副本和已生成的知识库片段。",
+          confirmLabel: "取消索引并删除",
+          cancelLabel: "保留文件",
+          tone: "danger",
+        });
+        if (!forceDelete) return;
+        await window.brevyn.files.delete({ fileId: file.id, forceCancelIndexing: true });
+      }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "文件操作失败。");
+      setActionError(errorMessage(error, "文件操作失败。"));
     }
   }
 
@@ -646,4 +659,15 @@ function RenameFileDialog({
 function countLeafFiles(node: WorkspaceFileNode): number {
   if (node.kind !== "folder") return 1;
   return (node.children || []).reduce((count, child) => count + countLeafFiles(child), 0);
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
+  return message || fallback;
+}
+
+function isActiveIndexingDeleteError(error: unknown): boolean {
+  const message = errorMessage(error, "");
+  return message.includes("正在进入知识库") || message.includes("Wait for indexing to finish before deleting this file");
 }
