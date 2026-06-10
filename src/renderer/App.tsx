@@ -1,10 +1,11 @@
-import { AlertCircle, Archive, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentAttachment, AgentPermissionMode, AppTheme, AppThemeState, UserProfileSettings } from "@/types/domain";
 import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseDashboard } from "@/components/courses/CourseDashboard";
 import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { SemesterDashboard } from "@/components/courses/SemesterDashboard";
+import { WorkspaceOnboardingDashboard } from "@/components/courses/WorkspaceOnboardingDashboard";
 import { FileBrowserRail } from "@/components/files/FileBrowserRail";
 import { FilePreviewRail } from "@/components/files/FilePreviewRail";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
@@ -187,6 +188,7 @@ function App() {
     previewCoordinator.revealSelectedFile("file");
     await fileState.previewWorkspacePath(filePath);
   }, [fileState.previewWorkspacePath, previewCoordinator]);
+  const showWorkspaceOnboarding = workspace.noActiveSemesters || workspace.needsSemesterSelection;
 
   if (workspace.bootState === "loading") {
     return <AppLoadingScreen />;
@@ -242,12 +244,12 @@ function App() {
           <main className="brevyn-panel-surface flex min-w-0 max-w-full flex-col overflow-hidden">
             <TopBar course={workspace.activeCourse} task={workspace.activeTask} thread={workspace.activeThread} workspaceScope={workspace.workspaceScope} />
             {workspace.workspaceError && (
-              <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+              <div className="border-b border-[hsl(var(--status-warning)/0.22)] bg-[hsl(var(--status-warning)/0.11)] px-4 py-2 text-xs text-[hsl(var(--status-warning))]">
                 {workspace.workspaceError}
               </div>
             )}
 
-            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread || (workspace.activeCourse && !workspace.activeTask) ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
+            <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread || (workspace.activeCourse && !workspace.activeTask) || showWorkspaceOnboarding ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
               {workspace.activeThread ? (
                 <AgentThreadPanel
                   thread={workspace.activeThread}
@@ -280,6 +282,9 @@ function App() {
                   files={fileState.fileTree}
                   onOpenHomeSession={openHomeSession}
                   onOpenCourses={dialogs.openCourses}
+                  onWorkspaceChanged={async () => {
+                    await workspace.reloadWorkspace();
+                  }}
                   onSelectCourse={workspace.selectCourseHome}
                   onSelectTask={workspace.selectTask}
                 />
@@ -295,60 +300,33 @@ function App() {
                   onSelectTask={workspace.selectTask}
                   onCreateThread={workspace.createThread}
                 />
+              ) : showWorkspaceOnboarding ? (
+                <WorkspaceOnboardingDashboard
+                  mode={workspace.needsSemesterSelection ? "select-semester" : "no-semester"}
+                  semesters={workspace.semesters}
+                  onSelectSemester={workspace.selectSemester}
+                  onOpenSemesterSettings={() => dialogs.openSettings("semesters")}
+                  onOpenArchive={() => dialogs.openSettings("archive")}
+                  onWorkspaceChanged={async () => {
+                    await workspace.reloadWorkspace();
+                  }}
+                />
               ) : (
                 <div className="flex flex-col items-center gap-3 text-center">
-                  {workspace.noActiveSemesters ? (
-                    <>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-card)] bg-background text-amber-700 shadow-sm ring-1 ring-black/[0.05]">
-                        <Archive className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">No active semesters.</p>
-                        <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-                          Your semesters may all be archived. Restore one from Archive, or create a new semester from Manage semesters.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          className="rounded-[var(--radius-control)] bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98]"
-                          onClick={() => dialogs.openSettings("archive")}
-                        >
-                          Open Archive
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-[var(--radius-control)] bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98]"
-                          onClick={() => dialogs.openSettings("semesters")}
-                        >
-                          学期管理
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <p className="font-medium text-foreground">{workspace.needsSemesterSelection ? "No semester selected." : workspace.threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {workspace.needsSemesterSelection ? "Choose a semester explicitly before loading courses, sessions, and files." : "Workspace files are ready. Create a session when you want to start chatting."}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-[var(--radius-control)] bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!workspace.needsSemesterSelection && ((!workspace.activeCourse?.id && !workspace.semester?.id) || Boolean(workspace.activeCourse && !workspace.activeTask))}
-                        onClick={() => {
-                          if (workspace.needsSemesterSelection) {
-                            dialogs.openSettings("semesters");
-                            return;
-                          }
-                          void workspace.createThread(workspace.activeCourse?.id || SEMESTER_HOME_COURSE_ID, workspace.activeTask?.id);
-                        }}
-                      >
-                        {workspace.needsSemesterSelection ? "选择学期" : workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "创建学期会话" : "Select a task to create session"}
-                      </button>
-                    </>
-                  )}
+                  <div>
+                    <p className="font-medium text-foreground">{workspace.threads.length === 0 ? "No active sessions yet." : "No session selected."}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Workspace files are ready. Create a session when you want to start chatting.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-[var(--radius-control)] bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={(!workspace.activeCourse?.id && !workspace.semester?.id) || Boolean(workspace.activeCourse && !workspace.activeTask)}
+                    onClick={() => {
+                      void workspace.createThread(workspace.activeCourse?.id || SEMESTER_HOME_COURSE_ID, workspace.activeTask?.id);
+                    }}
+                  >
+                    {workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "创建学期会话" : "Select a task to create session"}
+                  </button>
                 </div>
               )}
             </div>
@@ -458,7 +436,7 @@ function AppBootErrorScreen({ error, onRetry }: { error: string; onRetry: () => 
     <div className="brevyn-app-background flex h-full min-h-screen items-center justify-center px-6 text-foreground">
       <div className="brevyn-window-surface w-full max-w-md p-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertCircle className="h-4 w-4 text-[hsl(var(--status-warning))]" />
           Failed to load workspace
         </div>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">

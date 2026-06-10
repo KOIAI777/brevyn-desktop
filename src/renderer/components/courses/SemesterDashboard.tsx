@@ -5,6 +5,7 @@ import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
 import { ActivityHeatmap, MetricCard } from "@/components/courses/CourseDashboard";
 import { buildSemesterDashboardStats } from "@/components/courses/courseDashboardStats";
+import { VisionRecognitionImportButton } from "@/components/vision/VisionRecognitionImportDialog";
 
 export function SemesterDashboard({
   semester,
@@ -16,6 +17,7 @@ export function SemesterDashboard({
   files,
   onOpenHomeSession,
   onOpenCourses,
+  onWorkspaceChanged,
   onSelectCourse,
   onSelectTask,
 }: {
@@ -28,6 +30,7 @@ export function SemesterDashboard({
   files: WorkspaceFileNode[];
   onOpenHomeSession: () => void;
   onOpenCourses: () => void;
+  onWorkspaceChanged?: () => Promise<void> | void;
   onSelectCourse: (courseId: string) => void;
   onSelectTask: (courseId: string, taskId: string) => void;
 }) {
@@ -184,7 +187,30 @@ export function SemesterDashboard({
             </div>
           ) : (
             <div className="rounded-xl border border-dashed bg-background/65 px-4 py-8 text-center text-xs leading-5 text-muted-foreground">
-              当前学期还没有课程。先在我的课程里添加课程。
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-2xl bg-card text-muted-foreground ring-1 ring-border/60">
+                <NotebookTabs className="h-4 w-4" />
+              </div>
+              <div className="mt-3 text-sm font-semibold text-foreground">当前学期还没有课程</div>
+              <p className="mx-auto mt-1 max-w-md">
+                如果有课表截图，建议先识别课表；也可以手动添加课程，再为每门课建立作业和资料分区。
+              </p>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <VisionRecognitionImportButton
+                  kind="course_timetable"
+                  variant="primary"
+                  className="h-8 rounded-[var(--radius-control)]"
+                  onImported={async () => {
+                    await onWorkspaceChanged?.();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                  onClick={onOpenCourses}
+                >
+                  手动添加课程
+                </button>
+              </div>
             </div>
           )}
         </section>

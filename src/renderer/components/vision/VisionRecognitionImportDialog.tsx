@@ -11,10 +11,12 @@ type VisionDraft = RecognizedAcademicCalendar | RecognizedCourseTimetable;
 export function VisionRecognitionImportButton({
   kind,
   className,
+  variant = "default",
   onImported,
 }: {
   kind: VisionRecognitionKind;
   className?: string;
+  variant?: "default" | "primary";
   onImported?: (draft: VisionDraft) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
@@ -23,7 +25,13 @@ export function VisionRecognitionImportButton({
     <>
       <button
         type="button"
-        className={cx("inline-flex h-8 items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground", className)}
+        className={cx(
+          "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-medium transition",
+          variant === "primary"
+            ? "border-transparent bg-foreground text-background hover:bg-foreground hover:text-background hover:opacity-90"
+            : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+          className,
+        )}
         onClick={() => setOpen(true)}
       >
         <ImagePlus className="h-3.5 w-3.5" />
@@ -152,7 +160,7 @@ function VisionRecognitionImportDialog({
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 border-b bg-amber-50 px-4 py-2 text-[11px] leading-5 text-amber-900">
+          <div className="flex items-start gap-2 border-b border-[hsl(var(--status-warning)/0.2)] bg-[hsl(var(--status-warning)/0.11)] px-4 py-2 text-[11px] leading-5 text-[hsl(var(--status-warning))]">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span className="min-w-0 break-words">{error}</span>
           </div>
@@ -270,9 +278,9 @@ function SummaryPills({ items }: { items: string[] }) {
 }
 
 function Warnings({ warnings }: { warnings: string[] }) {
-  if (warnings.length === 0) return <div className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-900">模型没有返回提醒。</div>;
+  if (warnings.length === 0) return <div className="rounded-md border border-[hsl(var(--status-success)/0.2)] bg-[hsl(var(--status-success)/0.11)] px-2 py-1.5 text-[11px] text-[hsl(var(--status-success))]">模型没有返回提醒。</div>;
   return (
-    <div className="max-h-24 space-y-1 overflow-y-auto rounded-md border border-amber-100 bg-amber-50 px-2 py-1.5 text-[11px] leading-5 text-amber-900 brevyn-scrollbar">
+    <div className="max-h-24 space-y-1 overflow-y-auto rounded-md border border-[hsl(var(--status-warning)/0.2)] bg-[hsl(var(--status-warning)/0.11)] px-2 py-1.5 text-[11px] leading-5 text-[hsl(var(--status-warning))] brevyn-scrollbar">
       {warnings.map((warning, index) => <div key={`${index}-${warning}`}>{warning}</div>)}
     </div>
   );
