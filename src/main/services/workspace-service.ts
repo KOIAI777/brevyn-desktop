@@ -41,6 +41,7 @@ import {
   threadMessagesPath,
 } from "./workspace-paths";
 import { matchCourseIcon } from "../../shared/course-icon-matcher";
+import { matchTaskIcon } from "../../shared/task-icon-matcher";
 import {
   activeCourseInSemesterOrThrow,
   currentActiveSemester,
@@ -235,6 +236,7 @@ export class WorkspaceService {
       courseId: input.courseId,
       title: input.title.trim() || "New Task",
       taskType: input.taskType?.trim() || DEFAULT_TASK_TYPE,
+      icon: input.icon || matchTaskIcon({ title: input.title, taskType: input.taskType }),
       status: "not_started",
       summary: "Custom task created locally.",
     };

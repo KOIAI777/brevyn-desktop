@@ -440,6 +440,7 @@ export class SQLiteBusinessStore {
     const existing = rowToTask(row);
     const title = input.title === undefined ? existing.title : input.title.trim() || existing.title;
     const taskType = input.taskType === undefined ? existing.taskType : input.taskType.trim() || DEFAULT_TASK_TYPE;
+    const icon = input.icon === undefined ? existing.icon : input.icon;
     const dueAt = input.dueAt === undefined ? existing.dueAt : input.dueAt?.trim() || undefined;
     const status = input.status ?? existing.status;
     const summary = input.summary === undefined ? existing.summary : input.summary;
@@ -447,6 +448,7 @@ export class SQLiteBusinessStore {
       ...existing,
       title,
       taskType,
+      icon,
       dueAt,
       status,
       summary,

@@ -33,6 +33,18 @@ export type CourseIconKey =
   | "square-pen"
   | "clipboard-list";
 
+export type TaskIconKey =
+  | "task-check"
+  | "essay-scroll"
+  | "slides-screen"
+  | "project-target"
+  | "exam-clock"
+  | "reading-notes"
+  | "research-flask"
+  | "code-braces"
+  | "discussion-bubbles"
+  | "idea-lightbulb";
+
 export interface SemesterWorkspace {
   id: string;
   semesterNo: string;
@@ -99,6 +111,7 @@ export interface BrevynTask {
   courseId: string;
   title: string;
   taskType: TaskType;
+  icon?: TaskIconKey;
   status: TaskStatus;
   dueAt?: string;
   summary: string;
@@ -144,12 +157,14 @@ export interface CreateTaskInput {
   courseId: string;
   title: string;
   taskType?: TaskType;
+  icon?: TaskIconKey;
 }
 
 export interface UpdateTaskInput {
   id: string;
   title?: string;
   taskType?: TaskType;
+  icon?: TaskIconKey;
   status?: TaskStatus;
   dueAt?: string | null;
   summary?: string;
@@ -410,6 +425,7 @@ export interface CourseFileSection {
   kind: CourseFileSectionKind;
   title: string;
   taskType?: TaskType;
+  icon?: TaskIconKey;
   taskFileBucket?: TaskFileBucket;
   weekNumber?: number;
   taskId?: string;

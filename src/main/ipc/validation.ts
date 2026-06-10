@@ -24,6 +24,7 @@ import type {
   SkillImportInput,
   SkillUpdateInput,
   SkillWriteInput,
+  TaskIconKey,
   TimetableRangeQuery,
   UpdateCourseInput,
   UpdateTaskInput,
@@ -92,12 +93,19 @@ function normalizeCourseIcon(value: unknown): CourseIconKey {
   return icon as CourseIconKey;
 }
 
+function normalizeTaskIcon(value: unknown): TaskIconKey {
+  const icon = requireString(value, "Task icon");
+  if (!TASK_ICON_KEYS.has(icon as TaskIconKey)) throw new Error("Task icon is not supported.");
+  return icon as TaskIconKey;
+}
+
 export function normalizeCreateTaskInput(value: unknown): CreateTaskInput {
   const input = requireObject(value, "Task input");
   return {
     courseId: requireString(input.courseId, "Course id"),
     title: stringValue(input.title),
     taskType: optionalString(input.taskType),
+    icon: input.icon === undefined ? undefined : normalizeTaskIcon(input.icon),
   };
 }
 
@@ -107,6 +115,7 @@ export function normalizeUpdateTaskInput(value: unknown): UpdateTaskInput {
     id: requireString(input.id, "Task id"),
     title: optionalString(input.title),
     taskType: optionalString(input.taskType),
+    icon: input.icon === undefined ? undefined : normalizeTaskIcon(input.icon),
     dueAt: input.dueAt === null ? null : optionalString(input.dueAt),
     status: normalizeTaskStatus(input.status),
     summary: input.summary === undefined ? undefined : stringValue(input.summary),
@@ -442,4 +451,17 @@ const COURSE_ICON_KEYS = new Set<CourseIconKey>([
   "presentation",
   "square-pen",
   "clipboard-list",
+]);
+
+const TASK_ICON_KEYS = new Set<TaskIconKey>([
+  "task-check",
+  "essay-scroll",
+  "slides-screen",
+  "project-target",
+  "exam-clock",
+  "reading-notes",
+  "research-flask",
+  "code-braces",
+  "discussion-bubbles",
+  "idea-lightbulb",
 ]);

@@ -534,6 +534,7 @@ export class FileService {
       title: `${taskTypeLabel(task.taskType)} / ${task.title}`,
       taskId: task.id,
       taskType: task.taskType,
+      icon: task.icon,
       indexingStatus: this.indexingStatusForSection(courseId, `${courseId}:task-${task.id}`, leafFiles.filter((file) => file.taskId === task.id)),
       embeddingModel,
       files: leafFiles.filter((file) => file.taskId === task.id),
