@@ -316,6 +316,31 @@
     color: hsl(var(--status-info));
   }
 
+  .brevyn-activity-cell-0 {
+    background: hsl(var(--muted) / 0.42);
+    border-color: hsl(var(--border) / 0.62);
+  }
+
+  .brevyn-activity-cell-1 {
+    background: hsl(36 46% 85% / 0.72);
+    border-color: hsl(28 42% 64% / 0.26);
+  }
+
+  .brevyn-activity-cell-2 {
+    background: hsl(30 58% 76% / 0.78);
+    border-color: hsl(24 52% 56% / 0.28);
+  }
+
+  .brevyn-activity-cell-3 {
+    background: hsl(22 62% 66% / 0.9);
+    border-color: hsl(18 58% 50% / 0.32);
+  }
+
+  .brevyn-activity-cell-4 {
+    background: hsl(16 64% 56%);
+    border-color: hsl(14 60% 43% / 0.34);
+  }
+
   :root[data-theme="dark"] .brevyn-composer-surface {
     background: hsl(0 0% 15%);
     box-shadow:
@@ -377,6 +402,31 @@
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.22),
       0 1px 2px rgba(0, 0, 0, 0.24);
+  }
+
+  :root[data-theme="dark"] .brevyn-activity-cell-0 {
+    background: rgba(255, 255, 255, 0.045);
+    border-color: rgba(255, 255, 255, 0.055);
+  }
+
+  :root[data-theme="dark"] .brevyn-activity-cell-1 {
+    background: hsl(40 11% 23% / 0.72);
+    border-color: hsl(38 14% 46% / 0.16);
+  }
+
+  :root[data-theme="dark"] .brevyn-activity-cell-2 {
+    background: hsl(39 14% 34% / 0.78);
+    border-color: hsl(38 18% 58% / 0.18);
+  }
+
+  :root[data-theme="dark"] .brevyn-activity-cell-3 {
+    background: hsl(36 22% 48% / 0.86);
+    border-color: hsl(36 30% 68% / 0.2);
+  }
+
+  :root[data-theme="dark"] .brevyn-activity-cell-4 {
+    background: hsl(34 38% 67% / 0.92);
+    border-color: hsl(34 42% 78% / 0.24);
   }
 
   .brevyn-window-surface {

@@ -1262,7 +1262,7 @@ function InlineTaskCreateCard({
             disabled={disabled}
           >
             <Plus className="h-3.5 w-3.5" />
-            新建作业
+            新建课程作业
           </button>
         </section>
       );
@@ -1276,7 +1276,7 @@ function InlineTaskCreateCard({
         disabled={disabled}
       >
         <Plus className="h-3.5 w-3.5" />
-        新建作业
+        新建课程作业
       </button>
     );
   }

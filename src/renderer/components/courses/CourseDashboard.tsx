@@ -37,7 +37,6 @@ export function CourseDashboard({
     [course, files, stats, tasks, threads],
   );
   const {
-    activeTasks,
     activityDays,
     courseFileCount,
     courseThreads,
@@ -48,7 +47,6 @@ export function CourseDashboard({
     recentTask,
     sectionCount,
     taskCards,
-    threadsWithMessages,
   } = dashboardStats;
   const courseColor = course.color || "#2563eb";
 
@@ -66,76 +64,113 @@ export function CourseDashboard({
     );
   }
 
+  const recommendation = buildCourseRecommendation({
+    draftFilesCount: draftFiles.length,
+    filesTouchedThisWeek,
+    lectureFilesCount: lectureFiles.length,
+    recentTask,
+    taskCards,
+  });
+
+  function openCourseRecommendation() {
+    if (recommendation.kind === "task" && recommendation.task) {
+      openTask(recommendation.task, course.id, onSelectTask, onCreateThread);
+      return;
+    }
+    onOpenTasks();
+  }
+
   return (
     <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
-        <section className="overflow-hidden rounded-2xl border bg-card/90 shadow-sm ring-1 ring-border/60">
-          <div className="p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <div
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"
+        <section className="relative overflow-hidden rounded-[var(--radius-window)] bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--surface-panel)/0.94))] shadow-[var(--shadow-panel)]">
+          <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
+          <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
+            <div className="min-w-0 py-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <span
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-panel)]"
                   style={{ color: courseColor, backgroundColor: `${courseColor}18`, boxShadow: `inset 0 0 0 1px ${courseColor}30` }}
                 >
                   <CourseIcon course={course} className="h-5 w-5" />
-                </div>
+                </span>
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-xl font-semibold tracking-[-0.02em] text-foreground">{course.name}</h2>
-                    <span className="rounded-full border bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{course.code}</span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    <span className="truncate">{semester?.term || course.term || "当前学期"}</span>
+                    {course.code && <span className="rounded-[var(--radius-badge)] bg-muted px-2 py-0.5 text-[10px] normal-case tracking-normal">{course.code}</span>}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {semester?.term || course.term} · 课程作业、课件和会话入口
-                  </p>
+                  <div className="mt-1 truncate text-sm font-semibold tracking-[-0.02em] text-foreground">{course.name}</div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {recentTask && (
-                  <button
-                    type="button"
-                    className="inline-flex h-8 max-w-[18rem] items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition hover:opacity-90"
-                    onClick={() => openTask(recentTask, course.id, onSelectTask, onCreateThread)}
-                    title={recentTask.task.title}
-                  >
-                    <span className="truncate">继续 {recentTask.task.title}</span>
-                    <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-                  </button>
-                )}
+              <h2 className="mt-6 max-w-2xl text-[2.65rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">让这门课继续往前。</h2>
+              <p className="mt-4 max-w-xl text-[14px] leading-7 text-muted-foreground">
+                作业、课件和会话都围绕这门课展开。先选一个目标，Brevyn 会把相关资料留在同一个课程空间里。
+              </p>
+              <div className="mt-7 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                  className="inline-flex h-10 max-w-[24rem] items-center gap-2 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98]"
+                  onClick={openCourseRecommendation}
+                  title={recommendation.title}
+                >
+                  <span className="truncate">{recommendation.actionLabel}</span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                   onClick={onOpenTasks}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   新建课程作业
                 </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
+                  onClick={onOpenTasks}
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  课程资料
+                </button>
               </div>
             </div>
-
-            <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="课程作业" value={activeTasks.toString()} hint={`共 ${tasks.length} 个`} />
-              <MetricCard label="会话" value={courseThreads.length.toString()} hint={`${threadsWithMessages} 个已有消息`} />
-              <MetricCard label="资料" value={courseFileCount.toString()} hint={`${sectionCount} 个分区`} />
-              <MetricCard label="草稿" value={draftFiles.length.toString()} hint={`本周更新 ${filesTouchedThisWeek} 个`} />
-            </div>
+            <button
+              type="button"
+              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/68 p-4 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)] transition hover:bg-accent/35 active:scale-[0.995]"
+              onClick={openCourseRecommendation}
+            >
+              <div>
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  <Sparkles className="h-4 w-4" />
+                  推荐入口
+                </div>
+                <div className="mt-4 text-lg font-semibold leading-6 tracking-[-0.035em] text-foreground">{recommendation.title}</div>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{recommendation.description}</p>
+              </div>
+              <div className="mt-5 flex items-center justify-between gap-3 border-t border-border/45 pt-3">
+                <div className="min-w-0 truncate text-[11px] text-muted-foreground">{recommendation.reason}</div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </div>
+            </button>
           </div>
         </section>
 
-        <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
+        <section className="rounded-[var(--radius-panel)] bg-card/88 p-4 shadow-[var(--shadow-panel)]">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <CalendarClock className="h-4 w-4" />
                 课程作业
               </div>
+              <p className="mt-1 text-xs text-muted-foreground">围绕 essay、project、exam 或复习目标继续推进。</p>
             </div>
             <button
               type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-background/72 px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)] transition hover:bg-accent hover:text-foreground"
               onClick={onOpenTasks}
             >
               <Plus className="h-3.5 w-3.5" />
-              新建作业
+              新建课程作业
             </button>
           </div>
 
@@ -145,10 +180,10 @@ export function CourseDashboard({
                 <button
                   key={task.task.id}
                   type="button"
-                  className="group flex min-w-0 items-center gap-3 rounded-xl border bg-background/68 p-3 text-left transition hover:-translate-y-0.5 hover:bg-accent/50 hover:shadow-sm"
+                  className="group flex min-w-0 items-center gap-3 rounded-[var(--radius-card)] bg-background/62 p-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.46)] transition hover:bg-accent/45 active:scale-[0.995]"
                   onClick={() => openTask(task, course.id, onSelectTask, onCreateThread)}
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card ring-1 ring-border/60">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card ring-1 ring-border/55">
                     <TaskTypeIcon task={task.task} />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -173,76 +208,195 @@ export function CourseDashboard({
         </section>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
-          <section className="min-w-0 rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
+          <section className="min-w-0 rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <BookOpen className="h-4 w-4" />
+                  课程资料
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">课件、阅读和草稿统一从这里进入。</p>
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-background/72 px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)] transition hover:bg-accent hover:text-foreground"
+                onClick={onOpenTasks}
+              >
+                管理资料
+              </button>
+            </div>
+            <div className="grid gap-2 text-xs sm:grid-cols-3">
+              <CourseSummaryRow label="课件" value={`${lectureFiles.length} 个`} hint={lectureWeeks.length > 0 ? `${lectureWeeks.length} 个周次` : "等待上传"} />
+              <CourseSummaryRow label="草稿" value={`${draftFiles.length} 个`} hint={`本周更新 ${filesTouchedThisWeek} 个`} />
+              <CourseSummaryRow label="资料" value={`${courseFileCount} 个`} hint={`${sectionCount} 个分区`} />
+            </div>
+            {lectureWeeks.length > 0 && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {lectureWeeks.slice(0, 4).map((week) => (
+                  <div key={week.id} className="rounded-[var(--radius-card)] bg-background/58 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-xs font-semibold text-foreground">{week.label}</div>
+                      <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{week.files.length}</span>
+                    </div>
+                    <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                      已索引 {week.indexedCount} 个 · {week.latestLabel}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="min-w-[21rem] rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <BarChart3 className="h-4 w-4" />
-                  活动记录
+                  学习痕迹
                 </div>
+                <p className="mt-1 text-xs text-muted-foreground">资料和会话留下的推进记录。</p>
               </div>
             </div>
             <ActivityHeatmap days={activityDays} />
           </section>
-
-          <section className="min-w-[21rem] rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <BookOpen className="h-4 w-4" />
-              资料入口
-            </div>
-            <div className="mt-3 rounded-xl border bg-background/70 p-3">
-              <div className="text-xs font-semibold text-foreground">{lectureFiles.length > 0 ? `${lectureFiles.length} 个课件文件` : "还没有课件资料"}</div>
-              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                {lectureWeeks.length > 0 ? `${lectureWeeks.length} 个周次 · 本周更新 ${filesTouchedThisWeek} 个文件` : "上传 syllabus、reading 或每周课件后，这里会成为课程资料入口。"}
-              </div>
-              <button
-                type="button"
-                className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition hover:bg-accent"
-                onClick={onOpenTasks}
-              >
-                管理课程资料
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </section>
         </div>
-
-        <section className="rounded-2xl border bg-card/88 p-4 shadow-sm ring-1 ring-border/50">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <BookOpen className="h-4 w-4" />
-                课件资料
-              </div>
-            </div>
-            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-              {lectureFiles.length} 个文件
-            </span>
-          </div>
-          {lectureWeeks.length > 0 ? (
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {lectureWeeks.slice(0, 8).map((week) => (
-                <div key={week.id} className="rounded-xl border bg-background/68 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="truncate text-xs font-semibold text-foreground">{week.label}</div>
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{week.files.length}</span>
-                  </div>
-                  <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                    已索引 {week.indexedCount} 个 · {week.latestLabel}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed bg-background/65 px-4 py-6 text-center text-xs leading-5 text-muted-foreground">
-              还没有课件文件。可以从文件栏或我的课程里上传每周课程材料。
-            </div>
-          )}
-        </section>
 
       </div>
     </div>
   );
+}
+
+type CourseRecommendationKind = "task" | "materials";
+
+type CourseRecommendation = {
+  kind: CourseRecommendationKind;
+  title: string;
+  description: string;
+  reason: string;
+  actionLabel: string;
+  task?: TaskCard;
+};
+
+function buildCourseRecommendation({
+  draftFilesCount,
+  filesTouchedThisWeek,
+  lectureFilesCount,
+  recentTask,
+  taskCards,
+}: {
+  draftFilesCount: number;
+  filesTouchedThisWeek: number;
+  lectureFilesCount: number;
+  recentTask?: TaskCard;
+  taskCards: TaskCard[];
+}): CourseRecommendation {
+  const urgentTask = taskCards
+    .map((task) => ({ task, score: courseTaskUrgencyScore(task) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || b.task.lastTouchedTime - a.task.lastTouchedTime)[0]?.task;
+
+  if (urgentTask) {
+    const dueText = formatCourseDueText(urgentTask.task.dueAt);
+    return {
+      kind: "task",
+      title: urgentTask.task.title,
+      description: `${dueText || courseTaskStatusText(urgentTask.task.status)} · ${urgentTask.fileCount} 个文件 · ${urgentTask.threadCount} 个会话`,
+      reason: urgentTask.lastTouchedTime > 0 ? `最近推进于 ${urgentTask.lastTouchedLabel}` : "需要安排下一步",
+      actionLabel: `处理 ${urgentTask.task.title}`,
+      task: urgentTask,
+    };
+  }
+
+  if (recentTask) {
+    return {
+      kind: "task",
+      title: recentTask.task.title,
+      description: `${recentTask.fileCount} 个文件 · ${recentTask.threadCount} 个会话`,
+      reason: `最近推进于 ${recentTask.lastTouchedLabel}`,
+      actionLabel: `继续 ${recentTask.task.title}`,
+      task: recentTask,
+    };
+  }
+
+  if (lectureFilesCount > 0 || draftFilesCount > 0) {
+    return {
+      kind: "materials",
+      title: "整理课程资料",
+      description: `${lectureFilesCount} 个课件文件 · ${draftFilesCount} 个草稿文件`,
+      reason: filesTouchedThisWeek > 0 ? `本周更新 ${filesTouchedThisWeek} 个文件` : "资料已经就位",
+      actionLabel: "打开课程资料",
+    };
+  }
+
+  return {
+    kind: "task",
+    title: taskCards[0]?.task.title || "选择课程作业",
+    description: "选择一个课程作业，让资料、草稿和会话围绕它继续沉淀。",
+    reason: "暂无明显优先级",
+    actionLabel: taskCards[0] ? `打开 ${taskCards[0].task.title}` : "打开课程作业",
+    task: taskCards[0],
+  };
+}
+
+function CourseSummaryRow({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="rounded-[var(--radius-card)] bg-background/58 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-semibold tracking-[-0.035em] text-foreground">{value}</div>
+      <div className="mt-1 truncate text-[10px] text-muted-foreground">{hint}</div>
+    </div>
+  );
+}
+
+function courseTaskUrgencyScore(task: TaskCard): number {
+  if (task.task.archivedAt || task.task.status === "done") return 0;
+  let score = task.task.status === "due_soon" ? 90 : task.task.status === "in_progress" ? 42 : 0;
+  const days = courseDaysUntil(task.task.dueAt);
+  if (days !== null) {
+    if (days < 0) score += 100;
+    else if (days === 0) score += 95;
+    else if (days <= 2) score += 82;
+    else if (days <= 7) score += 60;
+    else if (days <= 14) score += 20;
+  }
+  if (task.lastTouchedTime > 0) score += 8;
+  if (task.fileCount > 0) score += 4;
+  if (task.threadCount > 0) score += 4;
+  return score;
+}
+
+function formatCourseDueText(value?: string): string {
+  const days = courseDaysUntil(value);
+  if (days === null) return "";
+  if (days < 0) return `已过截止 ${Math.abs(days)} 天`;
+  if (days === 0) return "今天截止";
+  if (days === 1) return "明天截止";
+  if (days <= 7) return `${days} 天后截止`;
+  return `截止 ${formatCourseShortDate(value || "")}`;
+}
+
+function courseTaskStatusText(status: BrevynTask["status"]): string {
+  if (status === "due_soon") return "即将截止";
+  if (status === "in_progress") return "正在推进";
+  if (status === "done") return "已完成";
+  return "尚未开始";
+}
+
+function courseDaysUntil(value?: string): number | null {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(timestamp);
+  due.setHours(0, 0, 0, 0);
+  return Math.ceil((due.getTime() - today.getTime()) / 86400000);
+}
+
+function formatCourseShortDate(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "";
+  const date = new Date(timestamp);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 function EmptyCourseTaskStart({
@@ -456,11 +610,11 @@ export function MetricCard({ label, value, hint }: { label: string; value: strin
 }
 
 function heatCellClass(score: number): string {
-  if (score >= 8) return "border-blue-500/35 bg-blue-500";
-  if (score >= 5) return "border-blue-400/35 bg-blue-400";
-  if (score >= 2) return "border-blue-300/45 bg-blue-300";
-  if (score >= 1) return "border-blue-200/70 bg-blue-100";
-  return "border-border/70 bg-muted/45";
+  if (score >= 8) return "brevyn-activity-cell-4";
+  if (score >= 5) return "brevyn-activity-cell-3";
+  if (score >= 2) return "brevyn-activity-cell-2";
+  if (score >= 1) return "brevyn-activity-cell-1";
+  return "brevyn-activity-cell-0";
 }
 
 function openTask(task: TaskCard, courseId: string, onSelectTask: (courseId: string, taskId: string) => void, onCreateThread: (courseId?: string, taskId?: string) => void) {
