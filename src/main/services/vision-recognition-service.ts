@@ -16,6 +16,7 @@ import type {
   WorkspaceFileNode,
 } from "../../types/domain";
 import { semesterWeekRanges } from "../../shared/semester-weeks";
+import { matchCourseIcon } from "../../shared/course-icon-matcher";
 import { extractMultimodalText, multimodalEndpoint, multimodalHeaders, multimodalRequestBody } from "../providers/multimodal-request";
 import { SQLiteBusinessStore } from "../storage";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
@@ -30,6 +31,15 @@ interface VisionRecognitionServiceOptions {
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const VISION_TIMEOUT_MS = 180_000;
+const WEEKDAY_INDEX: Record<WeekdayKey, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
 
 export class VisionRecognitionService {
   constructor(private readonly options: VisionRecognitionServiceOptions) {}
@@ -158,6 +168,7 @@ export class VisionRecognitionService {
     const existingCourses = this.options.businessStore.listCourses(semester.id);
     const applied: Course[] = [];
     const appliedEvents: TimetableEvent[] = [];
+    const timestamp = now();
 
     for (const recognized of result.courses) {
       const code = recognized.code.trim();
@@ -166,6 +177,8 @@ export class VisionRecognitionService {
       const existing = existingCourses.find((course) => course.code.toLowerCase() === code.toLowerCase() || course.name.toLowerCase() === name.toLowerCase());
       const meetingTime = formatRecognizedSessions(recognized.sessions);
       const location = firstLocation(recognized.sessions);
+      const selectedIcon = recognized.icon;
+      const matchedIcon = selectedIcon || matchCourseIcon({ name, code, category: recognized.category });
       let course: Course;
       if (existing) {
         const updated: Course = {
@@ -175,8 +188,12 @@ export class VisionRecognitionService {
           instructor: recognized.instructor || existing.instructor,
           meetingTime: meetingTime || existing.meetingTime,
           location: location || existing.location,
+          icon: selectedIcon || existing.icon || matchedIcon,
         };
         course = this.options.businessStore.updateCourseDetails(updated);
+        if (course.archivedAt) {
+          course = this.options.businessStore.restoreCourse(course.id) || course;
+        }
       } else {
         course = {
           id: entityId("course"),
@@ -189,15 +206,18 @@ export class VisionRecognitionService {
           meetingTime,
           location,
           color: "#2563eb",
+          icon: matchedIcon,
           description: `Recognized from timetable image${recognized.section ? `, section ${recognized.section}` : ""}.`,
         };
         ensureCourseWorkspaceDir(this.options.rootDataDir, semester.id, course.id);
-        course = this.options.businessStore.saveCourse(course);
+        course = this.options.businessStore.saveCourseWithWorkspaceFiles(course, buildCourseRoots(semester, course, timestamp));
         existingCourses.push(course);
       }
       applied.push(course);
-      this.options.businessStore.replaceCourseSessionEvents(course.id, []);
+      const sessionEvents = courseSessionEvents(semester, course, recognized.sessions);
+      appliedEvents.push(...this.options.businessStore.replaceCourseSessionEvents(course.id, sessionEvents));
     }
+    if (applied.length === 0) throw new Error("没有可导入课程，请检查识别结果里的课程代码和课程名称。");
     return { courses: applied, events: appliedEvents };
   }
 }
@@ -208,6 +228,19 @@ function buildSemesterHomeRoots(semester: SemesterWorkspace, timestamp: string):
     roots,
     courseId: SEMESTER_HOME_COURSE_ID,
     semester,
+    tasks: [],
+    timestamp,
+  });
+  return roots;
+}
+
+function buildCourseRoots(semester: SemesterWorkspace, course: Course, timestamp: string): WorkspaceFileNode[] {
+  const roots: WorkspaceFileNode[] = [];
+  ensureCourseFolderInTree({
+    roots,
+    courseId: course.id,
+    semester,
+    course,
     tasks: [],
     timestamp,
   });
@@ -404,6 +437,91 @@ function formatRecognizedSessions(sessions: RecognizedCourseSession[]): string |
 
 function firstLocation(sessions: RecognizedCourseSession[]): string | undefined {
   return sessions.find((session) => session.room)?.room;
+}
+
+function courseSessionEvents(semester: SemesterWorkspace, course: Course, sessions: RecognizedCourseSession[]): TimetableEvent[] {
+  const ranges = semesterWeekRanges(semester);
+  if (ranges.length === 0) return [];
+  const allowedWeeks = ranges.map((range) => range.weekNumber);
+  return sessions.flatMap((session) => {
+    const weekNumbers = recognizedSessionWeekNumbers(session.weeks, allowedWeeks);
+    return weekNumbers.flatMap((weekNumber) => {
+      const range = ranges.find((item) => item.weekNumber === weekNumber);
+      const date = range ? dateForWeekdayInRange(range.startsAt, range.endsAt, session.dayOfWeek) : undefined;
+      if (!date) return [];
+      return [{
+        id: entityId("event"),
+        semesterId: semester.id,
+        courseId: course.id,
+        title: [course.code, course.name].filter(Boolean).join(" · "),
+        kind: "course_session" as const,
+        source: "course" as const,
+        startsAt: `${date}T${session.startTime}:00`,
+        endsAt: `${date}T${session.endTime}:00`,
+        location: session.room,
+        notes: `${semester.term} · Week ${weekNumber}`,
+        confidence: session.confidence,
+      }];
+    });
+  });
+}
+
+function recognizedSessionWeekNumbers(value: string | undefined, allowedWeeks: number[]): number[] {
+  if (allowedWeeks.length === 0) return [];
+  const text = value?.normalize("NFKC").toLowerCase().trim() || "";
+  if (!text || /all|every|全部|全周|所有|整学期/.test(text)) return allowedWeeks;
+  const selected = new Set<number>();
+
+  if (/odd|single|单周|单数周/.test(text)) {
+    for (const week of allowedWeeks) if (week % 2 === 1) selected.add(week);
+  }
+  if (/even|double|双周|双数周/.test(text)) {
+    for (const week of allowedWeeks) if (week % 2 === 0) selected.add(week);
+  }
+
+  const rangePattern = /(\d{1,2})\s*(?:-|~|–|—|to|至|到)\s*(\d{1,2})/g;
+  for (const match of text.matchAll(rangePattern)) {
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    const low = Math.min(start, end);
+    const high = Math.max(start, end);
+    for (const week of allowedWeeks) if (week >= low && week <= high) selected.add(week);
+  }
+
+  for (const match of text.matchAll(/\d{1,2}/g)) {
+    const week = Number(match[0]);
+    if (allowedWeeks.includes(week)) selected.add(week);
+  }
+
+  return selected.size > 0 ? allowedWeeks.filter((week) => selected.has(week)) : allowedWeeks;
+}
+
+function dateForWeekdayInRange(startsAt: string, endsAt: string, dayOfWeek: WeekdayKey): string | undefined {
+  const start = parseDateOnlyValue(startsAt);
+  const end = parseDateOnlyValue(endsAt);
+  if (!start || !end || end < start) return undefined;
+  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 1)) {
+    if (cursor.getDay() === WEEKDAY_INDEX[dayOfWeek]) return formatDateOnlyValue(cursor);
+  }
+  return undefined;
+}
+
+function parseDateOnlyValue(value: string): Date | undefined {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return undefined;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setHours(0, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function formatDateOnlyValue(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(date: Date, amount: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
 }
 
 function stripSectionSuffix(name: string, section?: string): string {

@@ -27,17 +27,21 @@ export function TimetableDialog({
   const [managingSemesters, setManagingSemesters] = useState(false);
   const [semesterLoading, setSemesterLoading] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [semesterLoaded, setSemesterLoaded] = useState(false);
+  const [eventsLoaded, setEventsLoaded] = useState(false);
   const [showEventsLoading, setShowEventsLoading] = useState(false);
   const [semesterError, setSemesterError] = useState("");
   const [eventsError, setEventsError] = useState("");
   const eventsRequestRef = useRef(0);
 
   const range = useMemo(() => getRange(anchorDate, viewMode), [anchorDate, viewMode]);
+  const scopedCourseId = course?.workspaceKind === "course" ? course.id : undefined;
   const weekNumber = useMemo(() => semesterWeekNumberForRange(semester, range.start, range.end), [semester, range.start, range.end]);
   const rangeSchoolEvents = useMemo(() => events
     .filter((event) => event.kind === "school_event" && eventOverlapsRange(event, range.start, range.end))
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)), [events, range.start, range.end]);
   const loadError = semesterError || eventsError;
+  const initialContentLoading = !semesterLoaded || !eventsLoaded;
 
   useEffect(() => {
     void loadSemester();
@@ -45,7 +49,7 @@ export function TimetableDialog({
 
   useEffect(() => {
     void loadEvents();
-  }, [course?.id, range.start.toISOString(), range.end.toISOString(), viewMode]);
+  }, [scopedCourseId, range.start.toISOString(), range.end.toISOString(), viewMode]);
 
   useEffect(() => {
     if (!eventsLoading) {
@@ -66,6 +70,7 @@ export function TimetableDialog({
       setSemesterError(errorMessage(error, "加载当前学期失败。"));
     } finally {
       setSemesterLoading(false);
+      setSemesterLoaded(true);
     }
   }
 
@@ -78,7 +83,7 @@ export function TimetableDialog({
         viewMode,
         rangeStart: range.start.toISOString(),
         rangeEnd: range.end.toISOString(),
-        courseId: course?.id,
+        courseId: scopedCourseId,
         includeDeadlines: true,
         includeSchoolEvents: true,
       });
@@ -90,7 +95,10 @@ export function TimetableDialog({
       setEvents([]);
       setEventsError(errorMessage(error, "加载时间表事件失败。"));
     } finally {
-      if (eventsRequestRef.current === requestId) setEventsLoading(false);
+      if (eventsRequestRef.current === requestId) {
+        setEventsLoading(false);
+        setEventsLoaded(true);
+      }
     }
   }
 
@@ -144,12 +152,12 @@ export function TimetableDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/18 p-1.5 backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="brevyn-window-surface brevyn-dialog-window flex flex-col overflow-hidden">
+      <div className="brevyn-window-surface brevyn-dialog-window flex h-[96vh] max-h-[calc(100vh-12px)] w-[min(1760px,calc(100vw-12px))] max-w-none flex-col overflow-hidden">
         <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -265,8 +273,8 @@ export function TimetableDialog({
             </div>
           </div>
 
-          <section className="grid min-h-0 flex-1 gap-3 md:grid-cols-[230px_minmax(0,1fr)]">
-            <RangeEventRail events={rangeSchoolEvents} range={range} />
+          <section className="grid min-h-0 flex-1 gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+            <RangeEventRail events={initialContentLoading ? [] : rangeSchoolEvents} range={range} />
             <div className="min-h-0 overflow-hidden rounded-[var(--radius-card)] bg-background/70 p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
               <div className="mb-3 flex items-center justify-between">
                 <div className="min-w-0">
@@ -287,10 +295,16 @@ export function TimetableDialog({
                   <EventLegend />
                 </div>
               </div>
-              <div className="h-[calc(100%-34px)] min-h-0 overflow-auto pr-1 brevyn-scrollbar">
-                {viewMode === "week" && <WeekGrid start={range.start} events={events} weekNumber={weekNumber} />}
-                {viewMode === "month" && <MonthGrid anchor={anchorDate} events={events} />}
-                {viewMode === "year" && <YearGrid anchor={anchorDate} events={events} />}
+              <div className="h-[calc(100%-34px)] min-h-0 overflow-hidden">
+                {initialContentLoading ? (
+                  <TimetableLoadingState />
+                ) : (
+                  <>
+                    {viewMode === "week" && <WeekGrid start={range.start} events={events} weekNumber={weekNumber} />}
+                    {viewMode === "month" && <MonthGrid anchor={anchorDate} events={events} />}
+                    {viewMode === "year" && <YearGrid anchor={anchorDate} events={events} />}
+                  </>
+                )}
               </div>
             </div>
           </section>
@@ -310,40 +324,83 @@ export function TimetableDialog({
   );
 }
 
+function TimetableLoadingState() {
+  return (
+    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 rounded-[var(--radius-card)] bg-card/45 text-center text-xs text-muted-foreground">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <div>
+        <div className="font-medium text-foreground">正在加载时间表</div>
+        <div className="mt-1">同步学期、校历和课程安排...</div>
+      </div>
+    </div>
+  );
+}
+
 function WeekGrid({ start, events, weekNumber }: { start: Date; events: TimetableEvent[]; weekNumber?: number }) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
   const weekEnd = endOfDay(addDays(start, 6));
   const now = new Date();
   const showNowLine = now >= start && now <= weekEnd;
   const eventsByDay = days.map((day) => eventsForDay(events, day).filter((event) => event.kind !== "school_event" && event.kind !== "school_week"));
+  const timedEventsByDay = eventsByDay.map((dayEvents) => dayEvents.filter(eventHasTime));
+  const allDayEventsByDay = eventsByDay.map((dayEvents) => dayEvents.filter((event) => !eventHasTime(event)));
+  const timeBounds = timetableHourBounds(timedEventsByDay.flat());
+  const hourMarks = timeAxisHours(timeBounds);
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-[var(--radius-control)] bg-muted/25 px-3 py-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between rounded-[var(--radius-control)] bg-muted/25 px-3 py-2 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
         <div className="text-xs font-semibold">{weekNumber ? `第 ${weekNumber} 周` : "本周"}</div>
         <div className="text-[11px] text-muted-foreground">{formatShort(start)} - {formatShort(weekEnd)}</div>
       </div>
-      <div className="grid min-w-[760px] grid-cols-7 gap-2">
+      <div className="grid shrink-0 grid-cols-[4.25rem_repeat(7,minmax(0,1fr))] gap-2">
+        <div className="rounded-[var(--radius-control)] bg-card/55 px-2 py-2 text-center text-[10px] font-medium text-muted-foreground ring-1 ring-black/[0.035]">
+          时间
+        </div>
         {days.map((day, index) => {
           const isToday = isSameDay(day, now);
-          const startsNewMonth = index > 0 && day.getMonth() !== days[index - 1].getMonth();
-          const dayEvents = eventsByDay[index] || [];
+          const allDayEvents = allDayEventsByDay[index] || [];
           return (
-            <div key={day.toISOString()} className={cx("relative min-h-[560px] rounded-[var(--radius-control)] border bg-card px-2 py-2", isToday && "border-rose-200 bg-rose-50/20")}>
-              {startsNewMonth && (
-                <div className="mb-2 rounded-[var(--radius-control)] border bg-background px-2 py-1 text-center text-[10px] font-medium text-muted-foreground shadow-sm">
-                  进入 {formatMonthLabel(day)}
+            <div
+              key={day.toISOString()}
+              className={cx(
+                "min-w-0 rounded-[var(--radius-control)] bg-card px-2 py-2 text-center shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)]",
+                isToday && "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.46)]",
+              )}
+            >
+              <div className="truncate text-[11px] font-semibold">{formatWeekday(day)}</div>
+              <div className="truncate text-[10px] text-muted-foreground">{formatShort(day)}</div>
+              {allDayEvents.length > 0 && (
+                <div className="mt-1 flex flex-wrap justify-center gap-1">
+                  {allDayEvents.slice(0, 2).map((event) => (
+                    <span key={event.id} className={cx("max-w-full truncate rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[9px]", eventTone(event.kind))}>
+                      {event.title}
+                    </span>
+                  ))}
+                  {allDayEvents.length > 2 && <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">+{allDayEvents.length - 2}</span>}
                 </div>
               )}
-              <div className={cx("mb-2 text-[11px] font-medium text-muted-foreground", isToday && "text-rose-700")}>{formatDay(day)}</div>
-              {showNowLine && isToday && <CurrentTimeLine />}
-              <div className="space-y-2">
-                {dayEvents.map((event) => (
-                  <EventCard key={event.id} event={event} />
-                ))}
-                {dayEvents.length === 0 && (
-                  <div className="rounded-[var(--radius-control)] border border-dashed bg-muted/25 px-2 py-2 text-[10px] leading-4 text-muted-foreground">暂无课程或截止日期。</div>
-                )}
-              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[4.25rem_repeat(7,minmax(0,1fr))] gap-2 overflow-hidden">
+        <TimeAxis hourMarks={hourMarks} bounds={timeBounds} />
+        {days.map((day, index) => {
+          const isToday = isSameDay(day, now);
+          const timedEvents = timedEventsByDay[index] || [];
+          return (
+            <div
+              key={day.toISOString()}
+              className={cx(
+                "relative min-h-0 overflow-visible rounded-[var(--radius-control)] bg-card shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]",
+                isToday && "bg-primary/5 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.5)]",
+              )}
+            >
+              <TimeGridLines bounds={timeBounds} />
+              {showNowLine && isToday && <CurrentTimeLine bounds={timeBounds} />}
+              {timedEvents.map((event) => (
+                <TimedEventBlock key={event.id} event={event} bounds={timeBounds} />
+              ))}
             </div>
           );
         })}
@@ -352,11 +409,126 @@ function WeekGrid({ start, events, weekNumber }: { start: Date; events: Timetabl
   );
 }
 
+type TimetableHourBounds = {
+  startHour: number;
+  endHour: number;
+};
+
+function TimeAxis({ hourMarks, bounds }: { hourMarks: number[]; bounds: TimetableHourBounds }) {
+  return (
+    <div className="relative min-h-0 overflow-hidden rounded-[var(--radius-control)] bg-card/55 text-[10px] text-muted-foreground ring-1 ring-black/[0.035]">
+      {hourMarks.map((hour) => (
+        <div
+          key={hour}
+          className="absolute left-0 right-0 flex -translate-y-1/2 items-center justify-center"
+          style={{ top: timeAxisTop(hour, bounds) }}
+        >
+          <span className="rounded-[var(--radius-badge)] bg-background px-1.5 py-0.5 shadow-sm ring-1 ring-black/[0.035]">
+            {String(hour).padStart(2, "0")}:00
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TimeGridLines({ bounds }: { bounds: TimetableHourBounds }) {
+  const hourMarks = timeAxisHours(bounds);
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      {hourMarks.map((hour) => (
+        <div
+          key={hour}
+          className="absolute left-0 right-0 border-t border-border/45"
+          style={{ top: timeAxisTop(hour, bounds) }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TimedEventBlock({ event, bounds }: { event: TimetableEvent; bounds: TimetableHourBounds }) {
+  const position = timedEventPosition(event, bounds);
+  const title = compactCourseTitle(event.title);
+  const details = [formatTime(event.startsAt), event.endsAt ? formatTime(event.endsAt) : "", event.title, event.location].filter(Boolean).join(" · ");
+  return (
+    <div
+      className={cx("group absolute left-1 right-1 z-10 flex items-start overflow-visible rounded-[var(--radius-control)] px-2 py-1 text-[10px] leading-[13px] shadow-sm ring-1 ring-black/[0.04] hover:z-30", eventTone(event.kind))}
+      style={position}
+      title={details}
+    >
+      <div className="line-clamp-2 break-words font-semibold">{title}</div>
+      <div className="pointer-events-none absolute left-0 top-full z-40 mt-1 hidden max-w-[16rem] rounded-[var(--radius-control)] bg-popover px-2.5 py-2 text-[10px] font-semibold leading-4 text-popover-foreground shadow-lg ring-1 ring-black/[0.08] group-hover:block">
+        {title}
+      </div>
+    </div>
+  );
+}
+
+function timetableHourBounds(events: TimetableEvent[]): TimetableHourBounds {
+  const minutes = events.flatMap((event) => {
+    const start = minuteOfDay(event.startsAt);
+    const end = minuteOfDay(event.endsAt || event.startsAt);
+    return [start, end].filter((value): value is number => value !== undefined);
+  });
+  const earliest = minutes.length > 0 ? Math.min(...minutes) : 8 * 60;
+  const latest = minutes.length > 0 ? Math.max(...minutes) : 22 * 60;
+  const startHour = Math.max(0, Math.min(8, Math.floor(earliest / 60)));
+  const endHour = Math.min(24, Math.max(22, Math.ceil(latest / 60)));
+  return { startHour, endHour: Math.max(startHour + 1, endHour) };
+}
+
+function timeAxisHours(bounds: TimetableHourBounds): number[] {
+  return Array.from({ length: bounds.endHour - bounds.startHour + 1 }, (_, index) => bounds.startHour + index);
+}
+
+function timedEventPosition(event: TimetableEvent, bounds: TimetableHourBounds): { top: string; height: string } {
+  const startMinute = bounds.startHour * 60;
+  const endMinute = bounds.endHour * 60;
+  const total = endMinute - startMinute;
+  const rawStart = minuteOfDay(event.startsAt) ?? startMinute;
+  const rawEnd = minuteOfDay(event.endsAt || event.startsAt) ?? rawStart + 60;
+  const clampedStart = clamp(rawStart, startMinute, endMinute);
+  const clampedEnd = clamp(Math.max(rawEnd, rawStart + 30), startMinute, endMinute);
+  return {
+    top: timeAxisTopFromProgress((clampedStart - startMinute) / total),
+    height: `calc(${Math.max(6, ((clampedEnd - clampedStart) / total) * 100)}% - 0.25rem)`,
+  };
+}
+
+function eventHasTime(event: TimetableEvent): boolean {
+  return minuteOfDay(event.startsAt) !== undefined;
+}
+
+function minuteOfDay(value?: string): number | undefined {
+  const match = value?.match(/T(\d{2}):(\d{2})/);
+  if (!match) return undefined;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function timeAxisTop(hour: number, bounds: TimetableHourBounds): string {
+  return timeAxisTopFromProgress((hour - bounds.startHour) / (bounds.endHour - bounds.startHour));
+}
+
+function timeAxisTopFromProgress(progress: number): string {
+  const clamped = clamp(progress, 0, 1);
+  return `calc(0.9rem + (100% - 1.8rem) * ${clamped})`;
+}
+
+function compactCourseTitle(title: string): string {
+  const segments = title.split(/\s*[·|]\s*/).map((item) => item.trim()).filter(Boolean);
+  return segments.length > 1 ? segments.slice(1).join(" · ") : title;
+}
+
 function MonthGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }) {
   const days = monthDays(anchor);
   const today = new Date();
   return (
-    <div className="grid min-w-[760px] grid-cols-7 gap-1.5">
+    <div className="grid h-full min-h-0 grid-cols-7 grid-rows-6 gap-1.5 overflow-hidden">
       {days.map((day) => {
         const dayEvents = eventsForDay(events, day);
         const hasSchoolEvent = dayEvents.some((event) => event.kind === "school_event");
@@ -364,12 +536,12 @@ function MonthGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] 
           <div
             key={day.toISOString()}
             className={cx(
-              "min-h-[116px] rounded-[var(--radius-control)] border bg-card px-2 py-1.5",
+              "min-h-0 overflow-hidden rounded-[var(--radius-control)] border bg-card px-2 py-1.5",
               hasSchoolEvent && "border-emerald-200 bg-emerald-50/45",
-              isSameDay(day, today) && "border-rose-200 bg-rose-50/20",
+              isSameDay(day, today) && "border-primary/40 bg-primary/10",
             )}
           >
-            <div className={cx("flex items-center justify-between gap-1 text-[10px] font-medium text-muted-foreground", isSameDay(day, today) && "text-rose-700")}>
+            <div className={cx("flex items-center justify-between gap-1 text-[10px] font-medium text-muted-foreground", isSameDay(day, today) && "text-primary")}>
               <span>{day.getDate()}</span>
               {hasSchoolEvent && <span className="h-1.5 w-1.5 rounded-[var(--radius-pill)] bg-emerald-500" />}
             </div>
@@ -391,7 +563,7 @@ function MonthGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] 
 function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }) {
   const year = anchor.getFullYear();
   return (
-    <div className="grid min-w-[760px] grid-cols-4 gap-2">
+    <div className="grid h-full min-h-0 grid-cols-4 grid-rows-3 gap-2 overflow-hidden">
       {Array.from({ length: 12 }, (_, month) => {
         const monthEvents = events.filter((event) => {
           if (event.kind === "school_week") return false;
@@ -401,7 +573,7 @@ function YearGrid({ anchor, events }: { anchor: Date; events: TimetableEvent[] }
         const monthStart = new Date(year, month, 1);
         const monthDaysCount = new Date(year, month + 1, 0).getDate();
         return (
-          <div key={month} className="min-h-[156px] rounded-[var(--radius-control)] border bg-card px-3 py-2">
+          <div key={month} className="min-h-0 overflow-hidden rounded-[var(--radius-control)] border bg-card px-3 py-2">
             <div className="mb-2 text-xs font-semibold">{monthStart.toLocaleString("zh-CN", { month: "short" })}</div>
             <div className="grid grid-cols-7 gap-1">
               {Array.from({ length: monthDaysCount }, (_, index) => {
@@ -521,14 +693,18 @@ function eventOverlapsRange(event: TimetableEvent, start: Date, end: Date) {
   return eventStart <= end && endOfDay(eventEnd) >= start;
 }
 
-function CurrentTimeLine() {
+function CurrentTimeLine({ bounds }: { bounds: TimetableHourBounds }) {
   const now = new Date();
-  const top = Math.max(44, Math.min(548, 44 + (now.getHours() * 60 + now.getMinutes()) / 1440 * 492));
+  const startMinute = bounds.startHour * 60;
+  const endMinute = bounds.endHour * 60;
+  const currentMinute = now.getHours() * 60 + now.getMinutes();
+  if (currentMinute < startMinute || currentMinute > endMinute) return null;
+  const progress = (currentMinute - startMinute) / (endMinute - startMinute);
   return (
-    <div className="pointer-events-none absolute left-0 right-0 z-10" style={{ top }}>
+    <div className="pointer-events-none absolute left-0 right-0 z-10" style={{ top: timeAxisTopFromProgress(progress) }}>
       <div className="flex items-center">
-        <div className="ml-1 h-2 w-2 rounded-[var(--radius-pill)] bg-rose-500" />
-        <div className="h-px flex-1 bg-rose-500" />
+        <div className="ml-1 h-2 w-2 rounded-[var(--radius-pill)] bg-primary" />
+        <div className="h-px flex-1 bg-primary" />
       </div>
     </div>
   );
@@ -563,6 +739,10 @@ function endOfDay(date: Date) {
 
 function formatDay(date: Date) {
   return date.toLocaleDateString("zh-CN", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatWeekday(date: Date) {
+  return date.toLocaleDateString("zh-CN", { weekday: "short" });
 }
 
 function formatShort(date: Date) {

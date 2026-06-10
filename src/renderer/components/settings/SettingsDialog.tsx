@@ -1,5 +1,6 @@
 import {
   Archive,
+  CalendarDays,
   Check,
   Info,
   Languages,
@@ -23,6 +24,7 @@ import {
 import { GeneralSettingsPage } from "@/components/settings/general/GeneralSettingsPage";
 import { ProviderSettingsPage } from "@/components/settings/providers/ProviderSettingsPage";
 import { useProviderSettingsState } from "@/components/settings/providers/useProviderSettingsState";
+import { SemesterSettingsPage } from "@/components/settings/semesters/SemesterSettingsPage";
 import { SkillSettingsPage } from "@/components/settings/skills/SkillSettingsPage";
 import { MiniMetric } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
@@ -44,7 +46,7 @@ import {
 import { BREVYN_CLOUD_DEVELOPMENT_BASE_URL, BREVYN_CLOUD_SHOP_URL } from "../../../types/cloud-config";
 import { cx } from "@/lib/cn";
 
-type SettingsPage = "account" | "general" | "providers" | "archive" | "skills" | "about";
+type SettingsPage = "account" | "general" | "providers" | "semesters" | "archive" | "skills" | "about";
 
 const CLOUD_ENTITLEMENTS_POLL_MS = 40_000;
 const CLOUD_ENTITLEMENTS_FOCUS_REFRESH_MS = 60_000;
@@ -61,6 +63,7 @@ export function SettingsDialog({
   onThemeStateChange,
   onSkillsChange,
   onWorkspaceChanged,
+  onSelectSemester,
   onAgentProviderChanged,
   onClose,
 }: {
@@ -75,6 +78,7 @@ export function SettingsDialog({
   onThemeStateChange: (themeState: AppThemeState) => void;
   onSkillsChange: (skills: SkillItem[]) => void;
   onWorkspaceChanged?: () => Promise<void> | void;
+  onSelectSemester?: (semesterId: string) => Promise<void> | void;
   onAgentProviderChanged?: (providerSelection: string) => Promise<void> | void;
   onClose: () => void;
 }) {
@@ -109,6 +113,10 @@ export function SettingsDialog({
   const cloudModelCatalogRequestsRef = useRef<Set<number>>(new Set());
   const cloudEntitlementsLastRefreshRef = useRef(0);
   const cloudEntitlementsRefreshInFlightRef = useRef(false);
+
+  useEffect(() => {
+    setActivePage(initialPage);
+  }, [initialPage]);
 
   const enabledSkills = localSkills.filter((skill) => skill.enabled).length;
   const chatProviders = providers.filter((provider) => provider.purpose === "agent");
@@ -622,6 +630,13 @@ export function SettingsDialog({
                 onClick={() => setActivePage("providers")}
               />
               <SettingsNavButton
+                active={activePage === "semesters"}
+                icon={<CalendarDays className="h-4 w-4" />}
+                title="学期管理"
+                detail={semester?.term || "创建 / 切换 / 归档"}
+                onClick={() => setActivePage("semesters")}
+              />
+              <SettingsNavButton
                 active={activePage === "archive"}
                 icon={<Archive className="h-4 w-4" />}
                 title="归档"
@@ -671,6 +686,12 @@ export function SettingsDialog({
               <GeneralSettingsPage profile={profile} themeState={themeState} onProfileChange={onProfileChange} onThemeStateChange={onThemeStateChange} />
             ) : activePage === "providers" ? (
               <ProviderSettingsPage {...providerPageProps} />
+            ) : activePage === "semesters" ? (
+              <SemesterSettingsPage
+                currentSemester={semester}
+                onSelectSemester={onSelectSemester}
+                onWorkspaceChanged={onWorkspaceChanged}
+              />
             ) : activePage === "archive" ? (
               <ArchiveSettingsPage onWorkspaceChanged={onWorkspaceChanged} />
             ) : activePage === "skills" ? (

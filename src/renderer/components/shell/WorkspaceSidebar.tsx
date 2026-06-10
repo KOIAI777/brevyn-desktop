@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, CalendarDays, ChevronRight, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
+import { Archive, ChevronRight, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
@@ -30,7 +30,6 @@ export function WorkspaceSidebar({
   onRenameThread,
   onCreateThread,
   onOpenCourses,
-  onOpenTimetable,
   onOpenSettings,
   onResizeStart,
 }: {
@@ -54,7 +53,6 @@ export function WorkspaceSidebar({
   onRenameThread: (thread: Thread, title: string) => Promise<void>;
   onCreateThread: (courseId?: string, taskId?: string) => void;
   onOpenCourses: () => void;
-  onOpenTimetable: () => void;
   onOpenSettings: () => void;
   onResizeStart: (event: ReactPointerEvent) => void;
 }) {
@@ -129,13 +127,10 @@ export function WorkspaceSidebar({
           onRename={(thread) => setRenamingThreadId(thread.id)}
         />
         <div className="my-2 h-px w-8 bg-border" />
-        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenTimetable} title="Timetable">
-          <CalendarDays className="h-4 w-4" />
-        </button>
-        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenCourses} title="Courses">
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenCourses} title="我的课程">
           <NotebookTabs className="h-4 w-4" />
         </button>
-        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenSettings} title="Settings">
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenSettings} title="设置">
           <Settings className="h-4 w-4" />
         </button>
       </aside>
@@ -353,10 +348,9 @@ export function WorkspaceSidebar({
       </div>
 
       <div className="px-3 pb-3 pt-2 shadow-[inset_0_1px_0_hsl(var(--border)/0.45)]">
-        <div className="flex items-center justify-around gap-2">
-          <SidebarFooterIconButton icon={<CalendarDays className="h-4 w-4" />} title="Timetable" onClick={onOpenTimetable} />
-          <SidebarFooterIconButton icon={<NotebookTabs className="h-4 w-4" />} title="Courses" onClick={onOpenCourses} />
-          <SidebarFooterIconButton icon={<Settings className="h-4 w-4" />} title="Settings" onClick={onOpenSettings} />
+        <div className="space-y-1.5">
+          <SidebarFooterButton icon={<NotebookTabs className="h-4 w-4" />} label="我的课程" onClick={onOpenCourses} />
+          <SidebarFooterButton icon={<Settings className="h-4 w-4" />} label="设置" onClick={onOpenSettings} />
         </div>
       </div>
       <ThreadContextMenu
@@ -401,16 +395,19 @@ function SessionCount({ count }: { count: number }) {
   return <span className="shrink-0 rounded-[var(--radius-badge)] bg-background/70 px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{count}</span>;
 }
 
-function SidebarFooterIconButton({ icon, title, onClick }: { icon: ReactNode; title: string; onClick: () => void }) {
+function SidebarFooterButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98]"
-      title={title}
-      aria-label={title}
+      className="flex h-9 w-full items-center gap-2 rounded-[var(--radius-control)] px-2.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98]"
+      title={label}
+      aria-label={label}
       onClick={onClick}
     >
-      {icon}
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-background/70 text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">
+        {icon}
+      </span>
+      <span className="truncate">{label}</span>
     </button>
   );
 }

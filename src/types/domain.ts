@@ -379,6 +379,7 @@ export interface RecognizedCourseSchedule {
   name: string;
   section?: string;
   category?: string;
+  icon?: CourseIconKey;
   instructor?: string;
   units?: number;
   sessions: RecognizedCourseSession[];

@@ -1,7 +1,9 @@
 import { AlertCircle, CalendarDays, Check, ChevronDown, GraduationCap, ImagePlus, Loader2, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { RecognizedAcademicCalendar, RecognizedCourseTimetable, VisionRecognitionKind } from "@/types/domain";
+import { CourseIcon, COURSE_ICON_OPTIONS } from "@/components/courses/CourseIcon";
+import type { CourseIconKey, RecognizedAcademicCalendar, RecognizedCourseSchedule, RecognizedCourseTimetable, VisionRecognitionKind } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { matchCourseIcon } from "../../../shared/course-icon-matcher";
 import { semesterWeekRanges } from "../../../shared/semester-weeks";
 
 type VisionDraft = RecognizedAcademicCalendar | RecognizedCourseTimetable;
@@ -314,7 +316,14 @@ function CourseTimetableReview({ draft, onChange }: { draft: RecognizedCourseTim
           <div className="space-y-2 border-b bg-muted/30 px-3 py-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 text-xs font-semibold">课程 {courseIndex + 1}</div>
-              {course.confidence !== undefined && <ConfidenceBadge value={course.confidence} />}
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <CourseIconPicker
+                  value={resolvedCourseIcon(course)}
+                  automatic={!course.icon}
+                  onChange={(icon) => updateCourse(courseIndex, { icon })}
+                />
+                {course.confidence !== undefined && <ConfidenceBadge value={course.confidence} />}
+              </div>
             </div>
             <div className="grid gap-2 md:grid-cols-[0.7fr_1.3fr]">
               <EditableField label="课程代码" value={course.code} onChange={(value) => updateCourse(courseIndex, { code: value })} />
@@ -461,6 +470,58 @@ function EmptyReview({ label }: { label: string }) {
 
 function ConfidenceBadge({ value }: { value: number }) {
   return <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{formatConfidence(value)}</span>;
+}
+
+function CourseIconPicker({ value, automatic, onChange }: { value: CourseIconKey; automatic: boolean; onChange: (value: CourseIconKey) => void }) {
+  const [open, setOpen] = useState(false);
+  const activeOption = COURSE_ICON_OPTIONS.find((option) => option.key === value) || COURSE_ICON_OPTIONS[0];
+
+  return (
+    <div className="relative" aria-label="课程图标">
+      <button
+        type="button"
+        className="flex h-7 items-center gap-1.5 rounded-[var(--radius-control)] bg-background px-2 text-[10px] font-medium text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
+        title={automatic ? `自动匹配：${activeOption.label}` : `已选择：${activeOption.label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <CourseIcon course={{ icon: value }} className="h-3.5 w-3.5" />
+        <span>{activeOption.label}</span>
+        {automatic && <span className="rounded-[var(--radius-badge)] bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">自动</span>}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-8 z-20 grid w-48 grid-cols-6 gap-1 rounded-[var(--radius-card)] bg-card/98 p-2 shadow-xl ring-1 ring-black/[0.08] backdrop-blur-xl">
+          {COURSE_ICON_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={cx(
+                "flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] bg-background text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition hover:bg-accent hover:text-foreground active:scale-[0.98]",
+                option.key === value && "bg-[hsl(var(--status-info)/0.14)] text-[hsl(var(--status-info))] ring-[hsl(var(--status-info)/0.24)] hover:bg-[hsl(var(--status-info)/0.18)] hover:text-[hsl(var(--status-info))]",
+              )}
+              title={option.label}
+              aria-label={option.label}
+              onClick={() => {
+                onChange(option.key);
+                setOpen(false);
+              }}
+            >
+              <CourseIcon course={{ icon: option.key }} className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function resolvedCourseIcon(course: RecognizedCourseSchedule): CourseIconKey {
+  return course.icon || matchCourseIcon({
+    code: course.code,
+    name: stripSectionLabel(course.name, course.section),
+    category: course.category,
+  });
 }
 
 const editableClassName = "h-7 w-full rounded-md border border-border/70 bg-background px-2 text-[11px] text-foreground outline-none transition focus:border-foreground/30 focus:ring-2 focus:ring-ring/15";

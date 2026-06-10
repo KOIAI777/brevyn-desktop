@@ -40,6 +40,7 @@ import {
   taskWorkspaceDirForTask,
   threadMessagesPath,
 } from "./workspace-paths";
+import { matchCourseIcon } from "../../shared/course-icon-matcher";
 import {
   activeCourseInSemesterOrThrow,
   currentActiveSemester,
@@ -332,6 +333,7 @@ export class WorkspaceService {
       meetingTime: input.meetingTime?.trim() || undefined,
       location: input.location?.trim() || undefined,
       color: input.color?.trim() || pickCourseColor(existingCourseCount),
+      icon: matchCourseIcon({ name, code }),
       description: input.description?.trim() || "",
     };
     const roots = this.buildCourseRoots(course.id, semester.id, semester, course, []);

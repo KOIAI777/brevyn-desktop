@@ -305,6 +305,7 @@ function normalizeRecognizedCourses(value: unknown): RecognizedCourseSchedule[] 
       name,
       section: optionalString(input.section),
       category: optionalString(input.category),
+      icon: input.icon === undefined ? undefined : normalizeCourseIcon(input.icon),
       instructor: optionalString(input.instructor),
       units: normalizeNumber(input.units),
       sessions: normalizeRecognizedSessions(input.sessions),

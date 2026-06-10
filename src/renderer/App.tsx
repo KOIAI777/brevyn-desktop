@@ -11,7 +11,6 @@ import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { AppTitleBar } from "@/components/shell/AppTitleBar";
 import { TopBar } from "@/components/shell/TopBar";
 import { WorkspaceSidebar } from "@/components/shell/WorkspaceSidebar";
-import { TimetableDialog } from "@/components/timetable/TimetableDialog";
 import { useAgentSessionController, type AgentRunForThreadOptions } from "@/hooks/useAgentSessionController";
 import { useWorkspaceLayoutState } from "@/hooks/useWorkspaceLayoutState";
 import { useWorkspaceFilesState } from "@/hooks/useWorkspaceFilesState";
@@ -231,7 +230,6 @@ function App() {
           onRenameThread={workspace.renameThread}
           onCreateThread={workspace.createThread}
           onOpenCourses={dialogs.openCourses}
-          onOpenTimetable={dialogs.openTimetable}
           onOpenSettings={() => dialogs.openSettings()}
           onResizeStart={layoutState.startSidebarResize}
         />
@@ -321,9 +319,9 @@ function App() {
                         <button
                           type="button"
                           className="rounded-[var(--radius-control)] bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98]"
-                          onClick={dialogs.openTimetable}
+                          onClick={() => dialogs.openSettings("semesters")}
                         >
-                          Manage semesters
+                          学期管理
                         </button>
                       </div>
                     </>
@@ -341,13 +339,13 @@ function App() {
                         disabled={!workspace.needsSemesterSelection && ((!workspace.activeCourse?.id && !workspace.semester?.id) || Boolean(workspace.activeCourse && !workspace.activeTask))}
                         onClick={() => {
                           if (workspace.needsSemesterSelection) {
-                            dialogs.openTimetable();
+                            dialogs.openSettings("semesters");
                             return;
                           }
                           void workspace.createThread(workspace.activeCourse?.id || SEMESTER_HOME_COURSE_ID, workspace.activeTask?.id);
                         }}
                       >
-                        {workspace.needsSemesterSelection ? "Select semester" : workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "创建学期会话" : "Select a task to create session"}
+                        {workspace.needsSemesterSelection ? "选择学期" : workspace.activeTask ? "Create task session" : !workspace.activeCourse ? "创建学期会话" : "Select a task to create session"}
                       </button>
                     </>
                   )}
@@ -407,6 +405,7 @@ function App() {
             await workspace.reloadWorkspace(workspace.activeThreadId);
             await agentSession.refreshProviders();
           }}
+          onSelectSemester={workspace.selectSemester}
           onAgentProviderChanged={(providerSelection) => agentSession.refreshProviders(providerSelection)}
           onClose={() => {
             dialogs.closeSettings();
@@ -427,17 +426,6 @@ function App() {
             await workspace.reloadWorkspace();
           }}
           onClose={dialogs.closeCourses}
-        />
-      )}
-      {dialogs.timetableOpen && (
-        <TimetableDialog
-          course={workspace.activeCourse}
-          semesters={workspace.semesters}
-          onSelectSemester={workspace.selectSemester}
-          onWorkspaceChanged={async () => {
-            await workspace.reloadWorkspace();
-          }}
-          onClose={dialogs.closeTimetable}
         />
       )}
     </div>

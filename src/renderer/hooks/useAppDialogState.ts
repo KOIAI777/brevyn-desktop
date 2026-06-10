@@ -5,7 +5,6 @@ export function useAppDialogState() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>("account");
   const [coursesOpen, setCoursesOpen] = useState(false);
-  const [timetableOpen, setTimetableOpen] = useState(false);
 
   function openSettings(page: SettingsPage = "account") {
     setSettingsInitialPage(page);
@@ -20,8 +19,5 @@ export function useAppDialogState() {
     coursesOpen,
     openCourses: () => setCoursesOpen(true),
     closeCourses: () => setCoursesOpen(false),
-    timetableOpen,
-    openTimetable: () => setTimetableOpen(true),
-    closeTimetable: () => setTimetableOpen(false),
   };
 }

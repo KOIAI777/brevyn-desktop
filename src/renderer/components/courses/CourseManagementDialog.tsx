@@ -2,6 +2,7 @@ import {
   AlertCircle,
   Archive,
   BookOpen,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleStop,
@@ -67,6 +68,7 @@ export function CourseManagementDialog({
   const [viewingCourseId, setViewingCourseId] = useState(activeCourseId);
   const [courseBusyId, setCourseBusyId] = useState("");
   const [courseActionError, setCourseActionError] = useState("");
+  const [courseActionNotice, setCourseActionNotice] = useState("");
   const [editingCourseDetails, setEditingCourseDetails] = useState(false);
   const [savingCourseDetails, setSavingCourseDetails] = useState(false);
   const [courseDetailsDraft, setCourseDetailsDraft] = useState({
@@ -191,6 +193,12 @@ export function CourseManagementDialog({
     const timer = window.setTimeout(() => setIndexingNotice(null), 9000);
     return () => window.clearTimeout(timer);
   }, [indexingNotice]);
+
+  useEffect(() => {
+    if (!courseActionNotice) return;
+    const timer = window.setTimeout(() => setCourseActionNotice(""), 7000);
+    return () => window.clearTimeout(timer);
+  }, [courseActionNotice]);
 
   async function loadArchivedCourses() {
     try {
@@ -621,6 +629,12 @@ export function CourseManagementDialog({
                 <span className="min-w-0 break-words">{courseActionError}</span>
               </div>
             )}
+            {courseActionNotice && (
+              <div className="flex gap-1.5 rounded-[var(--radius-control)] bg-emerald-50 px-2 py-1.5 text-[11px] leading-4 text-emerald-900">
+                <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-words">{courseActionNotice}</span>
+              </div>
+            )}
             <section className="space-y-2">
               {displayedCourses.map((course) => (
                 <CourseListItem
@@ -708,10 +722,21 @@ export function CourseManagementDialog({
                   <VisionRecognitionImportButton
                     kind="course_timetable"
                     className="mt-2 w-full"
-                    onImported={async () => {
+                    onImported={async (draft) => {
+                      const importedCourses = draft.kind === "course_timetable" ? draft.applied?.courses || [] : [];
+                      for (const importedCourse of importedCourses) {
+                        if (courses.some((course) => course.id === importedCourse.id)) onCourseUpdated(importedCourse);
+                        else onCourseCreated(importedCourse);
+                      }
+                      if (importedCourses[0]?.id) {
+                        setViewingCourseId(importedCourses[0].id);
+                        setShowCreateCourse(false);
+                        setCourseActionNotice(`已导入 ${importedCourses.length} 门课程，已打开「${importedCourses[0].name}」。`);
+                      }
                       await onWorkspaceChanged?.();
                       await loadArchivedCourses();
-                      if (activeCourse?.id) await loadCourseView(activeCourse.id);
+                      if (importedCourses[0]?.id) await loadCourseView(importedCourses[0].id);
+                      else if (activeCourse?.id) await loadCourseView(activeCourse.id);
                     }}
                   />
                 </div>
