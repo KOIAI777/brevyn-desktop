@@ -1,6 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { Check, ChevronDown, Copy, ListTodo, Loader2, ShieldAlert } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, ClipboardCheck, Copy, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { AgentComposer } from "@/components/agent/AgentComposer";
@@ -382,17 +382,19 @@ function formatRunDuration(durationMs: number): string {
 
 function EmptyThreadWelcome({ thread }: { thread: Thread }) {
   const welcome = homeWelcomeCopy(thread);
+  const isHome = welcome.kind === "semester";
+  const SuggestionIcon = isHome ? CalendarDays : ClipboardCheck;
   return (
-    <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center text-center">
-      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-[1.35rem] bg-background shadow-sm ring-1 ring-border/35">
+    <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center pt-20 text-center">
+      <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-[var(--radius-window)] bg-card shadow-[var(--shadow-panel)]">
         <img src={brevynAppIconUrl} alt="Brevyn" className="h-full w-full object-cover" />
       </div>
-      <p className="mt-4 text-sm font-semibold text-foreground">{welcome.greeting}</p>
+      <p className="mt-6 text-[15px] font-semibold tracking-[-0.02em] text-foreground">{welcome.greeting}</p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{welcome.dateLabel}</p>
-      <div className="mt-4 w-full rounded-2xl border border-border/45 bg-card/72 p-4 text-left shadow-[0_16px_44px_rgba(64,55,38,0.10)] ring-1 ring-border/35 backdrop-blur-xl">
+      <div className="mt-6 w-full rounded-[var(--radius-panel)] bg-card/72 p-5 text-left shadow-[var(--shadow-panel)] ring-1 ring-border/35 backdrop-blur-xl">
         <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <ListTodo className="h-4 w-4" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-background text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+            <SuggestionIcon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-foreground">{welcome.title}</p>
@@ -401,13 +403,13 @@ function EmptyThreadWelcome({ thread }: { thread: Thread }) {
         </div>
       </div>
       <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
-        可以直接在下面输入，例如“检查今天我该先做什么”或“总结当前 workspace”。
+        {welcome.promptHint}
       </p>
     </div>
   );
 }
 
-function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string; title: string; recommendation: string } {
+function homeWelcomeCopy(thread: Thread): { kind: "semester" | "task"; greeting: string; dateLabel: string; title: string; recommendation: string; promptHint: string } {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 5
@@ -425,12 +427,16 @@ function homeWelcomeCopy(thread: Thread): { greeting: string; dateLabel: string;
   });
   const isHome = thread.threadType === "semester_home" || !thread.taskId;
   return {
+    kind: isHome ? "semester" : "task",
     greeting,
     dateLabel,
-    title: isHome ? "学期总览建议" : "TaskAgent 建议",
+    title: isHome ? "学期整理建议" : "课程作业建议",
     recommendation: isHome
-      ? "先让 Brevyn 扫一眼课程、文件和最近线程，再整理出今天最值得推进的一件事。"
-      : "先让 Brevyn 阅读任务材料和评分要求，再拆出一个能在 25 分钟内完成的下一步。",
+      ? "先让 Brevyn 看一眼课程、资料和最近会话，整理出今天最值得进入的课程或作业。"
+      : "先让 Brevyn 阅读作业要求、课件和已有草稿，再拆出一个清楚、可完成的下一步。",
+    promptHint: isHome
+      ? "可以直接输入，例如“今天先处理哪门课”或“帮我整理本周学习重点”。"
+      : "可以直接输入，例如“先检查这份作业要求”或“帮我列出下一步写作计划”。",
   };
 }
 

@@ -1,15 +1,19 @@
-import { ipcMain, shell } from "electron";
+import { app, ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
+import { release } from "node:os";
 import { IPC_CHANNELS } from "../../types/ipc";
 import { applyThemePreference, currentThemeState, normalizeThemePreference } from "../services/app-theme";
 import type { IpcContext } from "./context";
 import { requireString } from "./validation";
+import type { AppDiagnostics, SkillItem } from "../../types/domain";
 
 export function registerAppIpc(ctx: IpcContext): void {
   const service = ctx.openWithService;
   if (!service) throw new Error("OpenWithService not available");
 
   ipcMain.handle(IPC_CHANNELS.appProfile, () => ctx.store.profile());
+
+  ipcMain.handle(IPC_CHANNELS.appDiagnostics, () => buildAppDiagnostics(ctx));
 
   ipcMain.handle(IPC_CHANNELS.appTheme, () => currentThemeState(ctx.store.themePreference()));
 
@@ -94,6 +98,46 @@ export function registerAppIpc(ctx: IpcContext): void {
     const requestedPath = requireString(data.path, "Path");
     return ctx.store.previewThreadWorkspacePath(threadId, requestedPath);
   });
+}
+
+function buildAppDiagnostics(ctx: IpcContext): AppDiagnostics {
+  const skills = safeCall(() => ctx.store.listSkills(), [] as SkillItem[]);
+  const theme = currentThemeState(ctx.store.themePreference());
+
+  return {
+    generatedAt: new Date().toISOString(),
+    app: {
+      name: app.getName(),
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+    },
+    runtime: {
+      platform: process.platform,
+      arch: process.arch,
+      osRelease: release(),
+      electron: process.versions.electron || "",
+      chrome: process.versions.chrome || "",
+      node: process.versions.node || "",
+      v8: process.versions.v8 || "",
+    },
+    paths: {
+      userData: app.getPath("userData"),
+      dataRoot: ctx.store.dataRoot(),
+    },
+    skills: {
+      total: skills.length,
+      enabled: skills.filter((skill) => skill.enabled).length,
+    },
+    theme,
+  };
+}
+
+function safeCall<T>(callback: () => T, fallback: T): T {
+  try {
+    return callback();
+  } catch {
+    return fallback;
+  }
 }
 
 function isValidProfileAvatar(value: string): boolean {

@@ -34,8 +34,8 @@ export function SemesterDashboard({
   onSelectTask: (courseId: string, taskId: string) => void;
 }) {
   const dashboardStats = useMemo(
-    () => buildSemesterDashboardStats({ homeCourse, courses, tasksByCourse, threads, files, stats }),
-    [courses, files, homeCourse, stats, tasksByCourse, threads],
+    () => buildSemesterDashboardStats({ activityWeekCount: semester?.weekCount, homeCourse, courses, tasksByCourse, threads, files, stats }),
+    [courses, files, homeCourse, semester?.weekCount, stats, tasksByCourse, threads],
   );
   const {
     visibleCourses,
@@ -199,9 +199,9 @@ export function SemesterDashboard({
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <BarChart3 className="h-4 w-4" />
-                  学习痕迹
+                  学习记录
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">最近 26 周的资料和会话活动。</p>
+                <p className="mt-1 text-xs text-muted-foreground">按学期周数显示资料和会话活动。</p>
               </div>
             </div>
             <ActivityHeatmap days={activityDays} />

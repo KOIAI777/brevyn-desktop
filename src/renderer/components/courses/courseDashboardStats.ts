@@ -1,6 +1,7 @@
 import type { BrevynTask, Course, FileStats, Thread, WorkspaceFileNode } from "@/types/domain";
 
-const ACTIVITY_WEEK_COUNT = 26;
+const DEFAULT_ACTIVITY_WEEK_COUNT = 16;
+const MAX_ACTIVITY_WEEK_COUNT = 30;
 
 export type TaskCard = {
   task: BrevynTask;
@@ -96,12 +97,14 @@ export type SemesterDashboardStats = {
 };
 
 export function buildCourseDashboardStats({
+  activityWeekCount,
   course,
   tasks,
   threads,
   files,
   stats,
 }: {
+  activityWeekCount?: number;
   course: Course;
   tasks: BrevynTask[];
   threads: Thread[];
@@ -111,7 +114,7 @@ export function buildCourseDashboardStats({
   const courseThreads = threads.filter((thread) => thread.courseId === course.id && !thread.archivedAt);
   const courseFiles = flattenFiles(files);
   const taskCards = buildTaskCards(tasks, courseThreads, courseFiles);
-  const activityDays = buildActivityDays(courseThreads, courseFiles);
+  const activityDays = buildActivityDays(courseThreads, courseFiles, activityWeekCount);
   const draftFiles = courseFiles.filter(isDraftFile);
   const lectureFiles = courseFiles.filter((file) => file.sectionKind === "lecture");
   return {
@@ -135,6 +138,7 @@ export function buildCourseDashboardStats({
 }
 
 export function buildSemesterDashboardStats({
+  activityWeekCount,
   homeCourse,
   courses,
   tasksByCourse,
@@ -142,6 +146,7 @@ export function buildSemesterDashboardStats({
   files,
   stats,
 }: {
+  activityWeekCount?: number;
   homeCourse?: Course;
   courses: Course[];
   tasksByCourse: Record<string, BrevynTask[]>;
@@ -153,7 +158,7 @@ export function buildSemesterDashboardStats({
   const semesterThreads = threads.filter((thread) => !thread.archivedAt);
   const semesterFiles = flattenFiles(files);
   const allTasks = visibleCourses.flatMap((course) => tasksByCourse[course.id] || []);
-  const activityDays = buildActivityDays(semesterThreads, semesterFiles);
+  const activityDays = buildActivityDays(semesterThreads, semesterFiles, activityWeekCount);
   const courseCards = buildCourseCards(visibleCourses, tasksByCourse, semesterThreads, semesterFiles);
   const homeThread = [...semesterThreads]
     .filter((thread) => thread.courseId === homeCourse?.id && !thread.taskId)
@@ -193,8 +198,8 @@ export function buildActivityWeeks(days: ActivityDay[]): ActivityWeek[] {
   return weeks;
 }
 
-export function buildActivityDays(threads: Thread[], files: WorkspaceFileNode[]): ActivityDay[] {
-  const days = lastNDays(ACTIVITY_WEEK_COUNT * 7);
+export function buildActivityDays(threads: Thread[], files: WorkspaceFileNode[], weekCount = DEFAULT_ACTIVITY_WEEK_COUNT): ActivityDay[] {
+  const days = lastNDays(normalizeActivityWeekCount(weekCount) * 7);
   const byDay = new Map(days.map((day) => [day.dateKey, { ...day, fileEvents: 0, sessionEvents: 0, score: 0 }]));
   for (const file of files) {
     const score = fileActivityScore(file);
@@ -215,6 +220,11 @@ export function buildActivityDays(threads: Thread[], files: WorkspaceFileNode[])
     day.score += score;
   }
   return days.map((day) => byDay.get(day.dateKey) || day);
+}
+
+function normalizeActivityWeekCount(value?: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_ACTIVITY_WEEK_COUNT;
+  return Math.min(MAX_ACTIVITY_WEEK_COUNT, Math.max(1, Math.round(value)));
 }
 
 export function flattenFiles(nodes: WorkspaceFileNode[]): WorkspaceFileNode[] {

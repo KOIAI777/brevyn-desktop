@@ -1,5 +1,5 @@
 import { ArrowRight, BarChart3, BookOpen, CalendarClock, Plus, Sparkles } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { BrevynTask, Course, FileStats, SemesterWorkspace, Thread, WorkspaceFileNode } from "@/types/domain";
 import { CourseIcon } from "@/components/courses/CourseIcon";
 import { TaskTypeIcon } from "@/components/shell/TaskTypeIcon";
@@ -33,8 +33,8 @@ export function CourseDashboard({
   onCreateThread: (courseId?: string, taskId?: string) => void;
 }) {
   const dashboardStats = useMemo(
-    () => buildCourseDashboardStats({ course, tasks, threads, files, stats }),
-    [course, files, stats, tasks, threads],
+    () => buildCourseDashboardStats({ activityWeekCount: semester?.weekCount, course, tasks, threads, files, stats }),
+    [course, files, semester?.weekCount, stats, tasks, threads],
   );
   const {
     activityDays,
@@ -43,9 +43,7 @@ export function CourseDashboard({
     draftFiles,
     filesTouchedThisWeek,
     lectureFiles,
-    lectureWeeks,
     recentTask,
-    sectionCount,
     taskCards,
   } = dashboardStats;
   const courseColor = course.color || "#2563eb";
@@ -102,9 +100,9 @@ export function CourseDashboard({
                   <div className="mt-1 truncate text-sm font-semibold tracking-[-0.02em] text-foreground">{course.name}</div>
                 </div>
               </div>
-              <h2 className="mt-6 max-w-2xl text-[2.65rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">让这门课继续往前。</h2>
+              <h2 className="mt-6 max-w-2xl text-[2.65rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">在这门课程继续。</h2>
               <p className="mt-4 max-w-xl text-[14px] leading-7 text-muted-foreground">
-                作业、课件和会话都围绕这门课展开。先选一个目标，Brevyn 会把相关资料留在同一个课程空间里。
+                从作业、课件或会话开始，继续处理这门课里还没弄清的问题、正在准备的草稿和需要完成的任务。
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-2">
                 <button
@@ -209,55 +207,29 @@ export function CourseDashboard({
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
           <section className="min-w-0 rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <BookOpen className="h-4 w-4" />
-                  课程资料
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">课件、阅读和草稿统一从这里进入。</p>
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-background/72 px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)] transition hover:bg-accent hover:text-foreground"
-                onClick={onOpenTasks}
-              >
-                管理资料
-              </button>
-            </div>
-            <div className="grid gap-2 text-xs sm:grid-cols-3">
-              <CourseSummaryRow label="课件" value={`${lectureFiles.length} 个`} hint={lectureWeeks.length > 0 ? `${lectureWeeks.length} 个周次` : "等待上传"} />
-              <CourseSummaryRow label="草稿" value={`${draftFiles.length} 个`} hint={`本周更新 ${filesTouchedThisWeek} 个`} />
-              <CourseSummaryRow label="资料" value={`${courseFileCount} 个`} hint={`${sectionCount} 个分区`} />
-            </div>
-            {lectureWeeks.length > 0 && (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {lectureWeeks.slice(0, 4).map((week) => (
-                  <div key={week.id} className="rounded-[var(--radius-card)] bg-background/58 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-xs font-semibold text-foreground">{week.label}</div>
-                      <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{week.files.length}</span>
-                    </div>
-                    <div className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                      已索引 {week.indexedCount} 个 · {week.latestLabel}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="min-w-[21rem] rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <BarChart3 className="h-4 w-4" />
-                  学习痕迹
+                  学习记录
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">资料和会话留下的推进记录。</p>
               </div>
             </div>
             <ActivityHeatmap days={activityDays} />
+          </section>
+
+          <section className="min-w-[21rem] rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Sparkles className="h-4 w-4" />
+              课程概况
+            </div>
+            <div className="mt-4 grid gap-2 text-xs">
+              <CourseSummaryLine label="课程作业" value={`${tasks.length} 个`} hint={`${taskCards.length} 个可继续入口`} />
+              <CourseSummaryLine label="课件" value={`${lectureFiles.length} 个`} hint={`本周更新 ${filesTouchedThisWeek} 个文件`} />
+              <CourseSummaryLine label="草稿" value={`${draftFiles.length} 个`} hint={draftFiles.length > 0 ? "有正在沉淀的内容" : "暂无草稿"} />
+              <CourseSummaryLine label="会话" value={`${courseThreads.length} 个`} hint="围绕这门课展开" />
+            </div>
           </section>
         </div>
 
@@ -338,12 +310,14 @@ function buildCourseRecommendation({
   };
 }
 
-function CourseSummaryRow({ label, value, hint }: { label: string; value: string; hint: string }) {
+function CourseSummaryLine({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-[var(--radius-card)] bg-background/58 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold tracking-[-0.035em] text-foreground">{value}</div>
-      <div className="mt-1 truncate text-[10px] text-muted-foreground">{hint}</div>
+    <div className="flex items-center justify-between gap-3 border-t border-border/38 py-2 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <div className="text-[11px] font-medium text-foreground">{label}</div>
+        <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{hint}</div>
+      </div>
+      <div className="shrink-0 text-xs font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -539,18 +513,31 @@ function CourseTaskSpaceRow({ label, value }: { label: string; value: string }) 
 
 export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
   const weeks = buildActivityWeeks(days);
+  const heatmapSizing = heatmapSizingForWeekCount(weeks.length);
+  const heatmapColumnStyle: CSSProperties = {
+    columnGap: `${heatmapSizing.columnGapRem}rem`,
+    gridTemplateColumns: `repeat(${weeks.length}, ${heatmapSizing.cellSizeRem}rem)`,
+  };
+  const heatmapRowStyle: CSSProperties = {
+    gridTemplateRows: `repeat(7, ${heatmapSizing.cellSizeRem}rem)`,
+    rowGap: `${heatmapSizing.rowGapRem}rem`,
+  };
+  const heatmapCellStyle: CSSProperties = {
+    height: `${heatmapSizing.cellSizeRem}rem`,
+    width: `${heatmapSizing.cellSizeRem}rem`,
+  };
   return (
     <div className="mt-4">
       <div className="overflow-visible pb-1">
         <div className="min-w-0">
-          <div className="mb-1 grid gap-[0.32rem] pl-9" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)` }}>
+          <div className="mb-1 grid pl-9" style={heatmapColumnStyle}>
             {weeks.map((week) => (
               <div key={week.id} className="truncate text-center text-[8px] font-medium text-muted-foreground" title={`${week.label} · ${week.monthLabel}`}>
                 {week.weekLabel}
               </div>
             ))}
           </div>
-          <div className="mb-1 grid gap-[0.32rem] pl-9" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)` }}>
+          <div className="mb-1 grid pl-9" style={heatmapColumnStyle}>
             {weeks.map((week, index) => (
               <div key={`${week.id}-month`} className="truncate text-center text-[8px] text-muted-foreground/70">
                 {index === 0 || week.monthLabel !== weeks[index - 1]?.monthLabel ? week.shortMonthLabel : ""}
@@ -558,20 +545,21 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
             ))}
           </div>
           <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-2">
-            <div className="grid grid-rows-7 gap-1 text-right text-[9px] leading-3 text-muted-foreground">
+            <div className="grid text-right text-[9px] text-muted-foreground" style={heatmapRowStyle}>
               {["周一", "", "周三", "", "周五", "", "周日"].map((label, index) => (
-                <div key={`${label}-${index}`}>{label}</div>
+                <div key={`${label}-${index}`} className="flex items-center justify-end">{label}</div>
               ))}
             </div>
-            <div className="grid gap-[0.32rem]" style={{ gridTemplateColumns: `repeat(${weeks.length}, 0.75rem)` }}>
+            <div className="grid" style={heatmapColumnStyle}>
               {weeks.map((week) => (
-                <div key={week.id} className="grid grid-rows-7 gap-1">
+                <div key={week.id} className="grid" style={heatmapRowStyle}>
                   {week.days.map((day) => (
                     <div
                       key={day.dateKey}
-                      className="group/day relative h-3 w-3"
+                      className="group/day relative"
+                      style={heatmapCellStyle}
                     >
-                      <div className={cx("h-3 w-3 rounded-[3px] border transition group-hover/day:scale-110", heatCellClass(day.score))} />
+                      <div className={cx("rounded-[4px] border transition group-hover/day:scale-110", heatCellClass(day.score))} style={heatmapCellStyle} />
                       <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-44 -translate-x-1/2 rounded-lg border border-border bg-card px-2.5 py-2 text-left text-[10px] leading-4 text-foreground opacity-0 shadow-xl ring-1 ring-border transition group-hover/day:opacity-100">
                         <div className="font-semibold">{day.weekdayLabel}，{day.label}</div>
                         <div className="mt-1 text-muted-foreground">更新 {day.fileEvents} 个文件</div>
@@ -586,17 +574,24 @@ export function ActivityHeatmap({ days }: { days: ActivityDay[] }) {
         </div>
       </div>
       <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
-        <span>每列代表一周 · 最近 26 周</span>
+        <span>每列代表一周 · 最近 {weeks.length} 周</span>
         <span className="flex items-center gap-1">
           <span>少</span>
           {[0, 1, 3, 6].map((score) => (
-            <span key={score} className={cx("h-3 w-3 rounded border", heatCellClass(score))} />
+            <span key={score} className={cx("rounded border", heatCellClass(score))} style={heatmapCellStyle} />
           ))}
           <span>多</span>
         </span>
       </div>
     </div>
   );
+}
+
+function heatmapSizingForWeekCount(weekCount: number): { cellSizeRem: number; columnGapRem: number; rowGapRem: number } {
+  if (weekCount <= 8) return { cellSizeRem: 1.32, columnGapRem: 0.5, rowGapRem: 0.42 };
+  if (weekCount <= 16) return { cellSizeRem: 1.12, columnGapRem: 0.43, rowGapRem: 0.36 };
+  if (weekCount <= 22) return { cellSizeRem: 0.94, columnGapRem: 0.36, rowGapRem: 0.3 };
+  return { cellSizeRem: 0.75, columnGapRem: 0.32, rowGapRem: 0.25 };
 }
 
 export function MetricCard({ label, value, hint }: { label: string; value: string; hint: string }) {

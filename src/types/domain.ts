@@ -1344,6 +1344,33 @@ export interface CloudRedeemCodeResult {
   providerSyncDetail?: string;
 }
 
+export interface AppDiagnostics {
+  generatedAt: string;
+  app: {
+    name: string;
+    version: string;
+    packaged: boolean;
+  };
+  runtime: {
+    platform: string;
+    arch: string;
+    osRelease: string;
+    electron: string;
+    chrome: string;
+    node: string;
+    v8: string;
+  };
+  paths: {
+    userData: string;
+    dataRoot: string;
+  };
+  skills: {
+    total: number;
+    enabled: number;
+  };
+  theme: AppThemeState;
+}
+
 export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
@@ -1481,6 +1508,7 @@ export interface BrevynAPI {
   app: {
     profile: () => Promise<UserProfileSettings>;
     updateProfile: (input: UserProfileUpdateInput) => Promise<UserProfileSettings>;
+    diagnostics: () => Promise<AppDiagnostics>;
     theme: () => Promise<AppThemeState>;
     updateThemePreference: (preference: AppThemePreference) => Promise<AppThemeState>;
     onThemeChanged: (callback: (theme: AppThemeState) => void) => () => void;

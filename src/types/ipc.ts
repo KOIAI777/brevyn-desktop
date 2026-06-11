@@ -107,6 +107,7 @@ export const IPC_CHANNELS = {
   appPreviewWorkspacePath: "brevyn:app:preview-workspace-path",
   appProfile: "brevyn:app:profile",
   appUpdateProfile: "brevyn:app:update-profile",
+  appDiagnostics: "brevyn:app:diagnostics",
   appTheme: "brevyn:app:theme",
   appUpdateThemePreference: "brevyn:app:update-theme-preference",
   appThemeChanged: "brevyn:app:theme-changed",

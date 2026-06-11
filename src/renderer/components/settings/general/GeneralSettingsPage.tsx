@@ -2,6 +2,7 @@ import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import { Camera, ImagePlus, Languages, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { ReadOnlyField } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
@@ -26,23 +27,81 @@ export function GeneralSettingsPage({
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(profileDisplayName(profile));
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [pickerPosition, setPickerPosition] = useState<{ top: number; left: number } | null>(null);
+  const [optimisticAvatarId, setOptimisticAvatarId] = useState<string | null>(null);
   const [profileStatusLine, setProfileStatusLine] = useState("");
   const [appearanceStatusLine, setAppearanceStatusLine] = useState("");
+  const avatarButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const profileStatusTimerRef = useRef<number | null>(null);
+  const appearanceStatusTimerRef = useRef<number | null>(null);
+  const displayProfile = optimisticAvatarId ? { ...profile, avatarId: optimisticAvatarId } : profile;
 
   useEffect(() => {
     setNameInput(profileDisplayName(profile));
-    setProfileStatusLine("");
-  }, [profile]);
+  }, [profile.displayName]);
+
+  useEffect(() => {
+    if (optimisticAvatarId && profile.avatarId === optimisticAvatarId) {
+      setOptimisticAvatarId(null);
+    }
+  }, [optimisticAvatarId, profile.avatarId]);
+
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+
+    function syncPickerPosition() {
+      const rect = avatarButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = 352;
+      const gap = 12;
+      const left = Math.min(window.innerWidth - width - 16, rect.right + gap);
+      const top = Math.min(window.innerHeight - 472, Math.max(16, rect.top));
+      setPickerPosition({ top, left: Math.max(16, left) });
+    }
+
+    syncPickerPosition();
+    window.addEventListener("resize", syncPickerPosition);
+    window.addEventListener("scroll", syncPickerPosition, true);
+    return () => {
+      window.removeEventListener("resize", syncPickerPosition);
+      window.removeEventListener("scroll", syncPickerPosition, true);
+    };
+  }, [showEmojiPicker]);
+
+  useEffect(() => {
+    return () => {
+      if (profileStatusTimerRef.current) window.clearTimeout(profileStatusTimerRef.current);
+      if (appearanceStatusTimerRef.current) window.clearTimeout(appearanceStatusTimerRef.current);
+    };
+  }, []);
+
+  function showProfileStatus(message: string, timeoutMs = 2500) {
+    setProfileStatusLine(message);
+    if (profileStatusTimerRef.current) window.clearTimeout(profileStatusTimerRef.current);
+    profileStatusTimerRef.current = window.setTimeout(() => {
+      setProfileStatusLine("");
+      profileStatusTimerRef.current = null;
+    }, timeoutMs);
+  }
+
+  function showAppearanceStatus(message: string, timeoutMs = 2500) {
+    setAppearanceStatusLine(message);
+    if (appearanceStatusTimerRef.current) window.clearTimeout(appearanceStatusTimerRef.current);
+    appearanceStatusTimerRef.current = window.setTimeout(() => {
+      setAppearanceStatusLine("");
+      appearanceStatusTimerRef.current = null;
+    }, timeoutMs);
+  }
 
   async function updateProfile(patch: Partial<UserProfileSettings>) {
     try {
       const nextProfile = await window.brevyn.app.updateProfile(patch);
       onProfileChange(nextProfile);
-      setProfileStatusLine("个人信息已保存。");
+      showProfileStatus("个人信息已保存。");
       return true;
     } catch (error) {
-      setProfileStatusLine(errorMessage(error, "保存个人信息失败。"));
+      showProfileStatus(errorMessage(error, "保存个人信息失败。"), 5000);
       return false;
     }
   }
@@ -51,21 +110,26 @@ export function GeneralSettingsPage({
     try {
       const nextThemeState = await window.brevyn.app.updateThemePreference(preference);
       onThemeStateChange(nextThemeState);
-      setAppearanceStatusLine("主题已更新。");
+      showAppearanceStatus("主题已更新。");
     } catch (error) {
-      setAppearanceStatusLine(errorMessage(error, "保存主题失败。"));
+      showAppearanceStatus(errorMessage(error, "保存主题失败。"), 5000);
     }
   }
 
   async function updateAvatar(avatarId: string) {
+    setOptimisticAvatarId(avatarId);
     const saved = await updateProfile({ avatarId });
-    if (saved) setShowEmojiPicker(false);
+    if (saved) {
+      setShowEmojiPicker(false);
+    } else {
+      setOptimisticAvatarId(null);
+    }
   }
 
   async function saveName() {
     const displayName = nameInput.trim();
     if (!displayName) {
-      setProfileStatusLine("昵称不能为空。");
+      showProfileStatus("昵称不能为空。", 5000);
       return;
     }
     const saved = await updateProfile({ displayName });
@@ -102,26 +166,44 @@ export function GeneralSettingsPage({
         <div className="brevyn-card-surface flex items-center gap-5 bg-background px-4 py-4">
           <div className="relative">
             <button
+              ref={avatarButtonRef}
               type="button"
               className="group/avatar relative block rounded-[20%] outline-none"
-              onClick={() => setShowEmojiPicker((visible) => !visible)}
+              onClick={() => setShowEmojiPicker((visible) => {
+                const nextVisible = !visible;
+                if (nextVisible) {
+                  const rect = avatarButtonRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const width = 352;
+                    const gap = 12;
+                    setPickerPosition({
+                      top: Math.min(window.innerHeight - 472, Math.max(16, rect.top)),
+                      left: Math.max(16, Math.min(window.innerWidth - width - 16, rect.right + gap)),
+                    });
+                  }
+                }
+                return nextVisible;
+              })}
               title="更换头像"
             >
-              <UserAvatar profile={profile} size="lg" />
+              <UserAvatar profile={displayProfile} size="lg" />
               <span className="absolute inset-0 flex items-center justify-center rounded-[20%] bg-black/40 opacity-0 transition-opacity group-hover/avatar:opacity-100">
                 <Camera className="h-5 w-5 text-white" />
               </span>
             </button>
 
-            {showEmojiPicker && (
+            {showEmojiPicker && pickerPosition && createPortal(
               <>
                 <button
                   type="button"
-                  className="fixed inset-0 z-10 cursor-default"
+                  className="fixed inset-0 z-[80] cursor-default"
                   aria-label="关闭头像选择"
                   onClick={() => setShowEmojiPicker(false)}
                 />
-                <div className="absolute left-[calc(100%+12px)] top-0 z-20 overflow-hidden rounded-[var(--radius-panel)] bg-card shadow-2xl ring-1 ring-black/[0.08]">
+                <div
+                  className="fixed z-[90] w-[352px] overflow-hidden rounded-[var(--radius-panel)] bg-card shadow-2xl ring-1 ring-black/[0.08] animate-in fade-in-0 zoom-in-95 duration-150"
+                  style={{ left: pickerPosition.left, top: pickerPosition.top }}
+                >
                   <Picker
                     data={data}
                     onEmojiSelect={(emoji: EmojiMartEmoji) => void updateAvatar(emoji.native)}
@@ -131,7 +213,7 @@ export function GeneralSettingsPage({
                     skinTonePosition="search"
                     perLine={8}
                   />
-                  <div className="border-t border-border/45 px-3 py-2">
+                  <div className="border-t border-border/45 bg-card px-3 py-2">
                     <button
                       type="button"
                       className="flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] px-3 py-2 text-[13px] font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
@@ -149,7 +231,8 @@ export function GeneralSettingsPage({
                     />
                   </div>
                 </div>
-              </>
+              </>,
+              document.body,
             )}
           </div>
 

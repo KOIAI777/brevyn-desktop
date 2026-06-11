@@ -190,6 +190,7 @@ const api: BrevynAPI = {
   app: {
     profile: () => ipcRenderer.invoke(IPC_CHANNELS.appProfile),
     updateProfile: (input: UserProfileUpdateInput) => ipcRenderer.invoke(IPC_CHANNELS.appUpdateProfile, input),
+    diagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.appDiagnostics),
     theme: () => ipcRenderer.invoke(IPC_CHANNELS.appTheme),
     updateThemePreference: (preference: AppThemePreference) => ipcRenderer.invoke(IPC_CHANNELS.appUpdateThemePreference, preference),
     onThemeChanged: (callback: (theme: AppThemeState) => void) => {

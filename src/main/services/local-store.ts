@@ -201,6 +201,10 @@ export class LocalStore {
     });
   }
 
+  dataRoot(): string {
+    return this.rootDataDir;
+  }
+
   listSemesters(): SemesterWorkspace[] {
     return this.workspace.listSemesters();
   }

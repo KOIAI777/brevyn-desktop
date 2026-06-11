@@ -33,7 +33,7 @@ export function VersionHistory() {
   }
 
   return (
-    <section className="rounded-xl border bg-background/70 shadow-sm">
+    <section className="rounded-[var(--radius-panel)] border border-border/55 bg-background/70 shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
         <div>
           <h3 className="text-sm font-semibold text-foreground">版本历史</h3>
@@ -41,7 +41,7 @@ export function VersionHistory() {
         </div>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => void loadReleases()}
           disabled={loading}
         >
@@ -62,7 +62,7 @@ export function VersionHistory() {
               <div key={release.id} className="px-5 py-3">
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 rounded-lg py-2 text-left transition hover:bg-muted/45"
+                  className="flex w-full items-center gap-3 rounded-[var(--radius-control)] py-2 text-left transition hover:bg-muted/45"
                   onClick={() => toggleRelease(release.id)}
                 >
                   <span className="min-w-0 flex-1">
@@ -77,7 +77,7 @@ export function VersionHistory() {
                   <ChevronDown className={cx("h-4 w-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
                 </button>
                 {expanded ? (
-                  <div className="mt-3 rounded-xl border bg-card p-3">
+                  <div className="mt-3 rounded-[var(--radius-control)] border bg-card p-3">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <span className="text-xs font-medium text-muted-foreground">{release.assets.length} 个附件</span>
                       {release.htmlUrl ? (
