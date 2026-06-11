@@ -6,7 +6,7 @@ import type { CoverageStatus, ParsedDocumentCoverageItem, ParsedIndexingFile, Pa
 import { capParsedText, collectConsoleWarnings, dedupeWarnings, emptyParsedFile, errorMessage, normalizeText, withTimeout } from "./utils";
 
 const require = createRequire(__filename);
-const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{
+type PdfParse = (buffer: Buffer) => Promise<{
   numpages?: number;
   numrender?: number;
   text?: string;
@@ -201,8 +201,9 @@ function isIgnorablePdfjsWarning(warning: string): boolean {
 
 async function parsePdfFallback(input: ParseInput, byteCount: number, primaryError: string): Promise<ParsedIndexingFile> {
   const warnings: string[] = [`PDF page-by-page extraction failed: ${primaryError}`];
-  let parsed: { result: Awaited<ReturnType<typeof pdfParse>>; warnings: string[] };
+  let parsed: { result: Awaited<ReturnType<PdfParse>>; warnings: string[] };
   try {
+    const pdfParse = loadPdfParseFallback();
     parsed = await collectConsoleWarnings(() => pdfParse(readFileSync(input.sourcePath)));
   } catch (error) {
     return emptyParsedFile(input, byteCount, `PDF text extraction failed: ${primaryError}; fallback failed: ${errorMessage(error)}`);
@@ -243,6 +244,10 @@ async function parsePdfFallback(input: ParseInput, byteCount: number, primaryErr
       ? [{ text: normalized, sourceLabel: "PDF 文本", sectionType: "document", sectionIndex: 1 }]
       : undefined,
   };
+}
+
+function loadPdfParseFallback(): PdfParse {
+  return require("pdf-parse/lib/pdf-parse.js") as PdfParse;
 }
 
 function repairPdfTextSpacing(value: string): string {

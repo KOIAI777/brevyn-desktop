@@ -30,6 +30,7 @@ asarUnpack:
   - "node_modules/pptxgenjs/**"
   - "node_modules/pdf-lib/package.json"
   - "node_modules/pdf-lib/cjs/**"
+  - "node_modules/pdf-parse/**"
   - "node_modules/pdfjs-dist/package.json"
   - "node_modules/pdfjs-dist/build/**"
   - "node_modules/pdfjs-dist/standard_fonts/**"
@@ -56,6 +57,7 @@ asarUnpack:
   - "node_modules/dingbat-to-unicode/**"
   - "node_modules/lop/**"
   - "node_modules/path-is-absolute/**"
+  - "node_modules/node-ensure/**"
   - "node_modules/underscore/**"
   - "node_modules/xmlbuilder/**"
   - "node_modules/duck/**"
@@ -98,6 +100,10 @@ files:
   # Main/renderer dependencies are bundled. Only external runtime packages stay
   # in node_modules, mirroring Proma's package strategy.
   - node_modules/@anthropic-ai/claude-agent-sdk/**/*
+  # Claude Agent SDK ships platform-specific optional native CLI packages.
+  # Missing globs are skipped on runners for other OS/CPU combinations.
+  - node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**/*
+  - node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**/*
   - node_modules/@anthropic-ai/sdk/**/*
   - node_modules/@modelcontextprotocol/sdk/**/*
   - node_modules/@lancedb/lancedb/**/*
@@ -113,6 +119,11 @@ files:
   - node_modules/pdf-lib/package.json
   - node_modules/pdf-lib/cjs/**/*
   - "!node_modules/pdf-lib/**/*.map"
+  - node_modules/pdf-parse/package.json
+  - node_modules/pdf-parse/index.js
+  - node_modules/pdf-parse/lib/**/*
+  - node_modules/pdf-parse/node_modules/**/*
+  - node_modules/node-ensure/**/*
   - node_modules/pdfjs-dist/package.json
   - node_modules/pdfjs-dist/build/**/*
   - node_modules/pdfjs-dist/standard_fonts/**/*
