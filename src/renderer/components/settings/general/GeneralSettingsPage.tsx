@@ -278,7 +278,7 @@ export function GeneralSettingsPage({
           </div>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-foreground">界面外观</div>
-            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">设置应用主题，支持跟随 macOS 或手动固定。</div>
+            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">设置应用主题，支持跟随系统或手动固定。</div>
           </div>
         </div>
 
@@ -287,7 +287,7 @@ export function GeneralSettingsPage({
             <div className="min-w-0">
               <div className="text-xs font-semibold text-foreground">主题</div>
               <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                {themeState.preference === "system" ? `跟随 macOS，当前为${themeState.effective === "dark" ? "深色" : "浅色"}` : "手动固定应用外观"}
+                {themeState.preference === "system" ? `跟随系统，当前为${themeState.effective === "dark" ? "深色" : "浅色"}` : "手动固定应用外观"}
               </div>
             </div>
           </div>
@@ -352,7 +352,7 @@ const THEME_OPTIONS: Array<{
   {
     value: "system",
     label: "跟随系统",
-    description: "随 macOS 自动切换",
+    description: "随系统自动切换",
     icon: Monitor,
   },
   {

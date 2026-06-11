@@ -826,7 +826,7 @@ function cloudAuthErrorMessage(error: unknown, mode: CloudAuthMode): string {
     return `无法连接 Brevyn Cloud，请检查网络或 Cloud 地址后重试。`;
   }
   if (/safeStorage|系统安全存储不可用/i.test(normalized)) {
-    return "系统安全存储不可用，无法保存 Cloud 登录态。请检查 macOS 钥匙串状态后重试。";
+    return "系统安全存储不可用，无法保存 Cloud 登录态。请检查系统凭据存储状态后重试。";
   }
   if (/^\d{3}\s+/.test(normalized)) {
     return `${action}失败，Cloud 服务暂时不可用，请稍后再试。`;

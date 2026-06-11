@@ -19,6 +19,7 @@ asarUnpack:
   # JS dependencies are bundled by esbuild/Vite or can run from app.asar.
   - "node_modules/@anthropic-ai/**"
   - "node_modules/@lancedb/lancedb-darwin-arm64/**"
+  - "node_modules/@lancedb/lancedb-win32-x64-msvc/**"
   # Default document skills execute user-authored Node scripts from the
   # workspace. External Node cannot read app.asar, so these packages must live
   # on the real filesystem and are exposed through NODE_PATH at runtime.
@@ -101,6 +102,7 @@ files:
   - node_modules/@modelcontextprotocol/sdk/**/*
   - node_modules/@lancedb/lancedb/**/*
   - node_modules/@lancedb/lancedb-darwin-arm64/**/*
+  - node_modules/@lancedb/lancedb-win32-x64-msvc/**/*
   - node_modules/apache-arrow/**/*
   # Packages intentionally available to bundled default skills at runtime.
   - node_modules/docx/**/*
@@ -250,7 +252,15 @@ dmg:
 win:
   icon: resources/icon.ico
   target:
-    - nsis
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 
 linux:
   icon: resources/icon.png

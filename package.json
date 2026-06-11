@@ -1,6 +1,6 @@
 {
   "name": "@brevyn/electron",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
@@ -20,6 +20,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win --x64",
     "analyze:package-size": "node scripts/analyze-package-size.mjs",
     "typecheck": "tsc --noEmit",
     "test:semester-weeks": "esbuild src/shared/semester-weeks.test.ts --bundle --platform=node --format=cjs --outfile=dist/semester-weeks.test.cjs && node dist/semester-weeks.test.cjs",

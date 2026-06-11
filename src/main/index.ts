@@ -26,6 +26,11 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+if (process.platform === "win32") {
+  // ClearType can produce colored fringes on dark code/editor surfaces.
+  app.commandLine.appendSwitch("disable-lcd-text");
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
@@ -55,7 +60,7 @@ function createWindow(): void {
     icon: iconPath,
     backgroundColor: currentWindowBackgroundColor(),
     trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
+    titleBarStyle: isMac ? "hiddenInset" : undefined,
     vibrancy: isMac ? "under-window" : undefined,
     visualEffectState: isMac ? "followWindow" : undefined,
     webPreferences: {
