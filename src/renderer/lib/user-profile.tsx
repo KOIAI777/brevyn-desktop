@@ -22,7 +22,7 @@ export const LEGACY_USER_AVATAR_OPTIONS: UserAvatarOption[] = [
 export const DEFAULT_USER_AVATAR = "🧑‍💻";
 
 export function profileDisplayName(profile?: UserProfileSettings | null): string {
-  return profile?.displayName?.trim() || "Koi";
+  return profile?.displayName?.trim() || "Brevyn User";
 }
 
 export function profileAvatarValue(profile?: UserProfileSettings | null, avatarId?: string): string {

@@ -23,8 +23,8 @@ export function registerIndexingIpc({ store, indexingQueue }: IpcContext): void 
     return result;
   });
   ipcMain.handle(IPC_CHANNELS.filesIndexingJobs, (_event, courseId?: unknown) => store.listIndexingJobs(optionalString(courseId)));
-  ipcMain.handle(IPC_CHANNELS.filesIndexingCancel, (event, jobId: unknown) => {
-    const job = store.cancelIndexingJob(requireString(jobId, "Indexing job id"));
+  ipcMain.handle(IPC_CHANNELS.filesIndexingCancel, async (event, jobId: unknown) => {
+    const job = await store.cancelIndexingJob(requireString(jobId, "Indexing job id"));
     event.sender.send(IPC_CHANNELS.filesChanged);
     return job;
   });

@@ -45,7 +45,7 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     };
     const dialogResult = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
     if (dialogResult.canceled) {
-      return { files: [], tree: store.listFiles(input.courseId), indexingJob: null };
+      return { files: [], tree: await store.listFiles(input.courseId), indexingJob: null };
     }
     const sourcePaths = dialogResult.filePaths;
     const result = await store.importFiles({ ...input, sourcePaths });
@@ -56,7 +56,7 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.filesSections, (_event, courseId: unknown) => store.courseFileSections(requireString(courseId, "Course id")));
   ipcMain.handle(IPC_CHANNELS.filesStats, (_event, courseId?: unknown) => store.fileStats(optionalString(courseId)));
   ipcMain.handle(IPC_CHANNELS.filesOpen, async (_event, fileId: unknown) => {
-    const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
+    const sourcePath = await store.fileSourcePath(requireString(fileId, "File id"));
     if (!sourcePath) throw new Error("文件源路径不可用。");
     const error = await shell.openPath(sourcePath);
     if (error) throw new Error(error);
@@ -73,7 +73,7 @@ export function registerFilesIpc({ store, indexingQueue }: IpcContext): void {
     return result;
   });
   ipcMain.handle(IPC_CHANNELS.filesReveal, async (_event, fileId: unknown) => {
-    const sourcePath = store.fileSourcePath(requireString(fileId, "File id"));
+    const sourcePath = await store.fileSourcePath(requireString(fileId, "File id"));
     if (!sourcePath) throw new Error("文件源路径不可用。");
     shell.showItemInFolder(sourcePath);
   });

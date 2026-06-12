@@ -34,7 +34,7 @@ export function registerAttachmentsIpc({ store }: IpcContext): void {
     return attachments;
   });
 
-  ipcMain.handle(IPC_CHANNELS.attachmentsSaveData, (event, input: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.attachmentsSaveData, async (event, input: unknown) => {
     const data = input && typeof input === "object" ? input as Record<string, unknown> : {};
     const normalized: AgentAttachmentDataInput = {
       threadId: requireString(data.threadId, "Thread id"),
@@ -42,14 +42,14 @@ export function registerAttachmentsIpc({ store }: IpcContext): void {
       mediaType: typeof data.mediaType === "string" ? data.mediaType : undefined,
       data: requireString(data.data, "Attachment data"),
     };
-    const attachment = store.saveAgentAttachmentData(normalized);
+    const attachment = await store.saveAgentAttachmentData(normalized);
     event.sender.send(IPC_CHANNELS.filesChanged);
     return attachment;
   });
 
-  ipcMain.handle(IPC_CHANNELS.attachmentsDelete, (event, input: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.attachmentsDelete, async (event, input: unknown) => {
     const data = input && typeof input === "object" ? input as Record<string, unknown> : {};
-    const deleted = store.deleteAgentAttachment(
+    const deleted = await store.deleteAgentAttachment(
       requireString(data.threadId, "Thread id"),
       requireString(data.path, "Attachment path"),
     );

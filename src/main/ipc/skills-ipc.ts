@@ -27,7 +27,7 @@ export function registerSkillsIpc({ store }: IpcContext): void {
     return store.importSkillFolder({ ...input, sourcePath });
   });
   ipcMain.handle(IPC_CHANNELS.skillsOpenFolder, async (_event, skillId: unknown) => {
-    const result = await shell.openPath(store.skillFolderPath(requireString(skillId, "Skill id")));
+    const result = await shell.openPath(await store.skillFolderPath(requireString(skillId, "Skill id")));
     if (result) throw new Error(result);
   });
 }

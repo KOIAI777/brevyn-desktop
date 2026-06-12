@@ -26,13 +26,13 @@ export function registerVisionIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.visionPreviewImage, (_event, sourcePath: unknown) => imageDataUrl(requireString(sourcePath, "Image path")));
   ipcMain.handle(IPC_CHANNELS.visionRecognizeAcademicCalendar, (_event, input: unknown) => store.recognizeAcademicCalendar(normalizeVisionRecognitionInput(input)));
   ipcMain.handle(IPC_CHANNELS.visionRecognizeCourseTimetable, (_event, input: unknown) => store.recognizeCourseTimetable(normalizeVisionRecognitionInput(input)));
-  ipcMain.handle(IPC_CHANNELS.visionImportAcademicCalendar, (event, input: unknown) => {
-    const result = store.importAcademicCalendar(normalizeRecognizedAcademicCalendar(input));
+  ipcMain.handle(IPC_CHANNELS.visionImportAcademicCalendar, async (event, input: unknown) => {
+    const result = await store.importAcademicCalendar(normalizeRecognizedAcademicCalendar(input));
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });
-  ipcMain.handle(IPC_CHANNELS.visionImportCourseTimetable, (event, input: unknown) => {
-    const result = store.importCourseTimetable(normalizeRecognizedCourseTimetable(input));
+  ipcMain.handle(IPC_CHANNELS.visionImportCourseTimetable, async (event, input: unknown) => {
+    const result = await store.importCourseTimetable(normalizeRecognizedCourseTimetable(input));
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });

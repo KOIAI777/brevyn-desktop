@@ -1,14 +1,9 @@
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentAttachment, AgentPermissionMode, AppTheme, AppThemeState, UserProfileSettings } from "@/types/domain";
-import { AgentThreadPanel } from "@/components/agent/AgentThreadPanel";
 import { CourseDashboard } from "@/components/courses/CourseDashboard";
-import { CourseManagementDialog } from "@/components/courses/CourseManagementDialog";
 import { SemesterDashboard } from "@/components/courses/SemesterDashboard";
 import { WorkspaceOnboardingDashboard } from "@/components/courses/WorkspaceOnboardingDashboard";
-import { FileBrowserRail } from "@/components/files/FileBrowserRail";
-import { FilePreviewRail } from "@/components/files/FilePreviewRail";
-import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { AppTitleBar } from "@/components/shell/AppTitleBar";
 import { TopBar } from "@/components/shell/TopBar";
 import { WorkspaceSidebar } from "@/components/shell/WorkspaceSidebar";
@@ -18,6 +13,13 @@ import { useWorkspaceFilesState } from "@/hooks/useWorkspaceFilesState";
 import { SEMESTER_HOME_COURSE_ID, useWorkspaceSessionController } from "@/hooks/useWorkspaceSessionController";
 import { useAppDialogState } from "@/hooks/useAppDialogState";
 import { useWorkspacePreviewCoordinator } from "@/hooks/useWorkspacePreviewCoordinator";
+
+const AgentThreadPanel = lazy(() => import("@/components/agent/AgentThreadPanel").then((module) => ({ default: module.AgentThreadPanel })));
+const CourseManagementDialog = lazy(() => import("@/components/courses/CourseManagementDialog").then((module) => ({ default: module.CourseManagementDialog })));
+const FileBrowserRail = lazy(() => import("@/components/files/FileBrowserRail").then((module) => ({ default: module.FileBrowserRail })));
+const FilePreviewRail = lazy(() => import("@/components/files/FilePreviewRail").then((module) => ({ default: module.FilePreviewRail })));
+const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((module) => ({ default: module.SettingsDialog })));
+const STARTUP_SPLASH_MIN_MS = import.meta.env.DEV ? 650 : 2400;
 
 function applyAppTheme(theme: AppTheme): void {
   document.documentElement.dataset.theme = theme;
@@ -41,7 +43,7 @@ function App() {
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
-  const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Koi", avatarId: "🧑‍💻" });
+  const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Brevyn User", avatarId: "🧑‍💻" });
   const [themeState, setThemeState] = useState<AppThemeState>({ preference: "system", effective: preferredRendererTheme() });
 
   const dialogs = useAppDialogState();
@@ -134,7 +136,7 @@ function App() {
         if (mounted) setProfile(nextProfile);
       })
       .catch(() => {
-        if (mounted) setProfile({ displayName: "Koi", avatarId: "🧑‍💻" });
+        if (mounted) setProfile({ displayName: "Brevyn User", avatarId: "🧑‍💻" });
       });
     return () => {
       mounted = false;
@@ -188,14 +190,29 @@ function App() {
     previewCoordinator.revealSelectedFile("file");
     await fileState.previewWorkspacePath(filePath);
   }, [fileState.previewWorkspacePath, previewCoordinator]);
-  const showWorkspaceOnboarding = workspace.noActiveSemesters || workspace.needsSemesterSelection;
+  const workspaceBooting = workspace.bootState === "loading";
+  const showWorkspaceOnboarding = !workspaceBooting && (workspace.noActiveSemesters || workspace.needsSemesterSelection);
 
-  if (workspace.bootState === "loading") {
-    return <AppLoadingScreen />;
-  }
+  useEffect(() => {
+    if (workspace.bootState === "loading") return;
+    const splash = document.getElementById("brevyn-startup-splash");
+    if (!splash) return;
+    const removeSplash = () => splash.remove();
+    const shownAt = typeof window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ === "number" ? window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ : Date.now();
+    const delay = Math.max(0, STARTUP_SPLASH_MIN_MS - (Date.now() - shownAt));
+    const timeout = window.setTimeout(() => {
+      splash.dataset.state = "leaving";
+      window.setTimeout(removeSplash, 320);
+    }, delay);
+    return () => window.clearTimeout(timeout);
+  }, [workspace.bootState]);
 
   if (workspace.bootState === "error") {
     return <AppBootErrorScreen error={workspace.bootError} onRetry={() => void workspace.bootstrap()} />;
+  }
+
+  if (workspace.bootState === "loading") {
+    return <div className="brevyn-app-background h-full min-h-screen text-foreground" />;
   }
 
   return (
@@ -251,26 +268,28 @@ function App() {
 
             <div className={`min-h-0 min-w-0 flex-1 overflow-hidden ${workspace.activeThread || (workspace.activeCourse && !workspace.activeTask) || showWorkspaceOnboarding ? "flex" : "flex items-center justify-center text-sm text-muted-foreground"}`}>
               {workspace.activeThread ? (
-                <AgentThreadPanel
-                  thread={workspace.activeThread}
-                  records={agentSession.records}
-                  loading={agentSession.loading}
-                  running={agentSession.running}
-                  error={agentSession.error}
-                  onRun={runAgent}
-                  onRunForThread={runAgentForThread}
-                  onStop={stopAgent}
-                  onApprove={approveAgent}
-                  onReject={rejectAgent}
-                  onAnswerQuestion={answerAgentQuestion}
-                  onResolveExitPlan={resolveAgentExitPlan}
-                  agentProviders={agentSession.providers}
-                  activeProviderId={agentSession.selectedProviderId}
-                  onSelectProvider={selectAgentProvider}
-                  files={fileState.fileTree}
-                  skills={workspace.skills}
-                  onPreviewFilePath={previewInlineFilePath}
-                />
+                <Suspense fallback={<PanelWarmupFallback label="Opening session" />}>
+                  <AgentThreadPanel
+                    thread={workspace.activeThread}
+                    records={agentSession.records}
+                    loading={agentSession.loading}
+                    running={agentSession.running}
+                    error={agentSession.error}
+                    onRun={runAgent}
+                    onRunForThread={runAgentForThread}
+                    onStop={stopAgent}
+                    onApprove={approveAgent}
+                    onReject={rejectAgent}
+                    onAnswerQuestion={answerAgentQuestion}
+                    onResolveExitPlan={resolveAgentExitPlan}
+                    agentProviders={agentSession.providers}
+                    activeProviderId={agentSession.selectedProviderId}
+                    onSelectProvider={selectAgentProvider}
+                    files={fileState.fileTree}
+                    skills={workspace.skills}
+                    onPreviewFilePath={previewInlineFilePath}
+                  />
+                </Suspense>
               ) : workspace.activeCourse?.workspaceKind === "semester_home" ? (
                 <SemesterDashboard
                   semester={workspace.semester}
@@ -332,79 +351,87 @@ function App() {
             </div>
           </main>
 
-          <FilePreviewRail
-            collapsed={layoutState.previewRailCollapsed}
-            preview={fileState.filePreview}
-            loading={fileState.filePreviewLoading}
-            resizing={layoutState.resizingRail === "preview"}
-            onResizeStart={(event) => layoutState.startRailResize("preview", event)}
-          />
+          <Suspense fallback={<RailWarmupFallback collapsed={layoutState.previewRailCollapsed} />}>
+            <FilePreviewRail
+              collapsed={layoutState.previewRailCollapsed}
+              preview={fileState.filePreview}
+              loading={fileState.filePreviewLoading}
+              resizing={layoutState.resizingRail === "preview"}
+              onResizeStart={(event) => layoutState.startRailResize("preview", event)}
+            />
+          </Suspense>
 
-          <FileBrowserRail
-            collapsed={layoutState.fileRailCollapsed}
-            course={workspace.activeCourse}
-            activeTask={workspace.activeTask}
-            stats={fileState.fileStats}
-            files={fileState.fileTree}
-            sessionFiles={fileState.sessionFiles}
-            loading={fileState.filesLoading}
-            selectedFileId={fileState.selectedFileId}
-            onSelectFile={(file) => {
-              previewCoordinator.revealSelectedFile(file.kind === "folder" ? "folder" : "file");
-              void fileState.selectFile(file);
-            }}
-            onSelectSessionFile={(file) => {
-              if (file.kind !== "folder") previewCoordinator.revealSelectedFile("file");
-              void fileState.selectSessionFile(file);
-            }}
-            onOpenUpload={() => {
-              if (workspace.activeCourse?.archivedAt) return;
-              dialogs.openCourses();
-            }}
-            resizing={layoutState.resizingRail === "files"}
-            onResizeStart={(event) => layoutState.startRailResize("files", event)}
-          />
+          <Suspense fallback={<RailWarmupFallback collapsed={layoutState.fileRailCollapsed} />}>
+            <FileBrowserRail
+              collapsed={layoutState.fileRailCollapsed}
+              course={workspace.activeCourse}
+              activeTask={workspace.activeTask}
+              stats={fileState.fileStats}
+              files={fileState.fileTree}
+              sessionFiles={fileState.sessionFiles}
+              loading={fileState.filesLoading}
+              selectedFileId={fileState.selectedFileId}
+              onSelectFile={(file) => {
+                previewCoordinator.revealSelectedFile(file.kind === "folder" ? "folder" : "file");
+                void fileState.selectFile(file);
+              }}
+              onSelectSessionFile={(file) => {
+                if (file.kind !== "folder") previewCoordinator.revealSelectedFile("file");
+                void fileState.selectSessionFile(file);
+              }}
+              onOpenUpload={() => {
+                if (workspace.activeCourse?.archivedAt) return;
+                dialogs.openCourses();
+              }}
+              resizing={layoutState.resizingRail === "files"}
+              onResizeStart={(event) => layoutState.startRailResize("files", event)}
+            />
+          </Suspense>
         </div>
       </div>
 
       {dialogs.settingsOpen && (
-        <SettingsDialog
-          initialPage={dialogs.settingsInitialPage}
-          course={workspace.activeCourse}
-          semester={workspace.semester}
-          profile={profile}
-          themeState={themeState}
-          skills={workspace.skills}
-          gitStatus={workspace.gitStatus}
-          onProfileChange={setProfile}
-          onThemeStateChange={handleThemeStateChange}
-          onSkillsChange={workspace.setSkills}
-          onWorkspaceChanged={async () => {
-            await workspace.reloadWorkspace(workspace.activeThreadId);
-            await agentSession.refreshProviders();
-          }}
-          onSelectSemester={workspace.selectSemester}
-          onAgentProviderChanged={(providerSelection) => agentSession.refreshProviders(providerSelection)}
-          onClose={() => {
-            dialogs.closeSettings();
-            void agentSession.refreshProviders();
-          }}
-        />
+        <Suspense fallback={null}>
+          <SettingsDialog
+            initialPage={dialogs.settingsInitialPage}
+            course={workspace.activeCourse}
+            semester={workspace.semester}
+            profile={profile}
+            themeState={themeState}
+            skills={workspace.skills}
+            gitStatus={workspace.gitStatus}
+            onProfileChange={setProfile}
+            onThemeStateChange={handleThemeStateChange}
+            onSkillsChange={workspace.setSkills}
+            onWorkspaceChanged={async () => {
+              await workspace.reloadWorkspace(workspace.activeThreadId);
+              await agentSession.refreshProviders();
+            }}
+            onSelectSemester={workspace.selectSemester}
+            onAgentProviderChanged={(providerSelection) => agentSession.refreshProviders(providerSelection)}
+            onClose={() => {
+              dialogs.closeSettings();
+              void agentSession.refreshProviders();
+            }}
+          />
+        </Suspense>
       )}
       {dialogs.coursesOpen && (
-        <CourseManagementDialog
-          semester={workspace.semester}
-          courses={workspace.courses}
-          activeCourseId={workspace.activeCourseId}
-          onCourseCreated={workspace.handleCourseCreated}
-          onCourseUpdated={workspace.handleCourseUpdated}
-          onTaskCreated={workspace.handleTaskCreated}
-          onTaskUpdated={workspace.handleTaskUpdated}
-          onWorkspaceChanged={async () => {
-            await workspace.reloadWorkspace();
-          }}
-          onClose={dialogs.closeCourses}
-        />
+        <Suspense fallback={null}>
+          <CourseManagementDialog
+            semester={workspace.semester}
+            courses={workspace.courses}
+            activeCourseId={workspace.activeCourseId}
+            onCourseCreated={workspace.handleCourseCreated}
+            onCourseUpdated={workspace.handleCourseUpdated}
+            onTaskCreated={workspace.handleTaskCreated}
+            onTaskUpdated={workspace.handleTaskUpdated}
+            onWorkspaceChanged={async () => {
+              await workspace.reloadWorkspace();
+            }}
+            onClose={dialogs.closeCourses}
+          />
+        </Suspense>
       )}
     </div>
   );
@@ -412,22 +439,29 @@ function App() {
 
 export default App;
 
-function AppLoadingScreen() {
+function PanelWarmupFallback({ label }: { label: string }) {
   return (
-    <div className="brevyn-app-background flex h-full min-h-screen items-center justify-center px-6 text-foreground">
-      <div className="brevyn-window-surface w-full max-w-md p-6">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading workspace
-        </div>
-        <div className="mt-4 space-y-2">
-          <div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" />
-          <div className="h-3 w-3/5 animate-pulse rounded-full bg-muted/80" />
-          <div className="h-3 w-2/3 animate-pulse rounded-full bg-muted/70" />
-        </div>
-        <p className="mt-4 text-xs leading-5 text-muted-foreground">Syncing semesters, courses, tasks, threads, and files.</p>
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-foreground">
+      <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-background/72 px-3 py-2 text-xs text-muted-foreground shadow-sm ring-1 ring-black/[0.04] dark:bg-white/[0.045] dark:ring-white/[0.06]">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {label}
       </div>
     </div>
+  );
+}
+
+function RailWarmupFallback({ collapsed }: { collapsed: boolean }) {
+  if (collapsed) return <aside className="min-w-0 overflow-hidden" />;
+  return (
+    <aside className="brevyn-panel-surface min-w-0 overflow-hidden">
+      <div className="flex h-full min-h-0 flex-col p-3">
+        <div className="h-4 w-20 rounded-full bg-muted/60" />
+        <div className="mt-4 space-y-2">
+          <div className="h-3 w-4/5 rounded-full bg-muted/45" />
+          <div className="h-3 w-3/5 rounded-full bg-muted/35" />
+        </div>
+      </div>
+    </aside>
   );
 }
 

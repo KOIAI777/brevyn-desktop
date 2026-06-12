@@ -10,7 +10,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     themePreference: "system",
   },
   profile: {
-    displayName: "Koi",
+    displayName: "Brevyn User",
     avatarId: "🧑‍💻",
   },
 };

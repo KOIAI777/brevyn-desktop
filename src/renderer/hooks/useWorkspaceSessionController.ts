@@ -58,9 +58,24 @@ export function useWorkspaceSessionController({
     setActiveCourseId(courseId);
   }, []);
 
-  const commitActiveThreadId = useCallback((threadId: string, semesterId?: string) => {
+  const commitActiveThreadId = useCallback((threadId: string, semesterId?: string, options: { persist?: boolean } = {}) => {
+    const shouldPersist = options.persist ?? true;
     setActiveThreadId(threadId);
-    writeStoredWorkspaceThreadId(threadId, semesterId);
+    if (shouldPersist) writeStoredWorkspaceThreadId(threadId, semesterId);
+  }, []);
+
+  const loadWorkspaceExtras = useCallback(async () => {
+    try {
+      const [skillList, git] = await Promise.all([
+        window.brevyn.skills.list(),
+        window.brevyn.git.status(),
+      ]);
+      if (!mountedRef.current) return;
+      setSkills(skillList);
+      setGitStatus(git);
+    } catch (error) {
+      console.warn("[workspace] Failed to load non-critical workspace metadata", error);
+    }
   }, []);
 
   const bootstrap = useCallback(async (isCancelled: () => boolean = () => false) => {
@@ -69,20 +84,19 @@ export function useWorkspaceSessionController({
     setBootError("");
     setWorkspaceError("");
     try {
-      const [semesterList, currentSemester, courseList, skillList, git] = await Promise.all([
+      const [semesterList, currentSemester, courseList] = await Promise.all([
         window.brevyn.semester.list(),
         window.brevyn.semester.current(),
         window.brevyn.courses.list(),
-        window.brevyn.skills.list(),
-        window.brevyn.git.status(),
       ]);
-      const taskEntries = await Promise.all(courseList.map(async (course) => [course.id, await window.brevyn.tasks.list(course.id)] as const));
-      const threadList = await window.brevyn.threads.list();
+      const [taskEntries, threadList] = await Promise.all([
+        Promise.all(courseList.map(async (course) => [course.id, await window.brevyn.tasks.list(course.id)] as const)),
+        window.brevyn.threads.list(),
+      ]);
 
       if (!mountedRef.current || isCancelled()) return;
-      const visibleThreads = await ensureHomeThread(filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id), currentSemester?.id, courseList);
-      if (!mountedRef.current || isCancelled()) return;
       const nextTasksByCourse = Object.fromEntries(taskEntries);
+      const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
       const selection = pickWorkspaceSelection(
         courseList,
         nextTasksByCourse,
@@ -94,23 +108,22 @@ export function useWorkspaceSessionController({
       setSemesters(semesterList);
       setSemester(currentSemester);
       setCourses(courseList);
-      setSkills(skillList);
-      setGitStatus(git);
       setTasksByCourse(nextTasksByCourse);
       setThreads(visibleThreads);
 
       commitActiveCourseId(selection.courseId);
       setActiveTaskId(selection.taskId);
-      commitActiveThreadId(selection.threadId, currentSemester?.id);
+      commitActiveThreadId(selection.threadId, currentSemester?.id, { persist: Boolean(selection.threadId) });
       if (!selection.courseId) onClearFilesRef.current();
       setBootState("ready");
       onRefreshAgentProvidersRef.current();
+      void loadWorkspaceExtras();
     } catch (error) {
       if (!mountedRef.current || isCancelled()) return;
       setBootError(errorMessage(error, "Failed to load workspace."));
       setBootState("error");
     }
-  }, [commitActiveCourseId, commitActiveThreadId]);
+  }, [commitActiveCourseId, commitActiveThreadId, loadWorkspaceExtras]);
 
   const reloadWorkspace = useCallback(async (preferredThreadId?: string): Promise<boolean> => {
     const requestId = workspaceReloadRequestRef.current + 1;
@@ -127,7 +140,7 @@ export function useWorkspaceSessionController({
 
       if (!mountedRef.current || workspaceReloadRequestRef.current !== requestId) return false;
 
-      const visibleThreads = await ensureHomeThread(filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id), currentSemester?.id, courseList);
+      const visibleThreads = filterThreadsForSemester(dedupeThreads(threadList), currentSemester?.id);
       if (!mountedRef.current || workspaceReloadRequestRef.current !== requestId) return false;
       const nextTasksByCourse = Object.fromEntries(taskEntries);
       const selection = pickWorkspaceSelection(
@@ -452,22 +465,6 @@ function filterThreadsForSemester(threads: Thread[], semesterId?: string) {
 
 function isDraftThread(thread: Thread): boolean {
   return Boolean(thread.isDraft);
-}
-
-async function ensureHomeThread(threads: Thread[], semesterId: string | undefined, courses: Course[]): Promise<Thread[]> {
-  if (!semesterId || !courses.some((course) => course.id === SEMESTER_HOME_COURSE_ID)) return threads;
-  if (threads.some((thread) => thread.courseId === SEMESTER_HOME_COURSE_ID && !thread.taskId)) return threads;
-  try {
-    const thread = await window.brevyn.threads.create({
-      courseId: SEMESTER_HOME_COURSE_ID,
-      title: "学期会话",
-      isDraft: true,
-    });
-    if (!threadBelongsToSemester(thread, semesterId)) return threads;
-    return dedupeThreads([thread, ...threads]);
-  } catch {
-    return threads;
-  }
 }
 
 interface WorkspaceSelection {

@@ -17,8 +17,8 @@ export function registerAppIpc(ctx: IpcContext): void {
 
   ipcMain.handle(IPC_CHANNELS.appTheme, () => currentThemeState(ctx.store.themePreference()));
 
-  ipcMain.handle(IPC_CHANNELS.appUpdateThemePreference, (_event, preference: unknown) => {
-    const nextPreference = ctx.store.updateThemePreference(normalizeThemePreference(preference));
+  ipcMain.handle(IPC_CHANNELS.appUpdateThemePreference, async (_event, preference: unknown) => {
+    const nextPreference = await ctx.store.updateThemePreference(normalizeThemePreference(preference));
     return applyThemePreference(nextPreference);
   });
 
@@ -87,12 +87,12 @@ export function registerAppIpc(ctx: IpcContext): void {
     const data = input && typeof input === "object" ? input as Record<string, unknown> : {};
     const threadId = requireString(data.threadId, "Thread id");
     const requestedPath = requireString(data.path, "Path");
-    const targetPath = ctx.store.resolveThreadWorkspacePath(threadId, requestedPath);
+    const targetPath = await ctx.store.resolveThreadWorkspacePath(threadId, requestedPath);
     const error = await shell.openPath(targetPath);
     if (error) throw new Error(error);
   });
 
-  ipcMain.handle(IPC_CHANNELS.appPreviewWorkspacePath, (_event, input: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.appPreviewWorkspacePath, async (_event, input: unknown) => {
     const data = input && typeof input === "object" ? input as Record<string, unknown> : {};
     const threadId = requireString(data.threadId, "Thread id");
     const requestedPath = requireString(data.path, "Path");
@@ -100,8 +100,8 @@ export function registerAppIpc(ctx: IpcContext): void {
   });
 }
 
-function buildAppDiagnostics(ctx: IpcContext): AppDiagnostics {
-  const skills = safeCall(() => ctx.store.listSkills(), [] as SkillItem[]);
+async function buildAppDiagnostics(ctx: IpcContext): Promise<AppDiagnostics> {
+  const skills = await safeCallAsync(() => ctx.store.listSkills(), [] as SkillItem[]);
   const theme = currentThemeState(ctx.store.themePreference());
 
   return {
@@ -132,9 +132,9 @@ function buildAppDiagnostics(ctx: IpcContext): AppDiagnostics {
   };
 }
 
-function safeCall<T>(callback: () => T, fallback: T): T {
+async function safeCallAsync<T>(callback: () => T | Promise<T>, fallback: T): Promise<T> {
   try {
-    return callback();
+    return await callback();
   } catch {
     return fallback;
   }

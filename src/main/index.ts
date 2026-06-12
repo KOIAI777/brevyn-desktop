@@ -41,13 +41,22 @@ let store: LocalStore | null = null;
 let indexingQueue: IndexingQueueService | null = null;
 let indexingFilesChangedTimer: NodeJS.Timeout | null = null;
 let shuttingDown = false;
+let resolveStoreReady: (store: LocalStore) => void = () => undefined;
+const storeReadyPromise = new Promise<LocalStore>((resolve) => {
+  resolveStoreReady = resolve;
+});
 
 function createWindow(): void {
   const preloadPath = join(__dirname, "preload.cjs");
   const isMac = process.platform === "darwin";
   const iconPath = resolveAppIconPath();
-  if (isMac && app.dock && iconPath) {
-    app.dock.setIcon(iconPath);
+  const dockIconPath = isMac ? resolveMacDockIconPath() : undefined;
+  if (isMac && app.dock && dockIconPath) {
+    try {
+      app.dock.setIcon(dockIconPath);
+    } catch (error) {
+      console.warn("[brevyn] Failed to set dock icon", error);
+    }
   }
 
   mainWindow = new BrowserWindow({
@@ -71,15 +80,29 @@ function createWindow(): void {
   });
 
   if (app.isPackaged) {
-    mainWindow.loadFile(join(__dirname, "renderer", "index.html"));
+    void mainWindow.loadFile(join(__dirname, "renderer", "index.html")).catch((error) => {
+      console.error("[brevyn] Failed to load packaged renderer", error);
+      showMainWindow();
+    });
   } else {
-    mainWindow.loadURL("http://127.0.0.1:5174");
+    void mainWindow.loadURL("http://127.0.0.1:5174").catch((error) => {
+      console.error("[brevyn] Failed to load dev renderer", error);
+      showMainWindow();
+    });
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
-    mainWindow?.focus();
+    showMainWindow();
+  });
+
+  mainWindow.webContents.once("did-finish-load", () => {
+    showMainWindow();
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error("[brevyn] Renderer load failed", { errorCode, errorDescription, validatedURL });
+    showMainWindow();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -102,6 +125,26 @@ function createWindow(): void {
     stopWorkspaceFileWatcher();
     mainWindow = null;
   });
+}
+
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function resolveMacDockIconPath(): string | undefined {
+  const resourceDirs = [
+    process.resourcesPath,
+    join(__dirname, "resources"),
+    join(process.cwd(), "resources"),
+    join(process.cwd(), "src", "renderer", "assets"),
+  ];
+  for (const directory of resourceDirs) {
+    const candidate = join(directory, "icon.png");
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 function resolveAppIconPath(): string | undefined {
@@ -130,38 +173,41 @@ app.whenReady().then(() => {
   nativeTheme.on("updated", () => syncNativeTheme(activeThemePreference()));
   Menu.setApplicationMenu(null);
   const dataRoot = brevynDataRoot();
+  configureClaudeSdk(dataRoot);
   registerWorkspaceFilePreviewProtocol(dataRoot);
-  let storeReady = false;
-  try {
-    configureClaudeSdk(dataRoot);
-    store = createLocalStore(dataRoot, { isPackaged: app.isPackaged });
-    applyThemePreference(store.themePreference());
-    indexingQueue = new IndexingQueueService(store, new DocumentEnhancedIndexingExecutor(new WorkerThreadIndexingExecutor(), store.documentParser, store.ocr), {
-      onQueueChanged: scheduleIndexingFilesChangedBroadcast,
-    });
-    registerIpcHandlers({ store, indexingQueue });
-    storeReady = true;
-  } catch (error) {
-    console.error("[brevyn] Failed to initialize local store", error);
-    store = createUnavailableStore(error);
-    indexingQueue = null;
-    registerIpcHandlers({ store });
-  }
+  registerIpcHandlers({ store: createDeferredStore(dataRoot), indexingQueue: createDeferredIndexingQueue() });
   createWindow();
   syncNativeTheme(activeThemePreference());
   initAutoUpdater();
-  if (storeReady) {
-    startBackgroundServicesAfterFirstPaint(dataRoot);
-  }
+
+  void initializeLocalServices(dataRoot);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
       syncNativeTheme(activeThemePreference());
-      if (storeReady) startBackgroundServicesAfterFirstPaint(dataRoot);
+      if (store) startBackgroundServicesAfterFirstPaint(dataRoot);
     }
   });
 });
+
+async function initializeLocalServices(dataRoot: string): Promise<void> {
+  try {
+    store = createLocalStore(dataRoot, { isPackaged: app.isPackaged });
+    applyThemePreference(store.themePreference());
+    indexingQueue = new IndexingQueueService(store, new DocumentEnhancedIndexingExecutor(new WorkerThreadIndexingExecutor(), store.documentParser, store.ocr), {
+      onQueueChanged: scheduleIndexingFilesChangedBroadcast,
+    });
+    resolveStoreReady(store);
+    startBackgroundServicesAfterFirstPaint(dataRoot);
+  } catch (error) {
+    console.error("[brevyn] Failed to initialize local store", error);
+    store = createUnavailableStore(error);
+    indexingQueue = null;
+    resolveStoreReady(store);
+  }
+  syncNativeTheme(activeThemePreference());
+}
 
 function activeThemePreference() {
   try {
@@ -247,6 +293,62 @@ function createUnavailableStore(error: unknown): LocalStore {
       return () => {
         throw new Error(`Workspace store unavailable: ${message}`);
       };
+    },
+  });
+}
+
+function createDeferredStore(dataRoot: string): LocalStore {
+  return new Proxy({} as LocalStore, {
+    get(_target, property) {
+      if (property === "dataRoot") return () => dataRoot;
+      if (property === "themePreference") return () => store?.themePreference?.() ?? "system";
+      if (property === "onAgentEvent") {
+        return (listener: Parameters<LocalStore["onAgentEvent"]>[0]) => {
+          let unsubscribe: (() => void) | undefined;
+          void storeReadyPromise.then((readyStore) => {
+            unsubscribe = readyStore.onAgentEvent(listener);
+          });
+          return () => unsubscribe?.();
+        };
+      }
+      if (property === "close") {
+        return async () => {
+          const readyStore = await storeReadyPromise;
+          return readyStore.close();
+        };
+      }
+      if (property === "stopAllAgents") {
+        return () => {
+          void storeReadyPromise.then((readyStore) => readyStore.stopAllAgents());
+        };
+      }
+      return async (...args: unknown[]) => {
+        const readyStore = await storeReadyPromise;
+        const value = readyStore[property as keyof LocalStore];
+        if (typeof value !== "function") return value;
+        return (value as (...methodArgs: unknown[]) => unknown).apply(readyStore, args);
+      };
+    },
+  });
+}
+
+function createDeferredIndexingQueue(): IndexingQueueService {
+  return new Proxy({} as IndexingQueueService, {
+    get(_target, property) {
+      if (property === "poke") {
+        return () => {
+          indexingQueue?.poke();
+        };
+      }
+      if (property === "start") {
+        return () => {
+          indexingQueue?.start();
+        };
+      }
+      if (property === "stop") {
+        return async () => indexingQueue?.stop();
+      }
+      return undefined;
     },
   });
 }

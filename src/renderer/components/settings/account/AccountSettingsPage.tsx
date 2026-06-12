@@ -18,7 +18,6 @@ import {
 import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
 import { ActionButton, CloudAuthStep, Field, MiniMetric } from "@/components/settings/shared/SettingsControls";
 import { cx } from "@/lib/cn";
-import { BREVYN_CLOUD_DEVELOPMENT_BASE_URL } from "../../../../types/cloud-config";
 import type { CloudAccountStatus, CloudAuthMode, CloudGatewayEntitlementGroup, CloudGatewayGroup, CloudRedeemCodeResult, ModelProviderConfig } from "../../../../types/domain";
 
 export type CloudBusyAction = "" | "status" | "login" | "register" | "refresh" | "redeem" | "logout" | `sync:${number}` | `activate:${number}`;
@@ -139,12 +138,7 @@ export function AccountSettingsPage({
   const statusMessage = statusLine || cloudStatus?.lastError || "";
   const statusIsError = /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(statusMessage);
   const cloudBaseUrlEditable = cloudStatus?.baseUrlEditable === true;
-  const cloudEnvironmentLabel = cloudStatus?.environment === "development"
-    ? "开发模式"
-    : cloudStatus?.environment === "production"
-      ? "生产模式"
-      : "加载中";
-  const cloudBaseUrlLabel = cloudStatus ? cloudStatus.baseUrl || cloudStatus.defaultBaseUrl : "正在读取 Cloud 配置";
+  const showDevelopmentBadge = cloudStatus?.environment === "development";
   const authBusy = busyAction === "login" || busyAction === "register";
   const authActionLabel = cloudMode === "register" ? "创建账号并同步" : "登录并同步官方模型";
   const authHelperText = cloudMode === "register"
@@ -162,16 +156,11 @@ export function AccountSettingsPage({
             </div>
             <div className="mt-1 flex items-center gap-2 text-base font-semibold text-foreground">
               账号与官方权限
-              <span className={cx(
-                "rounded-[var(--radius-pill)] px-2 py-0.5 text-[9px] font-medium",
-                cloudStatus?.environment === "development"
-                  ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200/70"
-                  : cloudStatus?.environment === "production"
-                    ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/70"
-                    : "bg-muted text-muted-foreground ring-1 ring-black/[0.035]",
-              )}>
-                {cloudEnvironmentLabel}
-              </span>
+              {showDevelopmentBadge && (
+                <span className="rounded-[var(--radius-pill)] bg-amber-50 px-2 py-0.5 text-[9px] font-medium text-amber-800 ring-1 ring-amber-200/70">
+                  开发模式
+                </span>
+              )}
             </div>
             <div className="mt-1 max-w-2xl text-[11px] leading-5 text-muted-foreground">
               管理 Cloud 登录状态、余额套餐和官方能力分组。本地会按当前权限同步模型配置。
@@ -223,16 +212,8 @@ export function AccountSettingsPage({
               </div>
 
               <div className="space-y-2.5">
-                {cloudBaseUrlEditable ? (
-                  <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder={cloudStatus?.defaultBaseUrl || BREVYN_CLOUD_DEVELOPMENT_BASE_URL} />
-                ) : (
-                  <div className="brevyn-control-surface flex min-w-0 items-center gap-2 px-3 py-2.5">
-                    <Cloud className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0">
-                      <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">官方 Cloud</div>
-                      <div className="truncate text-xs font-medium text-foreground" title={cloudBaseUrlLabel}>{cloudBaseUrlLabel}</div>
-                    </div>
-                  </div>
+                {cloudBaseUrlEditable && (
+                  <Field label="Cloud 地址" value={cloudForm.baseUrl} onChange={(value) => onFormChange({ ...cloudForm, baseUrl: value })} placeholder={cloudStatus?.defaultBaseUrl || "http://127.0.0.1:4000"} />
                 )}
                 <Field label="邮箱" value={cloudForm.email} onChange={(value) => onFormChange({ ...cloudForm, email: value })} placeholder="you@example.com" />
                 {cloudMode === "register" && (

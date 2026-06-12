@@ -230,6 +230,8 @@ files:
   - node_modules/is-plain-obj/**/*
 
 extraResources:
+  - from: resources/icon.png
+    to: icon.png
   # Bundled default skills. In packaged builds these are read from
   # process.resourcesPath/default-skills and synced into ~/.brevyn-dev.
   - from: default-skills
