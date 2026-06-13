@@ -17,6 +17,18 @@ interface SkillFrontmatter {
 
 const MAX_SKILL_CONTENT_BYTES = 10 * 1024 * 1024;
 const MAX_SKILL_RESOURCES = 200;
+const LEGACY_DEFAULT_SKILL_SOURCE_FILE = ".brevyn-default-skill.json";
+const SKILL_COPY_BLOCKLIST = new Set([
+  LEGACY_DEFAULT_SKILL_SOURCE_FILE,
+  ".DS_Store",
+  ".git",
+  "node_modules",
+  "dist",
+  ".next",
+  ".cache",
+  ".turbo",
+  "__pycache__",
+]);
 const SKILL_RESOURCE_DIRS: Array<{ dirname: string; kind: SkillResourceKind }> = [
   { dirname: "references", kind: "reference" },
   { dirname: "scripts", kind: "script" },
@@ -31,7 +43,6 @@ const SKILL_RESOURCE_DIRS: Array<{ dirname: string; kind: SkillResourceKind }> =
 ];
 const ROOT_REFERENCE_FILE_EXTENSIONS = new Set([".md", ".markdown", ".txt"]);
 const ROOT_REFERENCE_FILE_SKIP = new Set(["SKILL.md", "README.md", "LICENSE", "LICENSE.txt", "license.txt"]);
-const DEFAULT_SKILL_SOURCE_FILE = ".brevyn-default-skill.json";
 const NATIVE_PLUGIN_MANIFEST = {
   name: "brevyn-global-skills",
   version: "1.0.0",
@@ -91,16 +102,16 @@ export class SkillFileStore {
       if (!existsSync(join(sourceSkillDir, "SKILL.md"))) continue;
 
       const templateSkillDir = join(templateDir, entry.name);
-      syncDefaultSkillFolder(sourceSkillDir, templateSkillDir, entry.name, "template");
+      syncDefaultSkillFolder(sourceSkillDir, templateSkillDir, entry.name);
 
       const activeSkillDir = join(activeDir, entry.name);
       const inactiveSkillDir = join(inactiveDir, entry.name);
       if (existsSync(activeSkillDir)) {
-        syncDefaultSkillFolder(sourceSkillDir, activeSkillDir, entry.name, "workspace");
+        syncDefaultSkillFolder(sourceSkillDir, activeSkillDir, entry.name);
         continue;
       }
       if (existsSync(inactiveSkillDir)) {
-        syncDefaultSkillFolder(sourceSkillDir, inactiveSkillDir, entry.name, "workspace");
+        syncDefaultSkillFolder(sourceSkillDir, inactiveSkillDir, entry.name);
         continue;
       }
       replaceSkillFolder(sourceSkillDir, activeSkillDir, entry.name);
@@ -166,7 +177,7 @@ export class SkillFileStore {
     }
 
     mkdirSync(targetBaseDir, { recursive: true });
-    cpSync(sourceDir, targetDir, { recursive: true, errorOnExist: true, force: false });
+    cpSync(sourceDir, targetDir, { recursive: true, errorOnExist: true, force: false, filter: skillCopyFilter });
     const imported = this.readSkillDir(targetDir, slug, enabled);
     if (!imported) {
       throw new Error(`Failed to load imported skill: ${slug}`);
@@ -447,7 +458,7 @@ function formatMaxSkillSize(): string {
   return "10 MB";
 }
 
-function syncDefaultSkillFolder(sourceDir: string, targetDir: string, slug: string, targetKind: "template" | "workspace"): void {
+function syncDefaultSkillFolder(sourceDir: string, targetDir: string, slug: string): void {
   if (!existsSync(targetDir)) {
     replaceSkillFolder(sourceDir, targetDir, slug);
     return;
@@ -455,8 +466,7 @@ function syncDefaultSkillFolder(sourceDir: string, targetDir: string, slug: stri
 
   const sourceVersion = parseSkillVersion(sourceDir);
   const targetVersion = parseSkillVersion(targetDir);
-  const isManaged = targetKind === "template" || isBrevynManagedDefaultSkill(targetDir, slug);
-  if (!isManaged) return;
+  removeLegacyDefaultSkillMarker(targetDir);
   if (compareSemver(sourceVersion, targetVersion) <= 0) return;
   replaceSkillFolder(sourceDir, targetDir, slug);
 }
@@ -466,30 +476,17 @@ function replaceSkillFolder(sourceDir: string, targetDir: string, slug: string):
   mkdirSync(parentDir, { recursive: true });
   const tmpDir = join(parentDir, `.${slug}.syncing-${process.pid}-${Date.now()}`);
   rmSync(tmpDir, { recursive: true, force: true });
-  cpSync(sourceDir, tmpDir, { recursive: true });
-  writeDefaultSkillSourceMarker(tmpDir, slug, parseSkillVersion(sourceDir));
+  cpSync(sourceDir, tmpDir, { recursive: true, filter: skillCopyFilter });
   rmSync(targetDir, { recursive: true, force: true });
   renameSync(tmpDir, targetDir);
 }
 
-function writeDefaultSkillSourceMarker(targetDir: string, slug: string, version: string): void {
-  writeFileSync(join(targetDir, DEFAULT_SKILL_SOURCE_FILE), JSON.stringify({
-    managedBy: "brevyn",
-    kind: "bundled_default",
-    slug,
-    version,
-    syncedAt: new Date().toISOString(),
-  }, null, 2), "utf8");
+function removeLegacyDefaultSkillMarker(skillDir: string): void {
+  rmSync(join(skillDir, LEGACY_DEFAULT_SKILL_SOURCE_FILE), { force: true });
 }
 
-function isBrevynManagedDefaultSkill(skillDir: string, slug: string): boolean {
-  try {
-    const raw = readFileSync(join(skillDir, DEFAULT_SKILL_SOURCE_FILE), "utf8");
-    const parsed = JSON.parse(raw) as { managedBy?: unknown; kind?: unknown; slug?: unknown };
-    return parsed.managedBy === "brevyn" && parsed.kind === "bundled_default" && parsed.slug === slug;
-  } catch {
-    return false;
-  }
+function skillCopyFilter(src: string): boolean {
+  return !SKILL_COPY_BLOCKLIST.has(basename(src));
 }
 
 function parseSkillVersion(skillDir: string): string {

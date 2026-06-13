@@ -49,6 +49,7 @@ type SettingsPage = "account" | "general" | "providers" | "semesters" | "archive
 
 const CLOUD_ENTITLEMENTS_POLL_MS = 40_000;
 const CLOUD_ENTITLEMENTS_FOCUS_REFRESH_MS = 60_000;
+const CLOUD_STATUS_AUTO_DISMISS_MS = 4_000;
 
 export function SettingsDialog({
   initialPage = "providers",
@@ -112,6 +113,7 @@ export function SettingsDialog({
   const cloudModelCatalogRequestsRef = useRef<Set<number>>(new Set());
   const cloudEntitlementsLastRefreshRef = useRef(0);
   const cloudEntitlementsRefreshInFlightRef = useRef(false);
+  const cloudStatusDismissTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setActivePage(initialPage);
@@ -188,6 +190,24 @@ export function SettingsDialog({
       document.removeEventListener("visibilitychange", refreshOnFocus);
     };
   }, [activePage, cloudStatus?.authenticated]);
+
+  useEffect(() => {
+    if (cloudStatusDismissTimerRef.current !== null) {
+      window.clearTimeout(cloudStatusDismissTimerRef.current);
+      cloudStatusDismissTimerRef.current = null;
+    }
+    if (!cloudStatusLine || cloudStatusLineIsError(cloudStatusLine)) return;
+    cloudStatusDismissTimerRef.current = window.setTimeout(() => {
+      setCloudStatusLine("");
+      cloudStatusDismissTimerRef.current = null;
+    }, CLOUD_STATUS_AUTO_DISMISS_MS);
+    return () => {
+      if (cloudStatusDismissTimerRef.current !== null) {
+        window.clearTimeout(cloudStatusDismissTimerRef.current);
+        cloudStatusDismissTimerRef.current = null;
+      }
+    };
+  }, [cloudStatusLine]);
 
   useEffect(() => {
     setLocalSkills(skills);
@@ -745,6 +765,10 @@ function cloudSyncResultLine(status: "synced" | "provisioning" | "locked", detai
 function cloudActivateResultLine(providerName?: string, detail?: string): string {
   if (providerName) return `当前套餐已切换：${providerName}。`;
   return detail || "当前套餐已切换。";
+}
+
+function cloudStatusLineIsError(message: string): boolean {
+  return /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(message);
 }
 
 function cloudRefreshStatusLine(status: CloudAccountStatus, fallback: string): string {

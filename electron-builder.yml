@@ -238,6 +238,15 @@ extraResources:
     to: default-skills
     filter:
       - "**/*"
+      - "!**/.brevyn-default-skill.json"
+      - "!**/.DS_Store"
+      - "!**/.git/**"
+      - "!**/node_modules/**"
+      - "!**/dist/**"
+      - "!**/.next/**"
+      - "!**/.cache/**"
+      - "!**/.turbo/**"
+      - "!**/__pycache__/**"
   - from: dist/native
     to: native
     filter:
