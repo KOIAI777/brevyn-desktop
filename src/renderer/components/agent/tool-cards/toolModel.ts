@@ -78,6 +78,7 @@ export function getToolSuccessSummary(toolUse: ToolUseBlock, result?: ToolResult
   if (result.isError) return getToolErrorSummary(result);
   if (toolUse.name === "Glob" || toolUse.name === "Grep") return `${countResultRows(getToolResultText(result))} 条结果`;
   if (toolUse.name === "WebSearch") return `${webSearchResultCount(result)} 个结果`;
+  if (toolUse.name === "mcp__brevyn__rag_search") return `${ragSearchResultCount(result)} 条证据`;
   if (toolUse.name === "TodoRead" || toolUse.name === "TodoWrite") return todoStatus(toolUse, result);
   if (isTaskTool(toolUse.name)) return taskStatus(toolUse.name, result);
   return getToolResultSummary(result);
@@ -326,6 +327,13 @@ function webSearchResultCount(result: ToolResultBlock): number {
   const output = getToolResultText(result);
   const match = output.match(/Found\s+(\d+)\s+results?/i) || output.match(/(\d+)\s+results?/i);
   return match ? Number.parseInt(match[1] || "0", 10) || 0 : 0;
+}
+
+function ragSearchResultCount(result: ToolResultBlock): number {
+  const parsed = recordObject(getParsedToolResult(result));
+  if (typeof parsed.count === "number" && Number.isFinite(parsed.count)) return Math.max(0, Math.floor(parsed.count));
+  const results = Array.isArray(parsed.results) ? parsed.results : [];
+  return results.length;
 }
 
 function todoStatus(toolUse: ToolUseBlock, result: ToolResultBlock): string {

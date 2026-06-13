@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type {
   Course,
+  CourseFileSectionKind,
   IndexingJob,
   SemesterWorkspace,
   TaskStatus,
@@ -43,6 +44,63 @@ export interface BusinessStoreStatus {
 
 type Row = Record<string, unknown>;
 type IndexingTaskLease = { workerId: string; lockedUntil?: string };
+
+export interface RagTextIndexChunk {
+  id: string;
+  semesterId: string;
+  courseId: string;
+  sectionId: string;
+  fileId: string;
+  taskId?: string;
+  fileName: string;
+  filePath: string;
+  sourcePath: string;
+  kind: WorkspaceFileKind;
+  weekNumber: number;
+  taskFileBucket: string;
+  chunkIndex: number;
+  chunkCount: number;
+  title: string;
+  citation: string;
+  text: string;
+  parser: string;
+  coverageStatus: string;
+  ocrApplied: boolean;
+  sourceLabel: string;
+  sectionType: string;
+  sectionTitle: string;
+  sectionIndex: number;
+  chunkInSection: number;
+  chunksInSection: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RagTextSearchInput {
+  query: string;
+  semesterId: string;
+  courseId?: string;
+  taskId?: string;
+  sectionKind?: CourseFileSectionKind;
+  limit?: number;
+}
+
+export interface RagTextSearchResult {
+  id: string;
+  semesterId: string;
+  courseId: string;
+  sectionId: string;
+  fileId: string;
+  taskId?: string;
+  fileName: string;
+  filePath: string;
+  title: string;
+  citation: string;
+  text: string;
+  chunkIndex?: number;
+  chunkCount?: number;
+  rank: number;
+}
 
 const require = createRequire(__filename);
 const BUSINESS_SCHEMA_VERSION = 1;
@@ -351,6 +409,7 @@ export class SQLiteBusinessStore {
   deleteSemesterDeep(semesterId: string): boolean {
     this.db.exec("begin immediate;");
     try {
+      this.run("delete from rag_chunks_fts where semester_id = ?", semesterId);
       const courseRows = this.all("select id from courses where semester_id = ?", semesterId);
       for (const row of courseRows) this.deleteCourseRows(stringValue(row.id));
       this.run("delete from indexing_tasks where semester_id = ?", semesterId);
@@ -503,6 +562,7 @@ export class SQLiteBusinessStore {
     const sectionId = `${task.courseId}:task-${task.id}`;
     this.db.exec("begin immediate;");
     try {
+      this.run("delete from rag_chunks_fts where task_id = ? or section_id = ?", taskId, sectionId);
       this.run(
         `delete from indexing_tasks
          where section_id = ?
@@ -1044,7 +1104,125 @@ export class SQLiteBusinessStore {
     }
   }
 
+  upsertRagTextChunks(chunks: RagTextIndexChunk[]): void {
+    if (chunks.length === 0) return;
+    this.db.exec("begin immediate;");
+    try {
+      for (const chunk of chunks) {
+        this.run("delete from rag_chunks_fts where id = ?", chunk.id);
+        this.run(
+          `insert into rag_chunks_fts(
+             id, semester_id, course_id, section_id, file_id, task_id,
+             file_name, file_path, source_path, kind, week_number, task_file_bucket,
+             chunk_index, chunk_count, title, citation, text, parser, coverage_status,
+             ocr_applied, source_label, section_type, section_title, section_index,
+             chunk_in_section, chunks_in_section, created_at, updated_at
+           )
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          chunk.id,
+          chunk.semesterId,
+          chunk.courseId,
+          chunk.sectionId,
+          chunk.fileId,
+          chunk.taskId ?? "",
+          chunk.fileName,
+          chunk.filePath,
+          chunk.sourcePath,
+          chunk.kind,
+          chunk.weekNumber,
+          chunk.taskFileBucket,
+          chunk.chunkIndex,
+          chunk.chunkCount,
+          chunk.title,
+          chunk.citation,
+          chunk.text,
+          chunk.parser,
+          chunk.coverageStatus,
+          intBool(chunk.ocrApplied),
+          chunk.sourceLabel,
+          chunk.sectionType,
+          chunk.sectionTitle,
+          chunk.sectionIndex,
+          chunk.chunkInSection,
+          chunk.chunksInSection,
+          chunk.createdAt,
+          chunk.updatedAt,
+        );
+      }
+      this.db.exec("commit;");
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
+  deleteRagTextChunksByFile(fileId: string): void {
+    this.run("delete from rag_chunks_fts where file_id = ?", fileId);
+  }
+
+  searchRagTextChunks(input: RagTextSearchInput): RagTextSearchResult[] {
+    const query = fts5Query(input.query);
+    if (!query) return [];
+    const where = ["rag_chunks_fts match ?", "semester_id = ?"];
+    const params: unknown[] = [query, input.semesterId];
+    if (input.courseId) {
+      where.push("course_id = ?");
+      params.push(input.courseId);
+    }
+    if (input.taskId) {
+      where.push("(task_id = ? or section_id = ?)");
+      params.push(input.taskId, `${input.courseId || ""}:task-${input.taskId}`);
+    }
+    if (input.sectionKind && input.courseId) {
+      if (input.sectionKind === "course_shared") {
+        where.push("(section_id = ? or file_path like ? or file_path like ?)");
+        params.push(`${input.courseId}:shared`, "%/Course shared/%", "%/Semester shared/%");
+      } else if (input.sectionKind === "lecture") {
+        where.push("(section_id = ? or file_path like ?)");
+        params.push(`${input.courseId}:lecture`, "%/Lecture/%");
+      } else {
+        where.push("(section_id like ? or file_path like ?)");
+        params.push(`${input.courseId}:task-%`, "%/Task/%");
+      }
+    }
+    const limit = Math.max(1, Math.min(100, Math.floor(input.limit || 24)));
+    return this.all(
+      `select id, semester_id, course_id, section_id, file_id, task_id,
+              file_name, file_path, title, citation, text,
+              chunk_index, chunk_count, bm25(rag_chunks_fts) as rank
+       from rag_chunks_fts
+       where ${where.join(" and ")}
+       order by rank
+       limit ?`,
+      ...params,
+      limit,
+    ).map(rowToRagTextSearchResult);
+  }
+
+  deleteRagTextChunksByCourse(semesterId: string, courseId: string): void {
+    this.run("delete from rag_chunks_fts where semester_id = ? and course_id = ?", semesterId, courseId);
+  }
+
+  deleteRagTextChunksByTask(semesterId: string, courseId: string, taskId: string): void {
+    const sectionId = `${courseId}:task-${taskId}`;
+    this.run(
+      `delete from rag_chunks_fts
+       where semester_id = ?
+         and course_id = ?
+         and (task_id = ? or section_id = ?)`,
+      semesterId,
+      courseId,
+      taskId,
+      sectionId,
+    );
+  }
+
+  deleteRagTextChunksBySemester(semesterId: string): void {
+    this.run("delete from rag_chunks_fts where semester_id = ?", semesterId);
+  }
+
   private deleteCourseRows(courseId: string): boolean {
+    this.run("delete from rag_chunks_fts where course_id = ?", courseId);
     this.run("delete from indexing_tasks where course_id = ?", courseId);
     this.run("delete from indexing_jobs where course_id = ?", courseId);
     this.run("delete from workspace_files where course_id = ?", courseId);
@@ -1502,6 +1680,7 @@ export class SQLiteBusinessStore {
     this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
     this.db.exec("drop table if exists providers;");
+    this.ensureRagTextIndex();
     this.dropTaskWorkspacePathColumn();
     this.db.exec(`
       create table if not exists indexing_tasks (
@@ -1531,6 +1710,42 @@ export class SQLiteBusinessStore {
       create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
     `);
     this.rebaselineSchemaMigration();
+  }
+
+  private ensureRagTextIndex(): void {
+    this.db.exec(`
+      create virtual table if not exists rag_chunks_fts using fts5(
+        id unindexed,
+        semester_id unindexed,
+        course_id unindexed,
+        section_id unindexed,
+        file_id unindexed,
+        task_id unindexed,
+        file_name,
+        file_path,
+        source_path,
+        kind unindexed,
+        week_number unindexed,
+        task_file_bucket unindexed,
+        chunk_index unindexed,
+        chunk_count unindexed,
+        title,
+        citation,
+        text,
+        parser unindexed,
+        coverage_status unindexed,
+        ocr_applied unindexed,
+        source_label,
+        section_type unindexed,
+        section_title,
+        section_index unindexed,
+        chunk_in_section unindexed,
+        chunks_in_section unindexed,
+        created_at unindexed,
+        updated_at unindexed,
+        tokenize = 'unicode61'
+      );
+    `);
   }
 
   private ensureColumn(tableName: string, columnName: string, definition: string): void {
@@ -1996,6 +2211,25 @@ function rowToIndexingTask(row: Row): IndexingTaskRecord {
   };
 }
 
+function rowToRagTextSearchResult(row: Row): RagTextSearchResult {
+  return {
+    id: stringValue(row.id),
+    semesterId: stringValue(row.semester_id),
+    courseId: stringValue(row.course_id),
+    sectionId: stringValue(row.section_id),
+    fileId: stringValue(row.file_id),
+    taskId: nullableString(row.task_id),
+    fileName: stringValue(row.file_name),
+    filePath: stringValue(row.file_path),
+    title: stringValue(row.title),
+    citation: stringValue(row.citation),
+    text: stringValue(row.text),
+    chunkIndex: numberValue(row.chunk_index),
+    chunkCount: numberValue(row.chunk_count),
+    rank: numberValue(row.rank) ?? 0,
+  };
+}
+
 function flattenFileTree(files: WorkspaceFileNode[], parentId?: string): Array<{ node: WorkspaceFileNode; parentId?: string }> {
   return files.flatMap((node) => [
     { node, parentId },
@@ -2049,6 +2283,20 @@ function intBool(value: boolean): number {
 
 function boolValue(value: unknown): boolean {
   return value === 1 || value === true || value === "1";
+}
+
+function fts5Query(value: string): string {
+  const terms = value
+    .normalize("NFKC")
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 0)
+    .slice(0, 12);
+  return terms.map(quoteFts5Term).join(" OR ");
+}
+
+function quoteFts5Term(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
 }
 
 function openDatabase(dbPath: string): SQLiteDatabaseSync {

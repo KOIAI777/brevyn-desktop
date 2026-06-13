@@ -49,6 +49,45 @@ type EmbeddingMeta = {
   dimension: number;
 };
 
+type RagTextIndexChunk = {
+  id: string;
+  semesterId: string;
+  courseId: string;
+  sectionId: string;
+  fileId: string;
+  taskId?: string;
+  fileName: string;
+  filePath: string;
+  sourcePath: string;
+  kind: WorkspaceFileKind;
+  weekNumber: number;
+  taskFileBucket: string;
+  chunkIndex: number;
+  chunkCount: number;
+  title: string;
+  citation: string;
+  text: string;
+  parser: string;
+  coverageStatus: string;
+  ocrApplied: boolean;
+  sourceLabel: string;
+  sectionType: string;
+  sectionTitle: string;
+  sectionIndex: number;
+  chunkInSection: number;
+  chunksInSection: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+interface RagTextIndexStore {
+  upsertRagTextChunks(chunks: RagTextIndexChunk[]): void;
+  deleteRagTextChunksByFile(fileId: string): void;
+  deleteRagTextChunksByCourse(semesterId: string, courseId: string): void;
+  deleteRagTextChunksByTask(semesterId: string, courseId: string, taskId: string): void;
+  deleteRagTextChunksBySemester(semesterId: string): void;
+};
+
 export interface RagSearchOptions {
   taskId?: string;
   sectionKind?: CourseFileSectionKind;
@@ -59,6 +98,7 @@ interface RagIndexServiceOptions {
   dbPath: string;
   resolveEmbeddingProvider: () => ModelProviderConfig | undefined;
   resolveApiKey: (provider: ModelProviderConfig) => string | undefined;
+  textIndex?: RagTextIndexStore;
 }
 
 const TABLE_NAME = "rag_chunks";
@@ -70,6 +110,20 @@ const EMBEDDING_REQUEST_MAX_ATTEMPTS = 3;
 const EMBEDDING_RETRY_BASE_DELAY_MS = 800;
 const VECTOR_WRITE_TIMEOUT_MS = 60_000;
 const SCHEMA_REBUILD_MESSAGE = "Embedding index schema is outdated. Please re-index the current semester from Settings -> Provider.";
+const RAG_RESULT_FIELDS = [
+  "id",
+  "course_id",
+  "file_id",
+  "file_name",
+  "file_path",
+  "section_id",
+  "task_file_bucket",
+  "chunk_index",
+  "chunk_count",
+  "text",
+  "title",
+  "citation",
+] as const;
 const REQUIRED_RAG_FIELDS = [
   "id",
   "semester_id",
@@ -153,10 +207,12 @@ export class RagIndexService {
             VECTOR_WRITE_TIMEOUT_MS,
             `Embedding index write timed out after ${Math.round(VECTOR_WRITE_TIMEOUT_MS / 1000)}s.`,
           );
-          return true;
+        } else {
+          throw error;
         }
-        throw error;
       }
+      if (!(await canWrite())) return false;
+      this.options.textIndex?.upsertRagTextChunks(rows.map(rowToTextIndexChunk));
       return true;
     });
   }
@@ -205,20 +261,7 @@ export class RagIndexService {
     const rows = await table
       .search(Float32Array.from(queryVector))
       .where(filter)
-      .select([
-        "id",
-        "course_id",
-        "file_id",
-        "file_name",
-        "file_path",
-        "section_id",
-        "task_file_bucket",
-        "chunk_index",
-        "chunk_count",
-        "text",
-        "citation",
-        "_distance",
-      ])
+      .select([...RAG_RESULT_FIELDS, "_distance"])
       .limit(Math.max(maxResults, maxResults * 3))
       .toArray();
 
@@ -234,42 +277,30 @@ export class RagIndexService {
       if (filteredRows.length >= maxResults) break;
     }
 
-    return filteredRows.map((row: any) => {
+    return filteredRows.map((row) => {
       const distance = Number(row._distance);
-      const filePath = String(row.file_path || row.file_name || "workspace");
-      return {
-        id: String(row.id),
-        courseId: String(row.course_id),
-        fileId: String(row.file_id || ""),
-        fileName: String(row.file_name || filePath),
-        title: String(row.file_name || row.file_path || "RAG chunk"),
-        source: filePath,
-        citation: String(row.citation || filePath),
-        excerpt: excerptText(String(row.text || ""), normalized),
-        score: Number.isFinite(distance) ? 1 / (1 + Math.max(0, distance)) : 0,
-        path: filePath,
-        sectionKind: sectionKindForRow(String(row.section_id || ""), filePath),
-        taskId: taskIdForRow(String(row.section_id || ""), filePath),
-        chunkIndex: numberValue(row.chunk_index),
-        chunkCount: numberValue(row.chunk_count),
-      };
+      const score = Number.isFinite(distance) ? 1 / (1 + Math.max(0, distance)) : 0;
+      return rowToRagSearchResult(row, normalized, score);
     });
   }
 
   async deleteChunksByCourse(semesterId: string, courseId: string): Promise<void> {
     const table = await this.getReadableTable();
-    if (!table) return;
-    await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}'`);
+    if (table) await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}'`);
+    this.options.textIndex?.deleteRagTextChunksByCourse(semesterId, courseId);
   }
 
   async deleteChunksByTask(semesterId: string, courseId: string, taskId: string, fileIds: string[] = []): Promise<void> {
     const table = await this.getReadableTable();
-    if (!table) return;
     const sectionId = `${courseId}:task-${taskId}`;
-    await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}' AND section_id = '${escapeSql(sectionId)}'`);
-    for (const fileId of fileIds) {
-      await table.delete(`file_id = '${escapeSql(fileId)}'`);
+    if (table) {
+      await table.delete(`semester_id = '${escapeSql(semesterId)}' AND course_id = '${escapeSql(courseId)}' AND section_id = '${escapeSql(sectionId)}'`);
+      for (const fileId of fileIds) {
+        await table.delete(`file_id = '${escapeSql(fileId)}'`);
+      }
     }
+    this.options.textIndex?.deleteRagTextChunksByTask(semesterId, courseId, taskId);
+    for (const fileId of fileIds) this.options.textIndex?.deleteRagTextChunksByFile(fileId);
   }
 
   async deleteChunksByFile(fileId: string): Promise<void> {
@@ -278,8 +309,8 @@ export class RagIndexService {
 
   async deleteChunksBySemester(semesterId: string): Promise<void> {
     const table = await this.getReadableTable();
-    if (!table) return;
-    await table.delete(`semester_id = '${escapeSql(semesterId)}'`);
+    if (table) await table.delete(`semester_id = '${escapeSql(semesterId)}'`);
+    this.options.textIndex?.deleteRagTextChunksBySemester(semesterId);
   }
 
   async close(): Promise<void> {
@@ -431,8 +462,8 @@ export class RagIndexService {
 
   private async deleteFile(fileId: string): Promise<void> {
     const table = await this.getReadableTable();
-    if (!table) return;
-    await table.delete(`file_id = '${escapeSql(fileId)}'`);
+    if (table) await table.delete(`file_id = '${escapeSql(fileId)}'`);
+    this.options.textIndex?.deleteRagTextChunksByFile(fileId);
   }
 
   private async connection(): Promise<Connection> {
@@ -660,6 +691,59 @@ function rowToEmbeddingMeta(row: Record<string, unknown>): EmbeddingMeta {
     providerId: stringValue(row.embedding_provider_id) || "unknown provider",
     model: stringValue(row.embedding_model) || "unknown model",
     dimension: numberValue(row.embedding_dimension) || 0,
+  };
+}
+
+function rowToRagSearchResult(row: Record<string, unknown>, query: string, score: number): RagSearchResult {
+  const filePath = String(row.file_path || row.file_name || "workspace");
+  return {
+    id: String(row.id),
+    courseId: String(row.course_id),
+    fileId: String(row.file_id || ""),
+    fileName: String(row.file_name || filePath),
+    title: String(row.file_name || row.file_path || "RAG chunk"),
+    source: filePath,
+    citation: String(row.citation || filePath),
+    excerpt: excerptText(String(row.text || ""), query),
+    score,
+    path: filePath,
+    sectionKind: sectionKindForRow(String(row.section_id || ""), filePath),
+    taskId: taskIdForRow(String(row.section_id || ""), filePath),
+    chunkIndex: numberValue(row.chunk_index),
+    chunkCount: numberValue(row.chunk_count),
+  };
+}
+
+function rowToTextIndexChunk(row: RagChunkRow): RagTextIndexChunk {
+  return {
+    id: row.id,
+    semesterId: row.semester_id,
+    courseId: row.course_id,
+    sectionId: row.section_id,
+    fileId: row.file_id,
+    taskId: taskIdForRow(row.section_id, row.file_path),
+    fileName: row.file_name,
+    filePath: row.file_path,
+    sourcePath: row.source_path,
+    kind: row.kind,
+    weekNumber: row.week_number,
+    taskFileBucket: row.task_file_bucket,
+    chunkIndex: row.chunk_index,
+    chunkCount: row.chunk_count,
+    title: row.title,
+    citation: row.citation,
+    text: row.text,
+    parser: row.parser,
+    coverageStatus: row.coverage_status,
+    ocrApplied: row.ocr_applied,
+    sourceLabel: row.source_label,
+    sectionType: row.section_type,
+    sectionTitle: row.section_title,
+    sectionIndex: row.section_index,
+    chunkInSection: row.chunk_in_section,
+    chunksInSection: row.chunks_in_section,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 

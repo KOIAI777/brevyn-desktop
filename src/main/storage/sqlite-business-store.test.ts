@@ -66,6 +66,43 @@ try {
     testIndexingTask("idx-task-duplicate-incoming", indexingJob.id, "file-b"),
   ]);
   assert.equal(appendedJob?.totalFiles, 2);
+
+  store.upsertRagTextChunks([
+    {
+      id: "file-a:0",
+      semesterId: "semester_test",
+      courseId: "course_test",
+      sectionId: "course_test:shared",
+      fileId: "file-a",
+      fileName: "rubric.pdf",
+      filePath: "/course/rubric.pdf",
+      sourcePath: "/tmp/rubric.pdf",
+      kind: "pdf",
+      weekNumber: -1,
+      taskFileBucket: "",
+      chunkIndex: 0,
+      chunkCount: 1,
+      title: "Essay rubric",
+      citation: "rubric.pdf · page 1",
+      text: "The assessment rubric explains word count and deadline requirements.",
+      parser: "test",
+      coverageStatus: "complete",
+      ocrApplied: false,
+      sourceLabel: "page 1",
+      sectionType: "page",
+      sectionTitle: "Assessment rubric",
+      sectionIndex: 1,
+      chunkInSection: 1,
+      chunksInSection: 1,
+      createdAt: "2026-05-25T00:00:00.000Z",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    },
+  ]);
+  const ragMatches = store.searchRagTextChunks({ query: "rubric deadline", semesterId: "semester_test", courseId: "course_test" });
+  assert.equal(ragMatches.length, 1);
+  assert.equal(ragMatches[0].fileId, "file-a");
+  store.deleteRagTextChunksByFile("file-a");
+  assert.equal(store.searchRagTextChunks({ query: "rubric", semesterId: "semester_test", courseId: "course_test" }).length, 0);
 } finally {
   store.close();
   rmSync(tempDir, { recursive: true, force: true });

@@ -152,6 +152,7 @@ export class LocalStore {
       dbPath: join(this.rootDataDir, "indexes", "rag"),
       resolveEmbeddingProvider: () => this.providers.embeddingProvider(),
       resolveApiKey: (provider) => this.providers.apiKey(provider.id) || envApiKeyForProvider(provider),
+      textIndex: businessStore,
     });
     this.workspace = new WorkspaceService({
       rootDataDir: this.rootDataDir,

@@ -188,8 +188,9 @@ export function AgentRichPromptInput({
   });
 
   useEffect(() => {
-    if (!editor) return;
-    const placeholderExtension = editor.extensionManager.extensions.find((extension) => extension.name === "placeholder");
+    if (!editor || editor.isDestroyed) return;
+    const extensions = editor.extensionManager?.extensions ?? [];
+    const placeholderExtension = extensions.find((extension) => extension.name === "placeholder");
     if (placeholderExtension) {
       placeholderExtension.options.placeholder = placeholder;
       editor.view.dispatch(editor.state.tr);
@@ -197,7 +198,7 @@ export function AgentRichPromptInput({
   }, [editor, placeholder]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     if (value === lastEditorValueRef.current) return;
     editor.commands.setContent(textToTipTapContent(value, skills), { emitUpdate: false });
     lastEditorValueRef.current = value;

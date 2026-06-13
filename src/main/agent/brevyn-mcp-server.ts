@@ -81,7 +81,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
       ),
       sdk.tool(
         "rag_search",
-        "Semantic search over indexed Brevyn course materials. Use this for course-material questions, rubric evidence, lecture concepts, and assignment evidence before opening source files. Open text/code with Read; extract PDF/Office documents with matching Skills or command-line tools.",
+        "Search indexed Brevyn course materials. In a semester thread this searches all visible courses; in a course or task thread it defaults to the current course or task. Use this for course-material questions, rubric evidence, lecture concepts, and assignment evidence before opening source files. Open text/code with Read; extract PDF/Office documents with matching Skills or command-line tools.",
         {
           query: z.string().min(1).describe("Natural language search query for course materials."),
           courseId: z.string().optional().describe("Optional course id in the current semester. Omit to use the current agent scope."),
@@ -192,15 +192,15 @@ async function ragSearch(
 ) {
   if (!options.ragSearch) throw new Error("RAG search is not available in this Brevyn runtime.");
   const courseId = resolveCourseId(options, args.courseId);
-  if (courseId === SEMESTER_HOME_COURSE_ID) {
-    throw new Error("RAG search requires a course or task scoped thread.");
+  const searchCourseId = courseId === SEMESTER_HOME_COURSE_ID ? undefined : courseId;
+  if (searchCourseId) {
+    requireCourseInSemester(options, searchCourseId);
   }
-  requireCourseInSemester(options, courseId);
-  const taskId = resolveTaskFilter(options, courseId, args);
+  const taskId = searchCourseId ? resolveTaskFilter(options, searchCourseId, args) : undefined;
   const limit = args.limit || 6;
   const results = await options.ragSearch({
     query: args.query,
-    courseId,
+    courseId: searchCourseId,
     taskId,
     sectionKind: args.sectionKind,
     limit,
@@ -208,7 +208,8 @@ async function ragSearch(
   return {
     query: args.query,
     filters: {
-      courseId,
+      scope: searchCourseId ? "course" : "semester",
+      courseId: searchCourseId || null,
       taskId: taskId || null,
       sectionKind: args.sectionKind || null,
       limit,

@@ -33,6 +33,7 @@ import {
 import { recordCleanupFailure, type CleanupFailure } from "./cleanup-log";
 import type { ProviderService } from "./provider-service";
 import type { RagIndexService, RagSearchOptions } from "./rag-index-service";
+import { searchHybridRag } from "./rag-search-orchestrator";
 import {
   cloneFile,
   cloneFiles,
@@ -98,14 +99,17 @@ export class FileService {
       const semesterId = currentActiveSemesterId(this.options.businessStore);
       if (!semesterId) return [];
       const archivedCourseIds = archivedCourseIdsForSemester(this.options.businessStore, semesterId);
-      return await this.options.ragIndex.search(
-        query,
+      return await searchHybridRag({
         semesterId,
-        courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
-        options.limit,
-        archivedCourseIds,
+        query,
+        courseId: courseId && courseId !== SEMESTER_HOME_COURSE_ID ? courseId : undefined,
+        maxResults: options.limit,
+        excludeCourseIds: archivedCourseIds,
         options,
-      );
+        vectorSearch: (searchQuery, searchSemesterId, searchCourseId, maxResults, excludedCourseIds, searchOptions) =>
+          this.options.ragIndex.search(searchQuery, searchSemesterId, searchCourseId, maxResults, excludedCourseIds, searchOptions),
+        textSearch: (input) => this.options.businessStore.searchRagTextChunks(input),
+      });
     } catch (error) {
       console.warn("[rag] Search failed", error);
       throw error;
