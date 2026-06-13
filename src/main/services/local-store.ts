@@ -98,7 +98,7 @@ export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
 const MAX_AGENT_ATTACHMENT_DATA_BYTES = 100 * 1024 * 1024;
 const CLOUD_ENTITLEMENTS_USAGE_REFRESH_DELAY_MS = 2_500;
-const CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS = 15_000;
+const CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS = 30_000;
 
 interface LocalStoreOptions {
   isPackaged?: boolean;

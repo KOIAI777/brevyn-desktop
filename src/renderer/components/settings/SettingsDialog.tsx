@@ -26,7 +26,6 @@ import { ProviderSettingsPage } from "@/components/settings/providers/ProviderSe
 import { useProviderSettingsState } from "@/components/settings/providers/useProviderSettingsState";
 import { SemesterSettingsPage } from "@/components/settings/semesters/SemesterSettingsPage";
 import { SkillSettingsPage } from "@/components/settings/skills/SkillSettingsPage";
-import { MiniMetric } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import {
   type CloudAccountStatus,
@@ -473,6 +472,7 @@ export function SettingsDialog({
         message: <RedeemConfirmationMessage result={result} groups={result.cloud.groups ?? cloudStatus?.groups ?? []} />,
         confirmLabel: "知道了",
         cancelLabel: "关闭",
+        tone: "success",
       });
     } catch (error) {
       setCloudStatusLine(cloudRedeemErrorMessage(error));
@@ -736,8 +736,9 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
   );
 }
 
-function cloudSyncResultLine(status: "synced" | "provisioning", detail?: string, providerName?: string): string {
+function cloudSyncResultLine(status: "synced" | "provisioning" | "locked", detail?: string, providerName?: string): string {
   if (status === "synced") return providerName ? `官方模型配置已同步：${providerName}。` : "官方模型配置已同步。";
+  if (status === "locked") return detail || "兑换余额套餐后可启用官方模型配置。";
   return detail || "Cloud 正在后台准备官方模型配置，稍后可刷新或重新同步。";
 }
 
@@ -749,7 +750,7 @@ function cloudActivateResultLine(providerName?: string, detail?: string): string
 function cloudRefreshStatusLine(status: CloudAccountStatus, fallback: string): string {
   if (status.lastError) return status.lastError;
   if (status.entitlements?.refreshLimited) {
-    const seconds = status.entitlements.nextRefreshAfterSeconds || 15;
+    const seconds = status.entitlements.nextRefreshAfterSeconds || 30;
     return `账号已刷新，余额刚同步过，${seconds} 秒后可再次强制刷新。`;
   }
   if (status.entitlements?.stale) return "账号已刷新，余额暂时显示上次同步结果。";
@@ -780,21 +781,71 @@ function redeemConfirmationTitle(result: CloudRedeemCodeResult): string {
 function RedeemConfirmationMessage({ result, groups }: { result: CloudRedeemCodeResult; groups: CloudGatewayGroup[] }) {
   const redemption = result.result.redemption;
   const isSubscription = redemption.kind === "subscription";
+  const productName = redemption.productName || redeemKindLabel(redemption.kind);
+  const creditedValue = redeemValueLabel(result);
+  const planName = redeemedPlanLabel(result, groups);
+  const statusLabel = redeemConfirmationStatusLabel(result);
+  const statusTone = result.status === "gateway_failed" || result.providerSyncStatus === "provisioning"
+    ? "pending"
+    : result.providerSyncStatus === "failed"
+      ? "warning"
+      : "ready";
   return (
     <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <MiniMetric label="商品" value={redemption.productName || redeemKindLabel(redemption.kind)} />
-        <MiniMetric label="到账" value={redeemValueLabel(result)} />
-        <MiniMetric label="套餐" value={redeemedPlanLabel(result, groups)} />
-        <MiniMetric label="状态" value={redeemConfirmationStatusLabel(result)} />
+      <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-[hsl(var(--card))] via-[hsl(var(--muted))]/55 to-[hsl(var(--accent))]/45 p-4 text-foreground shadow-sm ring-1 ring-border/60">
+        <div className="pointer-events-none absolute -right-10 -top-14 h-32 w-32 rounded-full bg-emerald-400/20 blur-3xl dark:bg-emerald-300/10" />
+        <div className="relative space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Redeemed</div>
+              <div className="mt-1 truncate text-[13px] font-semibold text-foreground">{productName}</div>
+            </div>
+            <span
+              className={cx(
+                "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ring-1",
+                statusTone === "ready" && "bg-emerald-50 text-emerald-700 ring-emerald-200/70 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/20",
+                statusTone === "pending" && "bg-amber-50 text-amber-800 ring-amber-200/70 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/20",
+                statusTone === "warning" && "bg-orange-50 text-orange-800 ring-orange-200/70 dark:bg-orange-400/10 dark:text-orange-300 dark:ring-orange-400/20",
+              )}
+            >
+              {statusLabel}
+            </span>
+          </div>
+
+          <div>
+            <div className="text-[28px] font-semibold leading-none tracking-[-0.04em] text-foreground">{creditedValue}</div>
+            <div className="mt-2 text-[12px] leading-5 text-muted-foreground">
+              已加入 {planName}。余额和套餐信息会自动同步到本地账号。
+            </div>
+          </div>
+        </div>
       </div>
+
+      {result.providerSyncStatus === "synced" && (
+        <div className="rounded-[var(--radius-control)] bg-muted/55 px-3 py-2 text-[11px] leading-5 text-muted-foreground ring-1 ring-border/50">
+          官方模型配置已同步，可直接在会话中使用。
+        </div>
+      )}
+
+      {result.providerSyncStatus === "provisioning" && (
+        <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-3 py-2 text-[11px] leading-5 text-amber-900 ring-1 ring-amber-200/70 dark:bg-amber-400/10 dark:text-amber-200 dark:ring-amber-400/20">
+          {result.providerSyncDetail || "官方模型配置正在后台准备，稍后刷新账号即可使用。"}
+        </div>
+      )}
+
+      {result.providerSyncStatus === "failed" && (
+        <div className="rounded-[var(--radius-control)] bg-orange-50/75 px-3 py-2 text-[11px] leading-5 text-orange-900 ring-1 ring-orange-200/70 dark:bg-orange-400/10 dark:text-orange-200 dark:ring-orange-400/20">
+          {result.providerSyncDetail || "本地官方配置暂未同步成功，稍后可以在账号页重新同步。"}
+        </div>
+      )}
+
       {isSubscription && (
-        <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900 shadow-sm ring-1 ring-amber-200/70">
+        <div className="rounded-[var(--radius-control)] bg-muted/45 px-3 py-2 text-[11px] leading-5 text-muted-foreground ring-1 ring-border/50">
           订阅套餐的日、周、月额度按对应周期刷新；重复购买同一订阅只延长到期时间，不会叠加当前周期额度。
         </div>
       )}
       {result.status === "gateway_failed" && (
-        <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-2.5 py-2 text-[11px] leading-5 text-amber-900 shadow-sm ring-1 ring-amber-200/70">
+        <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-3 py-2 text-[11px] leading-5 text-amber-900 ring-1 ring-amber-200/70 dark:bg-amber-400/10 dark:text-amber-200 dark:ring-amber-400/20">
           兑换已记录，但网关同步暂未完成。稍后刷新账号信息，或在后台重试这条兑换记录。
         </div>
       )}
@@ -867,6 +918,18 @@ function cloudRedeemCodeMessage(code: string): string {
       return "兑换失败，请稍后再试。";
     case "redeem_gateway_sync_failed":
       return "兑换已记录，但套餐或积分同步暂未完成，请稍后刷新。";
+    case "official_capability_not_active":
+      return "兑换余额套餐后可启用官方模型配置。";
+    case "provider_provision_rate_limited":
+      return "官方模型配置正在准备中，请稍后刷新。";
+    case "gateway_provision_in_progress":
+    case "gateway_provision_queued":
+    case "gateway_credential_missing":
+      return "官方模型配置正在后台准备，请稍后刷新。";
+    case "group_not_official_capability":
+      return "这个套餐不包含官方模型配置，已尝试同步可用的官方能力。";
+    case "official_capability_query_failed":
+      return "暂时无法校验官方能力资格，请稍后重试。";
     case "unauthorized":
     case "invalid_refresh_token":
       return "登录状态已失效，请重新登录。";
@@ -905,6 +968,10 @@ function cloudAuthCodeMessage(code: string, mode: CloudAuthMode): string {
       return "注册暂时失败，请稍后再试。";
     case "token_create_failed":
       return `${isRegister ? "注册" : "登录"}成功但登录态创建失败，请稍后重试。`;
+    case "official_capability_not_active":
+      return `${isRegister ? "账号已创建" : "登录成功"}。兑换余额套餐后可启用官方模型配置。`;
+    case "provider_provision_rate_limited":
+      return "官方模型配置正在准备中，请稍后刷新。";
     case "unauthorized":
     case "invalid_refresh_token":
       return "登录状态已失效，请重新登录。";

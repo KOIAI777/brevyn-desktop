@@ -157,8 +157,12 @@ export class CloudAccountService {
     }, false);
     this.saveTokens(result.tokens);
     this.patchData({ user: result.user, lastError: "" });
-    await this.refresh({ forceEntitlements: true, reason: "login" });
-    return this.syncOfficialProvider({});
+    const cloud = await this.refresh({ forceEntitlements: true, reason: "login" });
+    return {
+      status: "locked",
+      detail: "登录成功。",
+      cloud,
+    };
   }
 
   async register(input: CloudAuthInput): Promise<CloudOfficialProviderSyncResult> {
@@ -173,8 +177,12 @@ export class CloudAccountService {
     }, false);
     this.saveTokens(result.tokens);
     this.patchData({ user: result.user, lastError: "" });
-    await this.refresh({ forceEntitlements: true, reason: "register" });
-    return this.syncOfficialProvider({});
+    const cloud = await this.refresh({ forceEntitlements: true, reason: "register" });
+    return {
+      status: "locked",
+      detail: "账号已创建。兑换余额套餐后可启用官方模型配置。",
+      cloud,
+    };
   }
 
   async refresh(input: CloudRefreshInput = {}): Promise<CloudAccountStatus> {
@@ -253,11 +261,23 @@ export class CloudAccountService {
 
   async syncOfficialProvider(input: { externalGroupId?: number } = {}): Promise<CloudOfficialProviderSyncResult> {
     this.requireRefreshToken();
-    const requestedGroupId = positiveInteger(input.externalGroupId) || this.defaultExternalGroupId();
+    const requestedGroupId = positiveInteger(input.externalGroupId);
     const query = requestedGroupId > 0 ? `?externalGroupId=${encodeURIComponent(String(requestedGroupId))}` : "";
     const result = await this.request<OfficialProviderResult>(`/api/v1/provider/official${query}`);
     const cloudProviders = normalizedOfficialCloudProviders(result);
     if (cloudProviders.length === 0) {
+      if (isOfficialCapabilityLocked(result)) {
+        this.patchData({
+          lastError: "",
+          lastSyncedAt: new Date().toISOString(),
+        });
+        return {
+          status: "locked",
+          detail: officialCapabilityLockedMessage(result.detail || result.error),
+          retryAfterSeconds: result.retryAfterSeconds,
+          cloud: this.status(),
+        };
+      }
       this.patchData({
         lastError: result.detail || result.error || "官方配置正在后台配置。",
         lastSyncedAt: new Date().toISOString(),
@@ -279,7 +299,7 @@ export class CloudAccountService {
         providerId: saved.id,
         purpose: saved.purpose,
         externalGroupId,
-        groupName: group?.name || result.apiKey?.groupName || cloudProvider.name || `group #${externalGroupId}`,
+        groupName: group?.name || result.apiKey?.groupName || cloudProvider.name || this.groupDisplayName(externalGroupId),
         selectedModel: saved.selectedModel,
         modelCount: saved.models.filter((model) => model.enabled !== false).length,
         syncedAt: new Date().toISOString(),
@@ -333,8 +353,8 @@ export class CloudAccountService {
     return {
       status: "synced",
       detail: detail || (activated?.purpose === "agent"
-        ? `已切换到 ${group?.name || `group #${externalGroupId}`}。`
-        : `已启用 ${group?.name || `group #${externalGroupId}`} 官方能力。`),
+        ? `已切换到 ${group?.name || this.groupDisplayName(externalGroupId)}。`
+        : `已启用 ${group?.name || this.groupDisplayName(externalGroupId)} 官方能力。`),
       provider: activated,
       providers: activatedProviders,
       cloud,
@@ -362,7 +382,7 @@ export class CloudAccountService {
     let providerSyncSucceeded = false;
     const externalGroupId = positiveInteger(redeemed.result.redemption.externalGroupId);
 
-    if (externalGroupId > 0 && redeemed.status !== "gateway_failed") {
+    if (externalGroupId > 0 && redeemed.status !== "gateway_failed" && this.isOfficialCapabilityGroup(externalGroupId)) {
       try {
         const synced = await this.activateOfficialProvider({ externalGroupId });
         cloud = synced.cloud;
@@ -375,6 +395,8 @@ export class CloudAccountService {
         providerSyncFailed = true;
         providerSyncDetails.push(`兑换套餐同步失败：${errorMessage(error)}`);
       }
+    }
+    if (externalGroupId > 0 && redeemed.status !== "gateway_failed") {
       try {
         const synced = await this.syncOfficialCapabilityProviders();
         if (synced) {
@@ -383,7 +405,11 @@ export class CloudAccountService {
           syncedProviders.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
           providerSyncSucceeded = providerSyncSucceeded || synced.status === "synced";
           providerSyncProvisioning = providerSyncProvisioning || synced.status === "provisioning";
-          if (synced.detail) providerSyncDetails.push(synced.detail);
+          if (synced.status === "locked") {
+            providerSyncDetails.push(synced.detail || officialCapabilityLockedMessage());
+          } else if (synced.detail) {
+            providerSyncDetails.push(synced.detail);
+          }
         }
       } catch (error) {
         providerSyncFailed = true;
@@ -500,7 +526,7 @@ export class CloudAccountService {
       item.enabled && item.purpose === purpose && isOfficialProviderId(item.id) && item.id !== providerId,
     );
     const selectedModel = selectedEnabledModel(existing?.selectedModel || provider.selectedModel, models);
-    const nameSuffix = group?.name || (externalGroupId > 0 ? `group #${externalGroupId}` : "");
+    const nameSuffix = group?.name || (externalGroupId > 0 ? `套餐 ${externalGroupId}` : "");
     const draft: ProviderDraftInput = {
       id: providerId,
       purpose,
@@ -535,17 +561,19 @@ export class CloudAccountService {
       const id = positiveInteger(value);
       if (id > 0) groupIds.add(id);
     };
-    for (const ref of this.data.providerRefs ?? []) addGroupId(ref.externalGroupId);
-    addGroupId(this.data.currentGroup?.externalGroupId);
-    addGroupId(this.data.gateway?.defaultGroupId);
     for (const group of this.officialCapabilityGroups()) addGroupId(group.externalGroupId);
+    const entitledOfficialGroupIds = new Set(groupIds);
+    for (const ref of this.data.providerRefs ?? []) {
+      const externalGroupId = positiveInteger(ref.externalGroupId);
+      if (entitledOfficialGroupIds.has(externalGroupId)) addGroupId(externalGroupId);
+    }
 
     const errors: string[] = [];
     for (const externalGroupId of groupIds) {
       try {
         await this.syncOfficialProvider({ externalGroupId });
       } catch (error) {
-        errors.push(`官方配置同步失败 group #${externalGroupId}：${errorMessage(error)}`);
+        errors.push(`${this.groupDisplayName(externalGroupId)} 官方配置同步失败：${errorMessage(error)}`);
       }
     }
     return errors;
@@ -580,10 +608,11 @@ export class CloudAccountService {
         const synced = await this.syncOfficialProvider({ externalGroupId });
         cloud = synced.cloud;
         if (synced.status === "provisioning") status = "provisioning";
+        if (synced.status === "locked") status = "locked";
         providers.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
         if (synced.detail) details.push(synced.detail);
       } catch (error) {
-        errors.push(`group #${externalGroupId}：${errorMessage(error)}`);
+        errors.push(`${this.groupDisplayName(externalGroupId)}：${errorMessage(error)}`);
       }
     }
     const deduped = dedupeProvidersById(providers);
@@ -704,6 +733,14 @@ export class CloudAccountService {
     return (this.data.groups ?? []).find((group) => group.externalGroupId === externalGroupId);
   }
 
+  private isOfficialCapabilityGroup(externalGroupId: number): boolean {
+    return this.officialCapabilityGroups().some((group) => positiveInteger(group.externalGroupId) === externalGroupId);
+  }
+
+  private groupDisplayName(externalGroupId: number): string {
+    return this.groupForExternalId(externalGroupId)?.name || (externalGroupId > 0 ? `套餐 ${externalGroupId}` : "当前套餐");
+  }
+
   private upsertProviderRef(ref: CloudOfficialProviderRef): void {
     const refs = cloneProviderRefs(this.data.providerRefs ?? []);
     const index = refs.findIndex((item) =>
@@ -768,16 +805,19 @@ function encrypt(value: string): string {
 async function cloudRequestError(response: Response): Promise<Error> {
   let code = response.statusText || "request_failed";
   let message = `${response.status} ${response.statusText}`;
+  let detail = "";
   try {
     const payload = await response.json() as { error?: unknown; detail?: unknown; message?: unknown };
     if (typeof payload.error === "string") {
       code = payload.error;
-      message = typeof payload.detail === "string" && payload.detail ? `${payload.error}: ${payload.detail}` : payload.error;
+      detail = typeof payload.detail === "string" ? payload.detail : "";
+      message = detail ? `${payload.error}: ${detail}` : payload.error;
     } else if (payload.error && typeof payload.error === "object") {
       const nested = payload.error as { code?: unknown; message?: unknown };
       code = stringValue(nested.code) || code;
       message = stringValue(nested.message) || code;
     } else if (typeof payload.detail === "string" && payload.detail) {
+      detail = payload.detail;
       message = payload.detail;
     } else if (typeof payload.message === "string" && payload.message) {
       message = payload.message;
@@ -785,9 +825,31 @@ async function cloudRequestError(response: Response): Promise<Error> {
   } catch {
     // Keep the HTTP status fallback.
   }
+  message = friendlyCloudErrorMessage(code, detail || message);
   const error = new Error(message);
   error.name = code;
   return error;
+}
+
+function friendlyCloudErrorMessage(code: string, detail?: string): string {
+  switch (code) {
+    case "official_capability_not_active":
+      return "兑换余额套餐后可启用官方模型配置。";
+    case "provider_provision_rate_limited":
+      return "官方模型配置正在准备中，请稍后刷新。";
+    case "gateway_provision_in_progress":
+    case "gateway_provision_queued":
+    case "gateway_credential_missing":
+      return "官方模型配置正在后台准备，请稍后刷新。";
+    case "group_not_official_capability":
+      return "这个套餐不包含官方模型配置，已尝试同步可用的官方能力。";
+    case "group_not_available":
+      return "当前账号无权使用该套餐分组。";
+    case "official_capability_query_failed":
+      return "暂时无法校验官方能力资格，请稍后重试。";
+    default:
+      return detail || code || "Cloud 请求失败。";
+  }
 }
 
 async function cloudFetch(url: string, init: RequestInit): Promise<Response> {
@@ -960,6 +1022,16 @@ function hasOfficialCapability(group: { officialCapabilities?: unknown; official
   return cloneOfficialCapabilities(group.officialCapabilities, config).length > 0;
 }
 
+function isOfficialCapabilityLocked(result: OfficialProviderResult): boolean {
+  return stringValue(result.status) === "locked" || stringValue(result.error) === "official_capability_not_active";
+}
+
+function officialCapabilityLockedMessage(detail?: unknown): string {
+  const text = stringValue(detail);
+  if (text && text !== "official_capability_not_active") return text;
+  return "兑换余额套餐后可启用官方模型配置。";
+}
+
 function providerToDraft(provider: ModelProviderConfig, overrides: Partial<ProviderDraftInput> = {}): ProviderDraftInput {
   return {
     id: provider.id,
@@ -1044,7 +1116,7 @@ function cloneGroups(groups: unknown): CloudGatewayGroup[] {
     const officialCapabilities = cloneOfficialCapabilities(item.officialCapabilities, officialModelConfig);
     return [{
       externalGroupId,
-      name: stringValue(item.name) || `group #${externalGroupId}`,
+      name: stringValue(item.name) || `套餐 ${externalGroupId}`,
       description: stringValue(item.description),
       platform: stringValue(item.platform),
       subscriptionType: stringValue(item.subscriptionType),
@@ -1099,7 +1171,7 @@ function cloneBalanceEntitlement(raw: unknown): CloudGatewayEntitlements["balanc
   const officialCapabilities = cloneOfficialCapabilities(item.officialCapabilities, officialModelConfig);
   return [{
     externalGroupId,
-    name: stringValue(item.name) || `group #${externalGroupId}`,
+    name: stringValue(item.name) || `套餐 ${externalGroupId}`,
     description: stringValue(item.description),
     platform: stringValue(item.platform),
     billingKind: "balance",
@@ -1129,7 +1201,7 @@ function cloneSubscriptionEntitlement(raw: unknown): CloudGatewayEntitlements["s
   const officialCapabilities = cloneOfficialCapabilities(item.officialCapabilities, officialModelConfig);
   return [{
     externalGroupId,
-    name: stringValue(item.name) || `group #${externalGroupId}`,
+    name: stringValue(item.name) || `套餐 ${externalGroupId}`,
     description: stringValue(item.description),
     platform: stringValue(item.platform),
     billingKind: "subscription",

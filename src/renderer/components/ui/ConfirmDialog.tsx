@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { cx } from "@/lib/cn";
@@ -8,7 +8,7 @@ export type ConfirmRequest = {
   message?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "success";
 };
 
 export function useConfirmDialog() {
@@ -78,7 +78,8 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
   }, [onResolve]);
 
   const isDanger = request.tone === "danger";
-  const Icon = isDanger ? AlertTriangle : AlertCircle;
+  const isSuccess = request.tone === "success";
+  const Icon = isDanger ? AlertTriangle : isSuccess ? CheckCircle2 : AlertCircle;
 
   function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Tab") return;
@@ -120,7 +121,11 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
             <span
               className={cx(
                 "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
-                isDanger ? "border-red-200 bg-red-50 text-red-600" : "border-border bg-muted text-muted-foreground",
+                isDanger
+                  ? "border-red-200 bg-red-50 text-red-600"
+                  : isSuccess
+                    ? "border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-400/10 dark:text-emerald-300"
+                    : "border-border bg-muted text-muted-foreground",
               )}
             >
               <Icon className="h-4 w-4" />

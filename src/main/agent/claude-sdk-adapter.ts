@@ -1,7 +1,9 @@
-import type { CanUseTool, McpServerConfig, Options as ClaudeSdkOptions, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta, SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, McpServerConfig, Options as ClaudeSdkOptions, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SdkBeta, SdkPluginConfig, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import type * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 import type { AgentProviderKind, ModelProviderConfig } from "../../types/domain";
 import { AnthropicAgentAdapter } from "../providers/anthropic-agent-adapter";
 
@@ -39,6 +41,8 @@ interface MessageChannel {
   consumeKeepOpenOnResult: () => boolean;
 }
 
+const activeSdkProcesses = new Map<string, { pid: number; kill: (signal?: NodeJS.Signals) => boolean }>();
+
 export class ClaudeSdkAdapter {
   private readonly activeQueries = new Map<string, Query>();
   private readonly activeChannels = new Map<string, MessageChannel>();
@@ -65,6 +69,7 @@ export class ClaudeSdkAdapter {
         parent_tool_use_id: null,
       } as SDKUserMessage);
     }
+    const sdkCliPath = resolveClaudeSdkCliPath();
     const options: ClaudeSdkOptions & { toolUseConcurrency?: number } = {
         abortController: input.abortController,
         cwd: input.cwd,
@@ -78,6 +83,7 @@ export class ClaudeSdkAdapter {
         },
         resume: input.resumeSessionId,
         systemPrompt: input.systemPrompt,
+        pathToClaudeCodeExecutable: sdkCliPath,
         ...(input.settings ? { settings: input.settings } : {}),
         settingSources: ["project"],
         // Keep partial SDK events in the live stream so the renderer can reveal
@@ -116,6 +122,7 @@ export class ClaudeSdkAdapter {
         stderr: (data: string) => {
           if (data.trim()) console.warn("[claude-agent-sdk]", data.trimEnd());
         },
+        spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => spawnClaudeCodeProcess(sessionKey, spawnOptions),
     };
     const query = sdk.query({
       prompt: input.slashCommand ? input.prompt : channel!.generator,
@@ -143,6 +150,7 @@ export class ClaudeSdkAdapter {
       if (sessionKey) {
         this.activeQueries.delete(sessionKey);
         this.activeChannels.delete(sessionKey);
+        activeSdkProcesses.delete(sessionKey);
       }
       channel?.close();
     }
@@ -286,6 +294,125 @@ function runtimeNodePath(existing?: string): string {
     existing || process.env.NODE_PATH || "",
   ].filter(Boolean);
   return Array.from(new Set(paths)).join(process.platform === "win32" ? ";" : ":");
+}
+
+let cachedClaudeSdkCliPath = "";
+
+function resolveClaudeSdkCliPath(): string {
+  if (cachedClaudeSdkCliPath && isUsableClaudeSdkCliPath(cachedClaudeSdkCliPath)) {
+    return cachedClaudeSdkCliPath;
+  }
+
+  const candidates = uniqueStrings(claudeSdkCliPathCandidates().map(realFsPathForAsarCandidate));
+  const found = candidates.find(isUsableClaudeSdkCliPath);
+  if (found) {
+    cachedClaudeSdkCliPath = found;
+    return found;
+  }
+
+  const existingButNotUsable = candidates.find((candidate) => existsSync(candidate));
+  const reason = existingButNotUsable
+    ? `找到文件但不可执行：${existingButNotUsable}`
+    : "没有找到当前平台的 Claude Agent SDK native binary。";
+  throw new Error([
+    "Brevyn 本地 Agent 运行组件缺失，无法启动本地 Agent。",
+    reason,
+    "请重新安装最新版 Brevyn，或重新打包包含当前平台的 @anthropic-ai/claude-agent-sdk native 组件。",
+    "检查过的路径：",
+    ...candidates.map((candidate) => `- ${candidate}`),
+  ].join("\n"));
+}
+
+function claudeSdkCliPathCandidates(): string[] {
+  const scopedPackageDir = "@anthropic-ai";
+  const subpackage = `claude-agent-sdk-${process.platform}-${process.arch}`;
+  const binaryName = process.platform === "win32" ? "claude.exe" : "claude";
+  const candidates: string[] = [];
+  const addFromAnthropicDir = (anthropicDir: string) => {
+    if (!anthropicDir) return;
+    candidates.push(join(anthropicDir, subpackage, binaryName));
+    candidates.push(join(anthropicDir, "claude-agent-sdk", "node_modules", scopedPackageDir, subpackage, binaryName));
+  };
+  const addFromSdkEntry = (sdkEntryPath: string) => {
+    if (!sdkEntryPath) return;
+    addFromAnthropicDir(dirname(dirname(sdkEntryPath)));
+  };
+
+  try {
+    addFromSdkEntry(createRequire(__filename).resolve("@anthropic-ai/claude-agent-sdk"));
+  } catch (error) {
+    console.warn("[ClaudeSdkAdapter] Failed to resolve Claude Agent SDK entry via createRequire:", error);
+  }
+
+  const resourcePath = process.resourcesPath || "";
+  addFromAnthropicDir(join(__dirname, "..", "node_modules", scopedPackageDir));
+  addFromAnthropicDir(join(process.cwd(), "node_modules", scopedPackageDir));
+  addFromAnthropicDir(join(resourcePath, "app.asar", "node_modules", scopedPackageDir));
+  addFromAnthropicDir(join(resourcePath, "app.asar.unpacked", "node_modules", scopedPackageDir));
+  addFromAnthropicDir(join(resourcePath, "app", "node_modules", scopedPackageDir));
+
+  return candidates;
+}
+
+function realFsPathForAsarCandidate(candidate: string): string {
+  if (candidate.includes(".asar.unpacked")) return candidate;
+  return candidate.replace(/\.asar([/\\])/, ".asar.unpacked$1");
+}
+
+function isUsableClaudeSdkCliPath(candidate: string): boolean {
+  try {
+    const stat = statSync(candidate);
+    if (!stat.isFile()) return false;
+    if (process.platform === "win32") return true;
+    return (stat.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function spawnClaudeCodeProcess(sessionKey: string | undefined, spawnOptions: SpawnOptions): SpawnedProcess {
+  const child = spawn(spawnOptions.command, spawnOptions.args, {
+    cwd: spawnOptions.cwd,
+    env: spawnOptions.env,
+    signal: spawnOptions.signal,
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    if (text.trim()) console.warn("[claude-agent-sdk]", text.trimEnd());
+  });
+  if (sessionKey && child.pid) {
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    activeSdkProcesses.set(sessionKey, {
+      pid: child.pid,
+      kill: (signal?: NodeJS.Signals) => child.kill(signal),
+    });
+    spawnOptions.signal.addEventListener("abort", () => {
+      forceKillTimer = setTimeout(() => {
+        const current = activeSdkProcesses.get(sessionKey);
+        if (current && current.pid === child.pid && child.exitCode === null && !child.killed) {
+          current.kill(process.platform === "win32" ? "SIGTERM" : "SIGKILL");
+        }
+      }, 5_000);
+      forceKillTimer.unref?.();
+    }, { once: true });
+    child.once("exit", () => {
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      const current = activeSdkProcesses.get(sessionKey);
+      if (current?.pid === child.pid) activeSdkProcesses.delete(sessionKey);
+    });
+  }
+  child.once("error", (error: NodeJS.ErrnoException) => {
+    if (["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes(error.code || "")) {
+      console.warn(`[ClaudeSdkAdapter] Failed to spawn Claude Agent SDK binary: ${error.code} ${spawnOptions.command}`);
+    }
+  });
+  return child as unknown as SpawnedProcess;
 }
 
 const safeToolPolicy: CanUseTool = async (toolName, input, options): Promise<PermissionResult> => {

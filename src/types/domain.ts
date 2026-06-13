@@ -1325,7 +1325,7 @@ export interface CloudRedeemCodeInput {
 }
 
 export interface CloudOfficialProviderSyncResult {
-  status: "synced" | "provisioning";
+  status: "synced" | "provisioning" | "locked";
   detail?: string;
   retryAfterSeconds?: number;
   provider?: ModelProviderConfig;
