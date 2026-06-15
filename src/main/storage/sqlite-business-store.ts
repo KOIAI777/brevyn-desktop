@@ -16,18 +16,6 @@ import type {
   UpdateTaskInput,
   BrevynTask,
   FileIndexingStatus,
-  ReferenceCreateInput,
-  ReferenceCreator,
-  ReferenceCreatorRole,
-  ReferenceItem,
-  ReferenceItemType,
-  ReferenceScope,
-  ReferenceScopeInput,
-  ReferenceScopeQuery,
-  ReferenceScopeStatus,
-  ReferenceScopeType,
-  ReferenceSourceKind,
-  ReferenceUpdateInput,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -117,7 +105,7 @@ export interface RagTextSearchResult {
 
 const require = createRequire(__filename);
 const BUSINESS_SCHEMA_VERSION = 1;
-const BUSINESS_SCHEMA_NAME = "business_schema_v1";
+const BUSINESS_SCHEMA_NAME = "business_schema_v1_clean_baseline";
 const DEFAULT_INDEXING_TASK_MAX_ATTEMPTS = 5;
 const now = () => new Date().toISOString();
 
@@ -422,7 +410,6 @@ export class SQLiteBusinessStore {
   deleteSemesterDeep(semesterId: string): boolean {
     this.db.exec("begin immediate;");
     try {
-      this.run("delete from reference_scopes where semester_id = ?", semesterId);
       this.run("delete from rag_chunks_fts where semester_id = ?", semesterId);
       const courseRows = this.all("select id from courses where semester_id = ?", semesterId);
       for (const row of courseRows) this.deleteCourseRows(stringValue(row.id));
@@ -587,7 +574,6 @@ export class SQLiteBusinessStore {
         taskId,
       );
       this.run("delete from indexing_jobs where section_id = ?", sectionId);
-      this.run("delete from reference_scopes where task_id = ?", taskId);
       this.run("delete from workspace_files where task_id = ?", taskId);
       this.run("delete from threads where task_id = ?", taskId);
       this.run("delete from timetable_events where task_id = ?", taskId);
@@ -1236,132 +1222,7 @@ export class SQLiteBusinessStore {
     this.run("delete from rag_chunks_fts where semester_id = ?", semesterId);
   }
 
-  listReferences(query: ReferenceScopeQuery = {}): ReferenceItem[] {
-    const where = query.includeArchived ? ["1 = 1"] : ["reference_items.archived_at is null"];
-    const params: unknown[] = [];
-    const needsScope = Boolean(query.semesterId || query.courseId || query.taskId);
-    if (needsScope) {
-      if (query.taskId) {
-        where.push("reference_scopes.task_id = ?");
-        params.push(query.taskId);
-      } else if (query.courseId) {
-        where.push("reference_scopes.course_id = ?");
-        params.push(query.courseId);
-      } else if (query.semesterId) {
-        where.push("reference_scopes.semester_id = ?");
-        params.push(query.semesterId);
-      }
-      if (!query.includeCandidates) where.push("reference_scopes.status = 'active'");
-    }
-    const rows = this.all(
-      `select distinct reference_items.*
-       from reference_items
-       ${needsScope ? "join reference_scopes on reference_scopes.reference_id = reference_items.id" : ""}
-       where ${where.join(" and ")}
-       order by coalesce(reference_items.year, '') desc, reference_items.updated_at desc`,
-      ...params,
-    );
-    return rows.map((row) => this.hydrateReference(row));
-  }
-
-  getReference(referenceId: string): ReferenceItem | null {
-    const row = this.db.prepare("select * from reference_items where id = ?").get(referenceId) as Row | undefined;
-    return row ? this.hydrateReference(row) : null;
-  }
-
-  createReference(input: ReferenceCreateInput): ReferenceItem {
-    const timestamp = now();
-    const referenceId = `ref_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-    this.insertReferenceRecord(referenceId, input, timestamp);
-    this.replaceReferenceCreators(referenceId, input.creators || [], timestamp);
-    this.replaceReferenceTags(referenceId, input.tags || [], timestamp);
-    if (input.scope) {
-      this.addReferenceScope({
-        referenceId,
-        scopeType: input.scope.scopeType,
-        semesterId: input.scope.semesterId,
-        courseId: input.scope.courseId,
-        taskId: input.scope.taskId,
-        status: input.scope.status,
-        addedBy: input.scope.addedBy,
-        note: input.scope.note,
-      });
-    }
-    const created = this.getReference(referenceId);
-    if (!created) throw new Error("Failed to create reference.");
-    return created;
-  }
-
-  updateReference(input: ReferenceUpdateInput): ReferenceItem {
-    const current = this.getReference(input.id);
-    if (!current) throw new Error("Reference not found.");
-    const next: ReferenceCreateInput = {
-      ...current,
-      ...input,
-      creators: input.creators ?? current.creators,
-      tags: input.tags ?? current.tags,
-      rawCslJson: input.rawCslJson ?? current.rawCslJson,
-    };
-    this.insertReferenceRecord(input.id, next, current.createdAt, now());
-    if (input.creators) this.replaceReferenceCreators(input.id, input.creators, now());
-    if (input.tags) this.replaceReferenceTags(input.id, input.tags, now());
-    const updated = this.getReference(input.id);
-    if (!updated) throw new Error("Failed to update reference.");
-    return updated;
-  }
-
-  archiveReference(referenceId: string): boolean {
-    const timestamp = now();
-    const result = this.run("update reference_items set archived_at = ?, updated_at = ? where id = ? and archived_at is null", timestamp, timestamp, referenceId) as { changes?: number } | undefined;
-    return Number(result?.changes || 0) > 0;
-  }
-
-  deleteReference(referenceId: string): boolean {
-    this.run("delete from reference_scopes where reference_id = ?", referenceId);
-    this.run("delete from reference_creators where reference_id = ?", referenceId);
-    this.run("delete from reference_tag_links where reference_id = ?", referenceId);
-    const result = this.run("delete from reference_items where id = ?", referenceId) as { changes?: number } | undefined;
-    return Number(result?.changes || 0) > 0;
-  }
-
-  addReferenceScope(input: ReferenceScopeInput): ReferenceScope {
-    const timestamp = now();
-    const scope: ReferenceScope = {
-      id: `refscope_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
-      referenceId: input.referenceId,
-      scopeType: input.scopeType,
-      semesterId: input.semesterId,
-      courseId: input.courseId,
-      taskId: input.taskId,
-      status: input.status || (input.scopeType === "candidate" ? "candidate" : "active"),
-      addedBy: input.addedBy || "user",
-      note: input.note,
-      createdAt: timestamp,
-    };
-    this.run(
-      `insert or replace into reference_scopes(id, reference_id, scope_type, semester_id, course_id, task_id, status, added_by, note, created_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      scope.id,
-      scope.referenceId,
-      scope.scopeType,
-      scope.semesterId ?? null,
-      scope.courseId ?? null,
-      scope.taskId ?? null,
-      scope.status,
-      scope.addedBy,
-      scope.note ?? null,
-      scope.createdAt,
-    );
-    return scope;
-  }
-
-  removeReferenceScope(scopeId: string): boolean {
-    const result = this.run("delete from reference_scopes where id = ?", scopeId) as { changes?: number } | undefined;
-    return Number(result?.changes || 0) > 0;
-  }
-
   private deleteCourseRows(courseId: string): boolean {
-    this.run("delete from reference_scopes where course_id = ?", courseId);
     this.run("delete from rag_chunks_fts where course_id = ?", courseId);
     this.run("delete from indexing_tasks where course_id = ?", courseId);
     this.run("delete from indexing_jobs where course_id = ?", courseId);
@@ -1371,154 +1232,6 @@ export class SQLiteBusinessStore {
     this.run("delete from timetable_events where course_id = ?", courseId);
     const result = this.run("delete from courses where id = ?", courseId) as { changes?: number } | undefined;
     return Number(result?.changes || 0) > 0;
-  }
-
-  private insertReferenceRecord(referenceId: string, input: ReferenceCreateInput, createdAt: string, updatedAt = createdAt): void {
-    this.run(
-      `insert into reference_items(
-         id, item_type, title, abstract, year, language, publisher, container_title,
-         volume, issue, pages, doi, isbn, url, citation_key, source_kind,
-         raw_csl_json, created_at, updated_at, archived_at
-       )
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       on conflict(id) do update set
-         item_type = excluded.item_type,
-         title = excluded.title,
-         abstract = excluded.abstract,
-         year = excluded.year,
-         language = excluded.language,
-         publisher = excluded.publisher,
-         container_title = excluded.container_title,
-         volume = excluded.volume,
-         issue = excluded.issue,
-         pages = excluded.pages,
-         doi = excluded.doi,
-         isbn = excluded.isbn,
-         url = excluded.url,
-         citation_key = excluded.citation_key,
-         source_kind = excluded.source_kind,
-         raw_csl_json = excluded.raw_csl_json,
-         updated_at = excluded.updated_at,
-         archived_at = excluded.archived_at`,
-      referenceId,
-      input.itemType || "document",
-      input.title.trim(),
-      input.abstract?.trim() || null,
-      input.year?.trim() || null,
-      input.language?.trim() || null,
-      input.publisher?.trim() || null,
-      input.containerTitle?.trim() || null,
-      input.volume?.trim() || null,
-      input.issue?.trim() || null,
-      input.pages?.trim() || null,
-      normalizeIdentifier(input.doi),
-      normalizeIdentifier(input.isbn),
-      input.url?.trim() || null,
-      input.citationKey?.trim() || null,
-      input.sourceKind || "manual",
-      json(input.rawCslJson || {}),
-      createdAt,
-      updatedAt,
-      "archivedAt" in input ? (input as { archivedAt?: string }).archivedAt ?? null : null,
-    );
-  }
-
-  private replaceReferenceCreators(
-    referenceId: string,
-    creators: Array<Partial<Pick<ReferenceCreator, "role" | "given" | "family" | "name">>>,
-    timestamp: string,
-  ): void {
-    this.run("delete from reference_creators where reference_id = ?", referenceId);
-    creators
-      .map((creator, index) => ({
-        role: normalizeReferenceCreatorRole(creator.role),
-        given: creator.given?.trim() || undefined,
-        family: creator.family?.trim() || undefined,
-        name: creator.name?.trim() || undefined,
-        position: index,
-      }))
-      .filter((creator) => creator.given || creator.family || creator.name)
-      .forEach((creator) => {
-        this.run(
-          `insert into reference_creators(id, reference_id, role, given, family, name, position, created_at, updated_at)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          `refcreator_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
-          referenceId,
-          creator.role,
-          creator.given ?? null,
-          creator.family ?? null,
-          creator.name ?? null,
-          creator.position,
-          timestamp,
-          timestamp,
-        );
-      });
-  }
-
-  private replaceReferenceTags(referenceId: string, tags: string[], timestamp: string): void {
-    this.run("delete from reference_tag_links where reference_id = ?", referenceId);
-    const normalizedTags = Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
-    for (const tagName of normalizedTags) {
-      const existing = this.db.prepare("select id from reference_tags where lower(name) = lower(?)").get(tagName) as Row | undefined;
-      const tagId = nullableString(existing?.id) || `reftag_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-      if (!existing) {
-        this.run(
-          `insert into reference_tags(id, name, created_at, updated_at)
-           values (?, ?, ?, ?)`,
-          tagId,
-          tagName,
-          timestamp,
-          timestamp,
-        );
-      }
-      this.run(
-        `insert or ignore into reference_tag_links(reference_id, tag_id, created_at)
-         values (?, ?, ?)`,
-        referenceId,
-        tagId,
-        timestamp,
-      );
-    }
-  }
-
-  private hydrateReference(row: Row): ReferenceItem {
-    const referenceId = stringValue(row.id);
-    const creators = this.all("select * from reference_creators where reference_id = ? order by position, created_at", referenceId).map(rowToReferenceCreator);
-    const scopes = this.all("select * from reference_scopes where reference_id = ? order by created_at desc", referenceId).map(rowToReferenceScope);
-    const tags = this.all(
-      `select reference_tags.name
-       from reference_tag_links
-       join reference_tags on reference_tags.id = reference_tag_links.tag_id
-       where reference_tag_links.reference_id = ?
-       order by lower(reference_tags.name)`,
-      referenceId,
-    ).map((tagRow) => stringValue(tagRow.name));
-
-    return {
-      id: referenceId,
-      itemType: normalizeReferenceItemType(row.item_type),
-      title: stringValue(row.title),
-      abstract: nullableString(row.abstract),
-      year: nullableString(row.year),
-      language: nullableString(row.language),
-      publisher: nullableString(row.publisher),
-      containerTitle: nullableString(row.container_title),
-      volume: nullableString(row.volume),
-      issue: nullableString(row.issue),
-      pages: nullableString(row.pages),
-      doi: nullableString(row.doi),
-      isbn: nullableString(row.isbn),
-      url: nullableString(row.url),
-      citationKey: nullableString(row.citation_key),
-      sourceKind: normalizeReferenceSourceKind(row.source_kind),
-      rawCslJson: rawJson<Record<string, unknown>>(row.raw_csl_json, {}) as Record<string, unknown>,
-      creators,
-      scopes,
-      tags,
-      createdAt: stringValue(row.created_at),
-      updatedAt: stringValue(row.updated_at),
-      archivedAt: nullableString(row.archived_at),
-    };
   }
 
   private all(sql: string, ...params: unknown[]): Row[] {
@@ -1792,186 +1505,185 @@ export class SQLiteBusinessStore {
   }
 
   private migrate(): void {
+    this.ensureMigrationTable();
+    if (!this.isCurrentBusinessSchema()) {
+      this.resetBusinessSchema();
+    }
+    this.ensureCoreSchema();
+    this.dropRetiredSchemas();
+    this.ensureRagTextIndex();
+    this.ensureIndexes();
+    this.rebaselineSchemaMigration();
+  }
+
+  private isCurrentBusinessSchema(): boolean {
+    const row = this.db.prepare("select version, name from schema_migrations order by version desc limit 1").get() as Row | undefined;
+    return numberValue(row?.version) === BUSINESS_SCHEMA_VERSION && stringValue(row?.name) === BUSINESS_SCHEMA_NAME;
+  }
+
+  private ensureMigrationTable(): void {
     this.db.exec(`
       create table if not exists schema_migrations (
         version integer primary key,
         name text not null,
         applied_at text not null
       );
+    `);
+  }
+
+  private resetBusinessSchema(): void {
+    this.db.exec("begin immediate;");
+    try {
+      this.db.exec(`
+        drop table if exists rag_chunks_fts;
+        drop table if exists indexing_tasks;
+        drop table if exists indexing_jobs;
+        drop table if exists timetable_events;
+        drop table if exists workspace_files;
+        drop table if exists threads;
+        drop table if exists tasks;
+        drop table if exists courses;
+        drop table if exists semesters;
+        drop table if exists app_state;
+        drop table if exists providers;
+        drop table if exists reference_tag_links;
+        drop table if exists reference_scopes;
+        drop table if exists reference_creators;
+        drop table if exists reference_tags;
+        drop table if exists reference_items;
+        drop table if exists tasks_without_workspace_path;
+        drop table if exists threads_without_jsonl_path;
+      `);
+      this.db.exec("commit;");
+    } catch (error) {
+      this.db.exec("rollback;");
+      throw error;
+    }
+  }
+
+  private ensureCoreSchema(): void {
+    this.db.exec(`
+      begin;
 
       create table if not exists app_state (
         key text primary key,
         value text not null,
         updated_at text not null
       );
-    `);
 
-    if (this.schemaVersion() === 0) {
-      this.db.exec(`
-        begin;
+      create table if not exists semesters (
+        id text primary key,
+        semester_no text not null,
+        term text not null,
+        folder_name text not null,
+        starts_at text,
+        ends_at text,
+        recognized_at text,
+        source text not null,
+        archived_at text,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists semesters (
-          id text primary key,
-          semester_no text not null,
-          term text not null,
-          folder_name text not null,
-          starts_at text,
-          ends_at text,
-          recognized_at text,
-          source text not null,
-          archived_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
+      create table if not exists courses (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        code text not null,
+        name text not null,
+        instructor text,
+        schedule_json text not null default '[]',
+        folder_name text not null,
+        workspace_kind text not null default 'course',
+        archived_at text,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists courses (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          code text not null,
-          name text not null,
-          instructor text,
-          schedule_json text not null default '[]',
-          folder_name text not null,
-          workspace_kind text not null default 'course',
-          archived_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
+      create table if not exists tasks (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        course_id text not null references courses(id) on delete cascade,
+        title text not null,
+        task_type text not null,
+        due_at text,
+        status text not null default 'not_started',
+        archived_at text,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists tasks (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text not null references courses(id) on delete cascade,
-          title text not null,
-          task_type text not null,
-          due_at text,
-          status text not null default 'not_started',
-          archived_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
+      create table if not exists threads (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        course_id text not null,
+        task_id text,
+        title text not null,
+        status text not null default 'idle',
+        archived_at text,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists threads (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text not null,
-          task_id text,
-          title text not null,
-          status text not null default 'idle',
-          archived_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
+      create table if not exists workspace_files (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        course_id text not null,
+        task_id text,
+        parent_id text,
+        name text not null,
+        path text not null,
+        kind text not null,
+        mime_type text,
+        size_bytes integer,
+        section_kind text,
+        week_number integer,
+        task_file_bucket text,
+        source_path text,
+        indexed_at text,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists workspace_files (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text not null,
-          task_id text,
-          parent_id text,
-          name text not null,
-          path text not null,
-          kind text not null,
-          mime_type text,
-          size_bytes integer,
-          section_kind text,
-          week_number integer,
-          task_file_bucket text,
-          source_path text,
-          indexed_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
+      create table if not exists timetable_events (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        course_id text,
+        task_id text,
+        title text not null,
+        kind text not null,
+        source text not null,
+        starts_at text not null,
+        ends_at text,
+        location text,
+        notes text,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists timetable_events (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text,
-          task_id text,
-          title text not null,
-          kind text not null,
-          source text not null,
-          starts_at text not null,
-          ends_at text,
-          location text,
-          notes text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
+      create table if not exists indexing_jobs (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        course_id text not null,
+        section_id text,
+        status text not null,
+        stage text,
+        embedding_model text not null,
+        embedding_provider_fingerprint text,
+        indexed_files integer not null default 0,
+        total_files integer not null default 0,
+        completed_files integer not null default 0,
+        progress integer not null default 0,
+        error text,
+        created_at text not null,
+        updated_at text not null
+      );
 
-        create table if not exists indexing_jobs (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text not null,
-          section_id text,
-          status text not null,
-          stage text,
-          embedding_model text not null,
-          indexed_files integer not null default 0,
-          total_files integer not null default 0,
-          completed_files integer not null default 0,
-          progress integer not null default 0,
-          error text,
-          created_at text not null,
-          updated_at text not null
-        );
-
-        create table if not exists indexing_tasks (
-          id text primary key,
-          job_id text not null references indexing_jobs(id) on delete cascade,
-          semester_id text not null,
-          course_id text not null,
-          section_id text,
-          file_id text not null,
-          kind text not null,
-          status text not null,
-          attempts integer not null default 0,
-          max_attempts integer not null default 5,
-          locked_by text,
-          locked_until text,
-          next_run_at text not null,
-          progress integer not null default 0,
-          error text,
-          payload_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
-
-        create index if not exists idx_courses_semester on courses(semester_id);
-        create index if not exists idx_tasks_course on tasks(course_id, archived_at, updated_at);
-        create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
-        create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
-        create index if not exists idx_files_scope on workspace_files(semester_id, course_id, task_id, section_kind);
-        create index if not exists idx_timetable_range on timetable_events(semester_id, starts_at, ends_at);
-        create index if not exists idx_indexing_jobs_scope on indexing_jobs(semester_id, course_id, status);
-        create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
-        create index if not exists idx_indexing_tasks_job on indexing_tasks(job_id, status);
-
-        commit;
-      `);
-    }
-
-    this.ensureColumn("threads", "raw_json", "text not null default '{}'");
-    this.ensureColumn("threads", "archived_at", "text");
-    this.dropThreadJsonlPathColumn();
-    this.ensureColumn("semesters", "archived_at", "text");
-    this.ensureColumn("courses", "archived_at", "text");
-    this.ensureColumn("tasks", "archived_at", "text");
-    this.ensureColumn("indexing_jobs", "stage", "text");
-    this.ensureColumn("indexing_jobs", "embedding_provider_fingerprint", "text");
-    this.ensureColumn("indexing_jobs", "total_files", "integer not null default 0");
-    this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
-    this.db.exec("drop table if exists providers;");
-    this.ensureRagTextIndex();
-    this.ensureReferenceLibrarySchema();
-    this.dropTaskWorkspacePathColumn();
-    this.db.exec(`
       create table if not exists indexing_tasks (
         id text primary key,
         job_id text not null references indexing_jobs(id) on delete cascade,
@@ -1992,90 +1704,22 @@ export class SQLiteBusinessStore {
         created_at text not null,
         updated_at text not null
       );
-      create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
-      create index if not exists idx_indexing_tasks_job on indexing_tasks(job_id, status);
-      create index if not exists idx_tasks_course on tasks(course_id);
-      create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
-      create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
+
+      commit;
     `);
-    this.rebaselineSchemaMigration();
   }
 
-  private ensureReferenceLibrarySchema(): void {
+  private ensureIndexes(): void {
     this.db.exec(`
-      create table if not exists reference_items (
-        id text primary key,
-        item_type text not null default 'document',
-        title text not null,
-        abstract text,
-        year text,
-        language text,
-        publisher text,
-        container_title text,
-        volume text,
-        issue text,
-        pages text,
-        doi text,
-        isbn text,
-        url text,
-        citation_key text,
-        source_kind text not null default 'manual',
-        raw_csl_json text not null default '{}',
-        created_at text not null,
-        updated_at text not null,
-        archived_at text
-      );
-
-      create table if not exists reference_creators (
-        id text primary key,
-        reference_id text not null references reference_items(id) on delete cascade,
-        role text not null default 'author',
-        given text,
-        family text,
-        name text,
-        position integer not null default 0,
-        created_at text not null,
-        updated_at text not null
-      );
-
-      create table if not exists reference_scopes (
-        id text primary key,
-        reference_id text not null references reference_items(id) on delete cascade,
-        scope_type text not null,
-        semester_id text,
-        course_id text,
-        task_id text,
-        status text not null default 'active',
-        added_by text not null default 'user',
-        note text,
-        created_at text not null
-      );
-
-      create table if not exists reference_tags (
-        id text primary key,
-        name text not null,
-        created_at text not null,
-        updated_at text not null
-      );
-
-      create table if not exists reference_tag_links (
-        reference_id text not null references reference_items(id) on delete cascade,
-        tag_id text not null references reference_tags(id) on delete cascade,
-        created_at text not null,
-        primary key(reference_id, tag_id)
-      );
-
-      create unique index if not exists idx_reference_tags_name on reference_tags(lower(name));
-      create index if not exists idx_reference_items_doi on reference_items(doi);
-      create index if not exists idx_reference_items_isbn on reference_items(isbn);
-      create index if not exists idx_reference_items_url on reference_items(url);
-      create index if not exists idx_reference_items_title_year on reference_items(title, year);
-      create index if not exists idx_reference_items_archived on reference_items(archived_at, updated_at);
-      create index if not exists idx_reference_creators_reference on reference_creators(reference_id, position);
-      create index if not exists idx_reference_scopes_reference on reference_scopes(reference_id, status);
-      create index if not exists idx_reference_scopes_semester on reference_scopes(semester_id, status);
-      create index if not exists idx_reference_scopes_course on reference_scopes(course_id, status);
-      create index if not exists idx_reference_scopes_task on reference_scopes(task_id, status);
+      create index if not exists idx_courses_semester on courses(semester_id);
+      create index if not exists idx_tasks_course on tasks(course_id, archived_at, updated_at);
+      create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
+      create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
+      create index if not exists idx_files_scope on workspace_files(semester_id, course_id, task_id, section_kind);
+      create index if not exists idx_timetable_range on timetable_events(semester_id, starts_at, ends_at);
+      create index if not exists idx_indexing_jobs_scope on indexing_jobs(semester_id, course_id, status);
+      create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
+      create index if not exists idx_indexing_tasks_job on indexing_tasks(job_id, status);
     `);
   }
 
@@ -2115,86 +1759,17 @@ export class SQLiteBusinessStore {
     `);
   }
 
-  private ensureColumn(tableName: string, columnName: string, definition: string): void {
-    const columns = this.columnNames(tableName);
-    if (!columns.includes(columnName)) {
-      this.db.exec(`alter table ${tableName} add column ${columnName} ${definition};`);
-    }
-  }
-
-  private columnNames(tableName: string): string[] {
-    return this.all(`pragma table_info(${tableName})`).map((row) => stringValue(row.name));
-  }
-
-  private dropThreadJsonlPathColumn(): void {
-    if (!this.columnNames("threads").includes("jsonl_path")) return;
-    this.db.exec("begin immediate;");
-    try {
-      this.db.exec(`
-        drop table if exists threads_without_jsonl_path;
-        create table threads_without_jsonl_path (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text not null,
-          task_id text,
-          title text not null,
-          status text not null default 'idle',
-          archived_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
-      `);
-      this.run(
-        `insert into threads_without_jsonl_path(id, semester_id, course_id, task_id, title, status, archived_at, raw_json, created_at, updated_at)
-         select id, semester_id, course_id, task_id, title, coalesce(status, 'idle'), archived_at, coalesce(raw_json, '{}'), created_at, updated_at
-         from threads`,
-      );
-      this.db.exec(`
-        drop table threads;
-        alter table threads_without_jsonl_path rename to threads;
-      `);
-      this.db.exec("commit;");
-    } catch (error) {
-      this.db.exec("rollback;");
-      throw error;
-    }
-  }
-
-  private dropTaskWorkspacePathColumn(): void {
-    if (!this.columnNames("tasks").includes("workspace_path")) return;
-    this.db.exec("begin immediate;");
-    try {
-      this.db.exec(`
-        drop table if exists tasks_without_workspace_path;
-        create table tasks_without_workspace_path (
-          id text primary key,
-          semester_id text not null references semesters(id) on delete cascade,
-          course_id text not null references courses(id) on delete cascade,
-          title text not null,
-          task_type text not null,
-          due_at text,
-          status text not null default 'not_started',
-          archived_at text,
-          raw_json text not null default '{}',
-          created_at text not null,
-          updated_at text not null
-        );
-      `);
-      this.run(
-        `insert into tasks_without_workspace_path(id, semester_id, course_id, title, task_type, due_at, status, archived_at, raw_json, created_at, updated_at)
-         select id, semester_id, course_id, title, task_type, due_at, coalesce(status, 'not_started'), archived_at, coalesce(raw_json, '{}'), created_at, updated_at
-         from tasks`,
-      );
-      this.db.exec(`
-        drop table tasks;
-        alter table tasks_without_workspace_path rename to tasks;
-      `);
-      this.db.exec("commit;");
-    } catch (error) {
-      this.db.exec("rollback;");
-      throw error;
-    }
+  private dropRetiredSchemas(): void {
+    this.db.exec(`
+      drop table if exists providers;
+      drop table if exists reference_tag_links;
+      drop table if exists reference_scopes;
+      drop table if exists reference_creators;
+      drop table if exists reference_tags;
+      drop table if exists reference_items;
+      drop table if exists tasks_without_workspace_path;
+      drop table if exists threads_without_jsonl_path;
+    `);
   }
 
   private rebaselineSchemaMigration(): void {
@@ -2595,80 +2170,6 @@ function rowToRagTextSearchResult(row: Row): RagTextSearchResult {
     chunkCount: numberValue(row.chunk_count),
     rank: numberValue(row.rank) ?? 0,
   };
-}
-
-function rowToReferenceCreator(row: Row): ReferenceCreator {
-  return {
-    id: stringValue(row.id),
-    referenceId: stringValue(row.reference_id),
-    role: normalizeReferenceCreatorRole(row.role),
-    given: nullableString(row.given),
-    family: nullableString(row.family),
-    name: nullableString(row.name),
-    position: numberValue(row.position) || 0,
-  };
-}
-
-function rowToReferenceScope(row: Row): ReferenceScope {
-  return {
-    id: stringValue(row.id),
-    referenceId: stringValue(row.reference_id),
-    scopeType: normalizeReferenceScopeType(row.scope_type),
-    semesterId: nullableString(row.semester_id),
-    courseId: nullableString(row.course_id),
-    taskId: nullableString(row.task_id),
-    status: normalizeReferenceScopeStatus(row.status),
-    addedBy: stringValue(row.added_by) === "agent" ? "agent" : "user",
-    note: nullableString(row.note),
-    createdAt: stringValue(row.created_at),
-  };
-}
-
-function normalizeReferenceItemType(value: unknown): ReferenceItemType {
-  const text = stringValue(value);
-  if (
-    text === "article-journal" ||
-    text === "book" ||
-    text === "chapter" ||
-    text === "paper-conference" ||
-    text === "report" ||
-    text === "webpage" ||
-    text === "video" ||
-    text === "thesis" ||
-    text === "document"
-  ) {
-    return text;
-  }
-  return "document";
-}
-
-function normalizeReferenceSourceKind(value: unknown): ReferenceSourceKind {
-  const text = stringValue(value);
-  if (text === "manual" || text === "import" || text === "doi_lookup" || text === "agent_search" || text === "course_material") return text;
-  return "manual";
-}
-
-function normalizeReferenceCreatorRole(value: unknown): ReferenceCreatorRole {
-  const text = stringValue(value);
-  if (text === "editor" || text === "translator") return text;
-  return "author";
-}
-
-function normalizeReferenceScopeType(value: unknown): ReferenceScopeType {
-  const text = stringValue(value);
-  if (text === "semester" || text === "course" || text === "task" || text === "candidate") return text;
-  return "semester";
-}
-
-function normalizeReferenceScopeStatus(value: unknown): ReferenceScopeStatus {
-  const text = stringValue(value);
-  if (text === "candidate" || text === "rejected") return text;
-  return "active";
-}
-
-function normalizeIdentifier(value: string | undefined): string | null {
-  const text = value?.trim();
-  return text ? text : null;
 }
 
 function flattenFileTree(files: WorkspaceFileNode[], parentId?: string): Array<{ node: WorkspaceFileNode; parentId?: string }> {

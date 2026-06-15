@@ -50,16 +50,6 @@ import type {
   RagSearchResult,
   RecognizedAcademicCalendar,
   RecognizedCourseTimetable,
-  ReferenceCreateInput,
-  ReferenceExportInput,
-  ReferenceExportResult,
-  ReferenceImportInput,
-  ReferenceImportResult,
-  ReferenceItem,
-  ReferenceScope,
-  ReferenceScopeInput,
-  ReferenceScopeQuery,
-  ReferenceUpdateInput,
   RenameThreadInput,
   SemesterWorkspace,
   SkillImportInput,
@@ -100,7 +90,6 @@ import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { ProviderTransactionStore } from "./provider-transaction-store";
 import { RagIndexService, type RagSearchOptions } from "./rag-index-service";
-import { ReferenceLibraryService } from "./reference-library-service";
 import { VisionRecognitionService } from "./vision-recognition-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
@@ -125,7 +114,6 @@ export class LocalStore {
   private readonly vision: VisionRecognitionService;
   private readonly workspace: WorkspaceService;
   private readonly files: FileService;
-  private readonly references: ReferenceLibraryService;
   readonly ocr: OcrRecognitionService;
   readonly documentParser: DocumentParseService;
   private readonly agent: AgentOrchestrator;
@@ -184,7 +172,6 @@ export class LocalStore {
       providers: this.providers,
       ragIndex: this.ragIndex,
     });
-    this.references = new ReferenceLibraryService(businessStore);
     this.ocr = new OcrRecognitionService({
       providers: this.providers,
     });
@@ -353,42 +340,6 @@ export class LocalStore {
     } finally {
       this.scheduleCloudEntitlementsRefresh("embedding_search_complete");
     }
-  }
-
-  listReferences(query?: ReferenceScopeQuery): ReferenceItem[] {
-    return this.references.list(query);
-  }
-
-  createReference(input: ReferenceCreateInput): ReferenceItem {
-    return this.references.create(input);
-  }
-
-  updateReference(input: ReferenceUpdateInput): ReferenceItem {
-    return this.references.update(input);
-  }
-
-  archiveReference(referenceId: string): boolean {
-    return this.references.archive(referenceId);
-  }
-
-  deleteReference(referenceId: string): boolean {
-    return this.references.delete(referenceId);
-  }
-
-  addReferenceScope(input: ReferenceScopeInput): ReferenceScope {
-    return this.references.addScope(input);
-  }
-
-  removeReferenceScope(scopeId: string): boolean {
-    return this.references.removeScope(scopeId);
-  }
-
-  importReferences(input: ReferenceImportInput): ReferenceImportResult {
-    return this.references.importReferences(input);
-  }
-
-  exportReferences(input: ReferenceExportInput): ReferenceExportResult {
-    return this.references.exportReferences(input);
   }
 
   listFiles(courseId?: string): WorkspaceFileNode[] {

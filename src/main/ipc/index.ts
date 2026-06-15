@@ -7,7 +7,6 @@ import type { IpcContext } from "./context";
 import { registerFilesIpc } from "./files-ipc";
 import { registerIndexingIpc } from "./indexing-ipc";
 import { registerProvidersIpc } from "./provider-ipc";
-import { registerReferencesIpc } from "./references-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { registerTimetableIpc } from "./timetable-ipc";
 import { registerUpdaterIpc } from "./updater-ipc";
@@ -22,7 +21,6 @@ export function registerIpcHandlers(ctx: IpcContext): void {
   registerWorkspaceIpc(ctx);
   registerFilesIpc(ctx);
   registerIndexingIpc(ctx);
-  registerReferencesIpc(ctx);
   registerSkillsIpc(ctx);
   registerProvidersIpc(ctx);
   registerCloudIpc(ctx);
