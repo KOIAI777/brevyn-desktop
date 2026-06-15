@@ -63,6 +63,10 @@ interface EncryptedCloudTokens {
 interface AuthResult {
   user: CloudUser;
   tokens: CloudTokenPair;
+  gateway?: CloudGatewayAccount | null;
+  gatewayStatus?: string;
+  gatewayWarning?: string;
+  gatewayWarningCode?: string;
 }
 
 interface MeResult {
@@ -118,6 +122,10 @@ interface CloudAccountServiceOptions {
   baseUrlEditable: boolean;
   shopUrl: string;
 }
+
+type InternalCloudRefreshInput = CloudRefreshInput & {
+  syncProviders?: boolean;
+};
 
 export class CloudAccountService {
   private data: CloudAccountFile;
@@ -193,16 +201,22 @@ export class CloudAccountService {
       }),
     }, false);
     this.saveTokens(result.tokens);
-    this.patchData({ user: result.user, lastError: "" });
+    this.patchData({
+      user: result.user,
+      gateway: result.gateway ?? this.data.gateway ?? null,
+      lastError: result.gatewayWarning || "",
+    });
     const cloud = await this.refresh({ forceEntitlements: true, reason: "register" });
     return {
-      status: "locked",
-      detail: "账号已创建。兑换余额套餐后可启用套餐模型。",
+      status: result.gatewayStatus === "ready" ? "synced" : "locked",
+      detail: result.gatewayWarning || (result.gatewayStatus === "ready"
+        ? "账号已创建，默认模型分组已准备。兑换余额后即可使用。"
+        : "账号已创建。默认模型分组正在准备，兑换余额后即可使用。"),
       cloud,
     };
   }
 
-  async refresh(input: CloudRefreshInput = {}): Promise<CloudAccountStatus> {
+  async refresh(input: InternalCloudRefreshInput = {}): Promise<CloudAccountStatus> {
     this.requireRefreshToken();
     const localCurrentGroupId = this.activeCloudConversationGroupId() || this.activeOfficialAgentGroupId();
     const [me, groups, entitlementsResult] = await Promise.all([
@@ -228,10 +242,12 @@ export class CloudAccountService {
       lastSyncedAt: new Date().toISOString(),
       lastError: entitlementError,
     });
-    const providerSyncErrors = [
-      ...await this.refreshKnownConversationProviders(localCurrentGroupId),
-      ...await this.refreshKnownOfficialProviders(),
-    ];
+    const providerSyncErrors = input.syncProviders === false
+      ? []
+      : [
+        ...await this.refreshKnownConversationProviders(localCurrentGroupId),
+        ...await this.refreshKnownOfficialProviders(),
+      ];
     if (localCurrentGroupId > 0) {
       try {
         this.activateLocalCloudAgentProviders(localCurrentGroupId);
@@ -503,7 +519,7 @@ export class CloudAccountService {
     });
     if (!redeemed.result?.redemption) throw new Error("兑换成功但响应缺少兑换结果。");
 
-    let cloud = await this.refresh({ forceEntitlements: true, reason: "redeem" });
+    let cloud = await this.refresh({ forceEntitlements: true, reason: "redeem", syncProviders: false });
     let provider: ModelProviderConfig | undefined;
     const syncedProviders: ModelProviderConfig[] = [];
     let providerSyncStatus: CloudRedeemCodeResult["providerSyncStatus"];
@@ -531,20 +547,18 @@ export class CloudAccountService {
         providerSyncDetails.push(`套餐模型同步失败：${errorMessage(error)}`);
       }
     }
-    if (externalGroupId > 0 && redeemed.status !== "gateway_failed") {
+    if (externalGroupId > 0 && redeemed.status !== "gateway_failed" && this.isOfficialCapabilityGroup(externalGroupId)) {
       try {
-        const synced = await this.syncOfficialCapabilityProviders();
-        if (synced) {
-          cloud = synced.cloud;
-          if (!provider) provider = synced.provider;
-          syncedProviders.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
-          providerSyncSucceeded = providerSyncSucceeded || synced.status === "synced";
-          providerSyncProvisioning = providerSyncProvisioning || synced.status === "provisioning";
-          if (synced.status === "locked") {
-            providerSyncDetails.push(synced.detail || officialCapabilityLockedMessage());
-          } else if (synced.detail) {
-            providerSyncDetails.push(synced.detail);
-          }
+        const synced = await this.syncOfficialProvider({ externalGroupId });
+        cloud = synced.cloud;
+        if (!provider) provider = synced.provider;
+        syncedProviders.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
+        providerSyncSucceeded = providerSyncSucceeded || synced.status === "synced";
+        providerSyncProvisioning = providerSyncProvisioning || synced.status === "provisioning";
+        if (synced.status === "locked") {
+          providerSyncDetails.push(synced.detail || officialCapabilityLockedMessage());
+        } else if (synced.detail) {
+          providerSyncDetails.push(synced.detail);
         }
       } catch (error) {
         providerSyncFailed = true;
