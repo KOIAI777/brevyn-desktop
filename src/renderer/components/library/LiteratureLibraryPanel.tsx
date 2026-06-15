@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowRight, BookMarked, BookOpen, CheckCircle2, ChevronDown, Download, FileQuestion, FileText, Globe2, GraduationCap, Library, Newspaper, PencilLine, Plus, Quote, Search, ScrollText, Video, X } from "lucide-react";
+import { ArrowRight, BookMarked, BookOpen, CheckCircle2, ChevronDown, Download, FileQuestion, FileText, Globe2, GraduationCap, Library, Newspaper, PencilLine, Plus, Quote, ScrollText, Video, X } from "lucide-react";
 import type { BrevynTask, Course, ReferenceCreateInput, ReferenceCreatorRole, ReferenceItem, ReferenceItemType, ReferenceScope, ReferenceScopeType, ReferenceUpdateInput, SemesterWorkspace } from "@/types/domain";
 import { cx } from "@/lib/cn";
 
@@ -325,7 +325,7 @@ export function LiteratureLibraryPanel({
         level: "course",
         icon: <BookOpen className="h-3.5 w-3.5" />,
         title: course.name,
-        description: `课程范围 · ${tasks.length} 个课程作业`,
+        description: `课程文献 · ${tasks.length} 个课程作业`,
         count: String(countReferencesByScope(references, { scopeType: "course", courseId: course.id })),
         scopeInput: { scopeType: "course", semesterId: course.semesterId, courseId: course.id },
       },
@@ -334,7 +334,7 @@ export function LiteratureLibraryPanel({
         level: "task" as const,
         icon: <Quote className="h-3.5 w-3.5" />,
         title: task.title,
-        description: "作业范围",
+        description: "作业文献",
         count: String(countReferencesByScope(references, { scopeType: "task", taskId: task.id })),
         scopeInput: { scopeType: "task", semesterId: task.semesterId, courseId: task.courseId, taskId: task.id },
       })),
@@ -447,7 +447,7 @@ export function LiteratureLibraryPanel({
 
   async function saveReference() {
     if (!draft.title.trim()) {
-      setError("请先填写 reference 标题。");
+      setError("请先填写文献标题。");
       return;
     }
     setError("");
@@ -456,12 +456,12 @@ export function LiteratureLibraryPanel({
         const updated = await window.brevyn.references.update(draftToUpdateInput(editingReferenceId, draft));
         setReferences((current) => [updated, ...current.filter((reference) => reference.id !== updated.id)]);
         setSelectedReferenceId(updated.id);
-        setStatus("Reference 已更新。");
+        setStatus("文献已更新。");
       } else {
         const created = await window.brevyn.references.create(draftToInput(draft, selectedScope.scopeInput));
         setReferences((current) => [created, ...current.filter((reference) => reference.id !== created.id)]);
         setSelectedReferenceId(created.id);
-        setStatus("Reference 已添加。");
+        setStatus("文献已添加。");
       }
       closeEditor();
     } catch (err) {
@@ -479,7 +479,7 @@ export function LiteratureLibraryPanel({
       await Promise.all(scopeIds.map((scopeId) => window.brevyn.references.removeScope(scopeId)));
       await loadReferences();
       setSelectedIds([]);
-      setStatus("已从当前范围移除。");
+      setStatus("已从当前位置移出。");
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -542,7 +542,7 @@ export function LiteratureLibraryPanel({
               <Library className="h-4 w-4" />
               文献库
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">独立管理 reference、引用样式、范围与 Agent 写作来源</div>
+            <div className="truncate text-[11px] text-muted-foreground">管理文献、引用样式和 Agent 写作来源</div>
           </div>
           <button
             type="button"
@@ -555,13 +555,13 @@ export function LiteratureLibraryPanel({
         </div>
 
         <div className="grid min-h-0 flex-1 gap-5 overflow-hidden p-5 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-hidden rounded-[var(--radius-card)] bg-card/62 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.38)] dark:bg-white/[0.035] dark:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.26)]">
+          <aside className="min-h-0 overflow-hidden rounded-[var(--radius-panel)] bg-card/48 p-3 shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.045)] dark:bg-white/[0.026] dark:shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.07)]">
             <div className="min-h-0 space-y-4 overflow-y-auto overflow-x-visible pr-1 brevyn-scrollbar">
-              <section className="relative rounded-[var(--radius-card)] bg-background/42 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.32)] dark:bg-black/[0.10]">
+              <section className="relative rounded-[var(--radius-card)] p-2">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-[13px] font-semibold text-foreground">文献范围</div>
-                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">按学期、课程和课程作业查看</div>
+                    <div className="text-[13px] font-semibold text-foreground">文献位置</div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">按学期、课程和课程作业查看文献</div>
                   </div>
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-foreground text-background shadow-sm">
                     <Library className="h-3.5 w-3.5" />
@@ -584,45 +584,47 @@ export function LiteratureLibraryPanel({
                 />
               </section>
 
-              <section className="px-1">
+              <section className="px-2">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">添加</div>
                 <div className="mt-2 grid gap-1">
-                  <LibraryAction label="手动添加 reference" onClick={openCreateReference} />
-                  <LibraryAction label="从课程资料转为 reference" onClick={onOpenCourses} />
+                  <LibraryAction label="手动添加" onClick={openCreateReference} />
+                  <LibraryAction label="从课程资料添加" onClick={onOpenCourses} />
                 </div>
-                <p className="mt-2 px-2 text-[10px] leading-4 text-muted-foreground">先把来源放进明确的学习范围，之后写作和检索都会沿用这层语境。</p>
               </section>
             </div>
           </aside>
 
-          <main className="min-h-0 overflow-hidden rounded-[var(--radius-card)] bg-background/74 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+          <main className="min-h-0 overflow-hidden rounded-[var(--radius-panel)] bg-background/68 shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.045)]">
             <div className="flex h-full min-h-0 flex-col">
-              <section className="relative z-20 px-6 py-5 shadow-[inset_0_-1px_0_hsl(var(--border)/0.46)]">
+              <section className="relative z-20 px-6 py-5">
                 <div className="pointer-events-none absolute right-0 top-0 h-36 w-72 rounded-bl-[999px] bg-[radial-gradient(circle_at_top_right,hsl(var(--primary)/0.14),transparent_70%)]" />
-                <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div className="relative flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div className="max-w-3xl">
-                    <div className="mb-2 inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] bg-muted/60 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+                    <div className="mb-2 inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] bg-muted/48 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
                       <CheckCircle2 className="h-3 w-3" />
-                      Reference scope
+                      {selectedScope.title}
                     </div>
-                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-foreground">让引用回到清楚的学习范围。</h2>
+                    <h2 className="text-2xl font-semibold tracking-[-0.03em] text-foreground">References</h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      先按学期、课程和课程作业整理来源。等到写作或讨论时，Brevyn 会优先回到当前范围里的文献。
+                      按学期、课程和课程作业整理来源。写作或讨论时，Brevyn 会优先使用当前位置里的文献。
                     </p>
+                    <div className="mt-4 flex items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">引用样式</span>
+                      <CitationStyleSwitch
+                        open={citationStyleMenuOpen}
+                        value={citationStyle}
+                        onSelect={(style) => {
+                          setCitationStyle(style);
+                          setCitationStyleMenuOpen(false);
+                        }}
+                        onToggle={() => {
+                          setExportMenuOpen(false);
+                          setCitationStyleMenuOpen((open) => !open);
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="relative z-30 flex flex-wrap gap-2">
-                    <CitationStyleSwitch
-                      open={citationStyleMenuOpen}
-                      value={citationStyle}
-                      onSelect={(style) => {
-                        setCitationStyle(style);
-                        setCitationStyleMenuOpen(false);
-                      }}
-                      onToggle={() => {
-                        setExportMenuOpen(false);
-                        setCitationStyleMenuOpen((open) => !open);
-                      }}
-                    />
+                  <div className="relative z-30 flex flex-wrap items-center justify-end gap-2">
                     <button
                       type="button"
                       className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.98]"
@@ -632,7 +634,7 @@ export function LiteratureLibraryPanel({
                       添加
                     </button>
                     <ReferenceExportSplitButton
-                      className="w-[142px]"
+                      className="w-[150px]"
                       disabled={visibleReferences.length === 0}
                       open={exportMenuOpen}
                       variant="secondary"
@@ -649,18 +651,6 @@ export function LiteratureLibraryPanel({
                 </div>
               </section>
 
-              <section className="relative z-0 grid gap-3 px-6 py-4 md:grid-cols-[minmax(0,1fr)_300px]">
-                <div className="flex h-10 min-w-0 items-center gap-2 rounded-[var(--radius-control)] bg-card px-3 shadow-sm ring-1 ring-black/[0.045] dark:ring-white/[0.055]">
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 text-xs text-muted-foreground">搜索作者、标题、DOI 或关键词会在下一阶段接入</span>
-                  <span className="rounded-[var(--radius-badge)] bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">Soon</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Metric label="当前范围" value={String(visibleReferences.length)} />
-                  <Metric label="已选" value={String(selectedIds.length)} />
-                </div>
-              </section>
-
               {(status || error) && (
                 <div className="mx-6 mb-3 rounded-[var(--radius-control)] bg-card px-3 py-2 text-xs shadow-sm ring-1 ring-black/[0.045] dark:ring-white/[0.055]">
                   <span className={error ? "text-destructive" : "text-muted-foreground"}>{error || status}</span>
@@ -672,8 +662,10 @@ export function LiteratureLibraryPanel({
                   <div className="min-h-0 overflow-y-auto pr-1 brevyn-scrollbar">
                     <div className="mb-3 flex items-end justify-between gap-3">
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">References</div>
-                        <div className="mt-1 text-sm font-semibold text-foreground">{selectedScope.title}</div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">当前文献</div>
+                        <div className="mt-1 text-sm font-semibold text-foreground">
+                          {selectedScope.title} · {visibleReferences.length === 0 ? "暂无文献" : `${visibleReferences.length} 条文献`}
+                        </div>
                       </div>
                       <BulkActions
                         disabled={selectedIds.length === 0}
@@ -687,12 +679,12 @@ export function LiteratureLibraryPanel({
                     </div>
 
                     {loading ? (
-                      <LibraryEmptyState title="正在读取文献库" description="Brevyn 正在打开本地 reference 数据。" />
+                      <LibraryEmptyState title="正在读取文献库" description="Brevyn 正在打开本地文献数据。" />
                     ) : visibleReferences.length === 0 ? (
                       <LibraryEmptyState
-                        title="这个范围还没有 reference"
-                        description="先添加一条你确定会用到的来源，把它放进当前学期、课程或课程作业里。"
-                        actionLabel="添加 reference"
+                        title="这里还没有文献"
+                        description="添加课程阅读、网页、论文或报告。之后写作和讨论会优先使用这里的来源。"
+                        actionLabel="添加文献"
                         onAction={openCreateReference}
                       />
                     ) : (
@@ -760,7 +752,7 @@ function ScopeTree({
       <div className="my-2 h-px bg-border/56" />
       <div className="space-y-1">
         {courseGroups.length === 0 ? (
-          <div className="rounded-[var(--radius-control)] bg-muted/42 px-2.5 py-3 text-[11px] leading-5 text-muted-foreground">还没有课程。先在我的课程里添加课程后，这里会显示课程和课程作业范围。</div>
+          <div className="rounded-[var(--radius-control)] bg-muted/42 px-2.5 py-3 text-[11px] leading-5 text-muted-foreground">还没有课程。先在我的课程里添加课程后，这里会显示对应的课程和课程作业。</div>
         ) : courseGroups.map((group) => {
           const courseId = group.course.scopeInput?.courseId || group.course.id.replace(/^course:/, "");
           const expanded = expandedCourseIds.includes(courseId);
@@ -777,7 +769,7 @@ function ScopeTree({
               <div className={cx("grid transition-[grid-template-rows,opacity] duration-200 ease-out", expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
                 <div className="overflow-hidden">
                   {group.tasks.length > 0 ? (
-                    <div className="ml-4 mt-1 space-y-1 border-l border-border/62 pl-2">
+                    <div className="ml-4 mt-1 space-y-1 pl-2">
                       {group.tasks.map((task) => (
                         <ScopeTreeRow key={task.id} compact option={task} selected={selected.id === task.id} onSelect={onSelect} />
                       ))}
@@ -825,7 +817,7 @@ function ScopeTreeRow({
       className={cx(
         "group flex w-full items-center gap-1 rounded-[var(--radius-control)] transition-colors",
         selected
-          ? "bg-[hsl(var(--primary)/0.10)] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16)] dark:bg-white/[0.075] dark:shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.10)]"
+          ? "bg-foreground/[0.065] text-foreground shadow-sm dark:bg-white/[0.07]"
           : "text-foreground hover:bg-accent/64",
       )}
     >
@@ -845,12 +837,12 @@ function ScopeTreeRow({
         onClick={handleMainAction}
         aria-expanded={expandable ? expanded : undefined}
       >
-        <span className={cx("flex shrink-0 items-center justify-center rounded-[var(--radius-badge)]", compact ? "h-5 w-5" : "h-6 w-6", selected ? "bg-background/70 text-foreground shadow-sm dark:bg-white/[0.075] dark:text-white/82" : "bg-muted text-muted-foreground")}>{option.icon}</span>
+        <span className={cx("flex shrink-0 items-center justify-center rounded-[var(--radius-badge)]", compact ? "h-5 w-5" : "h-6 w-6", selected ? "bg-background/64 text-foreground shadow-sm dark:bg-white/[0.075] dark:text-white/82" : "bg-muted/72 text-muted-foreground")}>{option.icon}</span>
         <span className="min-w-0 flex-1">
           <span className={cx("block truncate font-semibold", compact ? "text-[11px]" : "text-xs")}>{option.title}</span>
           <span className={cx("mt-0.5 block truncate", compact ? "text-[9.5px]" : "text-[10px]", selected ? "text-muted-foreground" : "text-muted-foreground")}>{option.description}</span>
         </span>
-        <span className={cx("rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", selected ? "bg-background/64 text-muted-foreground shadow-sm dark:bg-white/[0.07]" : "bg-muted text-muted-foreground")}>{option.count}</span>
+        <span className={cx("rounded-[var(--radius-badge)] px-1.5 py-0.5 text-[10px]", selected ? "bg-background/54 text-muted-foreground shadow-sm dark:bg-white/[0.065]" : "bg-muted/70 text-muted-foreground")}>{option.count}</span>
       </button>
       {expandable && (
         <button
@@ -858,16 +850,16 @@ function ScopeTreeRow({
           className={cx(
             "mr-1 h-6 shrink-0 rounded-[var(--radius-badge)] px-1.5 text-[9.5px] font-semibold transition active:scale-[0.98]",
             selected
-              ? "bg-background/64 text-foreground shadow-sm dark:bg-white/[0.075] dark:text-white/86"
+              ? "bg-background/54 text-foreground shadow-sm dark:bg-white/[0.075] dark:text-white/86"
               : "text-muted-foreground opacity-0 hover:bg-background/56 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-white/[0.07]",
           )}
           onClick={(event) => {
             event.stopPropagation();
             onSelect(option.id);
           }}
-          aria-label={`选择${option.title}范围`}
+          aria-label={`查看${option.title}文献`}
         >
-          范围
+          查看
         </button>
       )}
     </div>
@@ -906,7 +898,7 @@ function CitationStyleSwitch({
     <div className="relative">
       <button
         type="button"
-        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-card px-3 text-xs font-semibold text-foreground shadow-sm shadow-black/[0.04] ring-1 ring-black/[0.05] transition hover:bg-accent active:scale-[0.98] dark:ring-white/[0.06]"
+        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-background/58 px-2.5 text-[11px] font-semibold text-foreground shadow-sm shadow-black/[0.035] ring-1 ring-black/[0.045] transition hover:bg-accent active:scale-[0.98] dark:bg-white/[0.045] dark:ring-white/[0.06]"
         onClick={onToggle}
         aria-expanded={open}
       >
@@ -915,7 +907,7 @@ function CitationStyleSwitch({
       </button>
       <div
         className={cx(
-          "absolute right-0 top-[calc(100%+7px)] z-[80] w-[232px] overflow-hidden rounded-[var(--radius-card)] bg-card p-1 shadow-2xl shadow-black/10 ring-1 ring-black/[0.08] transition duration-150 dark:bg-[hsl(var(--surface-chrome))] dark:ring-white/[0.08]",
+          "absolute left-0 top-[calc(100%+7px)] z-[80] w-[232px] overflow-hidden rounded-[var(--radius-card)] bg-card p-1 shadow-2xl shadow-black/10 ring-1 ring-black/[0.08] transition duration-150 dark:bg-[hsl(var(--surface-chrome))] dark:ring-white/[0.08]",
           open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none -translate-y-1 opacity-0",
         )}
       >
@@ -1003,15 +995,6 @@ function ReferenceExportSplitButton({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[var(--radius-control)] bg-card px-3 py-2 shadow-sm ring-1 ring-black/[0.045] dark:ring-white/[0.055]">
-      <div className="text-sm font-semibold text-foreground">{value}</div>
-      <div className="text-[10px] text-muted-foreground">{label}</div>
-    </div>
-  );
-}
-
 function BulkActions({
   disabled,
   selectedCount,
@@ -1030,17 +1013,17 @@ function BulkActions({
   onDelete: () => void;
 }) {
   if (disabled) {
-    return <div className="hidden text-[11px] text-muted-foreground sm:block">选择 reference 后可批量复制、移除或删除</div>;
+    return null;
   }
   return (
-	    <div className="flex flex-wrap items-center justify-end gap-1.5">
-      <span className="rounded-[var(--radius-badge)] bg-muted px-2 py-1 text-[10px] text-muted-foreground">{selectedCount} 已选</span>
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <span className="rounded-[var(--radius-badge)] bg-muted px-2 py-1 text-[10px] text-muted-foreground">已选 {selectedCount}</span>
       <button type="button" className="h-7 rounded-[var(--radius-control)] bg-card px-2 text-[10px] font-semibold text-foreground shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.055]" onClick={onCopy}>
         复制 {citationStyleLabel(citationStyle)}
       </button>
       {canRemoveScope && (
         <button type="button" className="h-7 rounded-[var(--radius-control)] bg-muted px-2 text-[10px] font-semibold text-muted-foreground transition hover:bg-accent hover:text-foreground" onClick={onRemoveScope}>
-          移出范围
+          从当前位置移出
         </button>
       )}
       <button type="button" className="h-7 rounded-[var(--radius-control)] bg-destructive/10 px-2 text-[10px] font-semibold text-destructive transition hover:bg-destructive/14" onClick={onDelete}>
@@ -1072,10 +1055,10 @@ function ReferenceCard({
   return (
     <article
       className={cx(
-        "group relative w-full overflow-hidden rounded-[var(--radius-card)] p-3 text-left shadow-sm transition hover:-translate-y-px hover:shadow-md",
+        "group relative w-full overflow-hidden rounded-[var(--radius-card)] p-3 text-left transition hover:-translate-y-px",
         selected
-          ? "bg-[hsl(var(--primary)/0.085)] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.16),0_10px_26px_hsl(var(--foreground)/0.045)] dark:bg-white/[0.055] dark:shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.10)]"
-          : "bg-card ring-1 ring-black/[0.045] dark:ring-white/[0.055]",
+          ? "bg-foreground/[0.055] shadow-[0_10px_26px_hsl(var(--foreground)/0.04)] dark:bg-white/[0.052]"
+          : "bg-card/72 shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.04)] dark:shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.065)]",
       )}
     >
       <div className="flex items-start gap-3 pl-0.5">
@@ -1084,11 +1067,11 @@ function ReferenceCard({
           className={cx(
             "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] ring-1 transition",
             checked
-              ? "bg-[hsl(var(--primary)/0.14)] text-foreground ring-[hsl(var(--primary)/0.24)] dark:bg-white/[0.10] dark:text-white/90 dark:ring-white/[0.16]"
+              ? "bg-foreground text-background ring-transparent dark:bg-white/90 dark:text-black"
               : "bg-background text-transparent ring-border hover:text-muted-foreground",
           )}
           onClick={onToggle}
-          aria-label="选择 reference"
+          aria-label="选择文献"
         >
           <CheckCircle2 className="h-3.5 w-3.5" />
         </button>
@@ -1098,7 +1081,7 @@ function ReferenceCard({
             <span className="text-xs text-muted-foreground">{reference.year || "n.d."}</span>
           </div>
           <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-foreground">{reference.title}</h3>
-          <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-[var(--radius-badge)] bg-background/72 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm ring-1 ring-black/[0.035] dark:bg-white/[0.06] dark:ring-white/[0.05]">
+          <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-[var(--radius-badge)] bg-background/58 px-2 py-1 text-[10px] font-medium text-muted-foreground shadow-sm dark:bg-white/[0.05]">
             <Library className="h-3 w-3 shrink-0" />
             <span className="truncate">{scopeLabel}</span>
           </div>
@@ -1107,7 +1090,7 @@ function ReferenceCard({
             {reference.containerTitle && <span>· {reference.containerTitle}</span>}
             {reference.doi && <span>· DOI</span>}
           </div>
-          <p className="mt-2 line-clamp-2 rounded-[var(--radius-control)] bg-background/58 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.30)] dark:bg-white/[0.045]">
+          <p className="mt-2 line-clamp-2 rounded-[var(--radius-control)] bg-background/42 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground dark:bg-white/[0.035]">
             {formatCitationPreview(reference, citationStyle)}
           </p>
         </button>
@@ -1151,12 +1134,12 @@ function ReferenceEditorDialog({
   onTypeMenuOpenChange: (open: boolean) => void;
   onSave: () => void;
 }) {
-  const title = mode === "edit" ? "编辑 reference" : "添加 reference";
+  const title = mode === "edit" ? "编辑文献" : "添加文献";
   const description = mode === "edit"
-    ? "修改后会更新这条文献在所有范围里的引用信息。"
+    ? "修改后会更新这条文献在所有使用位置里的引用信息。"
     : hasScope
-      ? `会保存到「${scopeTitle}」范围，之后可继续用于当前学习语境。`
-      : "会先保存为一条本地 reference，之后可以绑定到课程或作业。";
+      ? `会保存到「${scopeTitle}」，之后可继续用于当前学习语境。`
+      : "会先保存为一条本地文献，之后可以绑定到课程或作业。";
   const fieldSet = referenceFieldSet(draft.itemType);
 
   return (
@@ -1237,7 +1220,7 @@ function ReferenceEditorDialog({
                   value={draft.abstract}
                   onChange={(event) => onChange({ ...draft, abstract: event.target.value })}
                   className="min-h-[118px] rounded-[var(--radius-control)] bg-background px-3 py-2 text-sm text-foreground outline-none ring-1 ring-border/70 transition placeholder:text-muted-foreground/72 focus:ring-foreground/22 dark:text-white/90 dark:placeholder:text-white/36 dark:ring-white/[0.10] dark:focus:ring-white/22"
-                  placeholder="这条 reference 为什么对课程或作业有用"
+                  placeholder="这条文献为什么对课程或作业有用"
                 />
               </label>
             </ReferenceFormSection>
@@ -1457,9 +1440,9 @@ function CreatorRows({
 
 function LibraryEmptyState({ title, description, actionLabel, onAction }: { title: string; description: string; actionLabel?: string; onAction?: () => void }) {
   return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center rounded-[var(--radius-card)] bg-card/58 px-8 text-center shadow-sm ring-1 ring-black/[0.035] dark:ring-white/[0.045]">
-      <div className="flex h-12 w-12 items-center justify-center rounded-[var(--radius-control)] bg-muted text-muted-foreground">
-        <FileText className="h-5 w-5" />
+    <div className="flex min-h-[360px] flex-col items-center justify-center px-8 text-center">
+      <div className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] bg-muted/62 text-muted-foreground shadow-sm shadow-black/[0.025] dark:bg-white/[0.055]">
+        <FileText className="h-[18px] w-[18px]" />
       </div>
       <h3 className="mt-4 text-base font-semibold text-foreground">{title}</h3>
       <p className="mt-2 max-w-[360px] text-sm leading-6 text-muted-foreground">{description}</p>
@@ -1493,9 +1476,9 @@ function matchesScope(scope: ReferenceScope, input: NonNullable<ScopeOption["sco
 
 function scopeLabel(reference: ReferenceItem, input?: ScopeOption["scopeInput"]): string {
   if (input && reference.scopes.some((scope) => matchesScope(scope, input))) {
-    if (input.scopeType === "semester") return "当前学期范围";
-    if (input.scopeType === "course") return "当前课程范围";
-    if (input.scopeType === "task") return "当前课程作业范围";
+    if (input.scopeType === "semester") return "当前学期";
+    if (input.scopeType === "course") return "当前课程";
+    if (input.scopeType === "task") return "当前课程作业";
   }
   const activeScopes = reference.scopes.filter((scope) => scope.status !== "rejected");
   const scopeNames = [
@@ -1503,7 +1486,7 @@ function scopeLabel(reference: ReferenceItem, input?: ScopeOption["scopeInput"])
     activeScopes.some((scope) => scope.scopeType === "course" && scope.status === "active") ? "课程" : "",
     activeScopes.some((scope) => scope.scopeType === "semester" && scope.status === "active") ? "学期" : "",
   ].filter(Boolean);
-  return scopeNames.length > 0 ? `已绑定：${scopeNames.join(" / ")}` : "未绑定学习范围";
+  return scopeNames.length > 0 ? `已放入：${scopeNames.join(" / ")}` : "未放入学习位置";
 }
 
 function draftToInput(draft: ReferenceDraft, scope?: ScopeOption["scopeInput"]): ReferenceCreateInput {
@@ -1827,5 +1810,5 @@ function itemTypeLabel(type: ReferenceItem["itemType"]): string {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error || "Reference 操作失败。");
+  return error instanceof Error ? error.message : String(error || "文献操作失败。");
 }

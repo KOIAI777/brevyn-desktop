@@ -90,8 +90,7 @@ export function SemesterDashboard({
   return (
     <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
-        <section className="relative overflow-hidden rounded-[var(--radius-window)] bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--surface-panel)/0.94))] shadow-[var(--shadow-panel)]">
-          <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
+        <section className="brevyn-hero-surface">
           <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
             <div className="min-w-0 py-2">
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -133,7 +132,7 @@ export function SemesterDashboard({
             </div>
             <button
               type="button"
-              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/68 p-4 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.52)] transition hover:bg-accent/35 active:scale-[0.995]"
+              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/58 p-4 text-left shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)] transition hover:bg-accent/36 active:scale-[0.995]"
               onClick={openRecommendation}
             >
               <div>
@@ -144,7 +143,7 @@ export function SemesterDashboard({
                 <div className="mt-4 text-lg font-semibold leading-6 tracking-[-0.035em] text-foreground">{recommendation.title}</div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">{recommendation.description}</p>
               </div>
-              <div className="mt-5 flex items-center justify-between gap-3 border-t border-border/45 pt-3">
+              <div className="mt-5 flex items-center justify-between gap-3 pt-3">
                 <div className="min-w-0 truncate text-[11px] text-muted-foreground">{recommendation.reason}</div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
               </div>
@@ -152,7 +151,7 @@ export function SemesterDashboard({
           </div>
         </section>
 
-        <section className="rounded-[var(--radius-panel)] bg-card/88 p-4 shadow-[var(--shadow-panel)]">
+        <section className="brevyn-soft-section p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold">
@@ -174,11 +173,11 @@ export function SemesterDashboard({
               <button
                 key={course.course.id}
                 type="button"
-                className="group flex min-w-0 items-center gap-3 rounded-[var(--radius-card)] bg-background/62 p-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.46)] transition hover:bg-accent/45 active:scale-[0.995]"
+                className="brevyn-quiet-card group flex min-w-0 items-center gap-3 p-3 text-left transition active:scale-[0.995]"
                 onClick={() => onSelectCourse(course.course.id)}
               >
                 <div
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] ring-1 ring-border/55"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)]"
                   style={{ color: course.course.color, backgroundColor: `${course.course.color}18` }}
                 >
                   <CourseIcon course={course.course} className="h-4 w-4" />
@@ -194,7 +193,7 @@ export function SemesterDashboard({
         </section>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
-          <section className="min-w-0 rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
+          <section className="brevyn-soft-section min-w-0 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -207,7 +206,7 @@ export function SemesterDashboard({
             <ActivityHeatmap days={activityDays} />
           </section>
 
-          <section className="min-w-[21rem] rounded-[var(--radius-panel)] bg-card/82 p-4 shadow-[var(--shadow-card)]">
+          <section className="brevyn-soft-section min-w-[21rem] p-4">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="h-4 w-4" />
               学期概况
@@ -418,8 +417,7 @@ function EmptySemesterCourseStart({
   return (
     <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
       <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col">
-        <section className="relative overflow-hidden rounded-[var(--radius-window)] bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--surface-panel)/0.94))] shadow-[var(--shadow-panel)]">
-          <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
+        <section className="brevyn-hero-surface">
           <div className="pointer-events-none absolute -bottom-12 right-8 select-none text-[9rem] font-semibold leading-none tracking-[-0.08em] text-foreground/5">
             02
           </div>
@@ -455,7 +453,7 @@ function EmptySemesterCourseStart({
             </div>
 
             <aside className="flex min-w-0 items-center">
-              <div className="w-full overflow-hidden rounded-[var(--radius-panel)] bg-background/78 shadow-[0_18px_40px_hsl(var(--foreground)/0.06),inset_0_0_0_1px_hsl(var(--border)/0.52)]">
+              <div className="w-full overflow-hidden rounded-[var(--radius-panel)] bg-background/68 shadow-[0_18px_40px_hsl(var(--foreground)/0.055),inset_0_0_0_1px_hsl(var(--foreground)/0.055)]">
                 <div className="border-b border-border/50 px-4 py-3">
                   <div className="text-[13px] font-semibold text-foreground">添加课程</div>
                   <p className="mt-1 text-[11px] leading-5 text-muted-foreground">选择一种开始方式。</p>
