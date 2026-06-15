@@ -20,6 +20,7 @@ import type {
   BrevynAgentTimelineRecord,
   DeleteFileInput,
   CloudAccountStatus,
+  CloudActivateConversationProviderInput,
   CloudActivateOfficialProviderInput,
   CloudAuthInput,
   CloudModelCatalogInput,
@@ -28,6 +29,7 @@ import type {
   CloudRedeemCodeInput,
   CloudRedeemCodeResult,
   CloudRefreshInput,
+  CloudSyncConversationProviderInput,
   CloudSyncOfficialProviderInput,
   CreateCourseInput,
   CreateSemesterInput,
@@ -663,6 +665,14 @@ export class LocalStore {
 
   cloudModelsCatalog(input?: CloudModelCatalogInput): Promise<CloudModelCatalogResult> {
     return this.cloud.modelsCatalog(input);
+  }
+
+  cloudSyncConversationProvider(input?: CloudSyncConversationProviderInput): Promise<CloudOfficialProviderSyncResult> {
+    return this.cloud.syncConversationProvider(input);
+  }
+
+  cloudActivateConversationProvider(input: CloudActivateConversationProviderInput): Promise<CloudOfficialProviderSyncResult> {
+    return this.cloud.activateConversationProvider(input);
   }
 
   cloudSyncOfficialProvider(input?: CloudSyncOfficialProviderInput): Promise<CloudOfficialProviderSyncResult> {

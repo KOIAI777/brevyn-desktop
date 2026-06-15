@@ -136,7 +136,7 @@ export function SettingsDialog({
     : activeVisionProviders[0]?.selectedModel || "未配置视觉模型";
   const cloudNavDetail = cloudStatus?.authenticated
     ? cloudStatus.user?.email || "已登录"
-    : "登录后自动配置官方模型";
+    : "登录后兑换套餐";
   const cloudPlanGroupIds = useMemo(() => {
     const ids = new Set<number>();
     const addId = (value?: number | null) => {
@@ -367,10 +367,10 @@ export function SettingsDialog({
       setCloudStatusLine(cloudSyncResultLine(result.status, result.detail, result.provider?.name));
       if (result.status === "synced") {
         await loadProviders();
-        showProviderToast(result.provider ? `已同步 ${result.provider.name}。` : "官方模型配置已同步。");
+        showProviderToast(result.provider ? `已同步 ${result.provider.name}。` : "官方能力已同步。");
       }
     } catch (error) {
-      setCloudStatusLine(`同步官方配置失败：${errorMessage(error)}`);
+      setCloudStatusLine(`同步官方能力失败：${errorMessage(error)}`);
     } finally {
       setCloudBusyAction("");
     }
@@ -397,16 +397,37 @@ export function SettingsDialog({
     }
   }
 
+  async function activateCloudConversationProvider(externalGroupId: number) {
+    const action: CloudBusyAction = `activate:${externalGroupId}`;
+    setCloudBusyAction(action);
+    try {
+      const result = await window.brevyn.cloud.activateConversationProvider({ externalGroupId });
+      setCloudStatus(result.cloud);
+      setCloudStatusLine(cloudActivateConversationResultLine(result.provider?.name, result.detail));
+      if (result.status === "synced") {
+        const activatedProviders = result.providers?.length ? result.providers : result.provider ? [result.provider] : [];
+        for (const provider of activatedProviders) {
+          cacheCloudGroupModelsFromProvider(externalGroupId, provider);
+        }
+        void refreshActivatedOfficialProviders(activatedProviders);
+      }
+    } catch (error) {
+      setCloudStatusLine(`切换套餐失败：${errorMessage(error)}`);
+    } finally {
+      setCloudBusyAction("");
+    }
+  }
+
   async function refreshActivatedOfficialProviders(providers: ModelProviderConfig[]) {
     try {
       await loadProviders();
       const agentProvider = providers.find((provider) => provider.purpose === "agent");
       if (agentProvider) {
         await onAgentProviderChanged?.(agentProviderSelectionValue(agentProvider.id, agentProvider.selectedModel));
-        showProviderToast(`当前官方分组已切换到 ${agentProvider.name}。`);
+        showProviderToast(`当前套餐模型已切换到 ${agentProvider.name}。`);
         return;
       }
-      showProviderToast(providers.length > 0 ? `已同步 ${providers.length} 个官方能力配置。` : "官方配置已刷新。");
+      showProviderToast(providers.length > 0 ? `已同步 ${providers.length} 个官方能力配置。` : "官方能力已刷新。");
     } catch (error) {
       setCloudStatusLine(`套餐已切换，本地模型刷新失败：${errorMessage(error)}`);
     }
@@ -520,7 +541,7 @@ export function SettingsDialog({
       setCloudForm((current) => ({ ...current, password: "" }));
       setCloudRedeemCode("");
       setCloudRedeemResult(null);
-      setCloudStatusLine("已退出 Cloud，并清理本地官方模型配置。");
+      setCloudStatusLine("已退出 Cloud，并清理本地 Cloud 模型配置。");
       await loadProviders();
     } catch (error) {
       setCloudStatusLine(`退出失败：${errorMessage(error)}`);
@@ -697,7 +718,8 @@ export function SettingsDialog({
                 onRedeemCodeChange={setCloudRedeemCode}
                 onSubmitAuth={() => void submitCloudAuth(cloudMode)}
                 onRefresh={() => void refreshCloudAccount()}
-                onActivateGroup={(externalGroupId) => void activateCloudOfficialProvider(externalGroupId)}
+                onActivateGroup={(externalGroupId) => void activateCloudConversationProvider(externalGroupId)}
+                onActivateCapabilityGroup={(externalGroupId) => void activateCloudOfficialProvider(externalGroupId)}
                 onRedeem={() => void redeemCloudCode()}
                 onOpenShop={() => void openCloudShop()}
                 onLogout={() => void logoutCloudAccount()}
@@ -757,9 +779,14 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
 }
 
 function cloudSyncResultLine(status: "synced" | "provisioning" | "locked", detail?: string, providerName?: string): string {
-  if (status === "synced") return providerName ? `官方模型配置已同步：${providerName}。` : "官方模型配置已同步。";
-  if (status === "locked") return detail || "兑换余额套餐后可启用官方模型配置。";
-  return detail || "Cloud 正在后台准备官方模型配置，稍后可刷新或重新同步。";
+  if (status === "synced") return providerName ? `官方能力已同步：${providerName}。` : "官方能力已同步。";
+  if (status === "locked") return detail || "兑换余额套餐后可启用官方能力。";
+  return detail || "Cloud 正在后台准备官方能力，稍后可刷新或重新同步。";
+}
+
+function cloudActivateConversationResultLine(providerName?: string, detail?: string): string {
+  if (providerName) return `当前套餐已启用：${providerName}。`;
+  return detail || "当前套餐已启用。";
 }
 
 function cloudActivateResultLine(providerName?: string, detail?: string): string {
@@ -789,9 +816,9 @@ function cloudRedeemResultLine(result: CloudRedeemCodeResult): string {
   if (result.status === "gateway_failed") {
     return `${base}${result.error?.message || redemption.errorMessage || "网关同步失败，后台会保留记录。"}`
   }
-  if (result.providerSyncStatus === "failed") return `${base}本地官方配置同步失败：${result.providerSyncDetail || "请稍后刷新。"}`
-  if (result.providerSyncStatus === "provisioning") return `${base}${result.providerSyncDetail || "官方配置正在后台准备。"}`
-  if (result.providerSyncStatus === "synced") return `${base}对应套餐已同步到本地官方配置。`;
+  if (result.providerSyncStatus === "failed") return `${base}本地套餐模型同步失败：${result.providerSyncDetail || "请稍后刷新。"}`
+  if (result.providerSyncStatus === "provisioning") return `${base}${result.providerSyncDetail || "套餐模型正在后台准备。"}`
+  if (result.providerSyncStatus === "synced") return `${base}对应套餐模型已启用。`;
   return base;
 }
 
@@ -847,19 +874,19 @@ function RedeemConfirmationMessage({ result, groups }: { result: CloudRedeemCode
 
       {result.providerSyncStatus === "synced" && (
         <div className="rounded-[var(--radius-control)] bg-muted/55 px-3 py-2 text-[11px] leading-5 text-muted-foreground ring-1 ring-border/50">
-          官方模型配置已同步，可直接在会话中使用。
+          套餐模型已同步，可直接在会话中使用。
         </div>
       )}
 
       {result.providerSyncStatus === "provisioning" && (
         <div className="rounded-[var(--radius-control)] bg-amber-50/75 px-3 py-2 text-[11px] leading-5 text-amber-900 ring-1 ring-amber-200/70 dark:bg-amber-400/10 dark:text-amber-200 dark:ring-amber-400/20">
-          {result.providerSyncDetail || "官方模型配置正在后台准备，稍后刷新账号即可使用。"}
+          {result.providerSyncDetail || "套餐模型配置正在后台准备，稍后刷新账号即可使用。"}
         </div>
       )}
 
       {result.providerSyncStatus === "failed" && (
         <div className="rounded-[var(--radius-control)] bg-orange-50/75 px-3 py-2 text-[11px] leading-5 text-orange-900 ring-1 ring-orange-200/70 dark:bg-orange-400/10 dark:text-orange-200 dark:ring-orange-400/20">
-          {result.providerSyncDetail || "本地官方配置暂未同步成功，稍后可以在账号页重新同步。"}
+          {result.providerSyncDetail || "本地套餐模型暂未同步成功，稍后可以在账号页重新启用。"}
         </div>
       )}
 
@@ -943,15 +970,15 @@ function cloudRedeemCodeMessage(code: string): string {
     case "redeem_gateway_sync_failed":
       return "兑换已记录，但套餐或积分同步暂未完成，请稍后刷新。";
     case "official_capability_not_active":
-      return "兑换余额套餐后可启用官方模型配置。";
+      return "兑换余额套餐后可启用官方能力。";
     case "provider_provision_rate_limited":
-      return "官方模型配置正在准备中，请稍后刷新。";
+      return "套餐模型正在准备中，请稍后刷新。";
     case "gateway_provision_in_progress":
     case "gateway_provision_queued":
     case "gateway_credential_missing":
-      return "官方模型配置正在后台准备，请稍后刷新。";
+      return "套餐模型正在后台准备，请稍后刷新。";
     case "group_not_official_capability":
-      return "这个套餐不包含官方模型配置，已尝试同步可用的官方能力。";
+      return "这个套餐不包含官方能力，已保留可用的套餐模型。";
     case "official_capability_query_failed":
       return "暂时无法校验官方能力资格，请稍后重试。";
     case "unauthorized":
@@ -993,9 +1020,9 @@ function cloudAuthCodeMessage(code: string, mode: CloudAuthMode): string {
     case "token_create_failed":
       return `${isRegister ? "注册" : "登录"}成功但登录态创建失败，请稍后重试。`;
     case "official_capability_not_active":
-      return `${isRegister ? "账号已创建" : "登录成功"}。兑换余额套餐后可启用官方模型配置。`;
+      return `${isRegister ? "账号已创建" : "登录成功"}。兑换余额套餐后可启用官方能力。`;
     case "provider_provision_rate_limited":
-      return "官方模型配置正在准备中，请稍后刷新。";
+      return "套餐模型正在准备中，请稍后刷新。";
     case "unauthorized":
     case "invalid_refresh_token":
       return "登录状态已失效，请重新登录。";

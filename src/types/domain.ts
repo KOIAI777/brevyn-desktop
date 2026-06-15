@@ -1347,6 +1347,8 @@ export interface CloudProviderConfig {
   minClientVersion?: string;
   modelHintCapabilities?: string[];
   models: CloudProviderModel[];
+  externalGroupId?: number;
+  groupName?: string;
 }
 
 export interface CloudModelCatalogResult {
@@ -1442,7 +1444,15 @@ export interface CloudSyncOfficialProviderInput {
   externalGroupId?: number;
 }
 
+export interface CloudSyncConversationProviderInput {
+  externalGroupId?: number;
+}
+
 export interface CloudActivateOfficialProviderInput {
+  externalGroupId: number;
+}
+
+export interface CloudActivateConversationProviderInput {
   externalGroupId: number;
 }
 
@@ -1620,6 +1630,8 @@ export interface BrevynAPI {
     refresh: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
     refreshEntitlements: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
     modelsCatalog: (input?: CloudModelCatalogInput) => Promise<CloudModelCatalogResult>;
+    syncConversationProvider: (input?: CloudSyncConversationProviderInput) => Promise<CloudOfficialProviderSyncResult>;
+    activateConversationProvider: (input: CloudActivateConversationProviderInput) => Promise<CloudOfficialProviderSyncResult>;
     syncOfficialProvider: (input?: CloudSyncOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
     activateOfficialProvider: (input: CloudActivateOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
     redeemCode: (input: CloudRedeemCodeInput) => Promise<CloudRedeemCodeResult>;

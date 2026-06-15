@@ -45,6 +45,7 @@ interface AccountSettingsPageProps {
   onSubmitAuth: () => void;
   onRefresh: () => void;
   onActivateGroup: (externalGroupId: number) => void;
+  onActivateCapabilityGroup: (externalGroupId: number) => void;
   onRedeem: () => void;
   onOpenShop: () => void;
   onLogout: () => void;
@@ -66,6 +67,7 @@ export function AccountSettingsPage({
   onSubmitAuth,
   onRefresh,
   onActivateGroup,
+  onActivateCapabilityGroup,
   onRedeem,
   onOpenShop,
   onLogout,
@@ -140,10 +142,10 @@ export function AccountSettingsPage({
   const cloudBaseUrlEditable = cloudStatus?.baseUrlEditable === true;
   const showDevelopmentBadge = cloudStatus?.environment === "development";
   const authBusy = busyAction === "login" || busyAction === "register";
-  const authActionLabel = cloudMode === "register" ? "创建账号并同步" : "登录并同步官方模型";
+  const authActionLabel = cloudMode === "register" ? "创建账号" : "登录";
   const authHelperText = cloudMode === "register"
-    ? "密码至少 8 位。注册成功后会自动同步账号套餐和官方模型。"
-    : "登录后会同步账号、余额、套餐和可用官方模型。";
+    ? "密码至少 8 位。注册成功后会同步账号状态；兑换套餐后会自动启用对应模型。"
+    : "登录后会同步账号、余额和套餐；已有套餐可在下方启用。";
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
@@ -245,12 +247,12 @@ export function AccountSettingsPage({
               </div>
               <div className="mt-3 text-xs font-semibold text-foreground">同步范围</div>
               <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                登录后会校验账号、读取权益，并生成本地可用的官方模型配置。
+                登录后会校验账号并读取权益；兑换或启用套餐时，再生成本地可用的模型配置。
               </div>
               <div className="mt-3 space-y-2">
                 <CloudAuthStep icon={<UserRound className="h-3.5 w-3.5" />} label="验证账号" />
                 <CloudAuthStep icon={<Wallet className="h-3.5 w-3.5" />} label="同步余额和套餐" />
-                <CloudAuthStep icon={<PlugZap className="h-3.5 w-3.5" />} label="准备官方模型" />
+                <CloudAuthStep icon={<PlugZap className="h-3.5 w-3.5" />} label="按套餐启用模型" />
               </div>
             </div>
           </div>
@@ -428,7 +430,7 @@ export function AccountSettingsPage({
 	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        providers={providers}
 	                        providerRefs={cloudStatus?.providerRefs ?? []}
-	                        onActivateGroup={onActivateGroup}
+	                        onActivateGroup={onActivateCapabilityGroup}
 	                      />
 	                    ))}
 	                    {capabilitySubscriptionGroups.map((group) => (
@@ -440,7 +442,7 @@ export function AccountSettingsPage({
 	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        providers={providers}
 	                        providerRefs={cloudStatus?.providerRefs ?? []}
-	                        onActivateGroup={onActivateGroup}
+	                        onActivateGroup={onActivateCapabilityGroup}
 	                      />
 	                    ))}
 	                    {fallbackCapabilityGroups.map((group) => (
@@ -452,7 +454,7 @@ export function AccountSettingsPage({
 	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        providers={providers}
 	                        providerRefs={cloudStatus?.providerRefs ?? []}
-	                        onActivateGroup={onActivateGroup}
+	                        onActivateGroup={onActivateCapabilityGroup}
 	                      />
 	                    ))}
 	                  </div>

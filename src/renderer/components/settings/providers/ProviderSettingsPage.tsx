@@ -4,7 +4,7 @@ import { ActionButton, IconActionButton } from "@/components/settings/shared/Set
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
 import type { AgentGatewayStatus, ModelProviderConfig, ProviderDraftInput, ProviderModel, ProviderPurpose, RecognizedAcademicCalendar, RecognizedCourseTimetable } from "../../../../types/domain";
-import { PROVIDER_PROFILE_LIST_HEIGHT_CLASS, isOfficialProvider, officialProviderGroupLabel } from "./providerUtils";
+import { PROVIDER_PROFILE_LIST_HEIGHT_CLASS, isCloudConversationProvider, isOfficialProvider, officialProviderGroupLabel } from "./providerUtils";
 import { ModelPicker, ProviderProfileRow } from "./ProviderControls";
 import { AgentProviderEditor, EmbeddingProviderEditor, OcrProviderEditor, VisionProviderEditor } from "./ProviderEditors";
 import { AgentGatewayAdvancedPanel, OfficialModelList, OfficialProviderPanel, VisionTestResultPanel } from "./ProviderPanels";
@@ -247,6 +247,7 @@ export function ProviderSettingsPage({
   }
 
   if (selectedProvider && isOfficialAgentProvider(selectedProvider) && !creatingProvider) {
+    const selectedProviderTitle = isCloudConversationProvider(selectedProvider) ? "Cloud 套餐模型" : "官方能力配置";
     return (
       <div className="space-y-4">
         {runtimeBanner}
@@ -264,7 +265,7 @@ export function ProviderSettingsPage({
               </button>
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <ShieldCheck className="h-4 w-4" />
-                官方模型配置
+                {selectedProviderTitle}
               </div>
               <div className="mt-1 truncate text-[11px] text-muted-foreground" title={officialProviderGroupLabel(selectedProvider)}>
                 {officialProviderGroupLabel(selectedProvider)}

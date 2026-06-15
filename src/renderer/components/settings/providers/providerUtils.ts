@@ -3,6 +3,7 @@ import { PROVIDER_PRESETS, type ModelProviderConfig, type ProviderKind, type Pro
 export const PROVIDER_PROFILE_ROW_HEIGHT_CLASS = "h-[72px]";
 export const PROVIDER_PROFILE_LIST_HEIGHT_CLASS = "max-h-[312px]";
 export const OFFICIAL_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-official-";
+export const CLOUD_CONVERSATION_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-conversation-";
 
 export function contextWindowFromInput(value: string): number | undefined {
   const digits = value.replace(/[^\d]/g, "");
@@ -29,7 +30,11 @@ export function providerKindLabel(providerKind: ProviderKind): string {
 }
 
 export function isOfficialProvider(provider: ModelProviderConfig): boolean {
-  return provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX);
+  return provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX) || provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX);
+}
+
+export function isCloudConversationProvider(provider: ModelProviderConfig): boolean {
+  return provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX);
 }
 
 export function providerDisplayName(provider: ModelProviderConfig): string {
@@ -47,10 +52,13 @@ export function officialProviderGroupLabel(provider: ModelProviderConfig): strin
   const displayName = providerDisplayName(provider);
   const parts = displayName.split("·").map((part) => part.trim()).filter(Boolean);
   if (parts.length > 1) return parts.slice(1).join(" · ");
-  const suffix = provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
-  if (!suffix || suffix === "default") return "官方分组";
+  const suffix = provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX)
+    ? provider.id.slice(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX.length)
+    : provider.id.slice(OFFICIAL_PROVIDER_ID_PREFIX.length);
+  if (!suffix || suffix === "default") return provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX) ? "Cloud 套餐" : "官方分组";
   const groupId = suffix.replace(/^(embedding|vision|ocr)-/, "");
-  return groupId === "default" ? "官方分组" : `分组 #${groupId}`;
+  if (groupId === "default") return provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX) ? "Cloud 套餐" : "官方分组";
+  return provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX) ? `套餐 #${groupId}` : `分组 #${groupId}`;
 }
 
 function trimNumber(value: number): string {

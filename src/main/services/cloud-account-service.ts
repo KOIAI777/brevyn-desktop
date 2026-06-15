@@ -2,6 +2,7 @@ import { safeStorage } from "electron";
 import type {
   CloudAccountStatus,
   CloudActivateOfficialProviderInput,
+  CloudActivateConversationProviderInput,
   CloudAPIError,
   CloudAuthInput,
   CloudGatewayAccount,
@@ -23,6 +24,7 @@ import type {
   CloudRedemption,
   CloudRefreshInput,
   CloudTokenPair,
+  CloudSyncConversationProviderInput,
   CloudUser,
   CloudWallet,
   ModelProviderConfig,
@@ -89,6 +91,21 @@ interface OfficialProviderResult {
   retryAfterSeconds?: number;
 }
 
+interface ConversationProviderResult {
+  provider?: CloudProviderConfig;
+  providers?: CloudProviderConfig[];
+  gateway?: CloudGatewayAccount;
+  apiKey?: {
+    externalGroupId?: number;
+    groupName?: string;
+  } | null;
+  externalGroupId?: number;
+  status?: string;
+  error?: string;
+  detail?: string;
+  retryAfterSeconds?: number;
+}
+
 interface RedeemAPIResult {
   status?: string;
   error?: CloudAPIError | string | null;
@@ -115,7 +132,7 @@ export class CloudAccountService {
   }
 
   status(): CloudAccountStatus {
-    const activeLocalGroupId = this.activeOfficialAgentGroupId();
+    const activeLocalGroupId = this.activeCloudConversationGroupId() || this.activeOfficialAgentGroupId();
     const currentGroupId = activeLocalGroupId
       || positiveInteger(this.data.currentGroup?.externalGroupId)
       || positiveInteger(this.data.gateway?.defaultGroupId)
@@ -180,14 +197,14 @@ export class CloudAccountService {
     const cloud = await this.refresh({ forceEntitlements: true, reason: "register" });
     return {
       status: "locked",
-      detail: "账号已创建。兑换余额套餐后可启用官方模型配置。",
+      detail: "账号已创建。兑换余额套餐后可启用套餐模型。",
       cloud,
     };
   }
 
   async refresh(input: CloudRefreshInput = {}): Promise<CloudAccountStatus> {
     this.requireRefreshToken();
-    const localCurrentGroupId = this.activeOfficialAgentGroupId();
+    const localCurrentGroupId = this.activeCloudConversationGroupId() || this.activeOfficialAgentGroupId();
     const [me, groups, entitlementsResult] = await Promise.all([
       this.request<MeResult>("/api/v1/me"),
       this.request<GroupsResult>("/api/v1/me/groups"),
@@ -211,10 +228,13 @@ export class CloudAccountService {
       lastSyncedAt: new Date().toISOString(),
       lastError: entitlementError,
     });
-    const providerSyncErrors = await this.refreshKnownOfficialProviders();
+    const providerSyncErrors = [
+      ...await this.refreshKnownConversationProviders(localCurrentGroupId),
+      ...await this.refreshKnownOfficialProviders(),
+    ];
     if (localCurrentGroupId > 0) {
       try {
-        this.activateLocalOfficialProviders(localCurrentGroupId);
+        this.activateLocalCloudAgentProviders(localCurrentGroupId);
         this.setCurrentLocalGroup(localCurrentGroupId);
       } catch (error) {
         providerSyncErrors.push(`保留当前套餐失败：${errorMessage(error)}`);
@@ -237,6 +257,12 @@ export class CloudAccountService {
         lastSyncedAt: new Date().toISOString(),
         lastError: "",
       });
+      const providerSyncErrors = await this.refreshMissingConversationProviders();
+      if (providerSyncErrors.length > 0) {
+        this.patchData({
+          lastError: providerSyncErrors.join("；"),
+        });
+      }
     } catch (error) {
       this.patchData({
         lastSyncedAt: new Date().toISOString(),
@@ -256,6 +282,111 @@ export class CloudAccountService {
       items,
       total: Number.isFinite(Number(result.total)) ? Number(result.total) : items.length,
       externalGroupId: positiveInteger(result.externalGroupId) || externalGroupId,
+    };
+  }
+
+  async syncConversationProvider(input: CloudSyncConversationProviderInput = {}): Promise<CloudOfficialProviderSyncResult> {
+    this.requireRefreshToken();
+    const requestedGroupId = positiveInteger(input.externalGroupId);
+    const query = requestedGroupId > 0 ? `?externalGroupId=${encodeURIComponent(String(requestedGroupId))}` : "";
+    const result = await this.request<ConversationProviderResult>(`/api/v1/provider/conversation${query}`);
+    const cloudProviders = normalizedConversationCloudProviders(result);
+    if (cloudProviders.length === 0) {
+      if (isConversationProviderLocked(result)) {
+        this.patchData({
+          lastError: "",
+          lastSyncedAt: new Date().toISOString(),
+        });
+        return {
+          status: "locked",
+          detail: conversationProviderLockedMessage(result.detail || result.error),
+          retryAfterSeconds: result.retryAfterSeconds,
+          cloud: this.status(),
+        };
+      }
+      this.patchData({
+        lastError: result.detail || result.error || "套餐模型配置正在后台准备。",
+        lastSyncedAt: new Date().toISOString(),
+      });
+      return {
+        status: "provisioning",
+        detail: result.detail || result.error || "套餐模型配置正在后台准备。",
+        retryAfterSeconds: result.retryAfterSeconds,
+        cloud: this.status(),
+      };
+    }
+
+    const externalGroupId = positiveInteger(result.externalGroupId)
+      || positiveInteger(result.apiKey?.externalGroupId)
+      || positiveInteger(cloudProviders[0]?.externalGroupId)
+      || requestedGroupId
+      || this.defaultExternalGroupId();
+    if (externalGroupId <= 0) throw new Error("Cloud 套餐分组不存在。");
+    const group = this.groupForExternalId(externalGroupId);
+    const providers = cloudProviders.flatMap((cloudProvider) => {
+      const saved = this.saveConversationProvider(cloudProvider, externalGroupId, group);
+      if (!saved) return [];
+      this.upsertProviderRef({
+        providerId: saved.id,
+        purpose: saved.purpose,
+        externalGroupId,
+        groupName: group?.name || result.apiKey?.groupName || cloudProvider.groupName || cloudProvider.name || this.groupDisplayName(externalGroupId),
+        selectedModel: saved.selectedModel,
+        modelCount: saved.models.filter((model) => model.enabled !== false).length,
+        syncedAt: new Date().toISOString(),
+      });
+      return [saved];
+    });
+    if (providers.length === 0) throw new Error("该套餐没有可用的对话模型。");
+    const activatedProviders = this.activateLocalConversationProviders(externalGroupId);
+    const provider = activatedProviders.find((item) => item.purpose === "agent") ?? providers[0];
+    const groupName = this.setCurrentLocalGroup(externalGroupId)?.name || this.groupDisplayName(externalGroupId);
+    this.patchData({
+      gateway: result.gateway ?? this.data.gateway ?? null,
+      lastSyncedAt: new Date().toISOString(),
+      lastError: "",
+    });
+    return {
+      status: "synced",
+      detail: `已启用 ${groupName} 对话模型。`,
+      provider,
+      providers: activatedProviders.length > 0 ? activatedProviders : providers,
+      cloud: this.status(),
+    };
+  }
+
+  async activateConversationProvider(input: CloudActivateConversationProviderInput): Promise<CloudOfficialProviderSyncResult> {
+    this.requireRefreshToken();
+    const externalGroupId = positiveInteger(input.externalGroupId);
+    if (externalGroupId <= 0) throw new Error("请选择要使用的 Cloud 套餐。");
+
+    let detail = "";
+    try {
+      const synced = await this.syncConversationProvider({ externalGroupId });
+      if (synced.status !== "synced" || !(synced.providers?.length || synced.provider)) {
+        return synced;
+      }
+      detail = synced.detail || "";
+    } catch (error) {
+      const cachedProviders = this.conversationProvidersForGroup(externalGroupId);
+      if (cachedProviders.length === 0) throw error;
+      this.activateLocalConversationProviders(externalGroupId);
+      this.setCurrentLocalGroup(externalGroupId);
+      detail = `套餐模型刷新失败，已使用本地缓存：${errorMessage(error)}`;
+    }
+
+    this.patchData({
+      lastSyncedAt: new Date().toISOString(),
+      lastError: "",
+    });
+    const providers = this.conversationProvidersForGroup(externalGroupId).filter((provider) => provider.enabled);
+    const provider = providers.find((item) => item.purpose === "agent") ?? providers[0];
+    return {
+      status: "synced",
+      detail: detail || `已切换到 ${this.groupDisplayName(externalGroupId)}。`,
+      provider,
+      providers,
+      cloud: this.status(),
     };
   }
 
@@ -279,12 +410,12 @@ export class CloudAccountService {
         };
       }
       this.patchData({
-        lastError: result.detail || result.error || "官方配置正在后台配置。",
+        lastError: result.detail || result.error || "官方能力正在后台配置。",
         lastSyncedAt: new Date().toISOString(),
       });
       return {
         status: "provisioning",
-        detail: result.detail || result.error || "官方配置正在后台配置。",
+        detail: result.detail || result.error || "官方能力正在后台配置。",
         retryAfterSeconds: result.retryAfterSeconds,
         cloud: this.status(),
       };
@@ -336,7 +467,7 @@ export class CloudAccountService {
       detail = synced.detail || "";
     } catch (error) {
       if (groupProviders.length === 0) throw error;
-      detail = `官方配置刷新失败，已使用本地缓存：${errorMessage(error)}`;
+      detail = `官方能力刷新失败，已使用本地缓存：${errorMessage(error)}`;
     }
 
     const activatedProviders = this.activateLocalOfficialProviders(externalGroupId);
@@ -382,18 +513,22 @@ export class CloudAccountService {
     let providerSyncSucceeded = false;
     const externalGroupId = positiveInteger(redeemed.result.redemption.externalGroupId);
 
-    if (externalGroupId > 0 && redeemed.status !== "gateway_failed" && this.isOfficialCapabilityGroup(externalGroupId)) {
+    if (externalGroupId > 0 && redeemed.status !== "gateway_failed") {
       try {
-        const synced = await this.activateOfficialProvider({ externalGroupId });
+        const synced = await this.activateConversationProvider({ externalGroupId });
         cloud = synced.cloud;
         provider = synced.provider;
         syncedProviders.push(...(synced.providers ?? (synced.provider ? [synced.provider] : [])));
         providerSyncSucceeded = synced.status === "synced";
         providerSyncProvisioning = providerSyncProvisioning || synced.status === "provisioning";
-        if (synced.detail) providerSyncDetails.push(synced.detail);
+        if (synced.status === "locked") {
+          providerSyncDetails.push(synced.detail || conversationProviderLockedMessage());
+        } else if (synced.detail) {
+          providerSyncDetails.push(synced.detail);
+        }
       } catch (error) {
         providerSyncFailed = true;
-        providerSyncDetails.push(`兑换套餐同步失败：${errorMessage(error)}`);
+        providerSyncDetails.push(`套餐模型同步失败：${errorMessage(error)}`);
       }
     }
     if (externalGroupId > 0 && redeemed.status !== "gateway_failed") {
@@ -437,6 +572,42 @@ export class CloudAccountService {
       providerSyncStatus,
       providerSyncDetail,
     };
+  }
+
+  private activateLocalCloudAgentProviders(externalGroupId: number): ModelProviderConfig[] {
+    const conversationProviders = this.conversationProvidersForGroup(externalGroupId);
+    if (conversationProviders.length > 0) return this.activateLocalConversationProviders(externalGroupId);
+    const officialAgentProviders = this.officialProvidersForGroup(externalGroupId).filter((provider) => provider.purpose === "agent");
+    if (officialAgentProviders.length > 0) return this.activateLocalOfficialProviders(externalGroupId).filter((provider) => provider.purpose === "agent");
+    throw new Error(`本地套餐模型配置不存在：${externalGroupId}`);
+  }
+
+  private activateLocalConversationProviders(externalGroupId: number): ModelProviderConfig[] {
+    const providers = this.providers.list();
+    const targetProviders = this.conversationProvidersForGroup(externalGroupId);
+    if (targetProviders.length === 0) throw new Error(`本地套餐模型配置不存在：${externalGroupId}`);
+    const activated: ModelProviderConfig[] = [];
+    for (const provider of providers) {
+      if (provider.purpose !== "agent") continue;
+      if (!isConversationProviderId(provider.id) && !isOfficialProviderId(provider.id)) continue;
+      const enabled = isConversationProviderId(provider.id) && this.conversationProviderExternalGroupId(provider.id) === externalGroupId;
+      const saved = this.providers.save(providerToDraft(provider, { enabled })).provider;
+      if (enabled) activated.push(saved);
+    }
+    if (activated.length === 0) throw new Error(`本地套餐模型配置不存在：${externalGroupId}`);
+    for (const provider of activated) {
+      const ref = (this.data.providerRefs ?? []).find((item) => item.providerId === provider.id || (item.externalGroupId === externalGroupId && item.purpose === provider.purpose));
+      this.upsertProviderRef({
+        providerId: provider.id,
+        purpose: provider.purpose,
+        externalGroupId,
+        groupName: ref?.groupName || this.groupForExternalId(externalGroupId)?.name || provider.name,
+        selectedModel: provider.selectedModel,
+        modelCount: provider.models.filter((model) => model.enabled !== false).length,
+        syncedAt: new Date().toISOString(),
+      });
+    }
+    return activated;
   }
 
   private activateLocalOfficialProviders(externalGroupId: number): ModelProviderConfig[] {
@@ -515,6 +686,36 @@ export class CloudAccountService {
     return this.status();
   }
 
+  private saveConversationProvider(provider: CloudProviderConfig, externalGroupId: number, group?: CloudGatewayGroup): ModelProviderConfig | undefined {
+    const purpose = officialProviderPurpose(provider);
+    if (purpose !== "agent") return undefined;
+    const models = normalizeCloudProviderModels(provider.models, provider.selectedModel);
+    if (models.length === 0) return undefined;
+    const providerId = conversationProviderId(externalGroupId);
+    const existing = this.providers.list().find((item) => item.id === providerId);
+    const selectedModel = selectedEnabledModel(existing?.selectedModel || provider.selectedModel, models);
+    const nameSuffix = group?.name || provider.groupName || (externalGroupId > 0 ? `套餐 ${externalGroupId}` : "");
+    const baseName = stringValue(provider.name).trim() || "Brevyn Cloud";
+    const providerName = nameSuffix && !baseName.toLowerCase().includes(nameSuffix.toLowerCase())
+      ? `${baseName} · ${nameSuffix}`
+      : baseName;
+    const draft: ProviderDraftInput = {
+      id: providerId,
+      purpose: "agent",
+      providerKind: officialProviderKind(provider, "agent"),
+      name: providerName,
+      protocol: officialProviderProtocol(provider, "agent"),
+      baseUrl: stringValue(provider.baseUrl).trim(),
+      apiKey: stringValue(provider.apiKey).trim(),
+      clearApiKey: false,
+      authMode: officialProviderAuthMode(provider, "agent"),
+      models,
+      selectedModel,
+      enabled: true,
+    };
+    return this.providers.save(draft).provider;
+  }
+
   private saveOfficialProvider(provider: CloudProviderConfig, externalGroupId: number, group?: CloudGatewayGroup): ModelProviderConfig | undefined {
     const purpose = officialProviderPurpose(provider);
     if (!purpose) return undefined;
@@ -522,8 +723,11 @@ export class CloudAccountService {
     if (models.length === 0) return undefined;
     const providerId = officialProviderId(externalGroupId, purpose);
     const existing = this.providers.list().find((item) => item.id === providerId);
-    const hasEnabledOfficialProviderForPurpose = this.providers.list().some((item) =>
-      item.enabled && item.purpose === purpose && isOfficialProviderId(item.id) && item.id !== providerId,
+    const hasEnabledCloudAgentForPurpose = this.providers.list().some((item) =>
+      item.enabled &&
+      item.purpose === purpose &&
+      (isOfficialProviderId(item.id) || isConversationProviderId(item.id)) &&
+      item.id !== providerId,
     );
     const selectedModel = selectedEnabledModel(existing?.selectedModel || provider.selectedModel, models);
     const nameSuffix = group?.name || (externalGroupId > 0 ? `套餐 ${externalGroupId}` : "");
@@ -539,7 +743,7 @@ export class CloudAccountService {
       authMode: officialProviderAuthMode(provider, purpose),
       models,
       selectedModel,
-      enabled: existing?.enabled ?? (purpose === "agent" && hasEnabledOfficialProviderForPurpose ? false : provider.enabled !== false),
+      enabled: existing?.enabled ?? (purpose === "agent" && hasEnabledCloudAgentForPurpose ? false : provider.enabled !== false),
     };
     return this.providers.save(draft).provider;
   }
@@ -550,9 +754,68 @@ export class CloudAccountService {
     );
   }
 
+  private conversationProvidersForGroup(externalGroupId: number): ModelProviderConfig[] {
+    return this.providers.list().filter((provider) =>
+      isConversationProviderId(provider.id) && this.conversationProviderExternalGroupId(provider.id) === externalGroupId,
+    );
+  }
+
   private officialProviderExternalGroupId(providerId: string): number {
     const ref = (this.data.providerRefs ?? []).find((item) => item.providerId === providerId);
     return positiveInteger(ref?.externalGroupId) || officialProviderIdGroup(providerId);
+  }
+
+  private conversationProviderExternalGroupId(providerId: string): number {
+    const ref = (this.data.providerRefs ?? []).find((item) => item.providerId === providerId);
+    return positiveInteger(ref?.externalGroupId) || conversationProviderIdGroup(providerId);
+  }
+
+  private async refreshKnownConversationProviders(preferredGroupId: number): Promise<string[]> {
+    const groupIds = new Set<number>();
+    const addGroupId = (value: unknown) => {
+      const id = positiveInteger(value);
+      if (id > 0) groupIds.add(id);
+    };
+    for (const group of this.conversationGroups()) addGroupId(group.externalGroupId);
+    if (preferredGroupId > 0) addGroupId(preferredGroupId);
+
+    const errors: string[] = [];
+    for (const externalGroupId of groupIds) {
+      try {
+        await this.syncConversationProvider({ externalGroupId });
+      } catch (error) {
+        errors.push(`${this.groupDisplayName(externalGroupId)} 套餐模型同步失败：${errorMessage(error)}`);
+      }
+    }
+    return errors;
+  }
+
+  private async refreshMissingConversationProviders(): Promise<string[]> {
+    const groupIds = new Set<number>();
+    for (const group of this.conversationGroups()) {
+      const externalGroupId = positiveInteger(group.externalGroupId);
+      if (externalGroupId <= 0) continue;
+      if (this.conversationProvidersForGroup(externalGroupId).length > 0) continue;
+      groupIds.add(externalGroupId);
+    }
+
+    const errors: string[] = [];
+    for (const externalGroupId of groupIds) {
+      try {
+        await this.syncConversationProvider({ externalGroupId });
+      } catch (error) {
+        errors.push(`${this.groupDisplayName(externalGroupId)} 套餐模型补全失败：${errorMessage(error)}`);
+      }
+    }
+    return errors;
+  }
+
+  private conversationGroups(): Array<{ externalGroupId?: unknown; officialCapabilities?: unknown; officialModelConfig?: unknown }> {
+    return [
+      ...(this.data.groups ?? []),
+      ...(this.data.entitlements?.balanceGroups ?? []),
+      ...(this.data.entitlements?.subscriptionGroups ?? []),
+    ].filter((group) => !hasOfficialCapability(group));
   }
 
   private async refreshKnownOfficialProviders(): Promise<string[]> {
@@ -573,7 +836,7 @@ export class CloudAccountService {
       try {
         await this.syncOfficialProvider({ externalGroupId });
       } catch (error) {
-        errors.push(`${this.groupDisplayName(externalGroupId)} 官方配置同步失败：${errorMessage(error)}`);
+        errors.push(`${this.groupDisplayName(externalGroupId)} 官方能力同步失败：${errorMessage(error)}`);
       }
     }
     return errors;
@@ -717,7 +980,8 @@ export class CloudAccountService {
   }
 
   private defaultExternalGroupId(): number {
-    return this.activeOfficialAgentGroupId()
+    return this.activeCloudConversationGroupId()
+      || this.activeOfficialAgentGroupId()
       || positiveInteger(this.data.currentGroup?.externalGroupId)
       || positiveInteger(this.data.gateway?.defaultGroupId)
       || positiveInteger((this.data.groups ?? []).find((group) => group.isCurrent)?.externalGroupId)
@@ -727,6 +991,11 @@ export class CloudAccountService {
   private activeOfficialAgentGroupId(): number {
     const provider = this.providers.list().find((item) => item.enabled && item.purpose === "agent" && isOfficialProviderId(item.id));
     return positiveInteger(provider ? this.officialProviderExternalGroupId(provider.id) : 0);
+  }
+
+  private activeCloudConversationGroupId(): number {
+    const provider = this.providers.list().find((item) => item.enabled && item.purpose === "agent" && isConversationProviderId(item.id));
+    return positiveInteger(provider ? this.conversationProviderExternalGroupId(provider.id) : 0);
   }
 
   private groupForExternalId(externalGroupId: number): CloudGatewayGroup | undefined {
@@ -834,15 +1103,19 @@ async function cloudRequestError(response: Response): Promise<Error> {
 function friendlyCloudErrorMessage(code: string, detail?: string): string {
   switch (code) {
     case "official_capability_not_active":
-      return "兑换余额套餐后可启用官方模型配置。";
+      return "兑换余额套餐后可启用官方能力。";
+    case "conversation_provider_not_active":
+      return "兑换套餐后可启用对话模型配置。";
     case "provider_provision_rate_limited":
-      return "官方模型配置正在准备中，请稍后刷新。";
+      return "套餐模型配置正在准备中，请稍后刷新。";
     case "gateway_provision_in_progress":
     case "gateway_provision_queued":
     case "gateway_credential_missing":
-      return "官方模型配置正在后台准备，请稍后刷新。";
+      return "套餐模型配置正在后台准备，请稍后刷新。";
+    case "conversation_models_not_configured":
+      return "该套餐暂未配置可用对话模型。";
     case "group_not_official_capability":
-      return "这个套餐不包含官方模型配置，已尝试同步可用的官方能力。";
+      return "这个套餐不包含官方能力，已保留可用的套餐模型。";
     case "group_not_available":
       return "当前账号无权使用该套餐分组。";
     case "official_capability_query_failed":
@@ -928,6 +1201,28 @@ function normalizedOfficialCloudProviders(result: OfficialProviderResult): Cloud
     : [];
   if (providers.length > 0) return providers;
   return result.provider ? [result.provider] : [];
+}
+
+function normalizedConversationCloudProviders(result: ConversationProviderResult): CloudProviderConfig[] {
+  const providers = Array.isArray(result.providers)
+    ? result.providers.filter((provider) => provider && typeof provider === "object")
+    : [];
+  if (providers.length > 0) return providers;
+  return result.provider ? [result.provider] : [];
+}
+
+function conversationProviderId(externalGroupId: number): string {
+  const suffix = externalGroupId > 0 ? String(externalGroupId) : "default";
+  return `provider-brevyn-cloud-conversation-${suffix}`;
+}
+
+function isConversationProviderId(providerId: string): boolean {
+  return providerId.startsWith("provider-brevyn-cloud-conversation-");
+}
+
+function conversationProviderIdGroup(providerId: string): number {
+  const suffix = providerId.slice("provider-brevyn-cloud-conversation-".length);
+  return positiveInteger(suffix);
 }
 
 function officialProviderId(externalGroupId: number, purpose: ProviderPurpose = "agent"): string {
@@ -1026,10 +1321,20 @@ function isOfficialCapabilityLocked(result: OfficialProviderResult): boolean {
   return stringValue(result.status) === "locked" || stringValue(result.error) === "official_capability_not_active";
 }
 
+function isConversationProviderLocked(result: ConversationProviderResult): boolean {
+  return stringValue(result.status) === "locked" || stringValue(result.error) === "conversation_provider_not_active";
+}
+
 function officialCapabilityLockedMessage(detail?: unknown): string {
   const text = stringValue(detail);
   if (text && text !== "official_capability_not_active") return text;
-  return "兑换余额套餐后可启用官方模型配置。";
+  return "兑换余额套餐后可启用官方能力。";
+}
+
+function conversationProviderLockedMessage(detail?: unknown): string {
+  const text = stringValue(detail);
+  if (text && text !== "conversation_provider_not_active") return text;
+  return "兑换套餐后可启用对话模型配置。";
 }
 
 function providerToDraft(provider: ModelProviderConfig, overrides: Partial<ProviderDraftInput> = {}): ProviderDraftInput {

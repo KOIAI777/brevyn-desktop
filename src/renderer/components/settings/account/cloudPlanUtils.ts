@@ -11,6 +11,7 @@ import type {
 import { cx } from "@/lib/cn";
 
 const OFFICIAL_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-official-";
+const CLOUD_CONVERSATION_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-conversation-";
 
 export interface CloudGroupModelCatalogState {
   status: "loading" | "ready" | "error";
@@ -41,7 +42,7 @@ export function isCloudCapabilityGroup(
   providers: ModelProviderConfig[],
   providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
 ): boolean {
-  return isCapabilityGroup(group, catalog, providers, providerRefs) || hasCapabilityGroupTextHint(group);
+  return isCapabilityGroup(group, catalog, providers, providerRefs);
 }
 
 export function isCapabilityGroup(
@@ -73,22 +74,7 @@ export function groupCapabilityKinds(
   for (const capability of officialCapabilities) {
     if (capability === "embedding" || capability === "vision" || capability === "ocr") kinds.add(capability);
   }
-  const models = catalog?.models ?? [];
-  if (models.some(isEmbeddingCloudModel)) kinds.add("embedding");
-  const text = `${group.name} ${"description" in group ? group.description ?? "" : ""}`.toLowerCase();
-  const namedVisionGroup = /vision|视觉|识别|ocr|image|图片/.test(text);
-  if (models.some((model) => model.supportsVision || hasCloudModelCapability(model, "vision_input")) && (namedVisionGroup || kinds.has("embedding"))) {
-    kinds.add("vision");
-  }
-  if (/embedding|embed|向量|知识库|rag/.test(text)) kinds.add("embedding");
-  if (/ocr|扫描|文字识别/.test(text)) kinds.add("ocr");
-  if (namedVisionGroup) kinds.add("vision");
   return [...kinds].sort(capabilityKindSort);
-}
-
-function hasCapabilityGroupTextHint(group: CloudGatewayEntitlementGroup | CloudGatewayGroup): boolean {
-  const text = `${group.name} ${"description" in group ? group.description ?? "" : ""} ${group.platform || ""} ${group.source || ""}`.toLowerCase();
-  return /能力|capability|embedding|embed|向量|知识库|rag|vision|视觉|识别|ocr|image|图片/.test(text);
 }
 
 export function activeCapabilityKinds(groupId: number, providers: ModelProviderConfig[], kinds: CapabilityKind[]): CapabilityKind[] {
@@ -116,7 +102,7 @@ function capabilityKindSort(a: CapabilityKind, b: CapabilityKind): number {
 }
 
 function isOfficialProvider(provider: ModelProviderConfig): boolean {
-  return provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX);
+  return provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX) || provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX);
 }
 
 export function isEmbeddingCloudModel(model: CloudProviderModel): boolean {
