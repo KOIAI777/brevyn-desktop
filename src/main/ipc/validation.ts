@@ -21,6 +21,12 @@ import type {
   RecognizedCourseSchedule,
   RecognizedCourseSession,
   RecognizedCourseTimetable,
+  ReferenceCreateInput,
+  ReferenceExportInput,
+  ReferenceImportInput,
+  ReferenceScopeInput,
+  ReferenceScopeQuery,
+  ReferenceUpdateInput,
   RenameThreadInput,
   SkillImportInput,
   SkillUpdateInput,
@@ -228,6 +234,95 @@ export function normalizeSkillWriteInput(value: unknown): SkillWriteInput {
   };
 }
 
+export function normalizeReferenceScopeQuery(value: unknown): ReferenceScopeQuery {
+  if (value === undefined || value === null) return {};
+  const input = requireObject(value, "Reference scope query");
+  return {
+    semesterId: optionalString(input.semesterId),
+    courseId: optionalString(input.courseId),
+    taskId: optionalString(input.taskId),
+    includeCandidates: input.includeCandidates === undefined ? undefined : Boolean(input.includeCandidates),
+    includeArchived: input.includeArchived === undefined ? undefined : Boolean(input.includeArchived),
+  };
+}
+
+export function normalizeReferenceCreateInput(value: unknown): ReferenceCreateInput {
+  const input = requireObject(value, "Reference input");
+  return {
+    itemType: normalizeReferenceItemType(input.itemType),
+    title: requireString(input.title, "Reference title"),
+    abstract: optionalString(input.abstract),
+    year: optionalString(input.year),
+    language: optionalString(input.language),
+    publisher: optionalString(input.publisher),
+    containerTitle: optionalString(input.containerTitle),
+    volume: optionalString(input.volume),
+    issue: optionalString(input.issue),
+    pages: optionalString(input.pages),
+    doi: optionalString(input.doi),
+    isbn: optionalString(input.isbn),
+    url: optionalString(input.url),
+    citationKey: optionalString(input.citationKey),
+    sourceKind: normalizeReferenceSourceKind(input.sourceKind),
+    creators: normalizeReferenceCreators(input.creators),
+    tags: normalizeStringArray(input.tags),
+    rawCslJson: normalizeRecord(input.rawCslJson),
+    scope: input.scope === undefined ? undefined : normalizeReferenceScopePayload(input.scope),
+  };
+}
+
+export function normalizeReferenceUpdateInput(value: unknown): ReferenceUpdateInput {
+  const input = requireObject(value, "Reference update input");
+  return {
+    id: requireString(input.id, "Reference id"),
+    itemType: input.itemType === undefined ? undefined : normalizeReferenceItemType(input.itemType),
+    title: input.title === undefined ? undefined : requireString(input.title, "Reference title"),
+    abstract: input.abstract === undefined ? undefined : optionalString(input.abstract),
+    year: input.year === undefined ? undefined : optionalString(input.year),
+    language: input.language === undefined ? undefined : optionalString(input.language),
+    publisher: input.publisher === undefined ? undefined : optionalString(input.publisher),
+    containerTitle: input.containerTitle === undefined ? undefined : optionalString(input.containerTitle),
+    volume: input.volume === undefined ? undefined : optionalString(input.volume),
+    issue: input.issue === undefined ? undefined : optionalString(input.issue),
+    pages: input.pages === undefined ? undefined : optionalString(input.pages),
+    doi: input.doi === undefined ? undefined : optionalString(input.doi),
+    isbn: input.isbn === undefined ? undefined : optionalString(input.isbn),
+    url: input.url === undefined ? undefined : optionalString(input.url),
+    citationKey: input.citationKey === undefined ? undefined : optionalString(input.citationKey),
+    sourceKind: input.sourceKind === undefined ? undefined : normalizeReferenceSourceKind(input.sourceKind),
+    creators: input.creators === undefined ? undefined : normalizeReferenceCreators(input.creators),
+    tags: input.tags === undefined ? undefined : normalizeStringArray(input.tags),
+    rawCslJson: input.rawCslJson === undefined ? undefined : normalizeRecord(input.rawCslJson),
+  };
+}
+
+export function normalizeReferenceScopeInput(value: unknown): ReferenceScopeInput {
+  const input = requireObject(value, "Reference scope input");
+  return {
+    referenceId: requireString(input.referenceId, "Reference id"),
+    ...normalizeReferenceScopePayload(input),
+  };
+}
+
+export function normalizeReferenceImportInput(value: unknown): ReferenceImportInput {
+  const input = requireObject(value, "Reference import input");
+  return {
+    format: normalizeReferenceImportFormat(input.format),
+    content: requireString(input.content, "Reference import content"),
+    scope: input.scope === undefined ? undefined : normalizeReferenceScopePayload(input.scope),
+  };
+}
+
+export function normalizeReferenceExportInput(value: unknown): ReferenceExportInput {
+  const input = requireObject(value, "Reference export input");
+  const ids = Array.isArray(input.referenceIds) ? normalizeStringArray(input.referenceIds) : undefined;
+  return {
+    format: normalizeReferenceExportFormat(input.format),
+    referenceIds: ids && ids.length > 0 ? ids : undefined,
+    scope: input.scope === undefined ? undefined : normalizeReferenceScopeQuery(input.scope),
+  };
+}
+
 export function normalizeTimetableRangeQuery(value: unknown): TimetableRangeQuery {
   const input = requireObject(value, "Timetable range query");
   return {
@@ -252,6 +347,92 @@ export function normalizeAgentRunInput(value: unknown): AgentRunInput {
     attachments: normalizeAgentAttachments(input.attachments),
     mentionedSkills: normalizeStringArray(input.mentionedSkills),
   };
+}
+
+function normalizeReferenceScopePayload(value: unknown): NonNullable<ReferenceCreateInput["scope"]> {
+  const input = requireObject(value, "Reference scope");
+  const scopeType = normalizeReferenceScopeType(input.scopeType);
+  const normalized = {
+    scopeType,
+    semesterId: optionalString(input.semesterId),
+    courseId: optionalString(input.courseId),
+    taskId: optionalString(input.taskId),
+    status: normalizeReferenceScopeStatus(input.status) || (scopeType === "candidate" ? "candidate" as const : "active" as const),
+    addedBy: input.addedBy === "agent" ? "agent" as const : "user" as const,
+    note: optionalString(input.note),
+  };
+  if (scopeType === "semester" && !normalized.semesterId) throw new Error("Semester reference scope requires a semester id.");
+  if (scopeType === "course" && !normalized.courseId) throw new Error("Course reference scope requires a course id.");
+  if (scopeType === "task" && !normalized.taskId) throw new Error("Task reference scope requires a task id.");
+  return normalized;
+}
+
+function normalizeReferenceCreators(value: unknown): ReferenceCreateInput["creators"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const input = item as Record<string, unknown>;
+    const given = optionalString(input.given);
+    const family = optionalString(input.family);
+    const name = optionalString(input.name);
+    if (!given && !family && !name) return [];
+    return [{
+      role: normalizeReferenceCreatorRole(input.role),
+      given,
+      family,
+      name,
+    }];
+  });
+}
+
+function normalizeReferenceItemType(value: unknown): ReferenceCreateInput["itemType"] {
+  if (
+    value === "article-journal" ||
+    value === "book" ||
+    value === "chapter" ||
+    value === "paper-conference" ||
+    value === "report" ||
+    value === "webpage" ||
+    value === "video" ||
+    value === "thesis" ||
+    value === "document"
+  ) return value;
+  return "document";
+}
+
+function normalizeReferenceSourceKind(value: unknown): ReferenceCreateInput["sourceKind"] {
+  if (value === "import" || value === "doi_lookup" || value === "agent_search" || value === "course_material") return value;
+  return "manual";
+}
+
+function normalizeReferenceCreatorRole(value: unknown): NonNullable<ReferenceCreateInput["creators"]>[number]["role"] {
+  if (value === "editor" || value === "translator") return value;
+  return "author";
+}
+
+function normalizeReferenceScopeType(value: unknown): ReferenceScopeInput["scopeType"] {
+  if (value === "course" || value === "task" || value === "candidate") return value;
+  return "semester";
+}
+
+function normalizeReferenceScopeStatus(value: unknown): ReferenceScopeInput["status"] {
+  if (value === "candidate" || value === "rejected") return value;
+  return "active";
+}
+
+function normalizeReferenceImportFormat(value: unknown): ReferenceImportInput["format"] {
+  if (value === "bibtex" || value === "ris") return value;
+  return "csl-json";
+}
+
+function normalizeReferenceExportFormat(value: unknown): ReferenceExportInput["format"] {
+  if (value === "bibtex" || value === "ris" || value === "apa-markdown") return value;
+  return "csl-json";
+}
+
+function normalizeRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
 }
 
 function normalizeAgentPermissionMode(value: unknown): AgentPermissionMode {

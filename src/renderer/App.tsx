@@ -18,6 +18,7 @@ const AgentThreadPanel = lazy(() => import("@/components/agent/AgentThreadPanel"
 const CourseManagementDialog = lazy(() => import("@/components/courses/CourseManagementDialog").then((module) => ({ default: module.CourseManagementDialog })));
 const FileBrowserRail = lazy(() => import("@/components/files/FileBrowserRail").then((module) => ({ default: module.FileBrowserRail })));
 const FilePreviewRail = lazy(() => import("@/components/files/FilePreviewRail").then((module) => ({ default: module.FilePreviewRail })));
+const LiteratureLibraryPanel = lazy(() => import("@/components/library/LiteratureLibraryPanel").then((module) => ({ default: module.LiteratureLibraryPanel })));
 const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((module) => ({ default: module.SettingsDialog })));
 const STARTUP_SPLASH_MIN_MS = import.meta.env.DEV ? 650 : 2400;
 
@@ -248,6 +249,7 @@ function App() {
           emptyThreadIds={workspace.emptyThreadIds}
           onRenameThread={workspace.renameThread}
           onCreateThread={workspace.createThread}
+          onOpenLibrary={dialogs.openLibrary}
           onOpenCourses={dialogs.openCourses}
           onOpenSettings={() => dialogs.openSettings()}
           onResizeStart={layoutState.startSidebarResize}
@@ -430,6 +432,19 @@ function App() {
               await workspace.reloadWorkspace();
             }}
             onClose={dialogs.closeCourses}
+          />
+        </Suspense>
+      )}
+      {dialogs.libraryOpen && (
+        <Suspense fallback={null}>
+          <LiteratureLibraryPanel
+            semester={workspace.semester}
+            courses={workspace.courses}
+            tasksByCourse={workspace.tasksByCourse}
+            activeCourse={workspace.activeCourse}
+            activeTask={workspace.activeTask}
+            onClose={dialogs.closeLibrary}
+            onOpenCourses={dialogs.openCourses}
           />
         </Suspense>
       )}

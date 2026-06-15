@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type {
@@ -15,6 +16,18 @@ import type {
   UpdateTaskInput,
   BrevynTask,
   FileIndexingStatus,
+  ReferenceCreateInput,
+  ReferenceCreator,
+  ReferenceCreatorRole,
+  ReferenceItem,
+  ReferenceItemType,
+  ReferenceScope,
+  ReferenceScopeInput,
+  ReferenceScopeQuery,
+  ReferenceScopeStatus,
+  ReferenceScopeType,
+  ReferenceSourceKind,
+  ReferenceUpdateInput,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -409,6 +422,7 @@ export class SQLiteBusinessStore {
   deleteSemesterDeep(semesterId: string): boolean {
     this.db.exec("begin immediate;");
     try {
+      this.run("delete from reference_scopes where semester_id = ?", semesterId);
       this.run("delete from rag_chunks_fts where semester_id = ?", semesterId);
       const courseRows = this.all("select id from courses where semester_id = ?", semesterId);
       for (const row of courseRows) this.deleteCourseRows(stringValue(row.id));
@@ -573,6 +587,7 @@ export class SQLiteBusinessStore {
         taskId,
       );
       this.run("delete from indexing_jobs where section_id = ?", sectionId);
+      this.run("delete from reference_scopes where task_id = ?", taskId);
       this.run("delete from workspace_files where task_id = ?", taskId);
       this.run("delete from threads where task_id = ?", taskId);
       this.run("delete from timetable_events where task_id = ?", taskId);
@@ -1221,7 +1236,132 @@ export class SQLiteBusinessStore {
     this.run("delete from rag_chunks_fts where semester_id = ?", semesterId);
   }
 
+  listReferences(query: ReferenceScopeQuery = {}): ReferenceItem[] {
+    const where = query.includeArchived ? ["1 = 1"] : ["reference_items.archived_at is null"];
+    const params: unknown[] = [];
+    const needsScope = Boolean(query.semesterId || query.courseId || query.taskId);
+    if (needsScope) {
+      if (query.taskId) {
+        where.push("reference_scopes.task_id = ?");
+        params.push(query.taskId);
+      } else if (query.courseId) {
+        where.push("reference_scopes.course_id = ?");
+        params.push(query.courseId);
+      } else if (query.semesterId) {
+        where.push("reference_scopes.semester_id = ?");
+        params.push(query.semesterId);
+      }
+      if (!query.includeCandidates) where.push("reference_scopes.status = 'active'");
+    }
+    const rows = this.all(
+      `select distinct reference_items.*
+       from reference_items
+       ${needsScope ? "join reference_scopes on reference_scopes.reference_id = reference_items.id" : ""}
+       where ${where.join(" and ")}
+       order by coalesce(reference_items.year, '') desc, reference_items.updated_at desc`,
+      ...params,
+    );
+    return rows.map((row) => this.hydrateReference(row));
+  }
+
+  getReference(referenceId: string): ReferenceItem | null {
+    const row = this.db.prepare("select * from reference_items where id = ?").get(referenceId) as Row | undefined;
+    return row ? this.hydrateReference(row) : null;
+  }
+
+  createReference(input: ReferenceCreateInput): ReferenceItem {
+    const timestamp = now();
+    const referenceId = `ref_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    this.insertReferenceRecord(referenceId, input, timestamp);
+    this.replaceReferenceCreators(referenceId, input.creators || [], timestamp);
+    this.replaceReferenceTags(referenceId, input.tags || [], timestamp);
+    if (input.scope) {
+      this.addReferenceScope({
+        referenceId,
+        scopeType: input.scope.scopeType,
+        semesterId: input.scope.semesterId,
+        courseId: input.scope.courseId,
+        taskId: input.scope.taskId,
+        status: input.scope.status,
+        addedBy: input.scope.addedBy,
+        note: input.scope.note,
+      });
+    }
+    const created = this.getReference(referenceId);
+    if (!created) throw new Error("Failed to create reference.");
+    return created;
+  }
+
+  updateReference(input: ReferenceUpdateInput): ReferenceItem {
+    const current = this.getReference(input.id);
+    if (!current) throw new Error("Reference not found.");
+    const next: ReferenceCreateInput = {
+      ...current,
+      ...input,
+      creators: input.creators ?? current.creators,
+      tags: input.tags ?? current.tags,
+      rawCslJson: input.rawCslJson ?? current.rawCslJson,
+    };
+    this.insertReferenceRecord(input.id, next, current.createdAt, now());
+    if (input.creators) this.replaceReferenceCreators(input.id, input.creators, now());
+    if (input.tags) this.replaceReferenceTags(input.id, input.tags, now());
+    const updated = this.getReference(input.id);
+    if (!updated) throw new Error("Failed to update reference.");
+    return updated;
+  }
+
+  archiveReference(referenceId: string): boolean {
+    const timestamp = now();
+    const result = this.run("update reference_items set archived_at = ?, updated_at = ? where id = ? and archived_at is null", timestamp, timestamp, referenceId) as { changes?: number } | undefined;
+    return Number(result?.changes || 0) > 0;
+  }
+
+  deleteReference(referenceId: string): boolean {
+    this.run("delete from reference_scopes where reference_id = ?", referenceId);
+    this.run("delete from reference_creators where reference_id = ?", referenceId);
+    this.run("delete from reference_tag_links where reference_id = ?", referenceId);
+    const result = this.run("delete from reference_items where id = ?", referenceId) as { changes?: number } | undefined;
+    return Number(result?.changes || 0) > 0;
+  }
+
+  addReferenceScope(input: ReferenceScopeInput): ReferenceScope {
+    const timestamp = now();
+    const scope: ReferenceScope = {
+      id: `refscope_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
+      referenceId: input.referenceId,
+      scopeType: input.scopeType,
+      semesterId: input.semesterId,
+      courseId: input.courseId,
+      taskId: input.taskId,
+      status: input.status || (input.scopeType === "candidate" ? "candidate" : "active"),
+      addedBy: input.addedBy || "user",
+      note: input.note,
+      createdAt: timestamp,
+    };
+    this.run(
+      `insert or replace into reference_scopes(id, reference_id, scope_type, semester_id, course_id, task_id, status, added_by, note, created_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      scope.id,
+      scope.referenceId,
+      scope.scopeType,
+      scope.semesterId ?? null,
+      scope.courseId ?? null,
+      scope.taskId ?? null,
+      scope.status,
+      scope.addedBy,
+      scope.note ?? null,
+      scope.createdAt,
+    );
+    return scope;
+  }
+
+  removeReferenceScope(scopeId: string): boolean {
+    const result = this.run("delete from reference_scopes where id = ?", scopeId) as { changes?: number } | undefined;
+    return Number(result?.changes || 0) > 0;
+  }
+
   private deleteCourseRows(courseId: string): boolean {
+    this.run("delete from reference_scopes where course_id = ?", courseId);
     this.run("delete from rag_chunks_fts where course_id = ?", courseId);
     this.run("delete from indexing_tasks where course_id = ?", courseId);
     this.run("delete from indexing_jobs where course_id = ?", courseId);
@@ -1231,6 +1371,154 @@ export class SQLiteBusinessStore {
     this.run("delete from timetable_events where course_id = ?", courseId);
     const result = this.run("delete from courses where id = ?", courseId) as { changes?: number } | undefined;
     return Number(result?.changes || 0) > 0;
+  }
+
+  private insertReferenceRecord(referenceId: string, input: ReferenceCreateInput, createdAt: string, updatedAt = createdAt): void {
+    this.run(
+      `insert into reference_items(
+         id, item_type, title, abstract, year, language, publisher, container_title,
+         volume, issue, pages, doi, isbn, url, citation_key, source_kind,
+         raw_csl_json, created_at, updated_at, archived_at
+       )
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       on conflict(id) do update set
+         item_type = excluded.item_type,
+         title = excluded.title,
+         abstract = excluded.abstract,
+         year = excluded.year,
+         language = excluded.language,
+         publisher = excluded.publisher,
+         container_title = excluded.container_title,
+         volume = excluded.volume,
+         issue = excluded.issue,
+         pages = excluded.pages,
+         doi = excluded.doi,
+         isbn = excluded.isbn,
+         url = excluded.url,
+         citation_key = excluded.citation_key,
+         source_kind = excluded.source_kind,
+         raw_csl_json = excluded.raw_csl_json,
+         updated_at = excluded.updated_at,
+         archived_at = excluded.archived_at`,
+      referenceId,
+      input.itemType || "document",
+      input.title.trim(),
+      input.abstract?.trim() || null,
+      input.year?.trim() || null,
+      input.language?.trim() || null,
+      input.publisher?.trim() || null,
+      input.containerTitle?.trim() || null,
+      input.volume?.trim() || null,
+      input.issue?.trim() || null,
+      input.pages?.trim() || null,
+      normalizeIdentifier(input.doi),
+      normalizeIdentifier(input.isbn),
+      input.url?.trim() || null,
+      input.citationKey?.trim() || null,
+      input.sourceKind || "manual",
+      json(input.rawCslJson || {}),
+      createdAt,
+      updatedAt,
+      "archivedAt" in input ? (input as { archivedAt?: string }).archivedAt ?? null : null,
+    );
+  }
+
+  private replaceReferenceCreators(
+    referenceId: string,
+    creators: Array<Partial<Pick<ReferenceCreator, "role" | "given" | "family" | "name">>>,
+    timestamp: string,
+  ): void {
+    this.run("delete from reference_creators where reference_id = ?", referenceId);
+    creators
+      .map((creator, index) => ({
+        role: normalizeReferenceCreatorRole(creator.role),
+        given: creator.given?.trim() || undefined,
+        family: creator.family?.trim() || undefined,
+        name: creator.name?.trim() || undefined,
+        position: index,
+      }))
+      .filter((creator) => creator.given || creator.family || creator.name)
+      .forEach((creator) => {
+        this.run(
+          `insert into reference_creators(id, reference_id, role, given, family, name, position, created_at, updated_at)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `refcreator_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
+          referenceId,
+          creator.role,
+          creator.given ?? null,
+          creator.family ?? null,
+          creator.name ?? null,
+          creator.position,
+          timestamp,
+          timestamp,
+        );
+      });
+  }
+
+  private replaceReferenceTags(referenceId: string, tags: string[], timestamp: string): void {
+    this.run("delete from reference_tag_links where reference_id = ?", referenceId);
+    const normalizedTags = Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
+    for (const tagName of normalizedTags) {
+      const existing = this.db.prepare("select id from reference_tags where lower(name) = lower(?)").get(tagName) as Row | undefined;
+      const tagId = nullableString(existing?.id) || `reftag_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+      if (!existing) {
+        this.run(
+          `insert into reference_tags(id, name, created_at, updated_at)
+           values (?, ?, ?, ?)`,
+          tagId,
+          tagName,
+          timestamp,
+          timestamp,
+        );
+      }
+      this.run(
+        `insert or ignore into reference_tag_links(reference_id, tag_id, created_at)
+         values (?, ?, ?)`,
+        referenceId,
+        tagId,
+        timestamp,
+      );
+    }
+  }
+
+  private hydrateReference(row: Row): ReferenceItem {
+    const referenceId = stringValue(row.id);
+    const creators = this.all("select * from reference_creators where reference_id = ? order by position, created_at", referenceId).map(rowToReferenceCreator);
+    const scopes = this.all("select * from reference_scopes where reference_id = ? order by created_at desc", referenceId).map(rowToReferenceScope);
+    const tags = this.all(
+      `select reference_tags.name
+       from reference_tag_links
+       join reference_tags on reference_tags.id = reference_tag_links.tag_id
+       where reference_tag_links.reference_id = ?
+       order by lower(reference_tags.name)`,
+      referenceId,
+    ).map((tagRow) => stringValue(tagRow.name));
+
+    return {
+      id: referenceId,
+      itemType: normalizeReferenceItemType(row.item_type),
+      title: stringValue(row.title),
+      abstract: nullableString(row.abstract),
+      year: nullableString(row.year),
+      language: nullableString(row.language),
+      publisher: nullableString(row.publisher),
+      containerTitle: nullableString(row.container_title),
+      volume: nullableString(row.volume),
+      issue: nullableString(row.issue),
+      pages: nullableString(row.pages),
+      doi: nullableString(row.doi),
+      isbn: nullableString(row.isbn),
+      url: nullableString(row.url),
+      citationKey: nullableString(row.citation_key),
+      sourceKind: normalizeReferenceSourceKind(row.source_kind),
+      rawCslJson: rawJson<Record<string, unknown>>(row.raw_csl_json, {}) as Record<string, unknown>,
+      creators,
+      scopes,
+      tags,
+      createdAt: stringValue(row.created_at),
+      updatedAt: stringValue(row.updated_at),
+      archivedAt: nullableString(row.archived_at),
+    };
   }
 
   private all(sql: string, ...params: unknown[]): Row[] {
@@ -1681,6 +1969,7 @@ export class SQLiteBusinessStore {
     this.ensureColumn("indexing_jobs", "completed_files", "integer not null default 0");
     this.db.exec("drop table if exists providers;");
     this.ensureRagTextIndex();
+    this.ensureReferenceLibrarySchema();
     this.dropTaskWorkspacePathColumn();
     this.db.exec(`
       create table if not exists indexing_tasks (
@@ -1710,6 +1999,84 @@ export class SQLiteBusinessStore {
       create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
     `);
     this.rebaselineSchemaMigration();
+  }
+
+  private ensureReferenceLibrarySchema(): void {
+    this.db.exec(`
+      create table if not exists reference_items (
+        id text primary key,
+        item_type text not null default 'document',
+        title text not null,
+        abstract text,
+        year text,
+        language text,
+        publisher text,
+        container_title text,
+        volume text,
+        issue text,
+        pages text,
+        doi text,
+        isbn text,
+        url text,
+        citation_key text,
+        source_kind text not null default 'manual',
+        raw_csl_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null,
+        archived_at text
+      );
+
+      create table if not exists reference_creators (
+        id text primary key,
+        reference_id text not null references reference_items(id) on delete cascade,
+        role text not null default 'author',
+        given text,
+        family text,
+        name text,
+        position integer not null default 0,
+        created_at text not null,
+        updated_at text not null
+      );
+
+      create table if not exists reference_scopes (
+        id text primary key,
+        reference_id text not null references reference_items(id) on delete cascade,
+        scope_type text not null,
+        semester_id text,
+        course_id text,
+        task_id text,
+        status text not null default 'active',
+        added_by text not null default 'user',
+        note text,
+        created_at text not null
+      );
+
+      create table if not exists reference_tags (
+        id text primary key,
+        name text not null,
+        created_at text not null,
+        updated_at text not null
+      );
+
+      create table if not exists reference_tag_links (
+        reference_id text not null references reference_items(id) on delete cascade,
+        tag_id text not null references reference_tags(id) on delete cascade,
+        created_at text not null,
+        primary key(reference_id, tag_id)
+      );
+
+      create unique index if not exists idx_reference_tags_name on reference_tags(lower(name));
+      create index if not exists idx_reference_items_doi on reference_items(doi);
+      create index if not exists idx_reference_items_isbn on reference_items(isbn);
+      create index if not exists idx_reference_items_url on reference_items(url);
+      create index if not exists idx_reference_items_title_year on reference_items(title, year);
+      create index if not exists idx_reference_items_archived on reference_items(archived_at, updated_at);
+      create index if not exists idx_reference_creators_reference on reference_creators(reference_id, position);
+      create index if not exists idx_reference_scopes_reference on reference_scopes(reference_id, status);
+      create index if not exists idx_reference_scopes_semester on reference_scopes(semester_id, status);
+      create index if not exists idx_reference_scopes_course on reference_scopes(course_id, status);
+      create index if not exists idx_reference_scopes_task on reference_scopes(task_id, status);
+    `);
   }
 
   private ensureRagTextIndex(): void {
@@ -2228,6 +2595,80 @@ function rowToRagTextSearchResult(row: Row): RagTextSearchResult {
     chunkCount: numberValue(row.chunk_count),
     rank: numberValue(row.rank) ?? 0,
   };
+}
+
+function rowToReferenceCreator(row: Row): ReferenceCreator {
+  return {
+    id: stringValue(row.id),
+    referenceId: stringValue(row.reference_id),
+    role: normalizeReferenceCreatorRole(row.role),
+    given: nullableString(row.given),
+    family: nullableString(row.family),
+    name: nullableString(row.name),
+    position: numberValue(row.position) || 0,
+  };
+}
+
+function rowToReferenceScope(row: Row): ReferenceScope {
+  return {
+    id: stringValue(row.id),
+    referenceId: stringValue(row.reference_id),
+    scopeType: normalizeReferenceScopeType(row.scope_type),
+    semesterId: nullableString(row.semester_id),
+    courseId: nullableString(row.course_id),
+    taskId: nullableString(row.task_id),
+    status: normalizeReferenceScopeStatus(row.status),
+    addedBy: stringValue(row.added_by) === "agent" ? "agent" : "user",
+    note: nullableString(row.note),
+    createdAt: stringValue(row.created_at),
+  };
+}
+
+function normalizeReferenceItemType(value: unknown): ReferenceItemType {
+  const text = stringValue(value);
+  if (
+    text === "article-journal" ||
+    text === "book" ||
+    text === "chapter" ||
+    text === "paper-conference" ||
+    text === "report" ||
+    text === "webpage" ||
+    text === "video" ||
+    text === "thesis" ||
+    text === "document"
+  ) {
+    return text;
+  }
+  return "document";
+}
+
+function normalizeReferenceSourceKind(value: unknown): ReferenceSourceKind {
+  const text = stringValue(value);
+  if (text === "manual" || text === "import" || text === "doi_lookup" || text === "agent_search" || text === "course_material") return text;
+  return "manual";
+}
+
+function normalizeReferenceCreatorRole(value: unknown): ReferenceCreatorRole {
+  const text = stringValue(value);
+  if (text === "editor" || text === "translator") return text;
+  return "author";
+}
+
+function normalizeReferenceScopeType(value: unknown): ReferenceScopeType {
+  const text = stringValue(value);
+  if (text === "semester" || text === "course" || text === "task" || text === "candidate") return text;
+  return "semester";
+}
+
+function normalizeReferenceScopeStatus(value: unknown): ReferenceScopeStatus {
+  const text = stringValue(value);
+  if (text === "candidate" || text === "rejected") return text;
+  return "active";
+}
+
+function normalizeIdentifier(value: string | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
 }
 
 function flattenFileTree(files: WorkspaceFileNode[], parentId?: string): Array<{ node: WorkspaceFileNode; parentId?: string }> {

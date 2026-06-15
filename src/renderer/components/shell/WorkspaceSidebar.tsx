@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronRight, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
+import { Archive, ChevronRight, Library, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
@@ -29,6 +29,7 @@ export function WorkspaceSidebar({
   onArchiveTask,
   onRenameThread,
   onCreateThread,
+  onOpenLibrary,
   onOpenCourses,
   onOpenSettings,
   onResizeStart,
@@ -52,6 +53,7 @@ export function WorkspaceSidebar({
   onArchiveTask: (task: BrevynTask) => Promise<void> | void;
   onRenameThread: (thread: Thread, title: string) => Promise<void>;
   onCreateThread: (courseId?: string, taskId?: string) => void;
+  onOpenLibrary: () => void;
   onOpenCourses: () => void;
   onOpenSettings: () => void;
   onResizeStart: (event: ReactPointerEvent) => void;
@@ -127,6 +129,9 @@ export function WorkspaceSidebar({
           onRename={(thread) => setRenamingThreadId(thread.id)}
         />
         <div className="my-2 h-px w-8 bg-border" />
+        <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenLibrary} title="文献库">
+          <Library className="h-4 w-4" />
+        </button>
         <button className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onOpenCourses} title="我的课程">
           <NotebookTabs className="h-4 w-4" />
         </button>
@@ -349,6 +354,7 @@ export function WorkspaceSidebar({
 
       <div className="px-3 pb-3 pt-2 shadow-[inset_0_1px_0_hsl(var(--border)/0.45)]">
         <div className="space-y-1.5">
+          <SidebarFooterButton icon={<Library className="h-4 w-4" />} label="文献库" onClick={onOpenLibrary} />
           <SidebarFooterButton icon={<NotebookTabs className="h-4 w-4" />} label="我的课程" onClick={onOpenCourses} />
           <SidebarFooterButton icon={<Settings className="h-4 w-4" />} label="设置" onClick={onOpenSettings} />
         </div>
