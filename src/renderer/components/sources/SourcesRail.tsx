@@ -126,6 +126,10 @@ export function SourcesRail({
         title: input.title,
       });
       setExternalSources((current) => mergeSources(result.sources, current));
+      const failedSource = result.sources.find((source) => source.status === "failed");
+      if (failedSource || result.indexingError) {
+        throw new Error(failedSource?.error || result.indexingError || "网页解析失败。");
+      }
       setAddDialogOpen(false);
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : "添加网页来源失败。");

@@ -82,6 +82,7 @@ const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES = 256 * 1024;
 const MAX_WEB_SOURCE_BYTES = 5 * 1024 * 1024;
+const WEB_SOURCE_FETCH_TIMEOUT_MS = 20_000;
 const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
 const AGENT_WORKSPACE_MEMORY_FILE = "CLAUDE.md";
@@ -415,6 +416,10 @@ export class FileService {
     activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
     const targetTask = input.scope === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
     const url = normalizeExternalSourceUrl(input.url);
+    const duplicateSource = this.findDuplicateExternalWebSource(semesterId, input.courseId, targetTask?.id, input.scope, url);
+    if (duplicateSource) {
+      throw new Error(`这个网页已经在${duplicateSource.scope === "task" ? "当前作业" : "当前课程"}的外部来源里。`);
+    }
     const timestamp = now();
     const sourceId = externalSourceId();
     const sourceDir = this.ensureExternalSourceDir(semesterId, input.courseId, targetTask?.id, sourceId, input.title || url.hostname);
@@ -470,13 +475,14 @@ export class FileService {
         indexingNotice: indexingResult.notice,
       };
     } catch (error) {
+      const message = userFacingWebSourceError(error);
       this.safeRm(sourceDir, `[external-sources] Failed to clean source folder ${sourceDir}`);
-      const failed = this.options.businessStore.updateExternalSourceStatus(sourceId, "failed", errorMessage(error)) || source;
+      const failed = this.options.businessStore.updateExternalSourceStatus(sourceId, "failed", message) || { ...source, status: "failed" as const, error: message };
       return {
         sources: [failed],
         tree: this.listFiles(input.courseId),
         indexingJob: null,
-        indexingError: errorMessage(error),
+        indexingError: message,
       };
     }
   }
@@ -561,6 +567,21 @@ export class FileService {
     else if (source.markdownPath) this.safeRm(dirname(source.markdownPath), `[external-sources] Failed to remove source folder ${dirname(source.markdownPath)}`);
     this.options.businessStore.deleteExternalSource(sourceId);
     return true;
+  }
+
+  private findDuplicateExternalWebSource(semesterId: string, courseId: string, taskId: string | undefined, scope: "task" | "course", url: URL): ExternalSource | undefined {
+    const normalizedUrl = normalizedExternalSourceUrlKey(url);
+    return this.options.businessStore.listExternalSources({
+      semesterId,
+      courseId,
+      taskId: scope === "task" ? taskId : undefined,
+    }).find((source) =>
+      source.kind === "web"
+      && source.scope === scope
+      && source.status !== "failed"
+      && Boolean(source.url)
+      && safeNormalizedExternalSourceUrlKey(source.url || "") === normalizedUrl,
+    );
   }
 
   fileSourcePath(fileId: string): string | undefined {
@@ -1578,30 +1599,94 @@ function sectionIdForExternalSource(courseId: string, scope: "task" | "course", 
 function normalizeExternalSourceUrl(value: string): URL {
   const trimmed = value.trim();
   if (!trimmed) throw new Error("请输入网页链接。");
-  const url = new URL(trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`);
+  let url: URL;
+  try {
+    url = new URL(trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    throw new Error("这个网页链接格式不正确。请粘贴完整的网址。");
+  }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("只支持 http 或 https 网页链接。");
+  url.hash = "";
   return url;
 }
 
 async function fetchExternalWebSource(url: URL): Promise<{ title: string; html: string; text: string }> {
-  const response = await fetch(url, {
-    redirect: "follow",
-    headers: {
-      "accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
-      "user-agent": "Brevyn/0.1 ExternalSourceFetcher",
-    },
-  });
-  if (!response.ok) throw new Error(`网页读取失败：HTTP ${response.status}`);
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml+xml")) {
-    throw new Error("这个链接不像可解析网页。PDF 等文件请用本地文件添加。");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WEB_SOURCE_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+        "user-agent": "Brevyn/0.1 ExternalSourceFetcher",
+      },
+    });
+    if (!response.ok) throw new Error(webSourceHttpError(response.status));
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml+xml")) {
+      throw new Error("这个链接不是可直接解析的网页。PDF、Word 或 PPT 请用“文件”添加。");
+    }
+    const raw = await response.text();
+    const html = raw.slice(0, MAX_WEB_SOURCE_BYTES);
+    const title = decodeHtmlEntities(extractTitle(html));
+    const text = extractReadableText(html);
+    if (!text.trim()) throw new Error("没有从网页中提取到可用正文。可以改用浏览器保存 PDF，或复制正文为文本文件添加。");
+    return { title, html, text };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("网页读取超时。这个网站响应太慢，稍后再试或改用文件添加。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  const raw = await response.text();
-  const html = raw.slice(0, MAX_WEB_SOURCE_BYTES);
-  const title = decodeHtmlEntities(extractTitle(html));
-  const text = extractReadableText(html);
-  if (!text.trim()) throw new Error("没有从网页中提取到可用正文。");
-  return { title, html, text };
+}
+
+function normalizedExternalSourceUrlKey(url: URL): string {
+  const normalized = new URL(url.toString());
+  normalized.hash = "";
+  normalized.hostname = normalized.hostname.toLowerCase();
+  if ((normalized.protocol === "https:" && normalized.port === "443") || (normalized.protocol === "http:" && normalized.port === "80")) {
+    normalized.port = "";
+  }
+  normalized.pathname = normalized.pathname.replace(/\/+$/, "") || "/";
+  normalized.searchParams.sort();
+  return normalized.toString();
+}
+
+function safeNormalizedExternalSourceUrlKey(value: string): string {
+  try {
+    return normalizedExternalSourceUrlKey(normalizeExternalSourceUrl(value));
+  } catch {
+    return value.trim();
+  }
+}
+
+function webSourceHttpError(status: number): string {
+  if (status === 401 || status === 403) return "这个网页需要登录或没有公开访问权限。";
+  if (status === 404) return "没有找到这个网页，请检查链接是否完整。";
+  if (status === 408 || status === 429) return "这个网站暂时响应不过来，稍后再试。";
+  if (status >= 500) return "这个网站服务器暂时不可用，稍后再试。";
+  return `网页读取失败：HTTP ${status}`;
+}
+
+function userFacingWebSourceError(error: unknown): string {
+  const message = errorMessage(error);
+  if (!message) return "网页解析失败。请稍后再试，或改用文件添加。";
+  if (
+    message.includes("fetch failed")
+    || message.includes("ENOTFOUND")
+    || message.includes("ECONNREFUSED")
+    || message.includes("ECONNRESET")
+    || message.includes("EAI_AGAIN")
+  ) {
+    return "无法连接到这个网页。请检查网络、链接是否可访问，或稍后再试。";
+  }
+  if (message.includes("certificate") || message.includes("CERT_") || message.includes("SSL")) {
+    return "这个网页的安全证书无法验证。请换一个可公开访问的链接，或改用文件添加。";
+  }
+  return message;
 }
 
 function extractTitle(html: string): string {
