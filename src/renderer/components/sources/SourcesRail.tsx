@@ -100,6 +100,14 @@ export function SourcesRail({
   }, [loadExternalSources, renderContent]);
 
   useEffect(() => {
+    if (!renderContent) return;
+    const unsubscribe = window.brevyn.files.onChanged(() => {
+      void loadExternalSources();
+    });
+    return unsubscribe;
+  }, [loadExternalSources, renderContent]);
+
+  useEffect(() => {
     setExpandedGroupIds(new Set());
     setExternalExpanded(false);
   }, [activeTask?.id, course?.id]);
@@ -329,6 +337,7 @@ function ExternalSourceRow({
   const { source, file } = item;
   const Icon = source.kind === "web" ? Link2 : Paperclip;
   const label = source.kind === "web" ? "网页" : file ? fileKindLabel(file.kind) : "文件";
+  const indexStatus = externalIndexStatus(source.status, file);
   const canPreview = Boolean(file && onPreviewFile);
   const preview = () => {
     if (file) onPreviewFile?.(file);
@@ -359,22 +368,25 @@ function ExternalSourceRow({
           <div className="min-w-0">
             <div className="truncate text-xs font-semibold text-foreground" title={source.title}>{source.title}</div>
             <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
-              {label} · {source.scope === "task" ? "当前作业" : "当前课程"} · {externalStatusLabel(source.status, file)}
+              {label} · {source.scope === "task" ? "当前作业" : "当前课程"}
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-          disabled={busy}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDelete();
-          }}
-          title="移除外部来源"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <SourceStatusBadge status={indexStatus} />
+          <button
+            type="button"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+            disabled={busy}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            title="移除外部来源"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       {(source.summary || source.url) && (
         <div className="mt-2 line-clamp-2 text-[10px] leading-4 text-muted-foreground">
@@ -657,12 +669,11 @@ function fileKindLabel(kind: WorkspaceFileNode["kind"]): string {
   return "文件";
 }
 
-function externalStatusLabel(status: ExternalSource["status"], file?: WorkspaceFileNode): string {
-  if (status === "failed") return "失败";
-  if (file?.indexingStatus === "queued" || file?.indexingStatus === "indexing") return "处理中";
-  if (file && isIndexedFile(file)) return "已索引";
-  if (status === "ready") return "已保存";
-  return "处理中";
+function externalIndexStatus(status: ExternalSource["status"], file?: WorkspaceFileNode): MaterialGroup["status"] {
+  if (status === "failed" || file?.indexingStatus === "failed" || file?.indexingStatus === "cancelled") return "failed";
+  if (file?.indexingStatus === "queued" || file?.indexingStatus === "indexing" || status === "processing") return "processing";
+  if (file && isIndexedFile(file)) return "indexed";
+  return "idle";
 }
 
 function mergeSources(incoming: ExternalSource[], current: ExternalSource[]): ExternalSource[] {

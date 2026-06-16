@@ -24,6 +24,11 @@ import type {
   IndexingJob,
   ModelProviderConfig,
   RagSearchResult,
+  SourceCandidate,
+  SourceCandidateAcceptResult,
+  SourceCandidateListInput,
+  SourceCandidateProposeInput,
+  SourceCandidateProposeResult,
   WorkspaceFileKind,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -83,6 +88,7 @@ const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES = 256 * 1024;
 const MAX_WEB_SOURCE_BYTES = 5 * 1024 * 1024;
 const WEB_SOURCE_FETCH_TIMEOUT_MS = 20_000;
+const SOURCE_CANDIDATE_ACCEPTING_TIMEOUT_MS = 2 * 60_000;
 const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
 const AGENT_WORKSPACE_MEMORY_FILE = "CLAUDE.md";
@@ -433,7 +439,7 @@ export class FileService {
       title: input.title?.trim() || url.hostname,
       url: url.toString(),
       status: "processing",
-      addedBy: "user",
+      addedBy: input.addedBy === "agent" ? "agent" : "user",
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -567,6 +573,140 @@ export class FileService {
     else if (source.markdownPath) this.safeRm(dirname(source.markdownPath), `[external-sources] Failed to remove source folder ${dirname(source.markdownPath)}`);
     this.options.businessStore.deleteExternalSource(sourceId);
     return true;
+  }
+
+  listSourceCandidates(input: SourceCandidateListInput): SourceCandidate[] {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) return [];
+    activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
+    const candidates = this.options.businessStore.listSourceCandidates({
+      semesterId,
+      courseId: input.courseId,
+      taskId: input.taskId,
+      threadId: input.threadId,
+      statuses: input.statuses,
+    });
+    return candidates.map((candidate) => this.recoverStaleSourceCandidate(candidate));
+  }
+
+  proposeSourceCandidate(input: SourceCandidateProposeInput): SourceCandidateProposeResult {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
+    const targetTask = input.scope === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
+    const url = normalizeExternalSourceUrl(input.url);
+    const duplicateSource = this.findDuplicateExternalWebSource(semesterId, input.courseId, targetTask?.id, input.scope, url);
+    if (duplicateSource) {
+      return {
+        status: "existing_source",
+        message: "这个来源已经在资料库里。",
+      };
+    }
+
+    const normalizedUrl = normalizedExternalSourceUrlKey(url);
+    const existingCandidate = this.options.businessStore.findSourceCandidateByNormalizedUrl({
+      semesterId,
+      courseId: input.courseId,
+      taskId: targetTask?.id,
+      scope: input.scope,
+      normalizedUrl,
+      statuses: ["pending", "accepting", "failed"],
+    });
+    const timestamp = now();
+    const candidate: SourceCandidate = {
+      id: existingCandidate?.id || sourceCandidateId(),
+      semesterId,
+      courseId: input.courseId,
+      taskId: targetTask?.id,
+      threadId: input.threadId,
+      scope: input.scope,
+      url: url.toString(),
+      normalizedUrl,
+      title: input.title.trim() || url.hostname,
+      siteName: input.siteName?.trim() || url.hostname,
+      snippet: input.snippet?.trim() || undefined,
+      reason: input.reason.trim() || "这个来源可能对当前学习任务有帮助。",
+      status: existingCandidate?.status === "accepted" ? "accepted" : "pending",
+      externalSourceId: existingCandidate?.externalSourceId,
+      error: undefined,
+      proposedBy: "agent",
+      createdAt: existingCandidate?.createdAt || timestamp,
+      updatedAt: timestamp,
+    };
+    const saved = this.options.businessStore.saveSourceCandidate(candidate);
+    return {
+      candidate: saved,
+      status: existingCandidate ? "updated" : "created",
+      message: existingCandidate ? "候选来源已更新，等待用户确认。" : "候选来源已提交给用户确认。",
+    };
+  }
+
+  async acceptSourceCandidate(candidateId: string): Promise<SourceCandidateAcceptResult> {
+    const candidate = this.options.businessStore.getSourceCandidate(candidateId);
+    if (!candidate) throw new Error("候选来源不存在。");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || candidate.semesterId !== semesterId) throw new Error("请先切换到这个候选来源所属的学期。");
+    activeCourseScopeOrThrow(this.options.businessStore, candidate.courseId, semesterId);
+    if (candidate.scope === "task") taskInCourseOrThrow(this.options.businessStore, candidate.taskId, candidate.courseId, semesterId);
+
+    if (candidate.status === "accepted" && candidate.externalSourceId) {
+      return { candidate };
+    }
+    this.options.businessStore.updateSourceCandidateStatus(candidate.id, "accepting");
+    try {
+      const externalSourceResult = await this.addExternalSourceUrl({
+        courseId: candidate.courseId,
+        taskId: candidate.taskId,
+        scope: candidate.scope,
+        url: candidate.url,
+        title: candidate.title,
+        addedBy: "agent",
+      });
+      const failedSource = externalSourceResult.sources.find((source) => source.status === "failed");
+      if (failedSource) {
+        this.removeFailedCandidateExternalSource(failedSource.id);
+        throw new Error(failedSource.error || "来源加入失败。");
+      }
+      const source = externalSourceResult.sources[0];
+      const accepted = this.options.businessStore.updateSourceCandidateStatus(candidate.id, "accepted", { externalSourceId: source?.id }) || candidate;
+      return { candidate: accepted, externalSourceResult };
+    } catch (error) {
+      const failed = this.options.businessStore.updateSourceCandidateStatus(candidate.id, "failed", { error: errorMessage(error) }) || {
+        ...candidate,
+        status: "failed" as const,
+        error: errorMessage(error),
+        updatedAt: now(),
+      };
+      return { candidate: failed };
+    }
+  }
+
+  rejectSourceCandidate(candidateId: string): SourceCandidate {
+    const candidate = this.options.businessStore.getSourceCandidate(candidateId);
+    if (!candidate) throw new Error("候选来源不存在。");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || candidate.semesterId !== semesterId) throw new Error("请先切换到这个候选来源所属的学期。");
+    activeCourseScopeOrThrow(this.options.businessStore, candidate.courseId, semesterId);
+    return this.options.businessStore.updateSourceCandidateStatus(candidate.id, "rejected") || { ...candidate, status: "rejected", updatedAt: now() };
+  }
+
+  private recoverStaleSourceCandidate(candidate: SourceCandidate): SourceCandidate {
+    if (candidate.status !== "accepting") return candidate;
+    const updatedAtMs = Date.parse(candidate.updatedAt);
+    if (Number.isFinite(updatedAtMs) && Date.now() - updatedAtMs < SOURCE_CANDIDATE_ACCEPTING_TIMEOUT_MS) return candidate;
+    return this.options.businessStore.updateSourceCandidateStatus(candidate.id, "failed", { error: "上次加入来源中断了，可以重试。" }) || {
+      ...candidate,
+      status: "failed",
+      error: "上次加入来源中断了，可以重试。",
+      updatedAt: now(),
+    };
+  }
+
+  private removeFailedCandidateExternalSource(sourceId: string): void {
+    const source = this.options.businessStore.getExternalSource(sourceId);
+    if (!source || source.status !== "failed") return;
+    if (source.originalPath) this.safeRm(dirname(source.originalPath), `[external-sources] Failed to remove failed candidate source folder ${dirname(source.originalPath)}`);
+    else if (source.markdownPath) this.safeRm(dirname(source.markdownPath), `[external-sources] Failed to remove failed candidate source folder ${dirname(source.markdownPath)}`);
+    this.options.businessStore.deleteExternalSource(sourceId);
   }
 
   private findDuplicateExternalWebSource(semesterId: string, courseId: string, taskId: string | undefined, scope: "task" | "course", url: URL): ExternalSource | undefined {
@@ -1589,6 +1729,10 @@ function uniqueFilePath(dir: string, fileName: string): string {
 
 function externalSourceId(): string {
   return `source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sourceCandidateId(): string {
+  return `candidate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function sectionIdForExternalSource(courseId: string, scope: "task" | "course", taskId?: string): string | undefined {

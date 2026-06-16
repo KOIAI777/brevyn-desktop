@@ -107,6 +107,7 @@ export class ClaudeSdkAdapter {
           "mcp__brevyn__list_course_files",
           "mcp__brevyn__get_file_record",
           "mcp__brevyn__rag_search",
+          "mcp__brevyn__propose_external_source",
         ],
         disallowedTools: ["NotebookEdit", "Task"],
         permissionMode: input.permissionMode || "default",
@@ -267,6 +268,7 @@ const SAFE_TOOLS = new Set([
   "mcp__brevyn__list_course_files",
   "mcp__brevyn__get_file_record",
   "mcp__brevyn__rag_search",
+  "mcp__brevyn__propose_external_source",
 ]);
 
 function stringProcessEnv(): Record<string, string> {

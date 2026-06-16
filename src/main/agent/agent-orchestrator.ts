@@ -21,6 +21,8 @@ import type {
   SemesterWorkspace,
   Thread,
   RagSearchResult,
+  SourceCandidateProposeInput,
+  SourceCandidateProposeResult,
 } from "../../types/domain";
 import { SkillFileStore } from "../skills/skill-file-store";
 import { SQLiteBusinessStore } from "../storage";
@@ -59,6 +61,7 @@ interface AgentOrchestratorOptions {
   sdk: ClaudeSdkAdapter;
   gateway?: AgentGatewayService;
   ragSearch?: (input: { query: string; courseId?: string; taskId?: string; sectionKind?: "course_shared" | "lecture" | "task"; limit?: number }) => Promise<RagSearchResult[]>;
+  proposeExternalSource?: (input: SourceCandidateProposeInput) => SourceCandidateProposeResult;
 }
 
 interface ActiveRun {
@@ -215,6 +218,7 @@ export class AgentOrchestrator {
           rootDataDir: this.options.rootDataDir,
           businessStore: this.options.businessStore,
           ragSearch: this.options.ragSearch,
+          proposeExternalSource: this.options.proposeExternalSource,
           context,
         }),
       };
@@ -850,6 +854,7 @@ function brevynMcpToolAliases(): Record<string, string> {
     list_course_files: "mcp__brevyn__list_course_files",
     get_file_record: "mcp__brevyn__get_file_record",
     rag_search: "mcp__brevyn__rag_search",
+    propose_external_source: "mcp__brevyn__propose_external_source",
     mcpBrevyncourseStructure: "mcp__brevyn__course_structure",
     mcpBrevynCourseStructure: "mcp__brevyn__course_structure",
     mcpBrevynlistCourseFiles: "mcp__brevyn__list_course_files",
@@ -858,6 +863,8 @@ function brevynMcpToolAliases(): Record<string, string> {
     mcpBrevynGetFileRecord: "mcp__brevyn__get_file_record",
     mcpBrevynragSearch: "mcp__brevyn__rag_search",
     mcpBrevynRagSearch: "mcp__brevyn__rag_search",
+    mcpBrevynproposeExternalSource: "mcp__brevyn__propose_external_source",
+    mcpBrevynProposeExternalSource: "mcp__brevyn__propose_external_source",
   };
 }
 

@@ -185,6 +185,23 @@
         color: var(--brevyn-startup-muted);
       }
 
+      .brevyn-startup-slow {
+        position: relative;
+        min-height: 16px;
+        margin: -4px 0 0;
+        font: 700 11px/1.4 ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        color: var(--brevyn-startup-muted);
+        letter-spacing: 0.02em;
+        opacity: 0;
+        transform: translateY(-2px);
+        transition: opacity 220ms ease, transform 220ms ease;
+      }
+
+      #brevyn-startup-splash[data-slow="true"] .brevyn-startup-slow {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
       @keyframes brevyn-startup-word-sweep {
         0% {
           background-position: 180% 50%;
@@ -226,6 +243,7 @@
         <div class="brevyn-startup-word" data-word="BreVyn">BreVyn</div>
         <div class="brevyn-startup-rule"></div>
         <p class="brevyn-startup-caption">Local academic workspace</p>
+        <p class="brevyn-startup-slow">正在打开工作区...</p>
       </div>
     </div>
     <div id="root"></div>

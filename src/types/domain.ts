@@ -524,6 +524,7 @@ export interface ExternalSourceAddUrlInput {
   scope: ExternalSourceScope;
   url: string;
   title?: string;
+  addedBy?: "user" | "agent";
 }
 
 export interface ExternalSourceAddFilesInput {
@@ -538,6 +539,67 @@ export interface ExternalSourceAddResult {
   indexingJob: IndexingJob | null;
   indexingError?: string;
   indexingNotice?: string;
+}
+
+export type SourceCandidateStatus = "pending" | "accepting" | "accepted" | "rejected" | "failed";
+
+export interface SourceCandidate {
+  id: string;
+  semesterId: string;
+  courseId: string;
+  taskId?: string;
+  threadId?: string;
+  scope: ExternalSourceScope;
+  url: string;
+  normalizedUrl?: string;
+  title: string;
+  siteName?: string;
+  snippet?: string;
+  reason: string;
+  status: SourceCandidateStatus;
+  externalSourceId?: string;
+  error?: string;
+  proposedBy: "agent";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SourceCandidateListInput {
+  courseId: string;
+  taskId?: string;
+  threadId?: string;
+  statuses?: SourceCandidateStatus[];
+}
+
+export interface SourceCandidateProposeInput {
+  courseId: string;
+  taskId?: string;
+  threadId?: string;
+  scope: ExternalSourceScope;
+  url: string;
+  title: string;
+  siteName?: string;
+  snippet?: string;
+  reason: string;
+}
+
+export interface SourceCandidateProposeResult {
+  candidate?: SourceCandidate;
+  status: "created" | "updated" | "existing_source";
+  message: string;
+}
+
+export interface SourceCandidateAcceptResult {
+  candidate: SourceCandidate;
+  externalSourceResult?: ExternalSourceAddResult;
+}
+
+export interface SourceCandidateChangedEvent {
+  semesterId?: string;
+  courseId?: string;
+  taskId?: string;
+  threadId?: string;
+  candidateId?: string;
 }
 
 export type ProviderPurpose = "agent" | "embedding" | "vision" | "ocr";
@@ -1497,6 +1559,12 @@ export interface BrevynAPI {
     addUrl: (input: ExternalSourceAddUrlInput) => Promise<ExternalSourceAddResult>;
     addFiles: (input: ExternalSourceAddFilesInput) => Promise<ExternalSourceAddResult>;
     delete: (sourceId: string) => Promise<boolean>;
+  };
+  sourceCandidates: {
+    list: (input: SourceCandidateListInput) => Promise<SourceCandidate[]>;
+    accept: (candidateId: string) => Promise<SourceCandidateAcceptResult>;
+    reject: (candidateId: string) => Promise<SourceCandidate>;
+    onChanged: (callback: (event: SourceCandidateChangedEvent) => void) => () => void;
   };
   providers: {
     list: () => Promise<ModelProviderConfig[]>;

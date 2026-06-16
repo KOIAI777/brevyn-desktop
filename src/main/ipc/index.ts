@@ -8,6 +8,7 @@ import { registerFilesIpc } from "./files-ipc";
 import { registerExternalSourcesIpc } from "./external-sources-ipc";
 import { registerIndexingIpc } from "./indexing-ipc";
 import { registerProvidersIpc } from "./provider-ipc";
+import { registerSourceCandidatesIpc } from "./source-candidates-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { registerTimetableIpc } from "./timetable-ipc";
 import { registerUpdaterIpc } from "./updater-ipc";
@@ -22,6 +23,7 @@ export function registerIpcHandlers(ctx: IpcContext): void {
   registerWorkspaceIpc(ctx);
   registerFilesIpc(ctx);
   registerExternalSourcesIpc(ctx);
+  registerSourceCandidatesIpc(ctx);
   registerIndexingIpc(ctx);
   registerSkillsIpc(ctx);
   registerProvidersIpc(ctx);

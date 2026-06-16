@@ -20,7 +20,9 @@ const FileBrowserRail = lazy(() => import("@/components/files/FileBrowserRail").
 const FilePreviewRail = lazy(() => import("@/components/files/FilePreviewRail").then((module) => ({ default: module.FilePreviewRail })));
 const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((module) => ({ default: module.SettingsDialog })));
 const SourcesRail = lazy(() => import("@/components/sources/SourcesRail").then((module) => ({ default: module.SourcesRail })));
+const SourceCandidateToast = lazy(() => import("@/components/sources/SourceCandidateToast").then((module) => ({ default: module.SourceCandidateToast })));
 const STARTUP_SPLASH_MIN_MS = import.meta.env.DEV ? 650 : 2400;
+const STARTUP_SLOW_NOTICE_MS = 8_000;
 
 function applyAppTheme(theme: AppTheme): void {
   document.documentElement.dataset.theme = theme;
@@ -195,17 +197,37 @@ function App() {
   const showWorkspaceOnboarding = !workspaceBooting && (workspace.noActiveSemesters || workspace.needsSemesterSelection);
 
   useEffect(() => {
-    if (workspace.bootState === "loading") return;
+    if (workspace.bootState === "loading") {
+      const timeout = window.setTimeout(() => {
+        document.getElementById("brevyn-startup-splash")?.setAttribute("data-slow", "true");
+      }, STARTUP_SLOW_NOTICE_MS);
+      return () => window.clearTimeout(timeout);
+    }
     const splash = document.getElementById("brevyn-startup-splash");
     if (!splash) return;
     const removeSplash = () => splash.remove();
-    const shownAt = typeof window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ === "number" ? window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ : Date.now();
-    const delay = Math.max(0, STARTUP_SPLASH_MIN_MS - (Date.now() - shownAt));
-    const timeout = window.setTimeout(() => {
+    const hideSplash = () => {
       splash.dataset.state = "leaving";
       window.setTimeout(removeSplash, 320);
+    };
+    if (workspace.bootState === "error") {
+      hideSplash();
+      return;
+    }
+    const shownAt = typeof window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ === "number" ? window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ : Date.now();
+    const delay = Math.max(0, STARTUP_SPLASH_MIN_MS - (Date.now() - shownAt));
+    let firstFrame = 0;
+    let secondFrame = 0;
+    const timeout = window.setTimeout(() => {
+      firstFrame = window.requestAnimationFrame(() => {
+        secondFrame = window.requestAnimationFrame(hideSplash);
+      });
     }, delay);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      if (firstFrame) window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
   }, [workspace.bootState]);
 
   if (workspace.bootState === "error") {
@@ -213,7 +235,7 @@ function App() {
   }
 
   if (workspace.bootState === "loading") {
-    return <div className="brevyn-app-background h-full min-h-screen text-foreground" />;
+    return null;
   }
 
   return (
@@ -261,8 +283,15 @@ function App() {
           className={`grid min-w-0 flex-1 gap-0 ${layoutState.resizingRail || layoutState.windowResizing ? "" : "transition-[grid-template-columns] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"}`}
           style={{ gridTemplateColumns: layoutState.contentGridColumns }}
         >
-          <main className="brevyn-panel-surface flex min-w-0 max-w-full flex-col overflow-hidden">
+          <main className="brevyn-panel-surface relative flex min-w-0 max-w-full flex-col overflow-hidden">
             <TopBar course={workspace.activeCourse} task={workspace.activeTask} thread={workspace.activeThread} workspaceScope={workspace.workspaceScope} />
+            <Suspense fallback={null}>
+              <SourceCandidateToast
+                course={workspace.activeCourse}
+                activeTask={workspace.activeTask}
+                activeThreadId={workspace.activeThreadId}
+              />
+            </Suspense>
             {workspace.workspaceError && (
               <div className="border-b border-[hsl(var(--status-warning)/0.22)] bg-[hsl(var(--status-warning)/0.11)] px-4 py-2 text-xs text-[hsl(var(--status-warning))]">
                 {workspace.workspaceError}

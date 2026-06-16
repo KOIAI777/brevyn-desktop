@@ -9,6 +9,8 @@ import type {
   CourseFileSectionKind,
   RagSearchResult,
   SemesterWorkspace,
+  SourceCandidateProposeInput,
+  SourceCandidateProposeResult,
   Thread,
   WorkspaceFileNode,
 } from "../../types/domain";
@@ -36,12 +38,14 @@ export interface BrevynMcpServerOptions {
   rootDataDir: string;
   businessStore: SQLiteBusinessStore;
   ragSearch?: (input: { query: string; courseId?: string; taskId?: string; sectionKind?: CourseFileSectionKind; limit?: number }) => Promise<RagSearchResult[]>;
+  proposeExternalSource?: (input: SourceCandidateProposeInput) => SourceCandidateProposeResult;
   context: BrevynMcpContext;
 }
 
 type ClaudeSdkRuntime = typeof ClaudeAgentSdk;
 
 const SECTION_SCHEMA = z.enum(["course_shared", "lecture", "task"]);
+const SOURCE_SCOPE_SCHEMA = z.enum(["task", "course"]);
 
 export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServerConfig {
   const { sdk } = options;
@@ -91,6 +95,20 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
         },
         async (args) => brevynToolResult(await ragSearch(options, args)),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+      ),
+      sdk.tool(
+        "propose_external_source",
+        "Put a useful web source into Brevyn's user-confirmation card. Use this immediately after WebSearch/WebFetch finds a URL that may help the current course or task. Calling this tool is how you ask the user to confirm; do not first ask in chat whether to save the source. This does not download or index the source.",
+        {
+          url: z.string().min(1).describe("Public web URL to propose."),
+          title: z.string().min(1).describe("Human-readable source title."),
+          reason: z.string().min(1).describe("Why this source is useful for the current course or task."),
+          snippet: z.string().optional().describe("Short relevant excerpt or summary."),
+          siteName: z.string().optional().describe("Website or publisher name."),
+          scope: SOURCE_SCOPE_SCHEMA.optional().describe("Save target if accepted. Defaults to task in a task thread, otherwise course."),
+        },
+        async (args) => brevynToolResult(proposeExternalSource(options, args)),
+        { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
       ),
     ],
   });
@@ -216,6 +234,33 @@ async function ragSearch(
     },
     count: results.length,
     results: results.map(compactRagResult),
+  };
+}
+
+function proposeExternalSource(
+  options: BrevynMcpServerOptions,
+  args: { url: string; title: string; reason: string; snippet?: string; siteName?: string; scope?: "task" | "course" },
+) {
+  if (!options.proposeExternalSource) throw new Error("External source candidates are not available in this Brevyn runtime.");
+  if (!options.context.course) throw new Error("候选来源需要在具体课程或作业会话里提交。");
+  const scope = args.scope || (options.context.task ? "task" : "course");
+  if (scope === "task" && !options.context.task) throw new Error("当前不是作业会话，不能提交到作业范围。");
+  const result = options.proposeExternalSource({
+    courseId: options.context.course.id,
+    taskId: scope === "task" ? options.context.task?.id : undefined,
+    threadId: options.context.thread.id,
+    scope,
+    url: args.url,
+    title: args.title,
+    reason: args.reason,
+    snippet: args.snippet,
+    siteName: args.siteName,
+  });
+  return {
+    ...result,
+    scope,
+    course: compactCourse(options.context.course),
+    task: scope === "task" && options.context.task ? compactTask(options.context.task) : null,
   };
 }
 
@@ -351,7 +396,22 @@ function summarizeToolResultForModel(value: unknown): string {
   if (Array.isArray(data.files)) return summarizeCourseFiles(data);
   if (data.file) return summarizeFileRecord(data);
   if (Array.isArray(data.results)) return summarizeRagResults(data);
+  if (data.status && data.message && (data.candidate || data.status === "existing_source")) return summarizeSourceCandidateProposal(data);
   return JSON.stringify(value);
+}
+
+function summarizeSourceCandidateProposal(data: Record<string, unknown>): string {
+  const candidate = recordOf(data.candidate);
+  const title = stringValue(candidate.title, "external source");
+  const status = stringValue(data.status, "created");
+  const message = stringValue(data.message, "候选来源已提交给用户确认。");
+  if (status === "existing_source") return `Brevyn source candidate: ${message}`;
+  return [
+    `Brevyn source candidate: ${message}`,
+    `- Title: ${title}`,
+    `- Scope: ${stringValue(data.scope, "course")}`,
+    "- Next: Tell the user this source is waiting in the Brevyn confirmation card. Do not ask again whether to save it.",
+  ].join("\n");
 }
 
 function summarizeCourseStructure(data: Record<string, unknown>): string {

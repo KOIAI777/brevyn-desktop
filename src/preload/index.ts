@@ -27,6 +27,8 @@ import type {
   AppThemePreference,
   AppThemeState,
   BrevynAgentEvent,
+  SourceCandidateChangedEvent,
+  SourceCandidateListInput,
   FileImportInput,
   DeleteFileInput,
   ExternalSourceAddFilesInput,
@@ -124,6 +126,16 @@ const api: BrevynAPI = {
     addUrl: (input: ExternalSourceAddUrlInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesAddUrl, input),
     addFiles: (input: ExternalSourceAddFilesInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesAddFiles, input),
     delete: (sourceId: string) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesDelete, sourceId),
+  },
+  sourceCandidates: {
+    list: (input: SourceCandidateListInput) => ipcRenderer.invoke(IPC_CHANNELS.sourceCandidatesList, input),
+    accept: (candidateId: string) => ipcRenderer.invoke(IPC_CHANNELS.sourceCandidatesAccept, candidateId),
+    reject: (candidateId: string) => ipcRenderer.invoke(IPC_CHANNELS.sourceCandidatesReject, candidateId),
+    onChanged: (callback: (event: SourceCandidateChangedEvent) => void) => {
+      const listener = (_event: IpcRendererEvent, event: SourceCandidateChangedEvent) => callback(event);
+      ipcRenderer.on(IPC_CHANNELS.sourceCandidatesChanged, listener);
+      return () => ipcRenderer.off(IPC_CHANNELS.sourceCandidatesChanged, listener);
+    },
   },
   providers: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.providersList),

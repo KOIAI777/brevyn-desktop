@@ -14,6 +14,7 @@ export class AppErrorBoundary extends React.Component<{
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("[renderer] Unhandled render error", error, info);
+    document.getElementById("brevyn-startup-splash")?.remove();
   }
 
   render() {

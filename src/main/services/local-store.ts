@@ -55,6 +55,11 @@ import type {
   RecognizedCourseTimetable,
   RenameThreadInput,
   SemesterWorkspace,
+  SourceCandidate,
+  SourceCandidateAcceptResult,
+  SourceCandidateListInput,
+  SourceCandidateProposeInput,
+  SourceCandidateProposeResult,
   SkillImportInput,
   SkillItem,
   SkillUpdateInput,
@@ -85,6 +90,7 @@ import { BUILTIN_SKILL_BLUEPRINTS } from "../skills/skill-registry";
 import { SQLiteBusinessStore } from "../storage";
 import { FileService } from "./file-service";
 import { AppSettingsStore } from "./app-settings-store";
+import { broadcastSourceCandidatesChanged } from "../ipc/source-candidates-ipc";
 import { CloudAccountService } from "./cloud-account-service";
 import { DocumentParseService } from "./document-parse-service";
 import { ProviderConfigStore } from "./provider-config-store";
@@ -201,6 +207,7 @@ export class LocalStore {
       sdk: new ClaudeSdkAdapter(),
       gateway: this.agentGateway,
       ragSearch: (input) => this.searchRag(input.query, input.courseId, input),
+      proposeExternalSource: (input) => this.proposeSourceCandidate(input),
     });
     void this.agentGateway.syncConfiguredState().catch((error) => {
       console.warn("[agent-gateway] Failed to sync configured state", error);
@@ -384,6 +391,32 @@ export class LocalStore {
 
   deleteExternalSource(sourceId: string): Promise<boolean> {
     return this.files.deleteExternalSource(sourceId);
+  }
+
+  listSourceCandidates(input: SourceCandidateListInput): SourceCandidate[] {
+    return this.files.listSourceCandidates(input);
+  }
+
+  proposeSourceCandidate(input: SourceCandidateProposeInput): SourceCandidateProposeResult {
+    const result = this.files.proposeSourceCandidate(input);
+    if (result.candidate) {
+      broadcastSourceCandidatesChanged({
+        semesterId: result.candidate.semesterId,
+        courseId: result.candidate.courseId,
+        taskId: result.candidate.taskId,
+        threadId: result.candidate.threadId,
+        candidateId: result.candidate.id,
+      });
+    }
+    return result;
+  }
+
+  acceptSourceCandidate(candidateId: string): Promise<SourceCandidateAcceptResult> {
+    return this.files.acceptSourceCandidate(candidateId);
+  }
+
+  rejectSourceCandidate(candidateId: string): SourceCandidate {
+    return this.files.rejectSourceCandidate(candidateId);
   }
 
   fileSourcePath(fileId: string): string | undefined {
