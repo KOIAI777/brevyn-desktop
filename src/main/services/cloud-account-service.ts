@@ -138,6 +138,7 @@ export class CloudAccountService {
   }
 
   status(): CloudAccountStatus {
+    const authenticated = Boolean(this.data.user && this.readRefreshToken());
     const activeLocalGroupId = this.activeCloudConversationGroupId() || this.activeOfficialAgentGroupId();
     const currentGroupId = activeLocalGroupId
       || positiveInteger(this.data.currentGroup?.externalGroupId)
@@ -156,7 +157,7 @@ export class CloudAccountService {
       environment: this.options.environment,
       baseUrlEditable: this.options.baseUrlEditable,
       shopUrl: this.options.shopUrl,
-      authenticated: Boolean(this.data.user && this.readRefreshToken()),
+      authenticated,
       user: this.data.user ?? null,
       wallet: this.data.wallet ?? null,
       gateway,
@@ -165,7 +166,7 @@ export class CloudAccountService {
       entitlements: markCurrentEntitlements(this.data.entitlements ?? null, currentGroupId),
       providerRefs: cloneProviderRefs(this.data.providerRefs ?? []),
       lastSyncedAt: this.data.lastSyncedAt,
-      lastError: this.data.lastError,
+      lastError: authenticated ? this.data.lastError : "",
     };
   }
 

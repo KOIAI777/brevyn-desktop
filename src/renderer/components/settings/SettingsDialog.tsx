@@ -107,6 +107,7 @@ export function SettingsDialog({
   const cloudEntitlementsLastRefreshRef = useRef(0);
   const cloudEntitlementsRefreshInFlightRef = useRef(false);
   const cloudStatusDismissTimerRef = useRef<number | null>(null);
+  const cloudSessionVersionRef = useRef(0);
 
   useEffect(() => {
     setActivePage(initialPage);
@@ -222,7 +223,7 @@ export function SettingsDialog({
         baseUrl: status.baseUrl || current.baseUrl,
         email: current.email || status.user?.email || "",
       }));
-      setCloudStatusLine(status.lastError || "");
+      setCloudStatusLine(status.authenticated ? status.lastError || "" : "");
     } catch (error) {
       setCloudStatusLine(`加载账号状态失败：${errorMessage(error)}`);
     } finally {
@@ -282,16 +283,19 @@ export function SettingsDialog({
 
   async function refreshCloudEntitlements(options: { force?: boolean; reason?: string; quiet?: boolean } = {}) {
     if (!cloudStatus?.authenticated || cloudEntitlementsRefreshInFlightRef.current) return;
+    const sessionVersion = cloudSessionVersionRef.current;
     cloudEntitlementsRefreshInFlightRef.current = true;
     try {
       const status = await window.brevyn.cloud.refreshEntitlements({
         forceEntitlements: options.force,
         reason: options.reason,
       });
+      if (sessionVersion !== cloudSessionVersionRef.current || !status.authenticated) return;
       setCloudStatus(status);
       cloudEntitlementsLastRefreshRef.current = Date.now();
       if (!options.quiet) setCloudStatusLine(cloudRefreshStatusLine(status, "余额和套餐用量已刷新。"));
     } catch (error) {
+      if (sessionVersion !== cloudSessionVersionRef.current) return;
       if (!options.quiet) setCloudStatusLine(`刷新余额失败：${errorMessage(error)}`);
     } finally {
       cloudEntitlementsRefreshInFlightRef.current = false;
@@ -414,6 +418,8 @@ export function SettingsDialog({
 
   async function logoutCloudAccount() {
     setCloudBusyAction("logout");
+    cloudSessionVersionRef.current += 1;
+    cloudEntitlementsRefreshInFlightRef.current = false;
     setCloudStatusLine("");
     try {
       const status = await window.brevyn.cloud.logout();

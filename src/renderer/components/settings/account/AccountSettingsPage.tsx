@@ -117,7 +117,7 @@ export function AccountSettingsPage({
     if (provider.purpose === "ocr") kinds.add("ocr");
     return kinds;
   }, new Set<string>());
-  const statusMessage = statusLine || cloudStatus?.lastError || "";
+  const statusMessage = statusLine || (authenticated ? cloudStatus?.lastError || "" : "");
   const statusIsError = /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(statusMessage);
   const cloudBaseUrlEditable = cloudStatus?.baseUrlEditable === true;
   const showDevelopmentBadge = cloudStatus?.environment === "development";
