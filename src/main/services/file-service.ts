@@ -11,6 +11,11 @@ import mammoth from "mammoth";
 import type {
   CourseFileSection,
   DeleteFileInput,
+  ExternalSource,
+  ExternalSourceAddFilesInput,
+  ExternalSourceAddResult,
+  ExternalSourceAddUrlInput,
+  ExternalSourceListInput,
   FileImportInput,
   FileImportResult,
   FilePreview,
@@ -48,6 +53,7 @@ import {
 } from "./workspace-file-tree";
 import {
   SEMESTER_HOME_COURSE_ID,
+  ensureCourseWorkspaceDir,
   courseWorkspaceDir,
   ensureSemesterSharedDirs,
   ensureImportTargetDir,
@@ -75,9 +81,11 @@ const INDEXING_TASK_MAX_ATTEMPTS = 5;
 const MAX_IMPORT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES = 256 * 1024;
+const MAX_WEB_SOURCE_BYTES = 5 * 1024 * 1024;
 const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
 const AGENT_WORKSPACE_MEMORY_FILE = "CLAUDE.md";
+const EXTERNAL_SOURCES_FOLDER = "External Sources";
 export const WORKSPACE_FILE_PREVIEW_PROTOCOL = "brevyn-file";
 
 export interface FileServiceOptions {
@@ -391,10 +399,189 @@ export class FileService {
     }
   }
 
+  listExternalSources(input: ExternalSourceListInput): ExternalSource[] {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId) return [];
+    activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
+    return this.options.businessStore.listExternalSources({
+      semesterId,
+      courseId: input.courseId,
+      taskId: input.taskId,
+    });
+  }
+
+  async addExternalSourceUrl(input: ExternalSourceAddUrlInput): Promise<ExternalSourceAddResult> {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
+    const targetTask = input.scope === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
+    const url = normalizeExternalSourceUrl(input.url);
+    const timestamp = now();
+    const sourceId = externalSourceId();
+    const sourceDir = this.ensureExternalSourceDir(semesterId, input.courseId, targetTask?.id, sourceId, input.title || url.hostname);
+    const source: ExternalSource = {
+      id: sourceId,
+      semesterId,
+      courseId: input.courseId,
+      taskId: targetTask?.id,
+      scope: input.scope,
+      kind: "web",
+      title: input.title?.trim() || url.hostname,
+      url: url.toString(),
+      status: "processing",
+      addedBy: "user",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.options.businessStore.saveExternalSource(source);
+
+    try {
+      const fetched = await fetchExternalWebSource(url);
+      const title = input.title?.trim() || fetched.title || url.hostname;
+      const originalPath = join(sourceDir, "original.html");
+      const markdownPath = join(sourceDir, "content.md");
+      writeFileSync(originalPath, fetched.html, "utf8");
+      writeFileSync(markdownPath, markdownForWebSource({ title, url: url.toString(), text: fetched.text }), "utf8");
+      const file = this.registerExternalWorkspaceFile({
+        semesterId,
+        courseId: input.courseId,
+        taskId: targetTask?.id,
+        scope: input.scope,
+        sourceId,
+        title,
+        sourcePath: markdownPath,
+        timestamp,
+      });
+      const saved = this.options.businessStore.saveExternalSource({
+        ...source,
+        title,
+        originalPath,
+        markdownPath,
+        workspaceFileId: file.id,
+        summary: summarizeText(fetched.text),
+        status: "ready",
+        updatedAt: now(),
+      });
+      const indexingResult = this.indexImportedFiles(input.courseId, sectionIdForExternalSource(input.courseId, input.scope, targetTask?.id), [file]);
+      return {
+        sources: [saved],
+        tree: this.listFiles(input.courseId),
+        indexingJob: indexingResult.job,
+        indexingError: indexingResult.error,
+        indexingNotice: indexingResult.notice,
+      };
+    } catch (error) {
+      this.safeRm(sourceDir, `[external-sources] Failed to clean source folder ${sourceDir}`);
+      const failed = this.options.businessStore.updateExternalSourceStatus(sourceId, "failed", errorMessage(error)) || source;
+      return {
+        sources: [failed],
+        tree: this.listFiles(input.courseId),
+        indexingJob: null,
+        indexingError: errorMessage(error),
+      };
+    }
+  }
+
+  async addExternalSourceFiles(input: ExternalSourceAddFilesInput & { sourcePaths: string[] }): Promise<ExternalSourceAddResult> {
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    activeCourseScopeOrThrow(this.options.businessStore, input.courseId, semesterId);
+    const targetTask = input.scope === "task" ? taskInCourseOrThrow(this.options.businessStore, input.taskId, input.courseId, semesterId) : undefined;
+    const importSources = await this.statImportSources(input.sourcePaths || []);
+    if (importSources.length === 0) return { sources: [], tree: this.listFiles(input.courseId), indexingJob: null };
+
+    const timestamp = now();
+    const files: WorkspaceFileNode[] = [];
+    const sources: ExternalSource[] = [];
+    const copiedPaths: string[] = [];
+    try {
+      for (const importSource of importSources) {
+        const sourceId = externalSourceId();
+        const title = basename(importSource.sourcePath);
+        const sourceDir = this.ensureExternalSourceDir(semesterId, input.courseId, targetTask?.id, sourceId, title);
+        const originalPath = uniqueFilePath(sourceDir, title);
+        await copyFile(importSource.sourcePath, originalPath);
+        copiedPaths.push(originalPath);
+        const file = this.registerExternalWorkspaceFile({
+          semesterId,
+          courseId: input.courseId,
+          taskId: targetTask?.id,
+          scope: input.scope,
+          sourceId,
+          title: basename(originalPath),
+          sourcePath: originalPath,
+          timestamp,
+          size: importSource.size,
+        });
+        const source = this.options.businessStore.saveExternalSource({
+          id: sourceId,
+          semesterId,
+          courseId: input.courseId,
+          taskId: targetTask?.id,
+          scope: input.scope,
+          kind: "file",
+          title: basename(originalPath),
+          originalPath,
+          workspaceFileId: file.id,
+          status: "ready",
+          addedBy: "user",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        files.push(file);
+        sources.push(source);
+      }
+      const indexingResult = this.indexImportedFiles(input.courseId, sectionIdForExternalSource(input.courseId, input.scope, targetTask?.id), files);
+      return {
+        sources,
+        tree: this.listFiles(input.courseId),
+        indexingJob: indexingResult.job,
+        indexingError: indexingResult.error,
+        indexingNotice: indexingResult.notice,
+      };
+    } catch (error) {
+      for (const copiedPath of copiedPaths) this.safeRm(copiedPath, `[external-sources] Failed to clean copied file ${copiedPath}`);
+      throw error;
+    }
+  }
+
+  async deleteExternalSource(sourceId: string): Promise<boolean> {
+    const source = this.options.businessStore.getExternalSource(sourceId);
+    if (!source) return false;
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || source.semesterId !== semesterId) throw new Error("请先切换到这个来源所属的学期。");
+    activeCourseScopeOrThrow(this.options.businessStore, source.courseId, semesterId);
+    if (source.workspaceFileId) {
+      const activeJobs = this.options.businessStore.activeIndexingJobsForFiles([source.workspaceFileId]);
+      for (const job of activeJobs) this.options.businessStore.cancelIndexingJob(job.id);
+      await this.deleteRagChunksForFile(source.workspaceFileId);
+      const roots = this.loadCourseRoots(source.courseId, semesterId);
+      removeFileFromTree(roots, source.workspaceFileId);
+      this.persistWorkspaceFilesForCourse(source.courseId, roots, semesterId);
+    }
+    if (source.originalPath) this.safeRm(dirname(source.originalPath), `[external-sources] Failed to remove source folder ${dirname(source.originalPath)}`);
+    else if (source.markdownPath) this.safeRm(dirname(source.markdownPath), `[external-sources] Failed to remove source folder ${dirname(source.markdownPath)}`);
+    this.options.businessStore.deleteExternalSource(sourceId);
+    return true;
+  }
+
   fileSourcePath(fileId: string): string | undefined {
     const { file, semesterId } = this.guardFileAccess(fileId, "accessing");
     this.assertFileSourceInsideWorkspace(file, semesterId);
     return file.sourcePath;
+  }
+
+  fileOpenPath(fileId: string): string | undefined {
+    const { file, semesterId } = this.guardFileAccess(fileId, "accessing");
+    if (file.sourcePath) {
+      this.assertFileSourceInsideWorkspace(file, semesterId);
+      return file.sourcePath;
+    }
+    const resolved = this.managedFolderOpenPath(file, semesterId);
+    if (!resolved) return undefined;
+    if (!isPathInside(resolved.path, resolved.allowedRoot)) {
+      throw new Error(`Refusing to access folder outside the workspace: ${resolved.path}`);
+    }
+    mkdirSync(resolved.path, { recursive: true });
+    return resolved.path;
   }
 
   async renameFile(fileId: string, nextName: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
@@ -487,6 +674,44 @@ export class FileService {
     return courseId === SEMESTER_HOME_COURSE_ID
       ? join(semesterWorkspaceDir(this.options.rootDataDir, semesterId), "Semester shared")
       : courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId);
+  }
+
+  private managedFolderOpenPath(file: WorkspaceFileNode, semesterId: string): { path: string; allowedRoot: string } | undefined {
+    if (file.kind !== "folder") return undefined;
+    if (file.courseId === SEMESTER_HOME_COURSE_ID) {
+      const semesterDir = ensureSemesterSharedDirs(this.options.rootDataDir, semesterId);
+      const semesterSharedDir = join(semesterDir, "Semester shared");
+      if (file.sectionKind === "course_shared" || file.name === "Semester shared" || file.path.endsWith("/Semester shared")) {
+        return { path: semesterSharedDir, allowedRoot: semesterDir };
+      }
+      return { path: semesterDir, allowedRoot: semesterDir };
+    }
+
+    const courseDir = ensureCourseWorkspaceDir(this.options.rootDataDir, semesterId, file.courseId);
+    if (isExternalSourcesFolder(file)) {
+      if (file.taskId) {
+        const task = taskInCourseOrThrow(this.options.businessStore, file.taskId, file.courseId, semesterId);
+        return { path: join(taskWorkspaceDirForTask(courseDir, task), EXTERNAL_SOURCES_FOLDER), allowedRoot: courseDir };
+      }
+      return { path: join(courseDir, EXTERNAL_SOURCES_FOLDER), allowedRoot: courseDir };
+    }
+    if (isCourseRootFolder(file)) return { path: courseDir, allowedRoot: courseDir };
+    if (file.sectionKind === "course_shared" || file.name === "Course shared") {
+      return { path: join(courseDir, "Course shared"), allowedRoot: courseDir };
+    }
+    if (file.sectionKind === "lecture" || file.name === "Lecture") {
+      const weekNumber = file.weekNumber || lectureWeekNumberFromFolderName(file.name);
+      const lectureDir = join(courseDir, "Lecture");
+      return { path: weekNumber ? join(lectureDir, lectureWeekFolderName(weekNumber)) : lectureDir, allowedRoot: courseDir };
+    }
+    if (file.sectionKind === "task" || file.taskId || file.name === "Task") {
+      if (!file.taskId) return { path: join(courseDir, "Task"), allowedRoot: courseDir };
+      const task = taskInCourseOrThrow(this.options.businessStore, file.taskId, file.courseId, semesterId);
+      const taskDir = taskWorkspaceDirForTask(courseDir, task);
+      if (file.taskFileBucket) return { path: join(taskDir, taskBucketLabel(file.taskFileBucket)), allowedRoot: courseDir };
+      return { path: taskDir, allowedRoot: courseDir };
+    }
+    return undefined;
   }
 
   private async statImportSources(sourcePaths: string[]): Promise<Array<{ sourcePath: string; size: number }>> {
@@ -1170,6 +1395,88 @@ export class FileService {
     return ensureImportTargetDir(this.options.rootDataDir, semesterId, input, (taskId) => this.options.businessStore.getTask(taskId) || undefined);
   }
 
+  private ensureExternalSourceDir(semesterId: string, courseId: string, taskId: string | undefined, sourceId: string, title: string): string {
+    const safeLeaf = `${sourceId}__${sanitizeFsSegment(title || "source")}`;
+    const dir = taskId
+      ? join(courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId), "Task", this.externalTaskFolderName(courseId, taskId), EXTERNAL_SOURCES_FOLDER, safeLeaf)
+      : join(courseWorkspaceDir(this.options.rootDataDir, semesterId, courseId), EXTERNAL_SOURCES_FOLDER, safeLeaf);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  private externalTaskFolderName(courseId: string, taskId: string): string {
+    const course = this.options.businessStore.getCourse(courseId);
+    const task = this.options.businessStore.getTask(taskId);
+    if (!course || !task) throw new Error("外部来源所属任务不存在。");
+    const courseDir = courseWorkspaceDir(this.options.rootDataDir, task.semesterId || currentActiveSemesterId(this.options.businessStore), courseId);
+    return basename(taskWorkspaceDirForTask(courseDir, task));
+  }
+
+  private registerExternalWorkspaceFile(input: {
+    semesterId: string;
+    courseId: string;
+    taskId?: string;
+    scope: "task" | "course";
+    sourceId: string;
+    title: string;
+    sourcePath: string;
+    timestamp: string;
+    size?: number;
+  }): WorkspaceFileNode {
+    const roots = this.writableCourseRoots(input.courseId, input.semesterId);
+    const root = roots[0];
+    if (!root) throw new Error("课程文件树不可用。");
+    const parent = input.scope === "task" && input.taskId
+      ? this.ensureTaskExternalFolder(root, input.courseId, input.taskId, input.timestamp)
+      : ensureFolderChild(root, EXTERNAL_SOURCES_FOLDER, {
+          courseId: input.courseId,
+          sectionKind: "course_shared",
+          sourceKind: "user_import",
+          ragEligible: true,
+        }, input.timestamp);
+    const stats = statSync(input.sourcePath);
+    const file: WorkspaceFileNode = {
+      id: `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      semesterId: input.semesterId,
+      courseId: input.courseId,
+      taskId: input.scope === "task" ? input.taskId : undefined,
+      taskFileBucket: input.scope === "task" ? "materials" : undefined,
+      sectionKind: input.scope === "task" ? "task" : "course_shared",
+      sourcePath: input.sourcePath,
+      name: basename(input.sourcePath),
+      displayName: input.title,
+      path: `${parent.path}/${basename(input.sourcePath)}`,
+      kind: kindForPath(input.sourcePath),
+      sizeLabel: formatSize(input.size ?? stats.size),
+      ragEligible: true,
+      sourceKind: "user_import",
+      updatedAt: input.timestamp,
+    };
+    parent.children = [...(parent.children || []), file];
+    this.persistWorkspaceFilesForCourse(input.courseId, roots, input.semesterId);
+    return file;
+  }
+
+  private ensureTaskExternalFolder(root: WorkspaceFileNode, courseId: string, taskId: string, timestamp: string): WorkspaceFileNode {
+    const task = taskInCourseOrThrow(this.options.businessStore, taskId, courseId, root.semesterId);
+    const taskFolder = findTaskFolderNode(root, taskId);
+    const parent = taskFolder || ensureFolderChild(
+      ensureFolderChild(root, "Task", { sectionKind: "task" }, timestamp),
+      `${taskId}__${sanitizeFsSegment(task.title)}`,
+      { courseId, taskId, taskType: task.taskType, sectionKind: "task", displayName: task.title },
+      timestamp,
+    );
+    return ensureFolderChild(parent, EXTERNAL_SOURCES_FOLDER, {
+      courseId,
+      taskId,
+      taskType: task.taskType,
+      taskFileBucket: "materials",
+      sectionKind: "task",
+      sourceKind: "user_import",
+      ragEligible: true,
+    }, timestamp);
+  }
+
   private sectionIdForImport(input: FileImportInput): string | undefined {
     if (input.targetSection === "course_shared") return `${input.courseId}:shared`;
     if (input.targetSection === "lecture") return `${input.courseId}:lecture`;
@@ -1259,12 +1566,101 @@ function uniqueFilePath(dir: string, fileName: string): string {
   return candidate;
 }
 
+function externalSourceId(): string {
+  return `source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sectionIdForExternalSource(courseId: string, scope: "task" | "course", taskId?: string): string | undefined {
+  if (scope === "task" && taskId) return `${courseId}:task-${taskId}`;
+  return `${courseId}:shared`;
+}
+
+function normalizeExternalSourceUrl(value: string): URL {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("请输入网页链接。");
+  const url = new URL(trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("只支持 http 或 https 网页链接。");
+  return url;
+}
+
+async function fetchExternalWebSource(url: URL): Promise<{ title: string; html: string; text: string }> {
+  const response = await fetch(url, {
+    redirect: "follow",
+    headers: {
+      "accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+      "user-agent": "Brevyn/0.1 ExternalSourceFetcher",
+    },
+  });
+  if (!response.ok) throw new Error(`网页读取失败：HTTP ${response.status}`);
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml+xml")) {
+    throw new Error("这个链接不像可解析网页。PDF 等文件请用本地文件添加。");
+  }
+  const raw = await response.text();
+  const html = raw.slice(0, MAX_WEB_SOURCE_BYTES);
+  const title = decodeHtmlEntities(extractTitle(html));
+  const text = extractReadableText(html);
+  if (!text.trim()) throw new Error("没有从网页中提取到可用正文。");
+  return { title, html, text };
+}
+
+function extractTitle(html: string): string {
+  return html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() || "";
+}
+
+function extractReadableText(html: string): string {
+  const withoutNoise = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/(p|div|section|article|header|footer|main|li|h[1-6]|blockquote|tr)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  return decodeHtmlEntities(withoutNoise)
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length > 0)
+    .join("\n\n")
+    .slice(0, 250_000);
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_match, code) => {
+      const value = Number(code);
+      return Number.isFinite(value) ? String.fromCharCode(value) : "";
+    });
+}
+
+function markdownForWebSource(input: { title: string; url: string; text: string }): string {
+  return `# ${input.title || "网页来源"}\n\n来源：${input.url}\n\n${input.text.trim()}\n`;
+}
+
+function summarizeText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
 function hasVisibleDiskEntries(dir: string): boolean {
   try {
     return readdirSync(dir, { withFileTypes: true }).some((entry) => !entry.name.startsWith("."));
   } catch {
     return false;
   }
+}
+
+function isCourseRootFolder(file: WorkspaceFileNode): boolean {
+  return file.kind === "folder" && !file.sectionKind && !file.taskId && file.path === file.name;
+}
+
+function isExternalSourcesFolder(file: WorkspaceFileNode): boolean {
+  return file.kind === "folder" && file.name === EXTERNAL_SOURCES_FOLDER;
 }
 
 function lectureWeekNumbersForFolders(semester: Parameters<typeof semesterLectureWeekNumbers>[0]): number[] {

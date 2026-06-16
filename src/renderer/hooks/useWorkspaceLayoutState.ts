@@ -6,9 +6,10 @@ const SIDEBAR_WIDTH = { min: 240, default: 340, max: 520 } as const;
 const RAIL_WIDTHS = {
   files: { min: 260, renderMin: 220, default: 320 },
   preview: { min: 320, renderMin: 240, default: 440 },
+  sources: { min: 260, renderMin: 220, default: 300 },
 } as const;
 
-export type ResizableRail = "files" | "preview";
+export type ResizableRail = "files" | "preview" | "sources";
 
 interface UseWorkspaceLayoutStateArgs {
   contentGridRef: React.RefObject<HTMLDivElement | null>;
@@ -18,9 +19,11 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [fileRailCollapsed, setFileRailCollapsed] = useState(true);
   const [previewRailCollapsed, setPreviewRailCollapsed] = useState(true);
+  const [sourcesRailCollapsed, setSourcesRailCollapsed] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readStoredSidebarWidth());
   const [fileRailWidth, setFileRailWidth] = useState<number>(RAIL_WIDTHS.files.default);
   const [previewRailWidth, setPreviewRailWidth] = useState<number>(RAIL_WIDTHS.preview.default);
+  const [sourcesRailWidth, setSourcesRailWidth] = useState<number>(RAIL_WIDTHS.sources.default);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [resizingRail, setResizingRail] = useState<ResizableRail | null>(null);
   const [windowResizing, setWindowResizing] = useState(false);
@@ -31,9 +34,9 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
   const resizeStateRef = useRef<{ rail: ResizableRail; startX: number; startWidth: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const resizePointerXRef = useRef(0);
-  const railWidthsRef = useRef<{ files: number; preview: number }>({ files: RAIL_WIDTHS.files.default, preview: RAIL_WIDTHS.preview.default });
+  const railWidthsRef = useRef<Record<ResizableRail, number>>({ files: RAIL_WIDTHS.files.default, preview: RAIL_WIDTHS.preview.default, sources: RAIL_WIDTHS.sources.default });
 
-  railWidthsRef.current = { files: fileRailWidth, preview: previewRailWidth };
+  railWidthsRef.current = { files: fileRailWidth, preview: previewRailWidth, sources: sourcesRailWidth };
 
   useEffect(() => {
     let timeout = 0;
@@ -59,9 +62,9 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
       if (!state) return;
       const config = RAIL_WIDTHS[state.rail];
       const gridWidth = contentGridRef.current?.getBoundingClientRect().width || window.innerWidth;
-      const otherRailWidth = state.rail === "files"
-        ? (previewRailCollapsed ? 0 : railWidthsRef.current.preview)
-        : (fileRailCollapsed ? 0 : railWidthsRef.current.files);
+      const otherRailWidth = (state.rail === "files" || fileRailCollapsed ? 0 : railWidthsRef.current.files)
+        + (state.rail === "preview" || previewRailCollapsed ? 0 : railWidthsRef.current.preview)
+        + (state.rail === "sources" || sourcesRailCollapsed ? 0 : railWidthsRef.current.sources);
       const availableMax = gridWidth - otherRailWidth - CHAT_MIN_WIDTH;
       const maxWidth = Math.max(config.min, availableMax);
       const nextWidth = clamp(state.startWidth - (clientX - state.startX), config.min, maxWidth);
@@ -70,8 +73,10 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
         contentGridRef.current.style.gridTemplateColumns = gridColumnsForWidths(
           fileRailCollapsed,
           previewRailCollapsed,
+          sourcesRailCollapsed,
           state.rail === "files" ? nextWidth : railWidthsRef.current.files,
           state.rail === "preview" ? nextWidth : railWidthsRef.current.preview,
+          state.rail === "sources" ? nextWidth : railWidthsRef.current.sources,
         );
       }
       return nextWidth;
@@ -92,6 +97,7 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
       const nextWidth = applyResize(resizePointerXRef.current);
       if (resizeStateRef.current?.rail === "files" && typeof nextWidth === "number") setFileRailWidth(nextWidth);
       if (resizeStateRef.current?.rail === "preview" && typeof nextWidth === "number") setPreviewRailWidth(nextWidth);
+      if (resizeStateRef.current?.rail === "sources" && typeof nextWidth === "number") setSourcesRailWidth(nextWidth);
       resizeStateRef.current = null;
       setResizingRail(null);
     }
@@ -111,7 +117,7 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [contentGridRef, fileRailCollapsed, previewRailCollapsed, resizingRail]);
+  }, [contentGridRef, fileRailCollapsed, previewRailCollapsed, resizingRail, sourcesRailCollapsed]);
 
   useEffect(() => {
     if (!sidebarResizing) return;
@@ -164,12 +170,12 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
   }, [sidebarResizing]);
 
   const contentGridColumns = useMemo(
-    () => gridColumnsForWidths(fileRailCollapsed, previewRailCollapsed, fileRailWidth, previewRailWidth),
-    [fileRailCollapsed, fileRailWidth, previewRailCollapsed, previewRailWidth],
+    () => gridColumnsForWidths(fileRailCollapsed, previewRailCollapsed, sourcesRailCollapsed, fileRailWidth, previewRailWidth, sourcesRailWidth),
+    [fileRailCollapsed, fileRailWidth, previewRailCollapsed, previewRailWidth, sourcesRailCollapsed, sourcesRailWidth],
   );
 
   function startRailResize(rail: ResizableRail, event: ReactPointerEvent) {
-    const startWidth = rail === "files" ? fileRailWidth : previewRailWidth;
+    const startWidth = rail === "files" ? fileRailWidth : rail === "preview" ? previewRailWidth : sourcesRailWidth;
     resizeStateRef.current = { rail, startX: event.clientX, startWidth };
     resizePointerXRef.current = event.clientX;
     setResizingRail(rail);
@@ -197,8 +203,11 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
     setFileRailCollapsed,
     previewRailCollapsed,
     setPreviewRailCollapsed,
+    sourcesRailCollapsed,
+    setSourcesRailCollapsed,
     fileRailWidth,
     previewRailWidth,
+    sourcesRailWidth,
     resizingRail,
     windowResizing,
     contentGridColumns,
@@ -228,8 +237,20 @@ function storeSidebarWidth(width: number): void {
   }
 }
 
-function gridColumnsForWidths(fileRailCollapsed: boolean, previewRailCollapsed: boolean, fileRailWidth: number, previewRailWidth: number): string {
-  return `minmax(0, 1fr) ${railColumn(previewRailCollapsed, previewRailWidth, RAIL_WIDTHS.preview.renderMin)} ${railColumn(fileRailCollapsed, fileRailWidth, RAIL_WIDTHS.files.renderMin)}`;
+function gridColumnsForWidths(
+  fileRailCollapsed: boolean,
+  previewRailCollapsed: boolean,
+  sourcesRailCollapsed: boolean,
+  fileRailWidth: number,
+  previewRailWidth: number,
+  sourcesRailWidth: number,
+): string {
+  return [
+    "minmax(0, 1fr)",
+    railColumn(sourcesRailCollapsed, sourcesRailWidth, RAIL_WIDTHS.sources.renderMin),
+    railColumn(previewRailCollapsed, previewRailWidth, RAIL_WIDTHS.preview.renderMin),
+    railColumn(fileRailCollapsed, fileRailWidth, RAIL_WIDTHS.files.renderMin),
+  ].join(" ");
 }
 
 function railColumn(collapsed: boolean, width: number, renderMin: number): string {

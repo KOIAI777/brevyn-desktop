@@ -1,4 +1,4 @@
-import { CalendarDays, Eye, FolderOpen } from "lucide-react";
+import { BookMarked, CalendarDays, Eye, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 import type { SemesterWorkspace } from "@/types/domain";
 import { cx } from "@/lib/cn";
@@ -8,14 +8,18 @@ export function AppTitleBar({
   semester,
   fileRailCollapsed,
   previewRailCollapsed,
+  sourcesRailCollapsed,
   onToggleFileRail,
   onTogglePreviewRail,
+  onToggleSourcesRail,
 }: {
   semester?: SemesterWorkspace | null;
   fileRailCollapsed: boolean;
   previewRailCollapsed: boolean;
+  sourcesRailCollapsed: boolean;
   onToggleFileRail: () => void;
   onTogglePreviewRail: () => void;
+  onToggleSourcesRail: () => void;
 }) {
   const today = new Date();
   const currentWeek = semester ? semesterWeekNumberForDate(semester, today) : undefined;
@@ -41,17 +45,25 @@ export function AppTitleBar({
       )}
       <div className="no-drag ml-auto flex shrink-0 items-center gap-1.5">
         <TitleBarIconButton
+          active={!sourcesRailCollapsed}
+          ariaLabel="切换来源面板"
+          title="来源"
+          onClick={onToggleSourcesRail}
+        >
+          <BookMarked className="h-3.5 w-3.5" />
+        </TitleBarIconButton>
+        <TitleBarIconButton
           active={!fileRailCollapsed}
-          ariaLabel="Toggle file browser"
-          title="File browser"
+          ariaLabel="切换文件面板"
+          title="文件"
           onClick={onToggleFileRail}
         >
           <FolderOpen className="h-3.5 w-3.5" />
         </TitleBarIconButton>
         <TitleBarIconButton
           active={!previewRailCollapsed}
-          ariaLabel="Toggle preview"
-          title="Preview"
+          ariaLabel="切换预览面板"
+          title="预览"
           onClick={onTogglePreviewRail}
         >
           <Eye className="h-3.5 w-3.5" />

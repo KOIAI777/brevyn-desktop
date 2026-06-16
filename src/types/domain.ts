@@ -489,6 +489,57 @@ export interface DeleteFileInput {
   forceCancelIndexing?: boolean;
 }
 
+export type ExternalSourceKind = "web" | "file";
+export type ExternalSourceScope = "task" | "course";
+export type ExternalSourceStatus = "processing" | "ready" | "failed";
+
+export interface ExternalSource {
+  id: string;
+  semesterId: string;
+  courseId: string;
+  taskId?: string;
+  scope: ExternalSourceScope;
+  kind: ExternalSourceKind;
+  title: string;
+  url?: string;
+  originalPath?: string;
+  markdownPath?: string;
+  workspaceFileId?: string;
+  status: ExternalSourceStatus;
+  summary?: string;
+  error?: string;
+  addedBy: "user" | "agent";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExternalSourceListInput {
+  courseId: string;
+  taskId?: string;
+}
+
+export interface ExternalSourceAddUrlInput {
+  courseId: string;
+  taskId?: string;
+  scope: ExternalSourceScope;
+  url: string;
+  title?: string;
+}
+
+export interface ExternalSourceAddFilesInput {
+  courseId: string;
+  taskId?: string;
+  scope: ExternalSourceScope;
+}
+
+export interface ExternalSourceAddResult {
+  sources: ExternalSource[];
+  tree: WorkspaceFileNode[];
+  indexingJob: IndexingJob | null;
+  indexingError?: string;
+  indexingNotice?: string;
+}
+
 export type ProviderPurpose = "agent" | "embedding" | "vision" | "ocr";
 export type AgentProtocol = "anthropic_messages" | "openai_responses";
 export type EmbeddingProtocol = "openai_compatible";
@@ -1440,6 +1491,12 @@ export interface BrevynAPI {
     delete: (input: string | DeleteFileInput) => Promise<{ courseId: string; tree: WorkspaceFileNode[] }>;
     reveal: (fileId: string) => Promise<void>;
     onChanged: (callback: () => void) => () => void;
+  };
+  externalSources: {
+    list: (input: ExternalSourceListInput) => Promise<ExternalSource[]>;
+    addUrl: (input: ExternalSourceAddUrlInput) => Promise<ExternalSourceAddResult>;
+    addFiles: (input: ExternalSourceAddFilesInput) => Promise<ExternalSourceAddResult>;
+    delete: (sourceId: string) => Promise<boolean>;
   };
   providers: {
     list: () => Promise<ModelProviderConfig[]>;

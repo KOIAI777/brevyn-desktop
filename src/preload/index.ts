@@ -29,6 +29,9 @@ import type {
   BrevynAgentEvent,
   FileImportInput,
   DeleteFileInput,
+  ExternalSourceAddFilesInput,
+  ExternalSourceAddUrlInput,
+  ExternalSourceListInput,
   ProviderDraftInput,
   RecognizedAcademicCalendar,
   RecognizedCourseTimetable,
@@ -115,6 +118,12 @@ const api: BrevynAPI = {
       ipcRenderer.on(IPC_CHANNELS.filesChanged, listener);
       return () => ipcRenderer.off(IPC_CHANNELS.filesChanged, listener);
     },
+  },
+  externalSources: {
+    list: (input: ExternalSourceListInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesList, input),
+    addUrl: (input: ExternalSourceAddUrlInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesAddUrl, input),
+    addFiles: (input: ExternalSourceAddFilesInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesAddFiles, input),
+    delete: (sourceId: string) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesDelete, sourceId),
   },
   providers: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.providersList),

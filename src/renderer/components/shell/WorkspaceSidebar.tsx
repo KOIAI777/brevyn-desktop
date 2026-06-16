@@ -270,33 +270,40 @@ export function WorkspaceSidebar({
                 <div className="space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
                   {courseTasks.map((task) => {
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
+                    const taskActive = task.id === activeTaskId;
                     const toggleTaskOpen = () => setOpenTasks((current) => ({ ...current, [task.id]: !(current[task.id] ?? task.id === activeTaskId) }));
                     const taskThreads = threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id);
                     return (
                       <div key={task.id} className="group/task">
                         <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
-                            title={taskOpen ? `Collapse ${task.title}` : `Expand ${task.title}`}
-                            onClick={toggleTaskOpen}
-                          >
-                            <ChevronRight className={cx("h-3 w-3 transition-transform", taskOpen && "rotate-90")} />
-                          </button>
-                          <button
+                          <div
                             className={cx(
-                              "flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-[11px] transition active:scale-[0.99]",
-                              task.id === activeTaskId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                              "flex min-w-0 flex-1 items-center gap-1 rounded-[var(--radius-control)] transition-colors",
+                              taskActive
+                                ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]"
+                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
-                            onClick={() => {
-                              onSelectTask(course.id, task.id);
-                              toggleTaskOpen();
-                            }}
                           >
-                            <TaskTypeIcon task={task} />
-                            <span className="min-w-0 flex-1 truncate">{task.title}</span>
-                            <SessionCount count={taskThreads.length} />
-                          </button>
+                            <button
+                              type="button"
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-current/70 transition hover:bg-background/55 hover:text-current active:scale-[0.98]"
+                              title={taskOpen ? `Collapse ${task.title}` : `Expand ${task.title}`}
+                              onClick={toggleTaskOpen}
+                            >
+                              <ChevronRight className={cx("h-3 w-3 transition-transform", taskOpen && "rotate-90")} />
+                            </button>
+                            <button
+                              className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1.5 text-left text-[11px] transition active:scale-[0.99]"
+                              onClick={() => {
+                                onSelectTask(course.id, task.id);
+                                toggleTaskOpen();
+                              }}
+                            >
+                              <TaskTypeIcon task={task} />
+                              <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                              <SessionCount count={taskThreads.length} />
+                            </button>
+                          </div>
                           <button
                             type="button"
                             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] text-muted-foreground transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
@@ -472,7 +479,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
           ref={inputRef}
           value={draft}
           maxLength={100}
-          className="mx-1 my-1 min-w-0 flex-1 rounded-[var(--radius-badge)] bg-background/90 px-1.5 py-1 text-[11px] text-foreground outline-none ring-1 ring-black/[0.05] focus:bg-background focus:ring-primary/30"
+          className="ml-2.5 mr-1 my-1 min-w-0 flex-1 rounded-[var(--radius-badge)] bg-background/90 px-1.5 py-1 text-[11px] text-foreground outline-none ring-1 ring-black/[0.05] focus:bg-background focus:ring-primary/30"
           onChange={(event) => setDraft(event.target.value)}
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
@@ -493,7 +500,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
       ) : (
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pl-3 pr-2 text-left"
           onClick={onClick}
         >
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>

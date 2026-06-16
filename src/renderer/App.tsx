@@ -19,6 +19,7 @@ const CourseManagementDialog = lazy(() => import("@/components/courses/CourseMan
 const FileBrowserRail = lazy(() => import("@/components/files/FileBrowserRail").then((module) => ({ default: module.FileBrowserRail })));
 const FilePreviewRail = lazy(() => import("@/components/files/FilePreviewRail").then((module) => ({ default: module.FilePreviewRail })));
 const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((module) => ({ default: module.SettingsDialog })));
+const SourcesRail = lazy(() => import("@/components/sources/SourcesRail").then((module) => ({ default: module.SourcesRail })));
 const STARTUP_SPLASH_MIN_MS = import.meta.env.DEV ? 650 : 2400;
 
 function applyAppTheme(theme: AppTheme): void {
@@ -221,8 +222,10 @@ function App() {
         semester={workspace.semester}
         fileRailCollapsed={layoutState.fileRailCollapsed}
         previewRailCollapsed={layoutState.previewRailCollapsed}
+        sourcesRailCollapsed={layoutState.sourcesRailCollapsed}
         onToggleFileRail={() => layoutState.setFileRailCollapsed((value) => !value)}
         onTogglePreviewRail={() => layoutState.setPreviewRailCollapsed((value) => !value)}
+        onToggleSourcesRail={() => layoutState.setSourcesRailCollapsed((value) => !value)}
       />
 
       <div className="flex min-h-0 flex-1 gap-2 p-2">
@@ -350,6 +353,22 @@ function App() {
               )}
             </div>
           </main>
+
+          <Suspense fallback={<RailWarmupFallback collapsed={layoutState.sourcesRailCollapsed} />}>
+            <SourcesRail
+              collapsed={layoutState.sourcesRailCollapsed}
+              semester={workspace.semester}
+              course={workspace.activeCourse}
+              activeTask={workspace.activeTask}
+              files={fileState.fileTree}
+              onPreviewFile={(file) => {
+                previewCoordinator.revealSelectedFile("file");
+                void fileState.selectFile(file);
+              }}
+              resizing={layoutState.resizingRail === "sources"}
+              onResizeStart={(event) => layoutState.startRailResize("sources", event)}
+            />
+          </Suspense>
 
           <Suspense fallback={<RailWarmupFallback collapsed={layoutState.previewRailCollapsed} />}>
             <FilePreviewRail

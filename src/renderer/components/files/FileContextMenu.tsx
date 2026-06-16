@@ -67,10 +67,11 @@ export function FileContextMenu({
   const items = useMemo(() => {
     if (!state) return [];
     const mutable = Boolean(state.file.sourcePath);
+    const canOpenOrReveal = Boolean(state.file.sourcePath || state.file.kind === "folder");
     const canRetryIndex = mutable && state.file.kind !== "folder" && shouldOfferIndexRetry(state.file);
     return [
-      { action: "open" as const, label: "打开", icon: ExternalLink, disabled: !state.file.sourcePath },
-      { action: "reveal" as const, label: "在访达中显示", icon: FolderOpen, disabled: !state.file.sourcePath },
+      { action: "open" as const, label: "打开", icon: ExternalLink, disabled: !canOpenOrReveal },
+      { action: "reveal" as const, label: "在访达中显示", icon: FolderOpen, disabled: !canOpenOrReveal },
       { action: "copyPath" as const, label: "复制路径", icon: Copy, disabled: false },
       { action: "copyName" as const, label: "复制名称", icon: Copy, disabled: false },
       ...(canRetryIndex ? [{ action: "retryIndex" as const, label: "重新索引此文件", icon: RefreshCw, disabled: false }] : []),

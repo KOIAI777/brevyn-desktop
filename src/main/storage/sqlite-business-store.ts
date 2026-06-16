@@ -5,6 +5,8 @@ import { dirname } from "node:path";
 import type {
   Course,
   CourseFileSectionKind,
+  ExternalSource,
+  ExternalSourceStatus,
   IndexingJob,
   SemesterWorkspace,
   TaskStatus,
@@ -416,6 +418,7 @@ export class SQLiteBusinessStore {
       this.run("delete from indexing_tasks where semester_id = ?", semesterId);
       this.run("delete from indexing_jobs where semester_id = ?", semesterId);
       this.run("delete from workspace_files where semester_id = ?", semesterId);
+      this.run("delete from external_sources where semester_id = ?", semesterId);
       this.run("delete from threads where semester_id = ?", semesterId);
       this.run("delete from tasks where semester_id = ?", semesterId);
       this.run("delete from timetable_events where semester_id = ?", semesterId);
@@ -575,6 +578,7 @@ export class SQLiteBusinessStore {
       );
       this.run("delete from indexing_jobs where section_id = ?", sectionId);
       this.run("delete from workspace_files where task_id = ?", taskId);
+      this.run("delete from external_sources where task_id = ?", taskId);
       this.run("delete from threads where task_id = ?", taskId);
       this.run("delete from timetable_events where task_id = ?", taskId);
       const result = this.run("delete from tasks where id = ?", taskId) as { changes?: number } | undefined;
@@ -672,6 +676,57 @@ export class SQLiteBusinessStore {
       this.db.exec("rollback;");
       throw error;
     }
+  }
+
+  listExternalSources(input: { semesterId?: string; courseId?: string; taskId?: string }): ExternalSource[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (input.semesterId) {
+      where.push("semester_id = ?");
+      params.push(input.semesterId);
+    }
+    if (input.courseId) {
+      where.push("course_id = ?");
+      params.push(input.courseId);
+    }
+    if (input.taskId) {
+      where.push("(task_id = ? or task_id is null)");
+      params.push(input.taskId);
+    }
+    const sql = `select * from external_sources${where.length ? ` where ${where.join(" and ")}` : ""} order by updated_at desc`;
+    return this.all(sql, ...params).map(rowToExternalSource);
+  }
+
+  getExternalSource(sourceId: string): ExternalSource | null {
+    const row = this.db.prepare("select * from external_sources where id = ?").get(sourceId) as Row | undefined;
+    return row ? rowToExternalSource(row) : null;
+  }
+
+  saveExternalSource(source: ExternalSource): ExternalSource {
+    this.insertExternalSource(source);
+    const saved = this.getExternalSource(source.id);
+    return saved || source;
+  }
+
+  updateExternalSourceStatus(sourceId: string, status: ExternalSourceStatus, error?: string): ExternalSource | null {
+    const timestamp = now();
+    this.run(
+      `update external_sources
+       set status = ?, error = ?, updated_at = ?
+       where id = ?`,
+      status,
+      error ?? null,
+      timestamp,
+      sourceId,
+    );
+    return this.getExternalSource(sourceId);
+  }
+
+  deleteExternalSource(sourceId: string): ExternalSource | null {
+    const source = this.getExternalSource(sourceId);
+    if (!source) return null;
+    this.run("delete from external_sources where id = ?", sourceId);
+    return source;
   }
 
   saveTimetableEvent(event: TimetableEvent): TimetableEvent {
@@ -1227,6 +1282,7 @@ export class SQLiteBusinessStore {
     this.run("delete from indexing_tasks where course_id = ?", courseId);
     this.run("delete from indexing_jobs where course_id = ?", courseId);
     this.run("delete from workspace_files where course_id = ?", courseId);
+    this.run("delete from external_sources where course_id = ?", courseId);
     this.run("delete from threads where course_id = ?", courseId);
     this.run("delete from tasks where course_id = ?", courseId);
     this.run("delete from timetable_events where course_id = ?", courseId);
@@ -1347,6 +1403,35 @@ export class SQLiteBusinessStore {
       json(raw),
       file.updatedAt,
       file.updatedAt,
+    );
+  }
+
+  private insertExternalSource(source: ExternalSource): void {
+    this.run(
+      `insert or replace into external_sources(
+         id, semester_id, course_id, task_id, scope, kind, title, url,
+         original_path, markdown_path, workspace_file_id, status, summary, error,
+         added_by, raw_json, created_at, updated_at
+       )
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      source.id,
+      source.semesterId,
+      source.courseId,
+      source.taskId ?? null,
+      source.scope,
+      source.kind,
+      source.title,
+      source.url ?? null,
+      source.originalPath ?? null,
+      source.markdownPath ?? null,
+      source.workspaceFileId ?? null,
+      source.status,
+      source.summary ?? null,
+      source.error ?? null,
+      source.addedBy,
+      json(source),
+      source.createdAt,
+      source.updatedAt,
     );
   }
 
@@ -1540,6 +1625,7 @@ export class SQLiteBusinessStore {
         drop table if exists indexing_jobs;
         drop table if exists timetable_events;
         drop table if exists workspace_files;
+        drop table if exists external_sources;
         drop table if exists threads;
         drop table if exists tasks;
         drop table if exists courses;
@@ -1649,6 +1735,27 @@ export class SQLiteBusinessStore {
         updated_at text not null
       );
 
+      create table if not exists external_sources (
+        id text primary key,
+        semester_id text not null references semesters(id) on delete cascade,
+        course_id text not null,
+        task_id text,
+        scope text not null,
+        kind text not null,
+        title text not null,
+        url text,
+        original_path text,
+        markdown_path text,
+        workspace_file_id text,
+        status text not null,
+        summary text,
+        error text,
+        added_by text not null,
+        raw_json text not null default '{}',
+        created_at text not null,
+        updated_at text not null
+      );
+
       create table if not exists timetable_events (
         id text primary key,
         semester_id text not null references semesters(id) on delete cascade,
@@ -1716,6 +1823,7 @@ export class SQLiteBusinessStore {
       create index if not exists idx_threads_scope on threads(semester_id, course_id, task_id);
       create index if not exists idx_threads_archived on threads(semester_id, course_id, archived_at, updated_at);
       create index if not exists idx_files_scope on workspace_files(semester_id, course_id, task_id, section_kind);
+      create index if not exists idx_external_sources_scope on external_sources(semester_id, course_id, task_id, updated_at);
       create index if not exists idx_timetable_range on timetable_events(semester_id, starts_at, ends_at);
       create index if not exists idx_indexing_jobs_scope on indexing_jobs(semester_id, course_id, status);
       create index if not exists idx_indexing_tasks_ready on indexing_tasks(status, next_run_at, locked_until);
@@ -1955,6 +2063,35 @@ function rowToWorkspaceFileNode(row: Row): WorkspaceFileNode {
     updatedAt: stringValue(row.updated_at),
     children: stringValue(row.kind) === "folder" ? [] : undefined,
   };
+}
+
+function rowToExternalSource(row: Row): ExternalSource {
+  return {
+    ...rawJson<ExternalSource>(row.raw_json, {}),
+    id: stringValue(row.id),
+    semesterId: stringValue(row.semester_id),
+    courseId: stringValue(row.course_id),
+    taskId: nullableString(row.task_id),
+    scope: stringValue(row.scope) === "task" ? "task" : "course",
+    kind: stringValue(row.kind) === "web" ? "web" : "file",
+    title: stringValue(row.title),
+    url: nullableString(row.url),
+    originalPath: nullableString(row.original_path),
+    markdownPath: nullableString(row.markdown_path),
+    workspaceFileId: nullableString(row.workspace_file_id),
+    status: externalSourceStatus(row.status),
+    summary: nullableString(row.summary),
+    error: nullableString(row.error),
+    addedBy: stringValue(row.added_by) === "agent" ? "agent" : "user",
+    createdAt: stringValue(row.created_at),
+    updatedAt: stringValue(row.updated_at),
+  };
+}
+
+function externalSourceStatus(value: unknown): ExternalSourceStatus {
+  const status = stringValue(value);
+  if (status === "ready" || status === "failed") return status;
+  return "processing";
 }
 
 function workspaceFilesWithLatestIndexingSql(): string {

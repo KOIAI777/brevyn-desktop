@@ -19,6 +19,11 @@ import type {
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
   DeleteFileInput,
+  ExternalSource,
+  ExternalSourceAddFilesInput,
+  ExternalSourceAddResult,
+  ExternalSourceAddUrlInput,
+  ExternalSourceListInput,
   CloudAccountStatus,
   CloudActivateConversationProviderInput,
   CloudActivateOfficialProviderInput,
@@ -365,8 +370,28 @@ export class LocalStore {
     return this.files.importFiles(input);
   }
 
+  listExternalSources(input: ExternalSourceListInput): ExternalSource[] {
+    return this.files.listExternalSources(input);
+  }
+
+  addExternalSourceUrl(input: ExternalSourceAddUrlInput): Promise<ExternalSourceAddResult> {
+    return this.files.addExternalSourceUrl(input);
+  }
+
+  addExternalSourceFiles(input: ExternalSourceAddFilesInput & { sourcePaths: string[] }): Promise<ExternalSourceAddResult> {
+    return this.files.addExternalSourceFiles(input);
+  }
+
+  deleteExternalSource(sourceId: string): Promise<boolean> {
+    return this.files.deleteExternalSource(sourceId);
+  }
+
   fileSourcePath(fileId: string): string | undefined {
     return this.files.fileSourcePath(fileId);
+  }
+
+  fileOpenPath(fileId: string): string | undefined {
+    return this.files.fileOpenPath(fileId);
   }
 
   renameFile(fileId: string, name: string): Promise<{ courseId: string; tree: WorkspaceFileNode[] }> {
