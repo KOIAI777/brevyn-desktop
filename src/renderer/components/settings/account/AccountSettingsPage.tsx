@@ -1,5 +1,5 @@
 import { Cloud, Database, ExternalLink, Eye, KeyRound, LogOut, PlugZap, RefreshCw, ScanText, ShieldCheck, UserRound, Wallet } from "lucide-react";
-import { useMemo, useRef, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   BalanceEntitlementCard,
   CapabilityEntitlementCard,
@@ -69,7 +69,6 @@ export function AccountSettingsPage({
   onOpenShop,
   onLogout,
 }: AccountSettingsPageProps) {
-  const groupClassificationCacheRef = useRef<Record<number, "conversation" | "capability">>({});
   const authenticated = cloudStatus?.authenticated === true;
   const isBusy = Boolean(busyAction);
   const groups = cloudStatus?.groups ?? [];
@@ -78,15 +77,8 @@ export function AccountSettingsPage({
   const subscriptionGroups = entitlements?.subscriptionGroups ?? [];
   const providerRefs = cloudStatus?.providerRefs ?? [];
   const classifiedGroups = useMemo(() => {
-    const cache = groupClassificationCacheRef.current;
     const classifyGroup = (group: CloudGatewayEntitlementGroup | CloudGatewayGroup): "conversation" | "capability" => {
-      const groupId = group.externalGroupId;
-      const cached = cache[groupId];
-      if (cached) return cached;
-
-      const bucket = isCloudCapabilityGroup(group, providers, providerRefs) ? "capability" : "conversation";
-      cache[groupId] = bucket;
-      return bucket;
+      return isCloudCapabilityGroup(group, providers, providerRefs) ? "capability" : "conversation";
     };
 
     return {
