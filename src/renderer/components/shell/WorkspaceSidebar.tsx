@@ -158,7 +158,7 @@ export function WorkspaceSidebar({
       <div className="drag-region flex items-center gap-2 bg-card/70 px-3 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.45)]">
         <button
           type="button"
-          className="no-drag group/profile flex min-w-0 flex-1 items-center gap-2.5 rounded-[var(--radius-card)] bg-background/70 px-2.5 py-2 text-left shadow-sm ring-1 ring-black/[0.04] transition-colors duration-150 hover:bg-accent/45 active:scale-[0.99]"
+        className="no-drag group/profile flex min-w-0 flex-1 items-center gap-2.5 rounded-[var(--radius-card)] bg-background/58 px-2.5 py-2 text-left shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.045)] transition-colors duration-150 hover:bg-accent/35 active:scale-[0.99]"
           onClick={onOpenSettings}
           title="打开账号设置"
         >
@@ -171,7 +171,7 @@ export function WorkspaceSidebar({
             <div className="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/80">Workspace</div>
           </div>
         </button>
-        <button className="no-drag shrink-0 rounded-[var(--radius-control)] bg-background/70 p-1.5 text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98]" onClick={onToggle} title="Collapse sidebar">
+        <button className="no-drag shrink-0 rounded-[var(--radius-control)] bg-background/48 p-1.5 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.045)] transition-colors hover:bg-accent/60 hover:text-foreground active:scale-[0.98]" onClick={onToggle} title="Collapse sidebar">
           <PanelLeftClose className="h-4 w-4" />
         </button>
       </div>
@@ -183,7 +183,7 @@ export function WorkspaceSidebar({
               <button
                 className={cx(
                   "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-xs transition-colors active:scale-[0.99]",
-                  homeCourse.id === activeCourseId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
+                  homeCourse.id === activeCourseId ? "bg-foreground/[0.07] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)]" : "text-foreground hover:bg-accent/65",
                 )}
                 title={homeOpen ? `收起${homeCourseLabel}` : `展开${homeCourseLabel}`}
                 onClick={() => {
@@ -201,7 +201,7 @@ export function WorkspaceSidebar({
               </button>
               <button
                 type="button"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.04] transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-card/70 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.04)] transition hover:bg-accent hover:text-foreground active:scale-[0.98]"
                 title="新建学期会话"
                 onClick={() => onCreateThread(homeCourse.id)}
               >
@@ -246,7 +246,7 @@ export function WorkspaceSidebar({
                 <button
                   className={cx(
                     "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-xs transition-colors active:scale-[0.99]",
-                    course.id === activeCourseId && !activeTaskId ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-foreground hover:bg-accent/70",
+                    course.id === activeCourseId && !activeTaskId ? "bg-foreground/[0.07] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)]" : "text-foreground hover:bg-accent/65",
                   )}
                   title={courseOpen ? `Collapse ${course.name}` : `Expand ${course.name}`}
                   onClick={() => {
@@ -280,7 +280,7 @@ export function WorkspaceSidebar({
                             className={cx(
                               "flex min-w-0 flex-1 items-center gap-1 rounded-[var(--radius-control)] transition-colors",
                               taskActive
-                                ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]"
+                                ? "bg-foreground/[0.07] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)]"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                           >
@@ -411,7 +411,7 @@ function SidebarFooterButton({ icon, label, onClick }: { icon: ReactNode; label:
       aria-label={label}
       onClick={onClick}
     >
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-background/70 text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-background/55 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.04)]">
         {icon}
       </span>
       <span className="truncate">{label}</span>
@@ -470,7 +470,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
 
   return (
     <div
-      className={cx("group flex w-full min-w-0 items-center rounded-[var(--radius-control)] text-[11px] transition", active ? "bg-[hsl(var(--foreground)/0.065)] text-foreground shadow-sm ring-1 ring-black/[0.06]" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+      className={cx("group flex w-full min-w-0 items-center rounded-[var(--radius-control)] text-[11px] transition", active ? "bg-foreground/[0.07] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)]" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
       title={thread.title}
       onContextMenu={onContextMenu}
     >
@@ -599,7 +599,7 @@ function ThreadContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[80] w-44 overflow-hidden rounded-[var(--radius-panel)] bg-card/95 p-1.5 text-xs shadow-xl ring-1 ring-black/[0.06] backdrop-blur-xl"
+      className="brevyn-popover-surface fixed z-[80] w-44 overflow-hidden rounded-[var(--radius-panel)] p-1.5 text-xs"
       style={{ left: position.left, top: position.top }}
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}

@@ -117,14 +117,14 @@ export function SourceCandidateToast({
 
   return (
     <div className="pointer-events-none absolute right-4 top-4 z-30 w-[min(380px,calc(100%-2rem))]">
-      <section className="pointer-events-auto overflow-hidden rounded-[24px] bg-card/90 shadow-[0_22px_70px_rgba(15,23,42,0.17)] ring-1 ring-foreground/[0.09] backdrop-blur-2xl">
+      <section className="brevyn-floating-surface pointer-events-auto overflow-hidden rounded-3xl">
         <button
           type="button"
-          className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left transition hover:bg-accent/28"
+          className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left transition hover:bg-foreground/[0.035] active:bg-foreground/[0.055]"
           onClick={() => setCollapsed((value) => !value)}
         >
           <div className="flex min-w-0 items-center gap-3">
-            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))]">
+            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/[0.12] text-primary shadow-xs">
               <Sparkles className="h-4 w-4" />
               {loading && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-[hsl(var(--status-info))]" />}
             </span>
@@ -154,7 +154,7 @@ export function SourceCandidateToast({
               />
             ))}
             {hiddenCount > 0 && (
-              <div className="rounded-2xl bg-background/42 px-3 py-2 text-[10px] text-muted-foreground">
+              <div className="rounded-2xl bg-foreground/[0.035] px-3 py-2 text-[10px] text-muted-foreground">
                 还有 {hiddenCount} 条来源线索，处理完上面的会继续显示。
               </div>
             )}
@@ -184,10 +184,13 @@ function CandidateRow({
   const canOpenUrl = isHttpUrl(candidate.url);
   const failed = candidate.status === "failed";
   return (
-    <article className="border-t border-border/35 first:border-t-0">
+    <article className="border-t border-foreground/[0.055] first:border-t-0">
       <button
         type="button"
-        className="flex w-full items-start gap-3 rounded-[18px] px-2 py-2.5 text-left transition hover:bg-background/42"
+        className={cx(
+          "flex w-full items-start gap-3 rounded-2xl px-2 py-2.5 text-left transition",
+          expanded ? "bg-foreground/[0.035]" : "hover:bg-foreground/[0.03]",
+        )}
         onClick={onToggle}
       >
         <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--status-info)/0.10)] text-[hsl(var(--status-info))]">
@@ -209,7 +212,7 @@ function CandidateRow({
             {candidate.reason}
           </p>
           {candidate.snippet && (
-            <p className="mt-1.5 line-clamp-3 rounded-xl bg-background/42 px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+            <p className="mt-1.5 line-clamp-3 rounded-xl bg-foreground/[0.035] px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
               {candidate.snippet}
             </p>
           )}
@@ -222,7 +225,7 @@ function CandidateRow({
             {canOpenUrl ? (
               <button
                 type="button"
-                className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[10px] font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                className="brevyn-soft-button inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[10px] font-medium text-muted-foreground transition hover:text-foreground"
                 onClick={(event) => {
                   event.stopPropagation();
                   void window.brevyn.app.openExternal(candidate.url);
@@ -237,7 +240,7 @@ function CandidateRow({
             <div className="flex items-center justify-end gap-1.5">
               <button
                 type="button"
-                className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[10px] font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+                className="brevyn-soft-button inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[10px] font-medium text-muted-foreground transition hover:text-foreground disabled:cursor-wait disabled:opacity-50"
                 disabled={busy}
                 onClick={onReject}
               >
@@ -246,7 +249,7 @@ function CandidateRow({
               </button>
               <button
                 type="button"
-                className="inline-flex h-7 items-center gap-1 rounded-full bg-foreground px-3 text-[10px] font-semibold text-background transition hover:opacity-90 disabled:cursor-wait disabled:opacity-50"
+                className="brevyn-primary-button inline-flex h-7 items-center gap-1 rounded-full px-3 text-[10px] font-semibold transition disabled:cursor-wait disabled:opacity-50"
                 disabled={busy}
                 onClick={onAccept}
               >

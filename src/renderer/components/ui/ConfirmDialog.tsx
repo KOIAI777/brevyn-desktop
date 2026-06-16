@@ -99,7 +99,7 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/20 p-6 backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] p-6 backdrop-blur-sm"
       onMouseDown={() => onResolve(false)}
       role="presentation"
     >
@@ -110,7 +110,7 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
         aria-labelledby={titleId}
         aria-describedby={request.message ? messageId : undefined}
         className={cx(
-          "w-full max-w-[28rem] overflow-hidden rounded-2xl border border-border/70 bg-card text-foreground shadow-2xl ring-1 ring-border/50 transition duration-150 ease-out",
+          "brevyn-floating-surface w-full max-w-[28rem] overflow-hidden rounded-3xl text-foreground transition duration-150 ease-out",
           mounted ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-[0.98] opacity-0",
         )}
         onMouseDown={(event) => event.stopPropagation()}
@@ -143,7 +143,7 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
           </div>
           <button
             type="button"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-background/70 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+            className="brevyn-soft-button flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:text-foreground"
             onClick={() => onResolve(false)}
             title="关闭"
           >
@@ -162,7 +162,7 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
             <button
               type="button"
               ref={cancelButtonRef}
-              className="inline-flex h-8 items-center rounded-lg border bg-background px-3 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              className="brevyn-soft-button inline-flex h-8 items-center rounded-xl px-3 text-xs font-medium text-muted-foreground transition hover:text-foreground"
               onClick={() => onResolve(false)}
             >
               {request.cancelLabel || "取消"}
@@ -171,8 +171,8 @@ function ConfirmDialog({ request, onResolve }: { request: ConfirmRequest; onReso
               type="button"
               ref={confirmButtonRef}
               className={cx(
-                "inline-flex h-8 items-center rounded-lg px-3 text-xs font-medium text-background shadow-sm transition",
-                isDanger ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-500/30" : "bg-foreground hover:opacity-90",
+                "inline-flex h-8 items-center rounded-xl px-3 text-xs font-medium transition",
+                isDanger ? "bg-red-600 text-white shadow-sm hover:bg-red-700 focus-visible:ring-red-500/30" : "brevyn-primary-button",
               )}
               onClick={() => onResolve(true)}
             >

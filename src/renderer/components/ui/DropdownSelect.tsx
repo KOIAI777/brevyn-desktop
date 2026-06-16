@@ -182,8 +182,8 @@ export function DropdownSelect({
         aria-label={ariaLabel}
         disabled={disabled}
         className={cx(
-          "flex h-8 w-full items-center justify-between gap-2 rounded-md border bg-card px-2 text-left text-xs text-foreground outline-none transition",
-          "focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-45",
+          "flex h-8 w-full items-center justify-between gap-2 rounded-lg bg-card/[0.88] px-2 text-left text-xs text-foreground shadow-sm outline-none transition",
+          "hover:bg-card disabled:cursor-not-allowed disabled:opacity-45",
           buttonClassName,
         )}
         onClick={toggleOpen}
@@ -218,7 +218,7 @@ export function DropdownSelect({
           >
             <div className="overflow-y-auto p-1 brevyn-scrollbar-thin" style={{ maxHeight: menuMaxVisibleItems * menuItemHeight + 8 }}>
               {options.length === 0 ? (
-                <div className="rounded-md px-3 py-2 text-[11px] text-muted-foreground">No options</div>
+                <div className="rounded-lg px-3 py-2 text-[11px] text-muted-foreground">No options</div>
               ) : (
                 options.map((option, index) => {
                   const selected = option.value === value;
@@ -231,11 +231,11 @@ export function DropdownSelect({
                       aria-selected={selected}
                       disabled={option.disabled}
                       className={cx(
-                        "flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition",
+                        "flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition",
                         selected
-                          ? "border-transparent bg-[hsl(var(--foreground)/0.07)] text-foreground"
-                          : "border-transparent text-muted-foreground hover:bg-[hsl(var(--foreground)/0.055)] hover:text-foreground",
-                        highlighted && "bg-[hsl(var(--foreground)/0.06)]",
+                          ? "bg-foreground/[0.075] text-foreground shadow-xs"
+                          : "text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                        highlighted && !selected && "bg-foreground/[0.055]",
                         option.disabled && "cursor-not-allowed opacity-45",
                       )}
                       style={{ minHeight: menuItemHeight }}
