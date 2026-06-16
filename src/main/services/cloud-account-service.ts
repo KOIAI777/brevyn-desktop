@@ -8,8 +8,6 @@ import type {
   CloudGatewayAccount,
   CloudGatewayEntitlements,
   CloudGatewayGroup,
-  CloudModelCatalogInput,
-  CloudModelCatalogResult,
   CloudOfficialCapability,
   CloudOfficialCapabilityDefinition,
   CloudOfficialModelConfig,
@@ -183,11 +181,7 @@ export class CloudAccountService {
     this.saveTokens(result.tokens);
     this.patchData({ user: result.user, lastError: "" });
     const cloud = await this.refresh({ forceEntitlements: true, reason: "login" });
-    return {
-      status: "locked",
-      detail: "登录成功。",
-      cloud,
-    };
+    return await this.bootstrapDefaultCloudProviders("登录成功。", cloud);
   }
 
   async register(input: CloudAuthInput): Promise<CloudOfficialProviderSyncResult> {
@@ -207,13 +201,10 @@ export class CloudAccountService {
       lastError: result.gatewayWarning || "",
     });
     const cloud = await this.refresh({ forceEntitlements: true, reason: "register" });
-    return {
-      status: result.gatewayStatus === "ready" ? "synced" : "locked",
-      detail: result.gatewayWarning || (result.gatewayStatus === "ready"
-        ? "账号已创建，默认模型分组已准备。兑换余额后即可使用。"
-        : "账号已创建。默认模型分组正在准备，兑换余额后即可使用。"),
-      cloud,
-    };
+    const detail = result.gatewayWarning || (result.gatewayStatus === "ready"
+      ? "账号已创建，默认模型分组已准备。兑换余额后即可使用。"
+      : "账号已创建。默认模型分组正在准备，兑换余额后即可使用。");
+    return await this.bootstrapDefaultCloudProviders(detail, cloud);
   }
 
   async refresh(input: InternalCloudRefreshInput = {}): Promise<CloudAccountStatus> {
@@ -264,6 +255,44 @@ export class CloudAccountService {
     return this.status();
   }
 
+  private async bootstrapDefaultCloudProviders(baseDetail: string, fallbackCloud: CloudAccountStatus): Promise<CloudOfficialProviderSyncResult> {
+    const providers: ModelProviderConfig[] = [];
+    const details: string[] = [];
+    let cloud = fallbackCloud;
+    let status = "locked" as CloudOfficialProviderSyncResult["status"];
+    try {
+      const conversation = await this.syncConversationProvider();
+      cloud = conversation.cloud;
+      providers.push(...(conversation.providers ?? (conversation.provider ? [conversation.provider] : [])));
+      if (conversation.status === "synced") status = "synced";
+      else if (conversation.status === "provisioning" && status !== "synced") status = "provisioning";
+      if (conversation.detail) details.push(conversation.detail);
+    } catch (error) {
+      details.push(`默认套餐模型同步失败：${errorMessage(error)}`);
+    }
+
+    try {
+      const official = await this.syncOfficialProvider();
+      cloud = official.cloud;
+      providers.push(...(official.providers ?? (official.provider ? [official.provider] : [])));
+      if (official.status === "synced") status = "synced";
+      else if (official.status === "provisioning" && status !== "synced") status = "provisioning";
+      if (official.detail) details.push(official.detail);
+    } catch (error) {
+      details.push(`官方能力同步失败：${errorMessage(error)}`);
+    }
+
+    const deduped = dedupeProvidersById(providers);
+    if (deduped.length > 0 && status !== "synced") status = "synced";
+    return {
+      status,
+      detail: [baseDetail, ...details].filter(Boolean).join("；"),
+      provider: deduped.find((provider) => provider.purpose === "agent") ?? deduped[0],
+      providers: deduped.length > 0 ? deduped : undefined,
+      cloud,
+    };
+  }
+
   async refreshEntitlements(input: CloudRefreshInput = {}): Promise<CloudAccountStatus> {
     this.requireRefreshToken();
     try {
@@ -286,19 +315,6 @@ export class CloudAccountService {
       });
     }
     return this.status();
-  }
-
-  async modelsCatalog(input: CloudModelCatalogInput = {}): Promise<CloudModelCatalogResult> {
-    this.requireRefreshToken();
-    const externalGroupId = positiveInteger(input.externalGroupId);
-    const query = externalGroupId > 0 ? `?externalGroupId=${encodeURIComponent(String(externalGroupId))}` : "";
-    const result = await this.request<CloudModelCatalogResult>(`/api/v1/models/catalog${query}`);
-    const items = Array.isArray(result.items) ? result.items : [];
-    return {
-      items,
-      total: Number.isFinite(Number(result.total)) ? Number(result.total) : items.length,
-      externalGroupId: positiveInteger(result.externalGroupId) || externalGroupId,
-    };
   }
 
   async syncConversationProvider(input: CloudSyncConversationProviderInput = {}): Promise<CloudOfficialProviderSyncResult> {

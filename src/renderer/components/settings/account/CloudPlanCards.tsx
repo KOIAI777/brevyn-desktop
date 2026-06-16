@@ -18,7 +18,6 @@ import {
   clampPercent,
   cloudEntitlementStatusLabel,
   cloudEntitlementUsable,
-  cloudModelDisplayName,
   formatCloudDate,
   formatCloudPoints,
   formatCompactPoints,
@@ -26,12 +25,10 @@ import {
   formatPercent,
   groupCapabilityKinds,
   isBalanceEntitlementGroup,
-  isEmbeddingCloudModel,
   isSubscriptionEntitlementGroup,
   planCardClass,
   planTypeLabel,
   quotaRemainingPercent,
-  type CloudGroupModelCatalogState,
 } from "./cloudPlanUtils";
 
 export function PlanSection({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
@@ -61,14 +58,12 @@ export function BalanceEntitlementCard({
   currentGroupId,
   busyAction,
   isBusy,
-  modelCatalog,
   onActivateGroup,
 }: {
   group: CloudBalanceGroupEntitlement;
   currentGroupId: number;
   busyAction: string;
   isBusy: boolean;
-  modelCatalog?: CloudGroupModelCatalogState;
   onActivateGroup: (externalGroupId: number) => void;
 }) {
   const activating = busyAction === `activate:${group.externalGroupId}`;
@@ -102,7 +97,7 @@ export function BalanceEntitlementCard({
           onClick={() => onActivateGroup(group.externalGroupId)}
         />
       </div>
-      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+      <PlanModelSummary modelCount={group.modelCount || 0} />
     </div>
   );
 }
@@ -112,14 +107,12 @@ export function SubscriptionEntitlementCard({
   currentGroupId,
   busyAction,
   isBusy,
-  modelCatalog,
   onActivateGroup,
 }: {
   group: CloudSubscriptionGroupEntitlement;
   currentGroupId: number;
   busyAction: string;
   isBusy: boolean;
-  modelCatalog?: CloudGroupModelCatalogState;
   onActivateGroup: (externalGroupId: number) => void;
 }) {
   const activating = busyAction === `activate:${group.externalGroupId}`;
@@ -157,7 +150,7 @@ export function SubscriptionEntitlementCard({
           onClick={() => onActivateGroup(group.externalGroupId)}
         />
       </div>
-      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+      <PlanModelSummary modelCount={group.modelCount || 0} />
     </div>
   );
 }
@@ -167,14 +160,12 @@ export function FallbackGroupCard({
   currentGroupId,
   busyAction,
   isBusy,
-  modelCatalog,
   onActivateGroup,
 }: {
   group: CloudGatewayGroup;
   currentGroupId: number;
   busyAction: string;
   isBusy: boolean;
-  modelCatalog?: CloudGroupModelCatalogState;
   onActivateGroup: (externalGroupId: number) => void;
 }) {
   const activating = busyAction === `activate:${group.externalGroupId}`;
@@ -194,7 +185,7 @@ export function FallbackGroupCard({
           onClick={() => onActivateGroup(group.externalGroupId)}
         />
       </div>
-      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+      <PlanModelSummary modelCount={group.modelCount || 0} />
     </div>
   );
 }
@@ -203,7 +194,6 @@ export function CapabilityEntitlementCard({
   group,
   busyAction,
   isBusy,
-  modelCatalog,
   providers,
   providerRefs,
   onActivateGroup,
@@ -211,17 +201,15 @@ export function CapabilityEntitlementCard({
   group: CloudGatewayEntitlementGroup | CloudGatewayGroup;
   busyAction: string;
   isBusy: boolean;
-  modelCatalog?: CloudGroupModelCatalogState;
   providers: ModelProviderConfig[];
   providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>;
   onActivateGroup: (externalGroupId: number) => void;
 }) {
   const activating = busyAction === `activate:${group.externalGroupId}`;
-  const kinds = groupCapabilityKinds(group, modelCatalog, providers, providerRefs);
+  const kinds = groupCapabilityKinds(group, providers, providerRefs);
   const activeKinds = activeCapabilityKinds(group.externalGroupId, providers, kinds);
   const active = kinds.length > 0 && activeKinds.length === kinds.length;
   const partial = activeKinds.length > 0 && !active;
-  const loadingCapabilities = kinds.length === 0 && modelCatalog?.status === "loading";
   const usable = cloudEntitlementUsable(group.status || "");
   return (
     <div className={planCardClass(false, usable)}>
@@ -250,8 +238,7 @@ export function CapabilityEntitlementCard({
             ))}
             {partial && <span className="rounded-[var(--radius-pill)] bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/65">部分启用</span>}
             {active && <span className="rounded-[var(--radius-pill)] bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200/65">已启用</span>}
-            {loadingCapabilities && <span className="rounded-[var(--radius-pill)] bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">正在识别能力</span>}
-            {!loadingCapabilities && kinds.length === 0 && <span className="rounded-[var(--radius-pill)] bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">能力待同步</span>}
+            {kinds.length === 0 && <span className="rounded-[var(--radius-pill)] bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">能力待同步</span>}
           </div>
           <div className="mt-3 space-y-2">
             {isBalanceEntitlementGroup(group) ? (
@@ -285,59 +272,25 @@ export function CapabilityEntitlementCard({
           onClick={() => onActivateGroup(group.externalGroupId)}
         />
       </div>
-      <PlanModelSummary catalog={modelCatalog} fallbackCount={group.modelCount || 0} />
+      <PlanModelSummary modelCount={group.modelCount || 0} />
     </div>
   );
 }
 
-function PlanModelSummary({ catalog, fallbackCount }: { catalog?: CloudGroupModelCatalogState; fallbackCount: number }) {
-  const models = catalog?.models ?? [];
-  const visibleModels = models.slice(0, 5);
-  const total = catalog?.total || models.length || fallbackCount;
-  const loading = catalog?.status === "loading";
-  const error = catalog?.status === "error";
-  const title = models.length > 0
-    ? models.map((model) => cloudModelDisplayName(model)).join(", ")
-    : error && catalog?.error
-      ? catalog.error
-      : `${total || 0} 个模型`;
-
+function PlanModelSummary({ modelCount }: { modelCount: number }) {
   return (
-    <div className="brevyn-control-surface mt-3 px-2.5 py-2" title={title}>
+    <div className="brevyn-control-surface mt-3 px-2.5 py-2" title={`${modelCount || 0} 个模型`}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex shrink-0 items-center gap-1.5 text-[10px]">
           <span className="font-medium text-foreground">可用模型</span>
           <span className="rounded-[var(--radius-pill)] bg-card px-1.5 py-0.5 text-muted-foreground shadow-sm">
-            {loading && models.length === 0 ? "加载中" : `${total || 0} 个`}
+            {`${modelCount || 0} 个`}
           </span>
         </div>
         <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-          {visibleModels.map((model) => {
-            const embedding = isEmbeddingCloudModel(model);
-            return (
-              <span
-                key={model.id}
-                className={cx(
-                  "max-w-[180px] truncate rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px] leading-5 shadow-sm",
-                  embedding
-                    ? "bg-muted text-foreground/80 ring-1 ring-black/[0.035]"
-                    : model.supportsVision ? "bg-muted text-foreground/80 ring-1 ring-black/[0.035]" : "bg-card text-muted-foreground ring-1 ring-black/[0.035]",
-                )}
-              >
-                {cloudModelDisplayName(model)}
-              </span>
-            );
-          })}
-          {models.length > visibleModels.length && (
-            <span className="rounded-[var(--radius-pill)] bg-card px-2 py-0.5 text-[10px] leading-5 text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">
-              +{models.length - visibleModels.length}
-            </span>
-          )}
-          {models.length === 0 && !loading && (
-            <span className={cx("rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px] leading-5 shadow-sm ring-1", error ? "bg-amber-50 text-amber-800 ring-amber-200/65" : "bg-card text-muted-foreground ring-black/[0.035]")}>
-              {fallbackCount > 0 ? `${fallbackCount} 个模型` : "暂无模型"}
-            </span>
-          )}
+          <span className="rounded-[var(--radius-pill)] bg-card px-2 py-0.5 text-[10px] leading-5 text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">
+            {modelCount > 0 ? `${modelCount} 个模型` : "暂无模型"}
+          </span>
         </div>
       </div>
     </div>

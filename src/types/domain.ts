@@ -1188,10 +1188,6 @@ export interface CloudRefreshInput {
   reason?: string;
 }
 
-export interface CloudModelCatalogInput {
-  externalGroupId?: number;
-}
-
 export interface CloudProviderModel {
   id: string;
   name: string;
@@ -1223,12 +1219,6 @@ export interface CloudProviderConfig {
   models: CloudProviderModel[];
   externalGroupId?: number;
   groupName?: string;
-}
-
-export interface CloudModelCatalogResult {
-  items: CloudProviderModel[];
-  total: number;
-  externalGroupId: number;
 }
 
 export interface CloudAPIKey {
@@ -1492,7 +1482,6 @@ export interface BrevynAPI {
     register: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
     refresh: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
     refreshEntitlements: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
-    modelsCatalog: (input?: CloudModelCatalogInput) => Promise<CloudModelCatalogResult>;
     syncConversationProvider: (input?: CloudSyncConversationProviderInput) => Promise<CloudOfficialProviderSyncResult>;
     activateConversationProvider: (input: CloudActivateConversationProviderInput) => Promise<CloudOfficialProviderSyncResult>;
     syncOfficialProvider: (input?: CloudSyncOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;

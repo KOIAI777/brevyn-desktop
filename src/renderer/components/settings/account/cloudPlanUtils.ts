@@ -3,7 +3,6 @@ import type {
   CloudBalanceGroupEntitlement,
   CloudGatewayEntitlementGroup,
   CloudGatewayGroup,
-  CloudProviderModel,
   CloudQuotaWindow,
   CloudSubscriptionGroupEntitlement,
   ModelProviderConfig,
@@ -12,13 +11,6 @@ import { cx } from "@/lib/cn";
 
 const OFFICIAL_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-official-";
 const CLOUD_CONVERSATION_PROVIDER_ID_PREFIX = "provider-brevyn-cloud-conversation-";
-
-export interface CloudGroupModelCatalogState {
-  status: "loading" | "ready" | "error";
-  models: CloudProviderModel[];
-  total: number;
-  error?: string;
-}
 
 export type CapabilityKind = "embedding" | "vision" | "ocr";
 
@@ -38,25 +30,22 @@ export function capabilityGroupBillingLabel(group: CloudGatewayEntitlementGroup 
 
 export function isCloudCapabilityGroup(
   group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
-  catalog: CloudGroupModelCatalogState | undefined,
   providers: ModelProviderConfig[],
   providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
 ): boolean {
-  return isCapabilityGroup(group, catalog, providers, providerRefs);
+  return isCapabilityGroup(group, providers, providerRefs);
 }
 
 export function isCapabilityGroup(
   group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
-  catalog: CloudGroupModelCatalogState | undefined,
   providers: ModelProviderConfig[],
   providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
 ): boolean {
-  return groupCapabilityKinds(group, catalog, providers, providerRefs).length > 0;
+  return groupCapabilityKinds(group, providers, providerRefs).length > 0;
 }
 
 export function groupCapabilityKinds(
   group: CloudGatewayEntitlementGroup | CloudGatewayGroup,
-  catalog: CloudGroupModelCatalogState | undefined,
   providers: ModelProviderConfig[],
   providerRefs: NonNullable<CloudAccountStatus["providerRefs"]>,
 ): CapabilityKind[] {
@@ -103,22 +92,6 @@ function capabilityKindSort(a: CapabilityKind, b: CapabilityKind): number {
 
 function isOfficialProvider(provider: ModelProviderConfig): boolean {
   return provider.id.startsWith(OFFICIAL_PROVIDER_ID_PREFIX) || provider.id.startsWith(CLOUD_CONVERSATION_PROVIDER_ID_PREFIX);
-}
-
-export function isEmbeddingCloudModel(model: CloudProviderModel): boolean {
-  const id = `${model.id} ${model.name} ${model.displayName}`.toLowerCase();
-  return hasCloudModelCapability(model, "embedding") ||
-    id.includes("embedding") ||
-    id.includes("embed") ||
-    id.includes("bge") ||
-    id.includes("gte") ||
-    id.includes("e5") ||
-    id.includes("jina") ||
-    id.includes("voyage");
-}
-
-function hasCloudModelCapability(model: CloudProviderModel, capability: string): boolean {
-  return (model.capabilities ?? []).some((item) => item.toLowerCase() === capability.toLowerCase());
 }
 
 export function planTypeLabel(group: CloudGatewayGroup): string {
@@ -227,8 +200,4 @@ export function formatCloudDate(value?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(timestamp));
-}
-
-export function cloudModelDisplayName(model: CloudProviderModel): string {
-  return model.displayName || model.name || model.id;
 }

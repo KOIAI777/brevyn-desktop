@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { CloudAuthInput, CloudModelCatalogInput, CloudRefreshInput, CloudSyncConversationProviderInput, CloudSyncOfficialProviderInput } from "../../types/domain";
+import type { CloudAuthInput, CloudRefreshInput, CloudSyncConversationProviderInput, CloudSyncOfficialProviderInput } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 import { optionalString, requireObject, requireString } from "./validation";
@@ -10,7 +10,6 @@ export function registerCloudIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.cloudRegister, (_event, input: unknown) => store.cloudRegister(normalizeCloudAuthInput(input, true)));
   ipcMain.handle(IPC_CHANNELS.cloudRefresh, (_event, input: unknown) => store.cloudRefresh(normalizeCloudRefreshInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudRefreshEntitlements, (_event, input: unknown) => store.cloudRefreshEntitlements(normalizeCloudRefreshInput(input)));
-  ipcMain.handle(IPC_CHANNELS.cloudModelsCatalog, (_event, input: unknown) => store.cloudModelsCatalog(normalizeCloudModelCatalogInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudSyncConversationProvider, (_event, input: unknown) => store.cloudSyncConversationProvider(normalizeCloudConversationSyncInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudActivateConversationProvider, (_event, input: unknown) => store.cloudActivateConversationProvider(normalizeCloudActivateInput(input)));
   ipcMain.handle(IPC_CHANNELS.cloudSyncOfficialProvider, (_event, input: unknown) => store.cloudSyncOfficialProvider(normalizeCloudSyncInput(input)));
@@ -27,15 +26,6 @@ function normalizeCloudAuthInput(value: unknown, includeDisplayName: boolean): C
     password: requireString(input.password, "Password"),
     displayName: includeDisplayName ? optionalString(input.displayName) : undefined,
   };
-}
-
-function normalizeCloudModelCatalogInput(value: unknown): CloudModelCatalogInput | undefined {
-  if (value === undefined || value === null) return undefined;
-  const input = requireObject(value, "Cloud model catalog input");
-  const externalGroupId = Number(input.externalGroupId);
-  return Number.isFinite(externalGroupId) && externalGroupId > 0
-    ? { externalGroupId: Math.floor(externalGroupId) }
-    : undefined;
 }
 
 function normalizeCloudConversationSyncInput(value: unknown): CloudSyncConversationProviderInput | undefined {

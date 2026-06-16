@@ -13,7 +13,6 @@ import {
   cloudEntitlementStatusLabel,
   formatCloudPoints,
   isCloudCapabilityGroup,
-  type CloudGroupModelCatalogState,
 } from "@/components/settings/account/cloudPlanUtils";
 import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
 import { ActionButton, CloudAuthStep, Field, MiniMetric } from "@/components/settings/shared/SettingsControls";
@@ -37,7 +36,6 @@ interface AccountSettingsPageProps {
   statusLine: string;
   redeemCode: string;
   redeemResult: CloudRedeemCodeResult | null;
-  groupModels: Record<number, CloudGroupModelCatalogState>;
   providers: ModelProviderConfig[];
   onModeChange: (mode: CloudAuthMode) => void;
   onFormChange: (form: CloudAccountForm) => void;
@@ -59,7 +57,6 @@ export function AccountSettingsPage({
   statusLine,
   redeemCode,
   redeemResult,
-  groupModels,
   providers,
   onModeChange,
   onFormChange,
@@ -82,23 +79,12 @@ export function AccountSettingsPage({
   const providerRefs = cloudStatus?.providerRefs ?? [];
   const classifiedGroups = useMemo(() => {
     const cache = groupClassificationCacheRef.current;
-    const classifyGroup = (group: CloudGatewayEntitlementGroup | CloudGatewayGroup): "conversation" | "capability" | "pending" => {
+    const classifyGroup = (group: CloudGatewayEntitlementGroup | CloudGatewayGroup): "conversation" | "capability" => {
       const groupId = group.externalGroupId;
-      const catalog = groupModels[groupId];
       const cached = cache[groupId];
-      const stableHintIsCapability = isCloudCapabilityGroup(group, undefined, providers, providerRefs);
-      const catalogPending = !catalog || catalog.status === "loading";
+      if (cached) return cached;
 
-      if (catalogPending) {
-        if (cached) return cached;
-        if (stableHintIsCapability) {
-          cache[groupId] = "capability";
-          return "capability";
-        }
-        return Number(group.modelCount || 0) > 0 ? "pending" : "conversation";
-      }
-
-      const bucket = isCloudCapabilityGroup(group, catalog, providers, providerRefs) ? "capability" : "conversation";
+      const bucket = isCloudCapabilityGroup(group, providers, providerRefs) ? "capability" : "conversation";
       cache[groupId] = bucket;
       return bucket;
     };
@@ -110,13 +96,8 @@ export function AccountSettingsPage({
       conversationSubscriptionGroups: subscriptionGroups.filter((group) => classifyGroup(group) === "conversation"),
       fallbackCapabilityGroups: entitlements ? [] : groups.filter((group) => classifyGroup(group) === "capability"),
       fallbackConversationGroups: entitlements ? [] : groups.filter((group) => classifyGroup(group) === "conversation"),
-      pendingGroups: [
-        ...balanceGroups.filter((group) => classifyGroup(group) === "pending"),
-        ...subscriptionGroups.filter((group) => classifyGroup(group) === "pending"),
-        ...(entitlements ? [] : groups.filter((group) => classifyGroup(group) === "pending")),
-      ],
     };
-  }, [balanceGroups, entitlements, groupModels, groups, providerRefs, providers, subscriptionGroups]);
+  }, [balanceGroups, entitlements, groups, providerRefs, providers, subscriptionGroups]);
   const {
     capabilityBalanceGroups,
     capabilitySubscriptionGroups,
@@ -124,7 +105,6 @@ export function AccountSettingsPage({
     conversationSubscriptionGroups,
     fallbackCapabilityGroups,
     fallbackConversationGroups,
-    pendingGroups,
   } = classifiedGroups;
   const capabilityGroupCount = capabilityBalanceGroups.length + capabilitySubscriptionGroups.length + fallbackCapabilityGroups.length;
   const currentGroupId = cloudStatus?.currentGroup?.externalGroupId || cloudStatus?.gateway?.defaultGroupId || 0;
@@ -165,7 +145,7 @@ export function AccountSettingsPage({
               )}
             </div>
             <div className="mt-1 max-w-2xl text-[11px] leading-5 text-muted-foreground">
-              管理 Cloud 登录状态、余额套餐和官方能力分组。本地会按当前权限同步模型配置。
+                    管理 Cloud 登录状态、余额套餐和官方能力分组。本地会按当前权限同步模型配置。
             </div>
           </div>
           {authenticated && (
@@ -368,20 +348,10 @@ export function AccountSettingsPage({
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-foreground">权益分组</div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
-                    对话套餐控制聊天额度，官方能力用于 Embedding / OCR / Vision。{pendingGroups.length > 0 ? "正在同步分组能力，布局会保持稳定。" : ""}
+                    对话套餐控制聊天额度，官方能力用于 Embedding / OCR / Vision。
                   </div>
                 </div>
               </div>
-
-	              {pendingGroups.length > 0 && (
-	                <PlanSection title="同步中" detail={`${pendingGroups.length} 个分组正在识别能力`}>
-	                  <div className="grid gap-2 lg:grid-cols-2">
-	                    {pendingGroups.map((group) => (
-	                      <SyncingPlanCard key={group.externalGroupId} group={group} />
-	                    ))}
-	                  </div>
-	                </PlanSection>
-	              )}
 
 	              <PlanSection title="余额套餐" detail={`${conversationBalanceGroups.length} 个对话分组`}>
 	                <div className="grid gap-2 lg:grid-cols-2">
@@ -392,7 +362,6 @@ export function AccountSettingsPage({
 	                      currentGroupId={currentGroupId}
 	                      busyAction={busyAction}
 	                      isBusy={isBusy}
-	                      modelCatalog={groupModels[group.externalGroupId]}
 	                      onActivateGroup={onActivateGroup}
 	                    />
 	                  ))}
@@ -410,7 +379,6 @@ export function AccountSettingsPage({
 	                      currentGroupId={currentGroupId}
 	                      busyAction={busyAction}
 	                      isBusy={isBusy}
-	                      modelCatalog={groupModels[group.externalGroupId]}
 	                      onActivateGroup={onActivateGroup}
 	                    />
 	                  ))}
@@ -427,7 +395,6 @@ export function AccountSettingsPage({
 	                        group={group}
 	                        busyAction={busyAction}
 	                        isBusy={isBusy}
-	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        providers={providers}
 	                        providerRefs={cloudStatus?.providerRefs ?? []}
 	                        onActivateGroup={onActivateCapabilityGroup}
@@ -439,7 +406,6 @@ export function AccountSettingsPage({
 	                        group={group}
 	                        busyAction={busyAction}
 	                        isBusy={isBusy}
-	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        providers={providers}
 	                        providerRefs={cloudStatus?.providerRefs ?? []}
 	                        onActivateGroup={onActivateCapabilityGroup}
@@ -451,7 +417,6 @@ export function AccountSettingsPage({
 	                        group={group}
 	                        busyAction={busyAction}
 	                        isBusy={isBusy}
-	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        providers={providers}
 	                        providerRefs={cloudStatus?.providerRefs ?? []}
 	                        onActivateGroup={onActivateCapabilityGroup}
@@ -471,7 +436,6 @@ export function AccountSettingsPage({
 	                        currentGroupId={currentGroupId}
 	                        busyAction={busyAction}
 	                        isBusy={isBusy}
-	                        modelCatalog={groupModels[group.externalGroupId]}
 	                        onActivateGroup={onActivateGroup}
 	                      />
 	                    ))}
@@ -522,29 +486,6 @@ function CapabilityMiniState({ icon, label, active }: { icon: ReactNode; label: 
       <span className={cx("shrink-0 rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px] font-semibold", active ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground")}>
         {active ? "已准备" : "待同步"}
       </span>
-    </div>
-  );
-}
-
-function SyncingPlanCard({ group }: { group: CloudGatewayEntitlementGroup | CloudGatewayGroup }) {
-  return (
-    <div className="rounded-[var(--radius-card)] bg-card p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.48)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground">{group.name}</div>
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            正在识别分组能力 · {group.modelCount || 0} 个模型
-          </div>
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-pill)] bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-black/[0.035]">
-          <RefreshCw className="h-3 w-3 animate-spin" />
-          同步中
-        </span>
-      </div>
-      <div className="mt-3 grid gap-2">
-        <div className="h-2 rounded-[var(--radius-pill)] bg-muted" />
-        <div className="h-2 w-2/3 rounded-[var(--radius-pill)] bg-muted/70" />
-      </div>
     </div>
   );
 }

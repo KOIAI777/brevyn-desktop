@@ -82,7 +82,6 @@ export const IPC_CHANNELS = {
   cloudRegister: "brevyn:cloud:register",
   cloudRefresh: "brevyn:cloud:refresh",
   cloudRefreshEntitlements: "brevyn:cloud:refresh-entitlements",
-  cloudModelsCatalog: "brevyn:cloud:models-catalog",
   cloudSyncConversationProvider: "brevyn:cloud:sync-conversation-provider",
   cloudActivateConversationProvider: "brevyn:cloud:activate-conversation-provider",
   cloudSyncOfficialProvider: "brevyn:cloud:sync-official-provider",

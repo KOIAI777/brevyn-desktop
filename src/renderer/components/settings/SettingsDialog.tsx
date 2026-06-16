@@ -16,11 +16,7 @@ import { AboutUpdateSettingsPage } from "@/components/settings/about/AboutUpdate
 import { ArchiveSettingsPage } from "@/components/settings/archive/ArchiveSettingsPage";
 import { AccountSettingsPage, type CloudAccountForm, type CloudBusyAction } from "@/components/settings/account/AccountSettingsPage";
 import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
-import {
-  cloudModelDisplayName,
-  formatCloudPoints,
-  type CloudGroupModelCatalogState,
-} from "@/components/settings/account/cloudPlanUtils";
+import { formatCloudPoints } from "@/components/settings/account/cloudPlanUtils";
 import { GeneralSettingsPage } from "@/components/settings/general/GeneralSettingsPage";
 import { ProviderSettingsPage } from "@/components/settings/providers/ProviderSettingsPage";
 import { useProviderSettingsState } from "@/components/settings/providers/useProviderSettingsState";
@@ -31,13 +27,12 @@ import {
   type CloudAccountStatus,
   type CloudAuthMode,
   type CloudGatewayGroup,
-  type CloudProviderModel,
+  type CloudOfficialProviderSyncResult,
   type CloudRedeemCodeResult,
   type Course,
   type AppThemeState,
   type GitStatus,
   type ModelProviderConfig,
-  type ProviderModel,
   type SemesterWorkspace,
   type SkillItem,
   type UserProfileSettings,
@@ -97,7 +92,6 @@ export function SettingsDialog({
   const [cloudStatusLine, setCloudStatusLine] = useState("");
   const [cloudRedeemCode, setCloudRedeemCode] = useState("");
   const [cloudRedeemResult, setCloudRedeemResult] = useState<CloudRedeemCodeResult | null>(null);
-  const [cloudGroupModels, setCloudGroupModels] = useState<Record<number, CloudGroupModelCatalogState>>({});
   const [cloudForm, setCloudForm] = useState<CloudAccountForm>({
     baseUrl: BREVYN_CLOUD_DEVELOPMENT_BASE_URL,
     email: "",
@@ -110,7 +104,6 @@ export function SettingsDialog({
   const [skillStatusLine, setSkillStatusLine] = useState("");
   const [skillBusy, setSkillBusy] = useState(false);
   const { confirm: confirmCloudRedeem, confirmDialog: cloudRedeemConfirmDialog } = useConfirmDialog();
-  const cloudModelCatalogRequestsRef = useRef<Set<number>>(new Set());
   const cloudEntitlementsLastRefreshRef = useRef(0);
   const cloudEntitlementsRefreshInFlightRef = useRef(false);
   const cloudStatusDismissTimerRef = useRef<number | null>(null);
@@ -137,40 +130,9 @@ export function SettingsDialog({
   const cloudNavDetail = cloudStatus?.authenticated
     ? cloudStatus.user?.email || "已登录"
     : "登录后兑换套餐";
-  const cloudPlanGroupIds = useMemo(() => {
-    const ids = new Set<number>();
-    const addId = (value?: number | null) => {
-      const id = Number(value || 0);
-      if (Number.isFinite(id) && id > 0) ids.add(Math.floor(id));
-    };
-    for (const group of cloudStatus?.entitlements?.balanceGroups ?? []) addId(group.externalGroupId);
-    for (const group of cloudStatus?.entitlements?.subscriptionGroups ?? []) addId(group.externalGroupId);
-    for (const group of cloudStatus?.groups ?? []) addId(group.externalGroupId);
-    return [...ids].sort((a, b) => a - b);
-  }, [cloudStatus?.entitlements, cloudStatus?.groups]);
-  const cloudPlanGroupIdsKey = cloudPlanGroupIds.join(",");
-
   useEffect(() => {
     void loadCloudStatus();
   }, []);
-
-  useEffect(() => {
-    if (!cloudStatus?.authenticated) {
-      cloudModelCatalogRequestsRef.current.clear();
-      setCloudGroupModels({});
-      return;
-    }
-    if (activePage !== "account") return;
-    for (const externalGroupId of cloudPlanGroupIds) {
-      if (cloudModelCatalogRequestsRef.current.has(externalGroupId)) continue;
-      cloudModelCatalogRequestsRef.current.add(externalGroupId);
-      setCloudGroupModels((current) => ({
-        ...current,
-        [externalGroupId]: current[externalGroupId] ?? { status: "loading", models: [], total: 0 },
-      }));
-      void loadCloudGroupModels(externalGroupId);
-    }
-  }, [activePage, cloudStatus?.authenticated, cloudPlanGroupIdsKey]);
 
   useEffect(() => {
     if (!cloudStatus?.authenticated || activePage !== "account") return;
@@ -268,31 +230,6 @@ export function SettingsDialog({
     }
   }
 
-  async function loadCloudGroupModels(externalGroupId: number) {
-    try {
-      const result = await window.brevyn.cloud.modelsCatalog({ externalGroupId });
-      const models = (result.items ?? []).filter((model) => model.enabled !== false);
-      setCloudGroupModels((current) => ({
-        ...current,
-        [externalGroupId]: {
-          status: "ready",
-          models,
-          total: Number.isFinite(result.total) ? result.total : models.length,
-        },
-      }));
-    } catch (error) {
-      setCloudGroupModels((current) => ({
-        ...current,
-        [externalGroupId]: {
-          status: "error",
-          models: current[externalGroupId]?.models ?? [],
-          total: current[externalGroupId]?.total ?? 0,
-          error: errorMessage(error),
-        },
-      }));
-    }
-  }
-
   async function submitCloudAuth(mode: CloudAuthMode) {
     setCloudBusyAction(mode);
     setCloudStatusLine("");
@@ -313,7 +250,12 @@ export function SettingsDialog({
       setCloudForm((current) => ({ ...current, password: "" }));
       setCloudRedeemResult(null);
       setCloudStatusLine(cloudSyncResultLine(result.status, result.detail, result.provider?.name));
-      await loadProviders();
+      const syncedProviders = cloudSyncResultProviders(result);
+      if (syncedProviders.length > 0) {
+        await refreshActivatedOfficialProviders(syncedProviders);
+      } else {
+        await loadProviders();
+      }
     } catch (error) {
       setCloudStatusLine(cloudAuthErrorMessage(error, mode));
     } finally {
@@ -385,9 +327,6 @@ export function SettingsDialog({
       setCloudStatusLine(cloudActivateResultLine(result.provider?.name, result.detail));
       if (result.status === "synced") {
         const activatedProviders = result.providers?.length ? result.providers : result.provider ? [result.provider] : [];
-        for (const provider of activatedProviders) {
-          cacheCloudGroupModelsFromProvider(externalGroupId, provider);
-        }
         void refreshActivatedOfficialProviders(activatedProviders);
       }
     } catch (error) {
@@ -406,9 +345,6 @@ export function SettingsDialog({
       setCloudStatusLine(cloudActivateConversationResultLine(result.provider?.name, result.detail));
       if (result.status === "synced") {
         const activatedProviders = result.providers?.length ? result.providers : result.provider ? [result.provider] : [];
-        for (const provider of activatedProviders) {
-          cacheCloudGroupModelsFromProvider(externalGroupId, provider);
-        }
         void refreshActivatedOfficialProviders(activatedProviders);
       }
     } catch (error) {
@@ -433,60 +369,6 @@ export function SettingsDialog({
     }
   }
 
-  function cacheCloudGroupModelsFromProvider(externalGroupId: number, provider: ModelProviderConfig) {
-    const models = provider.models
-      .filter((model) => model.enabled !== false)
-      .map((model): CloudProviderModel => ({
-        id: model.id,
-        name: model.name || model.id,
-        displayName: model.name || model.id,
-        providerFamily: provider.purpose,
-        externalGroupId,
-        groupName: provider.name,
-        billingMode: "",
-        capabilities: officialProviderModelCapabilities(provider, model),
-        supportsVision: provider.purpose === "vision" || model.supportsVision === true,
-        supportsStreaming: true,
-        enabled: model.enabled !== false,
-      }));
-    setCloudGroupModels((current) => ({
-      ...current,
-      [externalGroupId]: {
-        status: "ready",
-        models: mergeCloudGroupModels(current[externalGroupId]?.models ?? [], models),
-        total: mergeCloudGroupModels(current[externalGroupId]?.models ?? [], models).length,
-      },
-    }));
-  }
-
-  function officialProviderModelCapabilities(provider: ModelProviderConfig, model: ProviderModel): string[] {
-    const capabilities = new Set<string>();
-    if (provider.purpose === "embedding") capabilities.add("embedding");
-    if (provider.purpose === "vision" || model.supportsVision) capabilities.add("vision_input");
-    if (provider.purpose === "ocr") capabilities.add("ocr");
-    return [...capabilities];
-  }
-
-  function mergeCloudGroupModels(existing: CloudProviderModel[], incoming: CloudProviderModel[]): CloudProviderModel[] {
-    const byId = new Map<string, CloudProviderModel>();
-    for (const model of [...existing, ...incoming]) {
-      const key = model.id.toLowerCase();
-      const previous = byId.get(key);
-      if (!previous) {
-        byId.set(key, { ...model, capabilities: [...(model.capabilities ?? [])] });
-        continue;
-      }
-      byId.set(key, {
-        ...previous,
-        ...model,
-        capabilities: [...new Set([...(previous.capabilities ?? []), ...(model.capabilities ?? [])])],
-        supportsVision: previous.supportsVision || model.supportsVision,
-        enabled: previous.enabled !== false || model.enabled !== false,
-      });
-    }
-    return [...byId.values()].sort((a, b) => cloudModelDisplayName(a).localeCompare(cloudModelDisplayName(b)));
-  }
-
   async function redeemCloudCode() {
     const code = cloudRedeemCode.trim();
     if (!code) {
@@ -502,11 +384,9 @@ export function SettingsDialog({
       setCloudRedeemResult(result);
       setCloudRedeemCode("");
       setCloudStatusLine(cloudRedeemResultLine(result));
-      if (result.providerSyncStatus === "synced") {
-        await loadProviders();
-        const agentProvider = (result.providers ?? []).find((provider) => provider.purpose === "agent") || (result.provider?.purpose === "agent" ? result.provider : undefined);
-        if (agentProvider) await onAgentProviderChanged?.(agentProviderSelectionValue(agentProvider.id, agentProvider.selectedModel));
-        showProviderToast(result.provider ? `已同步 ${result.provider.name}。` : "兑换分组已同步到本地 Provider。");
+      const syncedProviders = redeemResultProviders(result);
+      if (result.providerSyncStatus === "synced" || syncedProviders.length > 0) {
+        await refreshActivatedOfficialProviders(syncedProviders);
       }
       void confirmCloudRedeem({
         title: redeemConfirmationTitle(result),
@@ -711,7 +591,6 @@ export function SettingsDialog({
                 statusLine={cloudStatusLine}
                 redeemCode={cloudRedeemCode}
                 redeemResult={cloudRedeemResult}
-                groupModels={cloudGroupModels}
                 providers={providers}
                 onModeChange={setCloudMode}
                 onFormChange={setCloudForm}
@@ -915,6 +794,23 @@ function redeemConfirmationStatusLabel(result: CloudRedeemCodeResult): string {
 function agentProviderSelectionValue(providerId: string, modelId: string): string {
   if (!providerId || !modelId) return "";
   return `${encodeURIComponent(providerId)}::${encodeURIComponent(modelId)}`;
+}
+
+function redeemResultProviders(result: CloudRedeemCodeResult): ModelProviderConfig[] {
+  return dedupeModelProviders([...(result.providers ?? []), ...(result.provider ? [result.provider] : [])]);
+}
+
+function cloudSyncResultProviders(result: CloudOfficialProviderSyncResult): ModelProviderConfig[] {
+  return dedupeModelProviders([...(result.providers ?? []), ...(result.provider ? [result.provider] : [])]);
+}
+
+function dedupeModelProviders(providers: ModelProviderConfig[]): ModelProviderConfig[] {
+  const byId = new Map<string, ModelProviderConfig>();
+  for (const provider of providers) {
+    if (!provider?.id) continue;
+    byId.set(provider.id, provider);
+  }
+  return [...byId.values()];
 }
 
 function cloudAuthErrorMessage(error: unknown, mode: CloudAuthMode): string {

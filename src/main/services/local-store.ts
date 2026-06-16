@@ -23,8 +23,6 @@ import type {
   CloudActivateConversationProviderInput,
   CloudActivateOfficialProviderInput,
   CloudAuthInput,
-  CloudModelCatalogInput,
-  CloudModelCatalogResult,
   CloudOfficialProviderSyncResult,
   CloudRedeemCodeInput,
   CloudRedeemCodeResult,
@@ -612,10 +610,6 @@ export class LocalStore {
     } finally {
       this.cloudEntitlementsRefreshInFlight = false;
     }
-  }
-
-  cloudModelsCatalog(input?: CloudModelCatalogInput): Promise<CloudModelCatalogResult> {
-    return this.cloud.modelsCatalog(input);
   }
 
   cloudSyncConversationProvider(input?: CloudSyncConversationProviderInput): Promise<CloudOfficialProviderSyncResult> {
