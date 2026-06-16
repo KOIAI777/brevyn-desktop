@@ -80,11 +80,11 @@ export function WorkspaceOnboardingDashboard({
   }
 
   return (
-    <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
-      <div className="mx-auto flex w-full min-w-[58rem] max-w-5xl flex-col gap-4">
+    <div className="brevyn-dashboard-background brevyn-dashboard-scroll brevyn-scrollbar">
+      <div className="brevyn-dashboard-shell brevyn-empty-dashboard-shell">
         <section className="relative overflow-hidden rounded-[var(--radius-window)] bg-[linear-gradient(180deg,hsl(var(--card)/0.98),hsl(var(--surface-panel)/0.94))] shadow-[var(--shadow-panel)]">
           <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
-          <div className="pointer-events-none absolute -bottom-12 right-8 select-none text-[9rem] font-semibold leading-none tracking-[-0.08em] text-foreground/5">
+          <div className="brevyn-empty-dashboard-watermark pointer-events-none absolute -bottom-12 right-8 select-none font-semibold leading-none tracking-[-0.08em] text-foreground/5">
             01
           </div>
           <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-6 py-5">
@@ -97,14 +97,14 @@ export function WorkspaceOnboardingDashboard({
             </span>
           </header>
 
-          <div className="relative z-[1] grid min-h-[30rem] gap-8 px-7 py-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="brevyn-empty-dashboard-stage relative z-[1]">
             <div className="flex min-w-0 flex-col justify-center">
               <div className="inline-flex w-fit items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 <CalendarDays className="h-4 w-4" />
                 学期入口
               </div>
-              <h2 className="mt-6 max-w-2xl text-[3rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">{copy.title}</h2>
-              <p className="mt-5 max-w-xl text-[15px] leading-7 text-muted-foreground">{copy.description}</p>
+              <h2 className="brevyn-empty-dashboard-title mt-6 text-foreground">{copy.title}</h2>
+              <p className="brevyn-empty-dashboard-description mt-5 text-muted-foreground">{copy.description}</p>
 
               <div className="mt-9 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
                 <OnboardingMilestone index="01" title="学期" text="命名当前阶段" />
@@ -113,7 +113,7 @@ export function WorkspaceOnboardingDashboard({
               </div>
             </div>
 
-            <aside className="flex min-w-0 items-center">
+            <aside className="brevyn-empty-dashboard-side flex items-center">
               <div className="w-full rounded-[var(--radius-panel)] bg-background/78 p-4 shadow-[0_18px_40px_hsl(var(--foreground)/0.06),inset_0_0_0_1px_hsl(var(--border)/0.52)]">
                 <div className="text-[13px] font-semibold text-foreground">新建学期</div>
                 <div className="mt-2">

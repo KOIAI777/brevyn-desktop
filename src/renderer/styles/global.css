@@ -196,6 +196,65 @@
       linear-gradient(180deg, hsl(var(--surface-panel) / 0.9), hsl(var(--background) / 0.98));
   }
 
+  .brevyn-dashboard-scroll {
+    min-height: 0;
+    flex: 1 1 0%;
+    overflow-y: auto;
+    padding: clamp(1rem, 2.4vw, 1.75rem);
+    color: hsl(var(--foreground));
+    font-size: 0.875rem;
+  }
+
+  .brevyn-dashboard-shell {
+    margin-left: auto;
+    margin-right: auto;
+    display: flex;
+    width: min(100%, 86rem);
+    min-width: 0;
+    flex-direction: column;
+    gap: clamp(0.875rem, 1.4vw, 1.25rem);
+  }
+
+  .brevyn-empty-dashboard-shell {
+    width: min(100%, 88rem);
+  }
+
+  .brevyn-empty-dashboard-stage {
+    display: grid;
+    min-height: clamp(26rem, 62vh, 44rem);
+    gap: clamp(1.5rem, 3vw, 3rem);
+    padding: clamp(1.25rem, 3vw, 2.6rem);
+  }
+
+  .brevyn-empty-dashboard-title {
+    max-width: 12ch;
+    font-size: clamp(2.15rem, 5vw, 4.8rem);
+    font-weight: 600;
+    line-height: 0.95;
+    letter-spacing: -0.075em;
+  }
+
+  .brevyn-empty-dashboard-description {
+    max-width: 42rem;
+    font-size: clamp(0.875rem, 1.15vw, 1.06rem);
+    line-height: 1.85;
+  }
+
+  .brevyn-empty-dashboard-side {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .brevyn-empty-dashboard-watermark {
+    font-size: clamp(6rem, 16vw, 15rem);
+  }
+
+  @media (min-width: 960px) {
+    .brevyn-empty-dashboard-stage {
+      grid-template-columns: minmax(0, 1fr) minmax(18rem, min(27vw, 24rem));
+    }
+  }
+
   .brevyn-hero-surface {
     position: relative;
     overflow: hidden;

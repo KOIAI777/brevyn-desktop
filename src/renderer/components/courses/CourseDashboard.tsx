@@ -79,8 +79,8 @@ export function CourseDashboard({
   }
 
   return (
-    <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
-      <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col gap-4">
+    <div className="brevyn-dashboard-background brevyn-dashboard-scroll brevyn-scrollbar">
+      <div className="brevyn-dashboard-shell">
         <section className="brevyn-hero-surface">
           <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
             <div className="min-w-0 py-2">
@@ -99,7 +99,7 @@ export function CourseDashboard({
                   <div className="mt-1 truncate text-sm font-semibold tracking-[-0.02em] text-foreground">{course.name}</div>
                 </div>
               </div>
-              <h2 className="mt-6 max-w-2xl text-[2.65rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">在这门课程继续。</h2>
+              <h2 className="mt-6 max-w-2xl text-[clamp(2.15rem,4vw,3.4rem)] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">在这门课程继续。</h2>
               <p className="mt-4 max-w-xl text-[14px] leading-7 text-muted-foreground">
                 从作业、课件或会话开始，继续处理这门课里还没弄清的问题、正在准备的草稿和需要完成的任务。
               </p>
@@ -204,7 +204,7 @@ export function CourseDashboard({
           )}
         </section>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,min(26vw,23rem))]">
           <section className="brevyn-soft-section min-w-0 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -218,7 +218,7 @@ export function CourseDashboard({
             <ActivityHeatmap days={activityDays} />
           </section>
 
-          <section className="brevyn-soft-section min-w-[21rem] p-4">
+          <section className="brevyn-soft-section min-w-0 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="h-4 w-4" />
               课程概况
@@ -390,10 +390,10 @@ function EmptyCourseTaskStart({
   onOpenTasks: () => void;
 }) {
   return (
-    <div className="brevyn-dashboard-background min-h-0 flex-1 overflow-y-auto p-5 text-sm text-foreground brevyn-scrollbar">
-      <div className="mx-auto flex w-full min-w-[64rem] max-w-5xl flex-col">
+    <div className="brevyn-dashboard-background brevyn-dashboard-scroll brevyn-scrollbar">
+      <div className="brevyn-dashboard-shell brevyn-empty-dashboard-shell">
         <section className="brevyn-hero-surface">
-          <div className="pointer-events-none absolute -bottom-12 right-8 select-none text-[9rem] font-semibold leading-none tracking-[-0.08em] text-foreground/5">
+          <div className="brevyn-empty-dashboard-watermark pointer-events-none absolute -bottom-12 right-8 select-none font-semibold leading-none tracking-[-0.08em] text-foreground/5">
             03
           </div>
 
@@ -422,16 +422,16 @@ function EmptyCourseTaskStart({
             </span>
           </header>
 
-          <div className="relative z-[1] grid min-h-[30rem] gap-8 px-7 py-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="brevyn-empty-dashboard-stage relative z-[1]">
             <div className="flex min-w-0 flex-col justify-center">
               <div className="inline-flex w-fit items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 <CalendarClock className="h-4 w-4" />
                 课程作业
               </div>
-              <h2 className="mt-6 max-w-2xl text-[3rem] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">
+              <h2 className="brevyn-empty-dashboard-title mt-6 text-foreground">
                 让任务就位。
               </h2>
-              <p className="mt-5 max-w-xl text-[15px] leading-7 text-muted-foreground">
+              <p className="brevyn-empty-dashboard-description mt-5 text-muted-foreground">
                 课程是工作区，课程作业是具体目标。为 essay、project、exam 或复习计划建立一个作业空间，资料、草稿和会话会围绕它继续沉淀。
               </p>
 
@@ -442,7 +442,7 @@ function EmptyCourseTaskStart({
               </div>
             </div>
 
-            <aside className="flex min-w-0 items-center">
+            <aside className="brevyn-empty-dashboard-side flex items-center">
               <div className="w-full overflow-hidden rounded-[var(--radius-panel)] bg-background/68 shadow-[0_18px_40px_hsl(var(--foreground)/0.055),inset_0_0_0_1px_hsl(var(--foreground)/0.055)]">
                 <div className="border-b border-border/50 px-4 py-3">
                   <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
