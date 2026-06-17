@@ -1,18 +1,7 @@
 import type { ToolCardHelpers, ToolResultBlock, ToolUseBlock } from "@/components/agent/tool-cards/types";
 import { ToolDetailsShell } from "@/components/agent/tool-cards/shared";
-import { getParsedToolResult, recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
-
-interface RagEvidence {
-  fileName: string;
-  path: string;
-  sectionKind?: string;
-  taskId?: string;
-  chunkIndex?: number;
-  chunkCount?: number;
-  score?: number;
-  text: string;
-  citation?: string;
-}
+import { recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
+import { parseRagEvidenceOutput, type RagEvidence } from "@/components/agent/ragEvidence";
 
 export function RagSearchResultDetails({
   toolUse,
@@ -79,36 +68,7 @@ export function RagSearchResultDetails({
 }
 
 function parseRagOutput(result: ToolResultBlock | undefined): { count: number; results: RagEvidence[] } {
-  if (!result) return { count: 0, results: [] };
-  const root = recordObject(getParsedToolResult(result));
-  const rawResults = Array.isArray(root.results) ? root.results : [];
-  const results = rawResults.map((item) => {
-    const record = recordObject(item);
-    return {
-      fileName: stringValue(record.fileName, stringValue(record.file_name, "")),
-      path: stringValue(record.path, ""),
-      sectionKind: stringValue(record.sectionKind ?? record.section_kind, ""),
-      taskId: stringValue(record.taskId ?? record.task_id, ""),
-      chunkIndex: numberValue(record.chunkIndex ?? record.chunk_index),
-      chunkCount: numberValue(record.chunkCount ?? record.chunk_count),
-      score: numberValue(record.score),
-      text: stringValue(record.text, stringValue(record.excerpt, "")),
-      citation: stringValue(record.citation, ""),
-    };
-  });
-  return {
-    count: numberValue(root.count) ?? results.length,
-    results,
-  };
-}
-
-function numberValue(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
+  return parseRagEvidenceOutput(result);
 }
 
 function scoreLabel(score?: number): string {

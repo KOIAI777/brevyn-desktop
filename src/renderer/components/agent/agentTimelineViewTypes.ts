@@ -1,4 +1,5 @@
 import type { AgentTimelineRecord, ProcessEvent, RunSummary } from "@/components/agent/agentTimelineModel";
+import type { AnswerEvidenceSource } from "@/components/agent/ragEvidence";
 
 export interface AgentTimelineViewItem {
   record: AgentTimelineRecord;
@@ -18,6 +19,7 @@ export interface AgentTimelineViewItem {
   processCollapsible: boolean;
   processKey: string;
   defaultCollapsed: boolean;
+  answerEvidence?: AnswerEvidenceSource[];
 }
 
 export type AgentTimelineViewGroup =

@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { AlertTriangle, Check, Copy, Minimize2, RotateCw, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ClipboardCheck, Copy, FileSearch, Minimize2, RotateCw, ShieldCheck, X } from "lucide-react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
 import type { AgentAttachment } from "@/types/domain";
+import type { AnswerEvidenceSource } from "@/components/agent/ragEvidence";
 
 export function CompactContextNote({ state }: { state: "compacting" | "complete" }) {
   const compacting = state === "compacting";
@@ -220,6 +221,8 @@ export function AssistantTextBubble({
   streaming = false,
   copyable = true,
   copyContent,
+  evidence,
+  onRequestAcademicCheck,
 }: {
   content: string;
   threadId?: string;
@@ -227,6 +230,8 @@ export function AssistantTextBubble({
   stoppedByUser?: boolean;
   copyable?: boolean;
   copyContent?: string;
+  evidence?: AnswerEvidenceSource[];
+  onRequestAcademicCheck?: () => void;
 }) {
   const displayContent = content.replace(/\u0000/g, "");
   if (!displayContent.trim()) return null;
@@ -238,10 +243,179 @@ export function AssistantTextBubble({
         data-streaming={streaming ? "true" : "false"}
       >
         <Markdownish content={displayContent} threadId={threadId} streaming={streaming} />
+        {!streaming && evidence && evidence.length > 0 && (
+          <AnswerEvidenceStrip
+            content={displayContent}
+            sources={evidence}
+            onRequestAcademicCheck={onRequestAcademicCheck}
+          />
+        )}
         {!streaming && copyable && <MessageCopyAction content={copyContent || content} align="left" />}
       </div>
     </div>
   );
+}
+
+function AnswerEvidenceStrip({
+  content,
+  sources,
+  onRequestAcademicCheck,
+}: {
+  content: string;
+  sources: AnswerEvidenceSource[];
+  onRequestAcademicCheck?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const onPreviewFilePath = useFilePathPreviewHandler();
+  const hitCount = sources.reduce((total, source) => total + Math.max(1, source.count), 0);
+  const previewLabels = sources.slice(0, 3).map((source) => source.label).join("、");
+  const canCheckAcademicGrounding = Boolean(onRequestAcademicCheck && isWritingLikeAnswer(content));
+
+  async function openSource(source: AnswerEvidenceSource) {
+    const path = source.path || source.citation || "";
+    if (!path || !onPreviewFilePath) return;
+    await onPreviewFilePath(path);
+  }
+
+  return (
+    <div className="mt-3 max-w-full overflow-hidden rounded-[1.15rem] border border-border/78 bg-[hsl(var(--card)/0.72)] text-xs text-muted-foreground shadow-[inset_0_1px_0_hsl(var(--background)/0.55)]">
+      <div className="flex min-w-0 items-center gap-3 px-4 py-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[0.9rem] bg-foreground/[0.07] text-foreground/78 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+          <FileSearch className="h-5 w-5" />
+        </div>
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left focus-visible:outline-none"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+        >
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-[15px] font-semibold text-foreground">本回答已引用课程资料</span>
+            <span className="shrink-0 text-[12px] font-medium text-[hsl(var(--status-success))]">{sources.length} 份</span>
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-[12px]">
+            <span className="shrink-0 text-muted-foreground">{hitCount} 个证据片段</span>
+            {previewLabels && (
+              <>
+                <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/35" />
+                <span className="min-w-0 truncate text-muted-foreground/82" title={previewLabels}>{previewLabels}</span>
+              </>
+            )}
+          </div>
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[0.85rem] border border-border/72 bg-background/54 px-3 text-[12px] font-semibold text-foreground/82 transition hover:bg-accent/72 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+        >
+          {expanded ? "收起" : "查看"}
+          <ChevronDown className={`h-3.5 w-3.5 transition ${expanded ? "rotate-180" : ""}`} />
+        </button>
+        {canCheckAcademicGrounding && (
+          <button
+            type="button"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[0.85rem] bg-foreground px-3 text-[12px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+            onClick={() => onRequestAcademicCheck?.()}
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" />
+            检查依据
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="space-y-1.5 border-t border-border/58 bg-background/18 px-3 py-3">
+          {sources.map((source, index) => {
+            const canOpen = Boolean((source.path || source.citation) && onPreviewFilePath);
+            const snippet = source.snippets[0] ?? source;
+            return (
+              <div key={source.key} className="rounded-[0.9rem] bg-background/46 px-3 py-2.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+                <div className="flex min-w-0 items-start gap-2">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground/[0.08] text-[10px] font-semibold text-foreground/72">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className={`max-w-full truncate text-left text-[12px] font-semibold text-foreground/82 ${canOpen ? "hover:underline" : "cursor-default"}`}
+                      title={source.path || source.citation || source.label}
+                      disabled={!canOpen}
+                      onClick={() => void openSource(source)}
+                    >
+                      {source.label}
+                    </button>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span>{sectionLabel(source.sectionKind)}</span>
+                      <span className="h-1 w-1 rounded-full bg-muted-foreground/35" />
+                      <span>{chunkLabel(snippet)}</span>
+                      {source.count > 1 && (
+                        <>
+                          <span className="h-1 w-1 rounded-full bg-muted-foreground/35" />
+                          <span>{source.count} 个命中片段</span>
+                        </>
+                      )}
+                      <span className="h-1 w-1 rounded-full bg-muted-foreground/35" />
+                      <span>{scoreLabel(source.score)}</span>
+                    </div>
+                    {snippet.text && (
+                      <p className="mt-1 line-clamp-2 break-words text-[11px] leading-5 text-muted-foreground/88">
+                        {snippet.text}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isWritingLikeAnswer(content: string): boolean {
+  const text = content.toLowerCase();
+  if (content.trim().length >= 900) return true;
+  return [
+    "outline",
+    "essay",
+    "speech",
+    "draft",
+    "paragraph",
+    "argument",
+    "counter-argument",
+    "大纲",
+    "演讲",
+    "草稿",
+    "作文",
+    "文章",
+    "段落",
+    "论点",
+    "反方",
+    "反驳",
+  ].some((keyword) => text.includes(keyword));
+}
+
+function sectionLabel(sectionKind?: string): string {
+  if (sectionKind === "lecture") return "课件";
+  if (sectionKind === "course_shared") return "课程资料";
+  if (sectionKind === "task") return "当前作业";
+  return "课程材料";
+}
+
+function chunkLabel(item: Pick<AnswerEvidenceSource, "chunkIndex" | "chunkCount" | "citation">): string {
+  if (typeof item.chunkIndex === "number" && typeof item.chunkCount === "number") return `片段 ${item.chunkIndex + 1}/${item.chunkCount}`;
+  if (typeof item.chunkIndex === "number") return `片段 ${item.chunkIndex + 1}`;
+  return item.citation || "证据片段";
+}
+
+function scoreLabel(score?: number): string {
+  if (typeof score !== "number") return "相关";
+  const value = Math.round(score * 100);
+  if (value >= 78) return "高度相关";
+  if (value >= 62) return "相关";
+  return `${value}%`;
 }
 
 export function StreamingMarkdownish({

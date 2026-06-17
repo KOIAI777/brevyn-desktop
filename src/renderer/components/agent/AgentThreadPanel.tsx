@@ -153,6 +153,10 @@ export function AgentThreadPanel({
     void handleCompact();
   }, [handleCompact]);
 
+  const handleRequestAcademicCheck = useCallback(() => {
+    void handleRun(academicGroundingCheckPrompt(), "auto");
+  }, [handleRun]);
+
   return (
     <AgentThreadIdContext.Provider value={thread.id}>
     <FilePathPreviewProvider onPreviewFilePath={onPreviewFilePath}>
@@ -171,6 +175,7 @@ export function AgentThreadPanel({
         onAnswerQuestion={onAnswerQuestion}
         onResolveExitPlan={onResolveExitPlan}
         onCompact={handleCompactRequest}
+        onRequestAcademicCheck={handleRequestAcademicCheck}
         onScrollApiReady={handleScrollApiReady}
         bottomPadding={composerHeight + 24}
         scrollToBottomButtonBottom={composerHeight + 40}
@@ -223,6 +228,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onRequestAcademicCheck,
   onScrollApiReady,
   bottomPadding,
   scrollToBottomButtonBottom,
@@ -240,6 +246,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onRequestAcademicCheck: () => void;
   onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
   bottomPadding: number;
   scrollToBottomButtonBottom: number;
@@ -294,11 +301,12 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
                     agentProviders={agentProviders}
                     onToggleItemProcess={onToggleItemProcess}
                     onApprove={onApprove}
-                    onReject={onReject}
-                    onAnswerQuestion={onAnswerQuestion}
-                    onResolveExitPlan={onResolveExitPlan}
-                    onCompact={onCompact}
-                  />
+                  onReject={onReject}
+                  onAnswerQuestion={onAnswerQuestion}
+                  onResolveExitPlan={onResolveExitPlan}
+                  onCompact={onCompact}
+                  onRequestAcademicCheck={onRequestAcademicCheck}
+                />
                 </div>
               ))}
             </div>
@@ -449,6 +457,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onRequestAcademicCheck,
 }: {
   group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
   agentProviders: ModelProviderConfig[];
@@ -458,6 +467,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onRequestAcademicCheck: () => void;
 }) {
   if (group.type === "user") {
     return <UserTimelineGroup item={group.item} />;
@@ -495,6 +505,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
       onAnswerQuestion={onAnswerQuestion}
       onResolveExitPlan={onResolveExitPlan}
       onCompact={onCompact}
+      onRequestAcademicCheck={onRequestAcademicCheck}
     />
   );
 }, areAgentTimelineGroupPropsEqual);
@@ -509,6 +520,7 @@ function areAgentTimelineGroupPropsEqual(
     onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
     onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
     onCompact: () => void;
+    onRequestAcademicCheck: () => void;
   },
   next: {
     group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
@@ -519,6 +531,7 @@ function areAgentTimelineGroupPropsEqual(
     onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
     onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
     onCompact: () => void;
+    onRequestAcademicCheck: () => void;
   },
 ): boolean {
   return previous.group === next.group
@@ -528,7 +541,8 @@ function areAgentTimelineGroupPropsEqual(
     && previous.onReject === next.onReject
     && previous.onAnswerQuestion === next.onAnswerQuestion
     && previous.onResolveExitPlan === next.onResolveExitPlan
-    && previous.onCompact === next.onCompact;
+    && previous.onCompact === next.onCompact
+    && previous.onRequestAcademicCheck === next.onRequestAcademicCheck;
 }
 
 function UserTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
@@ -663,6 +677,7 @@ function AssistantTurnTimelineGroup({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onRequestAcademicCheck,
 }: {
   items: AgentTimelineViewItem[];
   entries: AgentTimelineTurnEntry[];
@@ -678,6 +693,7 @@ function AssistantTurnTimelineGroup({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onRequestAcademicCheck: () => void;
 }) {
   const showTimelineItems = processItem?.processExpanded ?? true;
   const stableBodyTextKeys = new Set(collapsedVisibleEntryKeys);
@@ -705,10 +721,11 @@ function AssistantTurnTimelineGroup({
                   onToggleItemProcess={onToggleItemProcess}
                   onApprove={onApprove}
                   onReject={onReject}
-                  onAnswerQuestion={onAnswerQuestion}
-                  onResolveExitPlan={onResolveExitPlan}
-                  onCompact={onCompact}
-                />
+	                  onAnswerQuestion={onAnswerQuestion}
+	                  onResolveExitPlan={onResolveExitPlan}
+	                  onCompact={onCompact}
+	                  onRequestAcademicCheck={onRequestAcademicCheck}
+	                />
               </TimelineItemsDrawer>
             );
           })}
@@ -761,6 +778,7 @@ function AssistantTurnRenderEntryView({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onRequestAcademicCheck,
 }: {
   entry: AgentTimelineTurnEntry;
   processItem?: AgentTimelineViewItem;
@@ -770,6 +788,7 @@ function AssistantTurnRenderEntryView({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onRequestAcademicCheck: () => void;
 }) {
   const firstItem = entry.type === "tool-group" ? entry.items[0] : entry.item;
   if (!firstItem) return null;
@@ -782,10 +801,11 @@ function AssistantTurnRenderEntryView({
       onToggleProcess={() => onToggleItemProcess(processItem ?? entry.item)}
       onApprove={onApprove}
       onReject={onReject}
-      onAnswerQuestion={onAnswerQuestion}
-      onResolveExitPlan={onResolveExitPlan}
-      onCompact={onCompact}
-    />
+	      onAnswerQuestion={onAnswerQuestion}
+	      onResolveExitPlan={onResolveExitPlan}
+	      onCompact={onCompact}
+	      onRequestAcademicCheck={onRequestAcademicCheck}
+	    />
   );
 
   return (
@@ -845,6 +865,7 @@ function AssistantTurnEntry({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onRequestAcademicCheck,
 }: {
   item: AgentTimelineViewItem;
   onToggleProcess: () => void;
@@ -853,6 +874,7 @@ function AssistantTurnEntry({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onRequestAcademicCheck: () => void;
 }) {
   const threadId = useContext(AgentThreadIdContext);
   const {
@@ -927,6 +949,8 @@ function AssistantTurnEntry({
         copyContent={assistantContent}
         threadId={threadId}
         stoppedByUser={stoppedByUser}
+        evidence={item.answerEvidence}
+        onRequestAcademicCheck={onRequestAcademicCheck}
       />
     );
   }
@@ -1228,6 +1252,25 @@ function messageAttachments(message: SDKMessage): AgentAttachment[] {
       createdAt: value.createdAt || "",
     }];
   });
+}
+
+function academicGroundingCheckPrompt(): string {
+  return [
+    "请检查上一条回答的学术依据，不要重写正文。",
+    "",
+    "请先检索当前作业要求、rubric、课程资料和已纳入的外部来源，再判断上一条回答是否可靠。",
+    "",
+    "检查重点：",
+    "1. 是否覆盖当前作业要求和评分标准。",
+    "2. 哪些主要观点已经有课程资料或外部来源支持。",
+    "3. 哪些观点缺少依据、需要补充资料或更谨慎表述。",
+    "4. 如果是演讲/essay/outline，请检查反方回应、结构和证据是否匹配任务要求。",
+    "",
+    "输出格式：",
+    "- 已有依据",
+    "- 需要补充",
+    "- 建议下一步",
+  ].join("\n");
 }
 
 function runSummaryTone(status: RunSummary["status"]): { text: string; dot: string; detail: string } {

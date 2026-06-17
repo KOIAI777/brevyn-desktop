@@ -26,6 +26,7 @@ import {
 import { completePartialToolInputHints, isCompleteToolInputJson, parsePartialToolInput } from "@/components/agent/agentTimelinePartialInput";
 import { processStateKey } from "@/components/agent/agentTimelineRunState";
 import { getToolInputPath, recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
+import { buildAnswerEvidenceSources, parseRagEvidenceOutput, type AnswerEvidenceSource, type RagEvidence } from "@/components/agent/ragEvidence";
 import type {
   AgentTimelineDisplayKind,
   AgentTimelineToolGroupSummary,
@@ -587,10 +588,50 @@ function assistantTurnViewItems(
     }
   }
 
-  return [...slots.entries()]
+  return attachAnswerEvidence(
+    [...slots.entries()]
     .sort((left, right) => (slotOrder.get(left[0]) ?? 0) - (slotOrder.get(right[0]) ?? 0))
     .map(([, item]) => item)
-    .filter((item) => item.displayKind !== "hidden");
+    .filter((item) => item.displayKind !== "hidden"),
+  );
+}
+
+function attachAnswerEvidence(items: AgentTimelineViewItem[]): AgentTimelineViewItem[] {
+  const evidence = buildAnswerEvidenceSources(ragEvidenceFromItems(items));
+  if (evidence.length === 0) return items;
+  const lastRagToolIndex = findLastIndex(items, isRagSearchToolItem);
+  if (lastRagToolIndex < 0) return items;
+  const targetIndex = findLastIndex(items, (item, index) => (
+    index > lastRagToolIndex
+    &&
+    item.displayKind === "assistant-final"
+    && Boolean(item.assistantContent?.trim())
+  ));
+  if (targetIndex < 0) return items;
+  return items.map((item, index) => index === targetIndex ? { ...item, answerEvidence: evidence } : item);
+}
+
+function isRagSearchToolItem(item: AgentTimelineViewItem): boolean {
+  return item.displayKind === "tool-use" && item.processEvents.some((event) => (
+    event.kind === "tool_use"
+    && event.tool.name === "mcp__brevyn__rag_search"
+    && Boolean(event.result)
+    && event.result?.isError !== true
+  ));
+}
+
+function ragEvidenceFromItems(items: AgentTimelineViewItem[]): RagEvidence[] {
+  return items.flatMap((item) => item.processEvents.flatMap((event) => {
+    if (event.kind !== "tool_use" || event.tool.name !== "mcp__brevyn__rag_search" || !event.result || event.result.isError) return [];
+    return parseRagEvidenceOutput(event.result).results;
+  }));
+}
+
+function findLastIndex<T>(items: T[], predicate: (item: T, index: number) => boolean): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (predicate(items[index]!, index)) return index;
+  }
+  return -1;
 }
 
 function isHeavyPartialInputTool(toolName: string): boolean {
