@@ -389,6 +389,10 @@ export class LocalStore {
     return this.files.addExternalSourceFiles(input);
   }
 
+  retryExternalSource(sourceId: string): Promise<ExternalSourceAddResult> {
+    return this.files.retryExternalSource(sourceId);
+  }
+
   deleteExternalSource(sourceId: string): Promise<boolean> {
     return this.files.deleteExternalSource(sourceId);
   }

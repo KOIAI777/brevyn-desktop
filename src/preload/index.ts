@@ -125,6 +125,7 @@ const api: BrevynAPI = {
     list: (input: ExternalSourceListInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesList, input),
     addUrl: (input: ExternalSourceAddUrlInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesAddUrl, input),
     addFiles: (input: ExternalSourceAddFilesInput) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesAddFiles, input),
+    retry: (sourceId: string) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesRetry, sourceId),
     delete: (sourceId: string) => ipcRenderer.invoke(IPC_CHANNELS.externalSourcesDelete, sourceId),
   },
   sourceCandidates: {

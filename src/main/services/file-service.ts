@@ -104,6 +104,14 @@ export interface FileServiceOptions {
 
 type ImportedIndexingResult = { job: IndexingJob | null; notice?: string; error?: string };
 
+function normalizeImportedIndexingResult(result: ImportedIndexingResult): ImportedIndexingResult {
+  if (result.error || result.notice || !result.job) return result;
+  if (result.job.status === "failed" || result.job.status === "idle") {
+    return { ...result, error: result.job.error };
+  }
+  return result;
+}
+
 export class FileService {
   constructor(private readonly options: FileServiceOptions) {}
 
@@ -462,7 +470,7 @@ export class FileService {
         sourcePath: markdownPath,
         timestamp,
       });
-      const saved = this.options.businessStore.saveExternalSource({
+      const readySource = this.options.businessStore.saveExternalSource({
         ...source,
         title,
         originalPath,
@@ -472,7 +480,10 @@ export class FileService {
         status: "ready",
         updatedAt: now(),
       });
-      const indexingResult = this.indexImportedFiles(input.courseId, sectionIdForExternalSource(input.courseId, input.scope, targetTask?.id), [file]);
+      const indexingResult = normalizeImportedIndexingResult(this.indexImportedFiles(input.courseId, sectionIdForExternalSource(input.courseId, input.scope, targetTask?.id), [file]));
+      const saved = indexingResult.error
+        ? this.options.businessStore.updateExternalSourceStatus(sourceId, "failed", indexingResult.error) || { ...readySource, status: "failed" as const, error: indexingResult.error }
+        : readySource;
       return {
         sources: [saved],
         tree: this.listFiles(input.courseId),
@@ -541,9 +552,12 @@ export class FileService {
         files.push(file);
         sources.push(source);
       }
-      const indexingResult = this.indexImportedFiles(input.courseId, sectionIdForExternalSource(input.courseId, input.scope, targetTask?.id), files);
+      const indexingResult = normalizeImportedIndexingResult(this.indexImportedFiles(input.courseId, sectionIdForExternalSource(input.courseId, input.scope, targetTask?.id), files));
+      const resultSources = indexingResult.error
+        ? sources.map((source) => this.options.businessStore.updateExternalSourceStatus(source.id, "failed", indexingResult.error) || { ...source, status: "failed" as const, error: indexingResult.error })
+        : sources;
       return {
-        sources,
+        sources: resultSources,
         tree: this.listFiles(input.courseId),
         indexingJob: indexingResult.job,
         indexingError: indexingResult.error,
@@ -553,6 +567,39 @@ export class FileService {
       for (const copiedPath of copiedPaths) this.safeRm(copiedPath, `[external-sources] Failed to clean copied file ${copiedPath}`);
       throw error;
     }
+  }
+
+  async retryExternalSource(sourceId: string): Promise<ExternalSourceAddResult> {
+    const source = this.options.businessStore.getExternalSource(sourceId);
+    if (!source) throw new Error("外部来源不存在。");
+    const semesterId = currentActiveSemesterId(this.options.businessStore);
+    if (!semesterId || source.semesterId !== semesterId) throw new Error("请先切换到这个来源所属的学期。");
+    activeCourseScopeOrThrow(this.options.businessStore, source.courseId, semesterId);
+    if (source.scope === "task") taskInCourseOrThrow(this.options.businessStore, source.taskId, source.courseId, semesterId);
+
+    if (source.workspaceFileId) {
+      const file = this.options.businessStore.getWorkspaceFile(source.workspaceFileId);
+      if (!file && source.kind !== "web") throw new Error("来源文件记录不可用。请移除后重新添加。");
+      if (file) {
+        const job = this.retryIndexingFile(file.id);
+        const updatedSource = job.status === "failed" || job.status === "idle"
+          ? this.options.businessStore.updateExternalSourceStatus(source.id, "failed", job.error) || { ...source, status: "failed" as const, error: job.error, updatedAt: now() }
+          : source.status === "failed"
+          ? this.options.businessStore.updateExternalSourceStatus(source.id, "ready") || { ...source, status: "ready" as const, error: undefined, updatedAt: now() }
+          : source;
+        return {
+          sources: [updatedSource],
+          tree: this.listFiles(source.courseId),
+          indexingJob: job,
+          indexingError: job.status === "failed" ? job.error : undefined,
+        };
+      }
+    }
+
+    if (source.kind !== "web" || !source.url) {
+      throw new Error("这个外部文件缺少本地源文件。请移除后重新添加。");
+    }
+    return this.retryExternalWebSource(source);
   }
 
   async deleteExternalSource(sourceId: string): Promise<boolean> {
@@ -573,6 +620,73 @@ export class FileService {
     else if (source.markdownPath) this.safeRm(dirname(source.markdownPath), `[external-sources] Failed to remove source folder ${dirname(source.markdownPath)}`);
     this.options.businessStore.deleteExternalSource(sourceId);
     return true;
+  }
+
+  private async retryExternalWebSource(source: ExternalSource): Promise<ExternalSourceAddResult> {
+    const url = normalizeExternalSourceUrl(source.url || "");
+    const timestamp = now();
+    const sourceDir = this.ensureExternalSourceDir(source.semesterId, source.courseId, source.taskId, source.id, source.title || url.hostname);
+    const processing = this.options.businessStore.saveExternalSource({
+      ...source,
+      status: "processing",
+      error: undefined,
+      updatedAt: timestamp,
+    });
+    try {
+      const fetched = await fetchExternalWebSource(url);
+      const title = source.title?.trim() || fetched.title || url.hostname;
+      const originalPath = join(sourceDir, "original.html");
+      const markdownPath = join(sourceDir, "content.md");
+      writeFileSync(originalPath, fetched.html, "utf8");
+      writeFileSync(markdownPath, markdownForWebSource({ title, url: url.toString(), text: fetched.text }), "utf8");
+      const file = this.registerExternalWorkspaceFile({
+        semesterId: source.semesterId,
+        courseId: source.courseId,
+        taskId: source.taskId,
+        scope: source.scope,
+        sourceId: source.id,
+        title,
+        sourcePath: markdownPath,
+        timestamp,
+      });
+      const saved = this.options.businessStore.saveExternalSource({
+        ...processing,
+        title,
+        originalPath,
+        markdownPath,
+        workspaceFileId: file.id,
+        summary: summarizeText(fetched.text),
+        status: "ready",
+        error: undefined,
+        updatedAt: now(),
+      });
+      const indexingResult = normalizeImportedIndexingResult(this.indexImportedFiles(source.courseId, sectionIdForExternalSource(source.courseId, source.scope, source.taskId), [file]));
+      const finalSource = indexingResult.error
+        ? this.options.businessStore.updateExternalSourceStatus(source.id, "failed", indexingResult.error) || { ...saved, status: "failed" as const, error: indexingResult.error }
+        : saved;
+      return {
+        sources: [finalSource],
+        tree: this.listFiles(source.courseId),
+        indexingJob: indexingResult.job,
+        indexingError: indexingResult.error,
+        indexingNotice: indexingResult.notice,
+      };
+    } catch (error) {
+      const message = userFacingWebSourceError(error);
+      this.safeRm(sourceDir, `[external-sources] Failed to clean retried source folder ${sourceDir}`);
+      const failed = this.options.businessStore.updateExternalSourceStatus(source.id, "failed", message) || {
+        ...source,
+        status: "failed" as const,
+        error: message,
+        updatedAt: now(),
+      };
+      return {
+        sources: [failed],
+        tree: this.listFiles(source.courseId),
+        indexingJob: null,
+        indexingError: message,
+      };
+    }
   }
 
   listSourceCandidates(input: SourceCandidateListInput): SourceCandidate[] {
@@ -1023,7 +1137,7 @@ export class FileService {
         error: "这门课正在进行全量索引。文件已导入，但不会自动排队；请等待全量索引完成后再重新索引。",
       };
     }
-    return {
+    return normalizeImportedIndexingResult({
       job: this.createIndexingJobForFiles({
         semesterId,
         courseId,
@@ -1031,7 +1145,7 @@ export class FileService {
         files: localFiles,
         provider,
       }),
-    };
+    });
   }
 
   private createIndexingJobForFiles(input: {

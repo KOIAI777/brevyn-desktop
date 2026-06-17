@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type PointerEvent } from "react";
-import { BookMarked, Check, CheckCircle2, CircleDashed, FileText, Globe2, Layers3, LibraryBig, Link2, Loader2, LockKeyhole, Paperclip, Plus, Search, Trash2, X } from "lucide-react";
+import { BookMarked, Check, CheckCircle2, CircleDashed, FileText, Globe2, Layers3, LibraryBig, Link2, Loader2, LockKeyhole, Paperclip, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { BrevynTask, Course, ExternalSource, ExternalSourceScope, SemesterWorkspace, WorkspaceFileNode } from "@/types/domain";
 import { cx } from "@/lib/cn";
 import { fileDisplayName } from "@/components/files/FileContextMenu";
+
+type SourcePanelStatus = "indexed" | "partial" | "processing" | "failed" | "idle";
 
 type MaterialGroup = {
   id: "semester" | "task" | "course" | "lecture";
@@ -10,7 +12,7 @@ type MaterialGroup = {
   description: string;
   count: number;
   indexedCount: number;
-  status: "indexed" | "processing" | "failed" | "idle";
+  status: SourcePanelStatus;
   files: WorkspaceFileNode[];
 };
 
@@ -47,6 +49,7 @@ export function SourcesRail({
   const [externalError, setExternalError] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addBusy, setAddBusy] = useState<"url" | "file" | "delete" | "">("");
+  const [retryingSourceIds, setRetryingSourceIds] = useState<Set<string>>(() => new Set());
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<MaterialGroup["id"]>>(() => new Set());
   const [externalExpanded, setExternalExpanded] = useState(false);
   const model = useMemo(() => buildSourcesModel(files, course, activeTask), [activeTask, course, files]);
@@ -174,6 +177,25 @@ export function SourcesRail({
     }
   }
 
+  async function retryExternalSource(sourceId: string) {
+    setRetryingSourceIds((current) => new Set(current).add(sourceId));
+    setExternalError("");
+    try {
+      const result = await window.brevyn.externalSources.retry(sourceId);
+      if (result.sources.length > 0) setExternalSources((current) => mergeSources(result.sources, current));
+      if (result.indexingError) setExternalError(result.indexingError);
+      await loadExternalSources();
+    } catch (error) {
+      setExternalError(error instanceof Error ? error.message : "重试外部来源失败。");
+    } finally {
+      setRetryingSourceIds((current) => {
+        const next = new Set(current);
+        next.delete(sourceId);
+        return next;
+      });
+    }
+  }
+
   return (
     <aside
       aria-hidden={collapsed}
@@ -288,7 +310,9 @@ export function SourcesRail({
                         item={item}
                         onPreviewFile={onPreviewFile}
                         onDelete={() => void deleteExternalSource(item.source.id)}
+                        onRetry={() => void retryExternalSource(item.source.id)}
                         busy={addBusy === "delete"}
+                        retrying={retryingSourceIds.has(item.source.id)}
                       />
                     )) : (
                       <EmptySourceRow label="还没有外部来源。可以添加网页链接，或选择 PDF、Word、PPT 等本地资料。" />
@@ -327,17 +351,23 @@ function ExternalSourceRow({
   item,
   onPreviewFile,
   onDelete,
+  onRetry,
   busy,
+  retrying,
 }: {
   item: ExternalSourceViewItem;
   onPreviewFile?: (file: WorkspaceFileNode) => void;
   onDelete: () => void;
+  onRetry: () => void;
   busy?: boolean;
+  retrying?: boolean;
 }) {
   const { source, file } = item;
   const Icon = source.kind === "web" ? Link2 : Paperclip;
   const label = source.kind === "web" ? "网页" : file ? fileKindLabel(file.kind) : "文件";
   const indexStatus = externalIndexStatus(source.status, file);
+  const detail = sourceStatusDetail(source, file);
+  const showRetry = source.status === "failed" || file?.indexingStatus === "failed" || file?.indexingStatus === "cancelled" || indexStatus === "idle";
   const canPreview = Boolean(file && onPreviewFile);
   const preview = () => {
     if (file) onPreviewFile?.(file);
@@ -374,6 +404,20 @@ function ExternalSourceRow({
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <SourceStatusBadge status={indexStatus} />
+          {showRetry && (
+            <button
+              type="button"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+              disabled={retrying}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetry();
+              }}
+              title={source.status === "failed" ? "重新读取并索引" : "重新索引"}
+            >
+              {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            </button>
+          )}
           <button
             type="button"
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
@@ -391,6 +435,14 @@ function ExternalSourceRow({
       {(source.summary || source.url) && (
         <div className="mt-2 line-clamp-2 text-[10px] leading-4 text-muted-foreground">
           {source.summary || source.url}
+        </div>
+      )}
+      {detail && (
+        <div className={cx(
+          "mt-2 rounded-md px-2 py-1.5 text-[10px] leading-4",
+          indexStatus === "failed" ? "bg-destructive/10 text-destructive" : "bg-foreground/[0.035] text-muted-foreground",
+        )}>
+          {detail}
         </div>
       )}
     </div>
@@ -494,6 +546,7 @@ function MaterialSourceRow({
 }) {
   const Icon = group.id === "lecture" ? Layers3 : group.id === "task" ? FileText : LibraryBig;
   const visibleFiles = expanded ? group.files : group.files.slice(0, MATERIAL_PREVIEW_LIMIT);
+  const detail = materialGroupDetail(group);
   return (
     <div className="rounded-[var(--radius-card)] bg-background/58 px-3 py-2.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] ring-1 ring-foreground/[0.03]">
       <div className="flex items-center justify-between gap-3">
@@ -512,6 +565,14 @@ function MaterialSourceRow({
         <span className="truncate">已索引 {group.indexedCount} 个</span>
         <span className="shrink-0">{group.indexedCount}/{group.count || 0}</span>
       </div>
+      {detail && (
+        <div className={cx(
+          "mt-2 rounded-md px-2 py-1.5 text-[10px] leading-4",
+          group.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-foreground/[0.035] text-muted-foreground",
+        )}>
+          {detail}
+        </div>
+      )}
       {group.files.length > 0 ? (
         <div className={cx("mt-2 space-y-1", expanded && group.files.length > MATERIAL_PREVIEW_LIMIT && "max-h-48 overflow-y-auto pr-1 brevyn-scrollbar")}>
           {visibleFiles.map((file) => (
@@ -560,13 +621,25 @@ function EmptySourceRow({ label }: { label: string }) {
 }
 
 function SourceStatusBadge({ status }: { status: MaterialGroup["status"] }) {
-  const label = status === "indexed" ? "已索引" : status === "processing" ? "处理中" : status === "failed" ? "失败" : "待索引";
-  const icon = status === "indexed" ? <CheckCircle2 className="h-3 w-3" /> : status === "processing" ? <Search className="h-3 w-3" /> : <CircleDashed className="h-3 w-3" />;
+  const label = status === "indexed" ? "可检索" : status === "partial" ? "部分可检索" : status === "processing" ? "处理中" : status === "failed" ? "失败" : "待索引";
+  const icon = status === "indexed"
+    ? <CheckCircle2 className="h-3 w-3" />
+    : status === "processing"
+      ? <Loader2 className="h-3 w-3 animate-spin" />
+      : status === "partial"
+        ? <CircleDashed className="h-3 w-3" />
+        : status === "failed"
+          ? <X className="h-3 w-3" />
+          : <Search className="h-3 w-3" />;
   return (
     <span
       className={cx(
         "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium",
-        status === "indexed" ? "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))]" : "bg-muted text-muted-foreground",
+        status === "indexed" && "bg-[hsl(var(--status-success)/0.14)] text-[hsl(var(--status-success))]",
+        status === "partial" && "bg-[hsl(var(--status-warning)/0.14)] text-[hsl(var(--status-warning))]",
+        status === "processing" && "bg-[hsl(var(--status-info)/0.12)] text-[hsl(var(--status-info))]",
+        status === "failed" && "bg-destructive/10 text-destructive",
+        status === "idle" && "bg-muted text-muted-foreground",
       )}
     >
       {icon}
@@ -614,13 +687,14 @@ function materialGroup(id: MaterialGroup["id"], title: string, description: stri
   const indexedCount = files.filter(isIndexedFile).length;
   const failed = files.some((file) => file.indexingStatus === "failed" || file.indexingStatus === "cancelled");
   const processing = files.some((file) => file.indexingStatus === "queued" || file.indexingStatus === "indexing");
+  const partial = files.some((file) => file.indexingStatus === "partial" || file.indexingStatus === "warning" || file.indexingStatus === "skipped") || (indexedCount > 0 && indexedCount < files.length);
   return {
     id,
     title,
     description,
     count: files.length,
     indexedCount,
-    status: failed ? "failed" : processing ? "processing" : files.length > 0 && indexedCount === files.length ? "indexed" : "idle",
+    status: failed ? "failed" : processing ? "processing" : files.length > 0 && indexedCount === files.length ? "indexed" : partial ? "partial" : "idle",
     files: [...files].sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()),
   };
 }
@@ -672,8 +746,40 @@ function fileKindLabel(kind: WorkspaceFileNode["kind"]): string {
 function externalIndexStatus(status: ExternalSource["status"], file?: WorkspaceFileNode): MaterialGroup["status"] {
   if (status === "failed" || file?.indexingStatus === "failed" || file?.indexingStatus === "cancelled") return "failed";
   if (file?.indexingStatus === "queued" || file?.indexingStatus === "indexing" || status === "processing") return "processing";
+  if (file?.indexingStatus === "partial" || file?.indexingStatus === "warning" || file?.indexingStatus === "skipped") return "partial";
   if (file && isIndexedFile(file)) return "indexed";
   return "idle";
+}
+
+function sourceStatusDetail(source: ExternalSource, file?: WorkspaceFileNode): string {
+  if (source.error) return source.error;
+  if (file?.indexingError) return file.indexingError;
+  if (file?.indexingWarning) return file.indexingWarning;
+  if (file?.indexingStatus === "queued") return progressLabel("等待进入知识库", file.indexingProgress);
+  if (file?.indexingStatus === "indexing") return progressLabel("正在解析并索引", file.indexingProgress);
+  if (file?.indexingStatus === "partial") return file.indexingParserDetail ? `部分内容已可检索，${file.indexingParserDetail}` : "部分内容已可检索，仍有少量内容未成功解析。";
+  if (file?.indexingStatus === "warning") return "已可检索，但解析时有提醒。";
+  if (file?.indexingStatus === "skipped") return "没有提取到可检索正文，可以换文件格式或重新添加。";
+  if (source.status === "processing") return "正在读取来源内容。";
+  if (source.status === "ready" && !file) return "来源已保存，但还没有可检索文件记录。";
+  if (file && !isIndexedFile(file)) return "已保存，等待加入知识库后才能被 agent 检索。";
+  return "";
+}
+
+function materialGroupDetail(group: MaterialGroup): string {
+  const failed = group.files.find((file) => file.indexingStatus === "failed" || file.indexingStatus === "cancelled");
+  if (failed) return failed.indexingError || `${fileDisplayName(failed)} 索引失败，可以在文件浏览器里重新索引。`;
+  const warning = group.files.find((file) => file.indexingWarning || file.indexingStatus === "partial" || file.indexingStatus === "warning" || file.indexingStatus === "skipped");
+  if (warning) return warning.indexingWarning || `${fileDisplayName(warning)} 只有部分内容可检索。`;
+  const processing = group.files.find((file) => file.indexingStatus === "queued" || file.indexingStatus === "indexing");
+  if (processing) return progressLabel(`${fileDisplayName(processing)} 正在进入知识库`, processing.indexingProgress);
+  if (group.status === "idle" && group.count > 0) return "这些资料还没有进入知识库，agent 暂时不能用 RAG 检索它们。";
+  return "";
+}
+
+function progressLabel(label: string, progress?: number): string {
+  if (typeof progress === "number" && Number.isFinite(progress)) return `${label} · ${Math.round(progress)}%`;
+  return label;
 }
 
 function mergeSources(incoming: ExternalSource[], current: ExternalSource[]): ExternalSource[] {

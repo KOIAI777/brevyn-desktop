@@ -1558,6 +1558,7 @@ export interface BrevynAPI {
     list: (input: ExternalSourceListInput) => Promise<ExternalSource[]>;
     addUrl: (input: ExternalSourceAddUrlInput) => Promise<ExternalSourceAddResult>;
     addFiles: (input: ExternalSourceAddFilesInput) => Promise<ExternalSourceAddResult>;
+    retry: (sourceId: string) => Promise<ExternalSourceAddResult>;
     delete: (sourceId: string) => Promise<boolean>;
   };
   sourceCandidates: {

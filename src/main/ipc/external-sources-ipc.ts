@@ -35,6 +35,12 @@ export function registerExternalSourcesIpc({ store, indexingQueue }: IpcContext)
     event.sender.send(IPC_CHANNELS.filesChanged);
     return result;
   });
+  ipcMain.handle(IPC_CHANNELS.externalSourcesRetry, async (event, sourceId: unknown) => {
+    const result = await store.retryExternalSource(requireString(sourceId, "Source id"));
+    if (result.indexingJob) indexingQueue?.poke();
+    event.sender.send(IPC_CHANNELS.filesChanged);
+    return result;
+  });
   ipcMain.handle(IPC_CHANNELS.externalSourcesDelete, async (event, sourceId: unknown) => {
     const result = await store.deleteExternalSource(requireString(sourceId, "Source id"));
     event.sender.send(IPC_CHANNELS.filesChanged);

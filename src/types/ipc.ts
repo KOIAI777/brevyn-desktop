@@ -55,6 +55,7 @@ export const IPC_CHANNELS = {
   externalSourcesList: "brevyn:external-sources:list",
   externalSourcesAddUrl: "brevyn:external-sources:add-url",
   externalSourcesAddFiles: "brevyn:external-sources:add-files",
+  externalSourcesRetry: "brevyn:external-sources:retry",
   externalSourcesDelete: "brevyn:external-sources:delete",
   sourceCandidatesList: "brevyn:source-candidates:list",
   sourceCandidatesAccept: "brevyn:source-candidates:accept",
