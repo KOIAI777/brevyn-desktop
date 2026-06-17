@@ -120,9 +120,9 @@ export function AccountSettingsPage({
     : "登录后会同步账号、余额和套餐；已有套餐可在下方启用。";
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4">
-      <section className="overflow-hidden rounded-[var(--radius-panel)] bg-card p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)]">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-border/45 pb-4">
+    <div className="mx-auto flex max-w-5xl flex-col gap-3">
+      <section className="overflow-hidden rounded-[var(--radius-panel)] bg-card p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)]">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-border/45 pb-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               <Cloud className="h-3.5 w-3.5" />
@@ -229,13 +229,13 @@ export function AccountSettingsPage({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_0.85fr]">
-              <div className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
-                <div className="flex min-w-0 items-start justify-between gap-4">
+          <div className="space-y-3">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1.18fr)_0.82fr]">
+              <div className="rounded-[var(--radius-card)] bg-background p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+                <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-muted text-muted-foreground">
-                      <UserRound className="h-5 w-5" />
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-muted text-muted-foreground">
+                      <UserRound className="h-4 w-4" />
                     </div>
                     <div className="min-w-0">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Signed in</div>
@@ -245,17 +245,17 @@ export function AccountSettingsPage({
                   </div>
                   {entitlements?.stale && <span className="shrink-0 rounded-[var(--radius-pill)] bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800">旧数据</span>}
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <AccountMetric icon={<Wallet className="h-3.5 w-3.5" />} label="账户余额" value={formatCloudPoints(walletRemaining)} detail={walletStatus ? cloudEntitlementStatusLabel(walletStatus) : "实时余额"} />
                   <AccountMetric icon={<Cloud className="h-3.5 w-3.5" />} label="当前套餐" value={currentPlanName} detail={`${conversationBalanceGroups.length + conversationSubscriptionGroups.length + fallbackConversationGroups.length} 个对话分组`} />
                   <AccountMetric icon={<PlugZap className="h-3.5 w-3.5" />} label="官方能力" value={capabilityGroupCount > 0 ? `${capabilityGroupCount} 组` : "待同步"} detail={officialProviderKinds.size > 0 ? `${officialProviderKinds.size} 项已准备` : "Embedding / OCR / Vision"} />
                 </div>
               </div>
 
-              <div className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+              <div className="rounded-[var(--radius-card)] bg-background p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
                 <div className="text-xs font-semibold text-foreground">官方能力状态</div>
                 <div className="mt-1 text-[11px] leading-5 text-muted-foreground">Embedding、OCR、Vision 会跟随 Cloud 分组自动同步。</div>
-                <div className="mt-3 grid gap-2">
+                <div className="mt-2 grid gap-1.5">
                   <CapabilityMiniState icon={<Database className="h-3.5 w-3.5" />} label="Embedding" active={officialProviderKinds.has("embedding")} />
                   <CapabilityMiniState icon={<ScanText className="h-3.5 w-3.5" />} label="OCR" active={officialProviderKinds.has("ocr")} />
                   <CapabilityMiniState icon={<Eye className="h-3.5 w-3.5" />} label="Vision" active={officialProviderKinds.has("vision")} />
@@ -264,7 +264,7 @@ export function AccountSettingsPage({
             </div>
 
             <form
-              className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]"
+              className="rounded-[var(--radius-card)] bg-background p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]"
               onSubmit={(event) => {
                 event.preventDefault();
                 onRedeem();
@@ -294,8 +294,8 @@ export function AccountSettingsPage({
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="brevyn-control-surface flex h-10 min-w-0 items-center gap-2 px-3">
+              <div className="mt-2.5 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="brevyn-control-surface flex h-9 min-w-0 items-center gap-2 px-3">
                   <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <input
                     className="min-w-0 flex-1 bg-transparent text-xs font-medium tracking-[0.04em] text-foreground outline-none placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground/55 disabled:cursor-not-allowed disabled:text-muted-foreground"
@@ -306,7 +306,7 @@ export function AccountSettingsPage({
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
                   disabled={isBusy || !redeemCode.trim()}
                 >
                   <RefreshCw className={cx("h-3.5 w-3.5", busyAction === "redeem" && "animate-spin")} />
@@ -315,7 +315,7 @@ export function AccountSettingsPage({
               </div>
 
               {redeemResult ? (
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <div className="mt-2.5 grid gap-2 md:grid-cols-3">
                   <MiniMetric label="商品" value={redeemResult.result.redemption.productName || redeemKindLabel(redeemResult.result.redemption.kind)} />
                   <MiniMetric label="到账" value={redeemValueLabel(redeemResult)} />
                   <MiniMetric label="套餐" value={redeemedPlanLabel(redeemResult, groups)} />
@@ -324,7 +324,7 @@ export function AccountSettingsPage({
               {statusMessage ? (
                 <div
                   className={cx(
-                    "mt-3 rounded-[var(--radius-control)] px-3 py-2 text-[11px] leading-5 shadow-sm ring-1",
+                    "mt-2.5 rounded-[var(--radius-control)] px-3 py-2 text-[11px] leading-5 shadow-sm ring-1",
                     statusIsError
                       ? "bg-red-50/90 text-red-800 ring-red-200/70"
                       : "bg-emerald-50/90 text-emerald-800 ring-emerald-200/70",
@@ -335,7 +335,7 @@ export function AccountSettingsPage({
               ) : null}
             </form>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex items-center justify-between gap-3 px-1">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-foreground">权益分组</div>
@@ -438,16 +438,14 @@ export function AccountSettingsPage({
           </div>
         )}
 
-        <div
-          className={cx(
-            "mt-4 min-h-9 rounded-[var(--radius-control)] bg-card px-3 py-2 text-[11px] leading-5 text-muted-foreground shadow-inner transition-opacity ring-1 ring-black/[0.035]",
-            statusMessage ? "opacity-100" : "pointer-events-none opacity-0",
-          )}
-          aria-live="polite"
-          aria-hidden={!statusMessage}
-        >
-          {statusMessage}
-        </div>
+        {statusMessage ? (
+          <div
+            className="mt-3 rounded-[var(--radius-control)] bg-card px-3 py-2 text-[11px] leading-5 text-muted-foreground shadow-inner ring-1 ring-black/[0.035]"
+            aria-live="polite"
+          >
+            {statusMessage}
+          </div>
+        ) : null}
       </section>
     </div>
   );

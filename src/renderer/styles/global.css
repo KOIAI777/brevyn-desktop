@@ -153,7 +153,7 @@
   select:focus-visible,
   [role="button"]:focus-visible,
   [role="combobox"]:focus-visible,
-  [tabindex]:not([tabindex="-1"]):focus-visible {
+  [tabindex]:not([tabindex="-1"]):not(.brevyn-rich-prompt-editor):focus-visible {
     outline: none;
     box-shadow:
       0 0 0 1px hsl(var(--focus-glow) / 0.42),
@@ -249,7 +249,7 @@
     min-height: 0;
     flex: 1 1 0%;
     overflow-y: auto;
-    padding: clamp(1rem, 2.4vw, 1.75rem);
+    padding: clamp(0.75rem, 1.7vw, 1.35rem);
     color: hsl(var(--foreground));
     font-size: 0.875rem;
   }
@@ -261,7 +261,7 @@
     width: min(100%, 86rem);
     min-width: 0;
     flex-direction: column;
-    gap: clamp(0.875rem, 1.4vw, 1.25rem);
+    gap: clamp(0.75rem, 1.2vw, 1rem);
   }
 
   .brevyn-empty-dashboard-shell {
@@ -270,23 +270,23 @@
 
   .brevyn-empty-dashboard-stage {
     display: grid;
-    min-height: clamp(26rem, 62vh, 44rem);
-    gap: clamp(1.5rem, 3vw, 3rem);
-    padding: clamp(1.25rem, 3vw, 2.6rem);
+    min-height: clamp(22rem, 56vh, 38rem);
+    gap: clamp(1.1rem, 2.4vw, 2.4rem);
+    padding: clamp(1rem, 2.4vw, 2.2rem);
   }
 
   .brevyn-empty-dashboard-title {
     max-width: 12ch;
-    font-size: clamp(2.15rem, 5vw, 4.8rem);
+    font-size: clamp(1.95rem, 4.4vw, 4.25rem);
     font-weight: 600;
-    line-height: 0.95;
-    letter-spacing: -0.075em;
+    line-height: 0.98;
+    letter-spacing: -0.068em;
   }
 
   .brevyn-empty-dashboard-description {
     max-width: 42rem;
     font-size: clamp(0.875rem, 1.15vw, 1.06rem);
-    line-height: 1.85;
+    line-height: 1.68;
   }
 
   .brevyn-empty-dashboard-side {
@@ -295,7 +295,7 @@
   }
 
   .brevyn-empty-dashboard-watermark {
-    font-size: clamp(6rem, 16vw, 15rem);
+    font-size: clamp(5rem, 13vw, 12rem);
   }
 
   @media (min-width: 960px) {
@@ -622,8 +622,39 @@
   }
 
   .brevyn-dialog-window {
-    height: 82vh;
-    width: min(1180px, calc(100vw - 48px));
+    height: min(90vh, calc(100vh - 24px));
+    max-height: calc(100vh - 24px);
+    width: min(1180px, calc(100vw - 24px));
+  }
+
+  @media (max-height: 820px) {
+    .brevyn-dashboard-scroll {
+      padding: 0.75rem;
+    }
+
+    .brevyn-dashboard-shell {
+      gap: 0.75rem;
+    }
+
+    .brevyn-empty-dashboard-stage {
+      min-height: clamp(20rem, 52vh, 32rem);
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    .brevyn-empty-dashboard-title {
+      font-size: clamp(1.8rem, 4vw, 3.4rem);
+    }
+
+    .brevyn-empty-dashboard-description {
+      line-height: 1.58;
+    }
+
+    .brevyn-dialog-window {
+      height: calc(100vh - 16px);
+      max-height: calc(100vh - 16px);
+      width: calc(100vw - 16px);
+    }
   }
 
   .brevyn-panel-surface {

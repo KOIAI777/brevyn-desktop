@@ -499,7 +499,7 @@ export function SettingsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 p-2 md:p-3"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -513,7 +513,7 @@ export function SettingsDialog({
         </div>
       )}
       <div className="brevyn-window-surface brevyn-dialog-window flex flex-col overflow-hidden">
-        <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-3 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
+        <div className="drag-region flex items-center justify-between bg-[hsl(var(--surface-chrome))] px-4 py-2.5 shadow-[inset_0_-1px_0_hsl(var(--border)/0.62)]">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] bg-card text-muted-foreground shadow-sm ring-1 ring-black/[0.045]">
@@ -533,8 +533,8 @@ export function SettingsDialog({
         </div>
 
         <div className="grid min-h-0 flex-1 md:grid-cols-[220px_1fr]">
-          <aside className="bg-[hsl(var(--surface-chrome))] p-3 shadow-[inset_-1px_0_0_hsl(var(--border)/0.62)]">
-            <div className="space-y-1.5">
+          <aside className="bg-[hsl(var(--surface-chrome))] p-2.5 shadow-[inset_-1px_0_0_hsl(var(--border)/0.62)]">
+            <div className="space-y-1">
               <SettingsNavButton
                 active={activePage === "account"}
                 icon={<UserRound className="h-4 w-4" />}
@@ -587,7 +587,7 @@ export function SettingsDialog({
             </div>
           </aside>
 
-          <main className={cx("min-h-0 bg-[hsl(var(--surface-panel))] p-4", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar")}>
+          <main className={cx("min-h-0 bg-[hsl(var(--surface-panel))] p-3", activePage === "skills" ? "overflow-hidden" : "overflow-y-auto overscroll-contain [scrollbar-gutter:stable] brevyn-scrollbar")}>
             {activePage === "account" ? (
               <AccountSettingsPage
                 cloudStatus={cloudStatus}
@@ -651,7 +651,7 @@ function SettingsNavButton({ active, icon, title, detail, onClick }: { active: b
   return (
     <button
       type="button"
-      className={cx("flex w-full min-w-0 items-start gap-2 rounded-[var(--radius-card)] px-3 py-3 text-left transition active:scale-[0.99]", active ? "bg-card text-foreground shadow-sm ring-1 ring-black/[0.05]" : "text-muted-foreground hover:bg-card hover:text-foreground")}
+      className={cx("flex w-full min-w-0 items-start gap-2 rounded-[var(--radius-card)] px-3 py-2.5 text-left transition active:scale-[0.99]", active ? "bg-card text-foreground shadow-sm ring-1 ring-black/[0.05]" : "text-muted-foreground hover:bg-card hover:text-foreground")}
       onClick={onClick}
     >
       <span className={cx("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)]", active ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>{icon}</span>

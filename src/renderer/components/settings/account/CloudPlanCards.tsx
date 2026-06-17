@@ -33,8 +33,8 @@ import {
 
 export function PlanSection({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
   return (
-    <section className="rounded-[var(--radius-card)] bg-background p-4 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <section className="rounded-[var(--radius-card)] bg-background p-3.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
+      <div className="mb-2.5 flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-semibold text-foreground">{title}</div>
           <div className="mt-0.5 text-[11px] text-muted-foreground">{detail}</div>
@@ -279,7 +279,7 @@ export function CapabilityEntitlementCard({
 
 function PlanModelSummary({ modelCount }: { modelCount: number }) {
   return (
-    <div className="brevyn-control-surface mt-3 px-2.5 py-2" title={`${modelCount || 0} 个模型`}>
+    <div className="brevyn-control-surface mt-2.5 px-2.5 py-1.5" title={`${modelCount || 0} 个模型`}>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex shrink-0 items-center gap-1.5 text-[10px]">
           <span className="font-medium text-foreground">可用模型</span>
@@ -330,12 +330,12 @@ function PlanPointsBar({
 }) {
   const clamped = clampPercent(percent);
   return (
-    <div className="brevyn-control-surface px-2.5 py-2.5">
+    <div className="brevyn-control-surface px-2.5 py-2">
       <div className="flex items-center justify-between gap-2 text-[10px]">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium text-foreground">{value}</span>
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-[var(--radius-pill)] bg-muted/80">
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-[var(--radius-pill)] bg-muted/80">
         <div className={cx("h-full rounded-[var(--radius-pill)] transition-all", tone === "warning" ? "bg-amber-500" : "bg-foreground/75")} style={{ width: `${clamped}%` }} />
       </div>
       {percentLabel && <div className="mt-1 text-[10px] text-muted-foreground">{percentLabel}</div>}

@@ -91,18 +91,18 @@ export function SemesterDashboard({
     <div className="brevyn-dashboard-background brevyn-dashboard-scroll brevyn-scrollbar">
       <div className="brevyn-dashboard-shell">
         <section className="brevyn-hero-surface">
-          <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
-            <div className="min-w-0 py-2">
+          <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_21rem] xl:gap-5 xl:p-5 2xl:grid-cols-[minmax(0,1fr)_23rem]">
+            <div className="min-w-0 py-1">
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <CalendarDays className="h-4 w-4" />
                 {semester?.term || homeCourse?.term || "当前学期"}
                 {semester?.semesterNo && <span className="rounded-[var(--radius-badge)] bg-muted px-2 py-0.5 text-[10px] normal-case tracking-normal">Semester {semester.semesterNo}</span>}
               </div>
-              <h2 className="mt-5 max-w-2xl text-[clamp(2.15rem,4vw,3.4rem)] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">把今天放回学期里。</h2>
-              <p className="mt-4 max-w-xl text-[14px] leading-7 text-muted-foreground">
+              <h2 className="mt-4 max-w-2xl text-[clamp(1.85rem,3.4vw,3rem)] font-semibold leading-[1] tracking-[-0.064em] text-foreground">把今天放回学期里。</h2>
+              <p className="mt-3 max-w-xl text-[13px] leading-6 text-muted-foreground">
                 课程、资料、作业和会话会在这里汇合。先继续一个具体入口，其余记录会自然沉淀。
               </p>
-              <div className="mt-7 flex flex-wrap items-center gap-2">
+              <div className="mt-5 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   className="inline-flex h-10 max-w-[24rem] items-center gap-2 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98]"
@@ -132,7 +132,7 @@ export function SemesterDashboard({
             </div>
             <button
               type="button"
-              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/58 p-4 text-left shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)] transition hover:bg-accent/36 active:scale-[0.995]"
+              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/58 p-3.5 text-left shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)] transition hover:bg-accent/36 active:scale-[0.995]"
               onClick={openRecommendation}
             >
               <div>
@@ -140,10 +140,10 @@ export function SemesterDashboard({
                   <Sparkles className="h-4 w-4" />
                   推荐入口
                 </div>
-                <div className="mt-4 text-lg font-semibold leading-6 tracking-[-0.035em] text-foreground">{recommendation.title}</div>
+                <div className="mt-3 text-base font-semibold leading-6 tracking-[-0.035em] text-foreground">{recommendation.title}</div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">{recommendation.description}</p>
               </div>
-              <div className="mt-5 flex items-center justify-between gap-3 pt-3">
+              <div className="mt-4 flex items-center justify-between gap-3 pt-2">
                 <div className="min-w-0 truncate text-[11px] text-muted-foreground">{recommendation.reason}</div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
               </div>
@@ -151,7 +151,7 @@ export function SemesterDashboard({
           </div>
         </section>
 
-        <section className="brevyn-soft-section p-4">
+        <section className="brevyn-soft-section p-3.5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold">
@@ -192,8 +192,8 @@ export function SemesterDashboard({
           </div>
         </section>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,min(26vw,23rem))]">
-          <section className="brevyn-soft-section min-w-0 p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,min(26vw,23rem))]">
+          <section className="brevyn-soft-section min-w-0 p-3.5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -206,7 +206,7 @@ export function SemesterDashboard({
             <ActivityHeatmap days={activityDays} />
           </section>
 
-          <section className="brevyn-soft-section min-w-0 p-4">
+          <section className="brevyn-soft-section min-w-0 p-3.5">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="h-4 w-4" />
               学期概况
@@ -421,7 +421,7 @@ function EmptySemesterCourseStart({
           <div className="brevyn-empty-dashboard-watermark pointer-events-none absolute -bottom-12 right-8 select-none font-semibold leading-none tracking-[-0.08em] text-foreground/5">
             02
           </div>
-          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-6 py-5">
+          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-5 py-4">
             <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               <CalendarDays className="h-4 w-4" />
               <span className="truncate">{semester?.term || homeCourse?.term || "当前学期"}</span>
@@ -438,14 +438,14 @@ function EmptySemesterCourseStart({
                 <CalendarDays className="h-4 w-4" />
                 课程
               </div>
-              <h2 className="brevyn-empty-dashboard-title mt-6 text-foreground">
+              <h2 className="brevyn-empty-dashboard-title mt-4 text-foreground">
                 让课程就位。
               </h2>
-              <p className="brevyn-empty-dashboard-description mt-5 text-muted-foreground">
+              <p className="brevyn-empty-dashboard-description mt-3.5 text-muted-foreground">
                 上传课表，或手动添加课程。每门课程都会成为一个独立工作区，资料、作业和会话会在对应课程下继续展开。
               </p>
 
-              <div className="mt-9 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
+              <div className="mt-6 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
                 <EmptyCourseMilestone index="01" title="手动添加" text="适合先建一门课" />
                 <EmptyCourseMilestone index="02" title="课表识别" text="适合批量导入" />
                 <EmptyCourseMilestone index="03" title="课程作业" text="在课程里创建任务空间" />

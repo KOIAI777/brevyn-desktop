@@ -208,6 +208,12 @@ export function AgentRichPromptInput({
     <div className="relative min-h-12 w-full">
       <EditorContent editor={editor} />
       <style>{`
+        .brevyn-rich-prompt-editor:focus,
+        .brevyn-rich-prompt-editor:focus-visible,
+        .brevyn-rich-prompt-editor.ProseMirror-focused {
+          outline: none;
+          box-shadow: none;
+        }
         .brevyn-rich-prompt-editor p {
           margin: 0;
         }

@@ -82,11 +82,11 @@ export function CourseDashboard({
     <div className="brevyn-dashboard-background brevyn-dashboard-scroll brevyn-scrollbar">
       <div className="brevyn-dashboard-shell">
         <section className="brevyn-hero-surface">
-          <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
-            <div className="min-w-0 py-2">
+          <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_21rem] xl:gap-5 xl:p-5 2xl:grid-cols-[minmax(0,1fr)_23rem]">
+            <div className="min-w-0 py-1">
               <div className="flex min-w-0 items-center gap-3">
                 <span
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-panel)]"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-panel)]"
                   style={{ color: courseColor, backgroundColor: `${courseColor}18`, boxShadow: `inset 0 0 0 1px ${courseColor}30` }}
                 >
                   <CourseIcon course={course} className="h-5 w-5" />
@@ -99,11 +99,11 @@ export function CourseDashboard({
                   <div className="mt-1 truncate text-sm font-semibold tracking-[-0.02em] text-foreground">{course.name}</div>
                 </div>
               </div>
-              <h2 className="mt-6 max-w-2xl text-[clamp(2.15rem,4vw,3.4rem)] font-semibold leading-[0.98] tracking-[-0.07em] text-foreground">在这门课程继续。</h2>
-              <p className="mt-4 max-w-xl text-[14px] leading-7 text-muted-foreground">
+              <h2 className="mt-4 max-w-2xl text-[clamp(1.85rem,3.4vw,3rem)] font-semibold leading-[1] tracking-[-0.064em] text-foreground">在这门课程继续。</h2>
+              <p className="mt-3 max-w-xl text-[13px] leading-6 text-muted-foreground">
                 从作业、课件或会话开始，继续处理这门课里还没弄清的问题、正在准备的草稿和需要完成的任务。
               </p>
-              <div className="mt-7 flex flex-wrap items-center gap-2">
+              <div className="mt-5 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   className="inline-flex h-10 max-w-[24rem] items-center gap-2 rounded-[var(--radius-control)] bg-foreground px-4 text-xs font-medium text-background transition hover:opacity-90 active:scale-[0.98]"
@@ -133,7 +133,7 @@ export function CourseDashboard({
             </div>
             <button
               type="button"
-              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/58 p-4 text-left shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)] transition hover:bg-accent/36 active:scale-[0.995]"
+              className="group flex min-w-0 flex-col justify-between rounded-[var(--radius-panel)] bg-background/58 p-3.5 text-left shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)] transition hover:bg-accent/36 active:scale-[0.995]"
               onClick={openCourseRecommendation}
             >
               <div>
@@ -141,10 +141,10 @@ export function CourseDashboard({
                   <Sparkles className="h-4 w-4" />
                   推荐入口
                 </div>
-                <div className="mt-4 text-lg font-semibold leading-6 tracking-[-0.035em] text-foreground">{recommendation.title}</div>
+                <div className="mt-3 text-base font-semibold leading-6 tracking-[-0.035em] text-foreground">{recommendation.title}</div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">{recommendation.description}</p>
               </div>
-              <div className="mt-5 flex items-center justify-between gap-3 pt-3">
+              <div className="mt-4 flex items-center justify-between gap-3 pt-2">
                 <div className="min-w-0 truncate text-[11px] text-muted-foreground">{recommendation.reason}</div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
               </div>
@@ -152,7 +152,7 @@ export function CourseDashboard({
           </div>
         </section>
 
-        <section className="brevyn-soft-section p-4">
+        <section className="brevyn-soft-section p-3.5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold">
@@ -204,8 +204,8 @@ export function CourseDashboard({
           )}
         </section>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,min(26vw,23rem))]">
-          <section className="brevyn-soft-section min-w-0 p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,min(26vw,23rem))]">
+          <section className="brevyn-soft-section min-w-0 p-3.5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -218,7 +218,7 @@ export function CourseDashboard({
             <ActivityHeatmap days={activityDays} />
           </section>
 
-          <section className="brevyn-soft-section min-w-0 p-4">
+          <section className="brevyn-soft-section min-w-0 p-3.5">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="h-4 w-4" />
               课程概况
@@ -397,7 +397,7 @@ function EmptyCourseTaskStart({
             03
           </div>
 
-          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-6 py-5">
+          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-5 py-4">
             <div className="flex min-w-0 items-center gap-3">
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)]"
@@ -428,14 +428,14 @@ function EmptyCourseTaskStart({
                 <CalendarClock className="h-4 w-4" />
                 课程作业
               </div>
-              <h2 className="brevyn-empty-dashboard-title mt-6 text-foreground">
+              <h2 className="brevyn-empty-dashboard-title mt-4 text-foreground">
                 让任务就位。
               </h2>
-              <p className="brevyn-empty-dashboard-description mt-5 text-muted-foreground">
+              <p className="brevyn-empty-dashboard-description mt-3.5 text-muted-foreground">
                 课程是工作区，课程作业是具体目标。为 essay、project、exam 或复习计划建立一个作业空间，资料、草稿和会话会围绕它继续沉淀。
               </p>
 
-              <div className="mt-9 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
+              <div className="mt-6 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
                 <EmptyTaskMilestone index="01" title="要求" text="放入 brief 与 rubric" />
                 <EmptyTaskMilestone index="02" title="资料" text="收集 readings 与 notes" />
                 <EmptyTaskMilestone index="03" title="会话" text="围绕目标推进" />

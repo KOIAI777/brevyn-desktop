@@ -87,7 +87,7 @@ export function WorkspaceOnboardingDashboard({
           <div className="brevyn-empty-dashboard-watermark pointer-events-none absolute -bottom-12 right-8 select-none font-semibold leading-none tracking-[-0.08em] text-foreground/5">
             01
           </div>
-          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-6 py-5">
+          <header className="relative z-[1] flex items-center justify-between gap-4 border-b border-border/50 px-5 py-4">
             <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               <GraduationCap className="h-4 w-4" />
               <span className="truncate">{copy.eyebrow}</span>
@@ -103,10 +103,10 @@ export function WorkspaceOnboardingDashboard({
                 <CalendarDays className="h-4 w-4" />
                 学期入口
               </div>
-              <h2 className="brevyn-empty-dashboard-title mt-6 text-foreground">{copy.title}</h2>
-              <p className="brevyn-empty-dashboard-description mt-5 text-muted-foreground">{copy.description}</p>
+              <h2 className="brevyn-empty-dashboard-title mt-4 text-foreground">{copy.title}</h2>
+              <p className="brevyn-empty-dashboard-description mt-3.5 text-muted-foreground">{copy.description}</p>
 
-              <div className="mt-9 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
+              <div className="mt-6 grid max-w-2xl grid-cols-3 divide-x divide-border/50 border-y border-border/55 text-xs">
                 <OnboardingMilestone index="01" title="学期" text="命名当前阶段" />
                 <OnboardingMilestone index="02" title="课程" text="添加课程入口" />
                 <OnboardingMilestone index="03" title="作业" text="沉淀资料会话" />

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 
 const CHAT_MIN_WIDTH = 520;
+const RESPONSIVE_SIDEBAR_COLLAPSE_WIDTH = 1180;
+const RESPONSIVE_RAILS_COLLAPSE_WIDTH = 1320;
 const SIDEBAR_WIDTH_STORAGE_KEY = "brevyn.sidebar.width";
 const SIDEBAR_WIDTH = { min: 240, default: 340, max: 520 } as const;
 const RAIL_WIDTHS = {
@@ -16,10 +18,14 @@ interface UseWorkspaceLayoutStateArgs {
 }
 
 export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutStateArgs) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [fileRailCollapsed, setFileRailCollapsed] = useState(true);
-  const [previewRailCollapsed, setPreviewRailCollapsed] = useState(true);
-  const [sourcesRailCollapsed, setSourcesRailCollapsed] = useState(true);
+  const initialResponsiveModeRef = useRef(readResponsiveMode());
+  const preferredSidebarCollapsedRef = useRef(false);
+  const preferredRailCollapsedRef = useRef({ files: true, preview: true, sources: true });
+  const responsiveModeRef = useRef(initialResponsiveModeRef.current);
+  const [sidebarCollapsed, setSidebarCollapsedState] = useState(() => initialResponsiveModeRef.current.sidebar ? true : preferredSidebarCollapsedRef.current);
+  const [fileRailCollapsed, setFileRailCollapsedState] = useState(() => initialResponsiveModeRef.current.rails ? true : preferredRailCollapsedRef.current.files);
+  const [previewRailCollapsed, setPreviewRailCollapsedState] = useState(() => initialResponsiveModeRef.current.rails ? true : preferredRailCollapsedRef.current.preview);
+  const [sourcesRailCollapsed, setSourcesRailCollapsedState] = useState(() => initialResponsiveModeRef.current.rails ? true : preferredRailCollapsedRef.current.sources);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readStoredSidebarWidth());
   const [fileRailWidth, setFileRailWidth] = useState<number>(RAIL_WIDTHS.files.default);
   const [previewRailWidth, setPreviewRailWidth] = useState<number>(RAIL_WIDTHS.preview.default);
@@ -42,6 +48,17 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
     let timeout = 0;
     function handleResize() {
       setWindowResizing(true);
+      const previousMode = responsiveModeRef.current;
+      const nextMode = readResponsiveMode();
+      responsiveModeRef.current = nextMode;
+      if (nextMode.sidebar !== previousMode.sidebar) {
+        setSidebarCollapsedState(nextMode.sidebar ? true : preferredSidebarCollapsedRef.current);
+      }
+      if (nextMode.rails !== previousMode.rails) {
+        setFileRailCollapsedState(nextMode.rails ? true : preferredRailCollapsedRef.current.files);
+        setPreviewRailCollapsedState(nextMode.rails ? true : preferredRailCollapsedRef.current.preview);
+        setSourcesRailCollapsedState(nextMode.rails ? true : preferredRailCollapsedRef.current.sources);
+      }
       if (timeout) window.clearTimeout(timeout);
       timeout = window.setTimeout(() => {
         setWindowResizing(false);
@@ -169,6 +186,38 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
     };
   }, [sidebarResizing]);
 
+  const setSidebarCollapsed: Dispatch<SetStateAction<boolean>> = (value) => {
+    setSidebarCollapsedState((current) => {
+      const next = resolveSetState(value, current);
+      preferredSidebarCollapsedRef.current = next;
+      return next;
+    });
+  };
+
+  const setFileRailCollapsed: Dispatch<SetStateAction<boolean>> = (value) => {
+    setFileRailCollapsedState((current) => {
+      const next = resolveSetState(value, current);
+      preferredRailCollapsedRef.current = { ...preferredRailCollapsedRef.current, files: next };
+      return next;
+    });
+  };
+
+  const setPreviewRailCollapsed: Dispatch<SetStateAction<boolean>> = (value) => {
+    setPreviewRailCollapsedState((current) => {
+      const next = resolveSetState(value, current);
+      preferredRailCollapsedRef.current = { ...preferredRailCollapsedRef.current, preview: next };
+      return next;
+    });
+  };
+
+  const setSourcesRailCollapsed: Dispatch<SetStateAction<boolean>> = (value) => {
+    setSourcesRailCollapsedState((current) => {
+      const next = resolveSetState(value, current);
+      preferredRailCollapsedRef.current = { ...preferredRailCollapsedRef.current, sources: next };
+      return next;
+    });
+  };
+
   const contentGridColumns = useMemo(
     () => gridColumnsForWidths(fileRailCollapsed, previewRailCollapsed, sourcesRailCollapsed, fileRailWidth, previewRailWidth, sourcesRailWidth),
     [fileRailCollapsed, fileRailWidth, previewRailCollapsed, previewRailWidth, sourcesRailCollapsed, sourcesRailWidth],
@@ -218,6 +267,18 @@ export function useWorkspaceLayoutState({ contentGridRef }: UseWorkspaceLayoutSt
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function readResponsiveMode(): { sidebar: boolean; rails: boolean } {
+  if (typeof window === "undefined") return { sidebar: false, rails: false };
+  return {
+    sidebar: window.innerWidth < RESPONSIVE_SIDEBAR_COLLAPSE_WIDTH,
+    rails: window.innerWidth < RESPONSIVE_RAILS_COLLAPSE_WIDTH,
+  };
+}
+
+function resolveSetState<T>(value: SetStateAction<T>, current: T): T {
+  return typeof value === "function" ? (value as (current: T) => T)(current) : value;
 }
 
 function readStoredSidebarWidth(): number {
