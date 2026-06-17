@@ -148,9 +148,6 @@
   }
 
   button:focus-visible,
-  input:focus-visible,
-  textarea:focus-visible,
-  select:focus-visible,
   [role="button"]:focus-visible,
   [role="combobox"]:focus-visible,
   [tabindex]:not([tabindex="-1"]):not(.brevyn-rich-prompt-editor):focus-visible {
@@ -158,6 +155,23 @@
     box-shadow:
       0 0 0 1px hsl(var(--focus-glow) / 0.42),
       0 0 0 4px hsl(var(--focus-glow) / 0.13);
+  }
+
+  input:focus,
+  input:focus-visible,
+  textarea:focus,
+  textarea:focus-visible,
+  select:focus,
+  select:focus-visible,
+  [contenteditable="true"]:focus,
+  [contenteditable="true"]:focus-visible {
+    outline: none;
+    box-shadow: none;
+    --tw-ring-color: transparent;
+    --tw-ring-offset-shadow: 0 0 #0000;
+    --tw-ring-shadow: 0 0 #0000;
+    --tw-shadow: 0 0 #0000;
+    --tw-shadow-colored: 0 0 #0000;
   }
 }
 
@@ -588,6 +602,26 @@
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.22),
       0 1px 2px rgba(0, 0, 0, 0.24);
+  }
+
+  input:focus,
+  input:focus-visible,
+  textarea:focus,
+  textarea:focus-visible,
+  select:focus,
+  select:focus-visible,
+  [contenteditable="true"]:focus,
+  [contenteditable="true"]:focus-visible,
+  .ProseMirror-focused,
+  .brevyn-rich-prompt-editor:focus,
+  .brevyn-rich-prompt-editor:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    --tw-ring-color: transparent !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-shadow: 0 0 #0000 !important;
+    --tw-shadow-colored: 0 0 #0000 !important;
   }
 
   :root[data-theme="dark"] .brevyn-activity-cell-0 {
