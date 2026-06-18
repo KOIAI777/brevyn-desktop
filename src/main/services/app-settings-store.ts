@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AppSettings, AppThemePreference, UserProfileSettings } from "../../types/domain";
+import type { AppCodeThemePreference, AppSettings, AppThemePreference, UserProfileSettings } from "../../types/domain";
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   agentGateway: {
@@ -8,6 +8,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   },
   appearance: {
     themePreference: "system",
+    codeThemePreference: "brevyn",
   },
   profile: {
     displayName: "Brevyn User",
@@ -92,6 +93,7 @@ function mergeSettings(base: AppSettings, patch: Partial<AppSettings>): AppSetti
     },
     appearance: {
       themePreference: normalizeThemePreference(patch.appearance?.themePreference ?? base.appearance.themePreference),
+      codeThemePreference: normalizeCodeThemePreference(patch.appearance?.codeThemePreference ?? base.appearance.codeThemePreference),
     },
     profile: normalizeProfile({
       ...base.profile,
@@ -107,6 +109,7 @@ function cloneSettings(settings: AppSettings): AppSettings {
     },
     appearance: {
       themePreference: normalizeThemePreference(settings.appearance.themePreference),
+      codeThemePreference: normalizeCodeThemePreference(settings.appearance.codeThemePreference),
     },
     profile: normalizeProfile(settings.profile),
   };
@@ -114,6 +117,12 @@ function cloneSettings(settings: AppSettings): AppSettings {
 
 function normalizeThemePreference(value: unknown): AppThemePreference {
   return value === "light" || value === "dark" || value === "system" ? value : DEFAULT_APP_SETTINGS.appearance.themePreference;
+}
+
+export function normalizeCodeThemePreference(value: unknown): AppCodeThemePreference {
+  return value === "brevyn" || value === "github" || value === "rose" || value === "mono"
+    ? value
+    : DEFAULT_APP_SETTINGS.appearance.codeThemePreference;
 }
 
 function normalizeProfile(profile: Partial<UserProfileSettings>): UserProfileSettings {

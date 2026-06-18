@@ -10,8 +10,10 @@ export interface WebCitationLink {
 }
 
 export interface AgentTodoItem {
+  id?: string;
   content: string;
   status: "pending" | "in_progress" | "completed";
+  activeContent?: string;
 }
 
 export interface RunSummary {
@@ -32,16 +34,17 @@ export interface RunSummary {
 export interface ContextUsage {
   inputTokens: number;
   contextInputTokens?: number;
-  outputTokens?: number;
-  cacheReadTokens?: number;
-  cacheCreationTokens?: number;
-  reasoningTokens?: number;
-  totalTokens?: number;
   contextWindow?: number;
   contextWindowSource?: "model_config" | "provider" | "user" | "inferred" | "unknown";
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  cacheHitRate?: number;
+  cacheSampleCount?: number;
   modelId?: string;
   providerId?: string;
-  source?: "assistant" | "result" | "default";
+  remainingTokens?: number;
+  percentage?: number;
+  source?: "context_snapshot" | "default";
 }
 
 export type ProcessEvent =
@@ -160,7 +163,7 @@ export function groupIntoTurns(records: AgentTimelineRecord[], sessionModelId?: 
       const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
       if (subtype === "permission_denied" && currentTurn) {
         currentTurn.turnRecords.push({ record: message, index });
-      } else if (subtype === "compact_boundary" || subtype === "compacting" || subtype === "permission_denied") {
+      } else if (subtype === "compact_boundary" || subtype === "compacting" || subtype === "compact_failed" || subtype === "permission_denied") {
         flushTurn();
         groups.push({ type: "system", record: message, index });
       } else if (currentTurn) {
@@ -490,7 +493,7 @@ export function isRuntimeRecord(record: unknown): record is Extract<BrevynAgentT
 function isHiddenSystemRecord(record: BrevynAgentTimelineRecord): boolean {
   if (isRuntimeRecord(record) || (record as SDKMessage).type !== "system") return false;
   const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
-  return subtype !== "compacting" && subtype !== "compact_boundary" && subtype !== "permission_denied";
+  return subtype !== "compacting" && subtype !== "compact_boundary" && subtype !== "compact_failed" && subtype !== "permission_denied";
 }
 
 export function streamTextDelta(record: BrevynAgentTimelineRecord): string {

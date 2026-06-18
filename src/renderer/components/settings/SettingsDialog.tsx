@@ -545,8 +545,8 @@ export function SettingsDialog({
               <SettingsNavButton
                 active={activePage === "general"}
                 icon={<Languages className="h-4 w-4" />}
-                title="通用"
-                detail="语言 · 外观占位"
+                title="个性化"
+                detail="主题 · 代码样式"
                 onClick={() => setActivePage("general")}
               />
               <SettingsNavButton

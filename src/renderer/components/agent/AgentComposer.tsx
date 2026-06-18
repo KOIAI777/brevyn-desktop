@@ -302,7 +302,7 @@ export const AgentComposer = memo(function AgentComposer({
                 usage={contextUsage}
                 autoCompactThresholdPercent={autoCompactThresholdPercent}
                 compacting={compacting}
-                compactDisabled={running || !contextUsage || contextUsage.inputTokens <= 0}
+                compactDisabled={running || !contextUsage || (contextUsage.contextInputTokens ?? contextUsage.inputTokens) <= 0}
                 onCompact={onCompact}
               />
               <AgentProviderPicker

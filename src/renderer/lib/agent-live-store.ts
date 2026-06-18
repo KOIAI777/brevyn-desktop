@@ -515,6 +515,9 @@ export function agentRuntimeEventThreadId(event: BrevynAgentRuntimeEvent): strin
   if (event.type === "approval_requested" || event.type === "ask_user_requested" || event.type === "exit_plan_requested") {
     return event.request.threadId;
   }
+  if (event.type === "context_usage_updated") {
+    return event.snapshot.threadId;
+  }
   return event.threadId;
 }
 

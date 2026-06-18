@@ -170,14 +170,14 @@ function resolveAppIconPath(): string | undefined {
 
 app.whenReady().then(() => {
   nativeTheme.themeSource = "system";
-  nativeTheme.on("updated", () => syncNativeTheme(activeThemePreference()));
+  nativeTheme.on("updated", () => syncNativeTheme(activeThemePreference(), activeCodeThemePreference()));
   Menu.setApplicationMenu(null);
   const dataRoot = brevynDataRoot();
   configureClaudeSdk(dataRoot);
   registerWorkspaceFilePreviewProtocol(dataRoot);
   registerIpcHandlers({ store: createDeferredStore(dataRoot), indexingQueue: createDeferredIndexingQueue() });
   createWindow();
-  syncNativeTheme(activeThemePreference());
+  syncNativeTheme(activeThemePreference(), activeCodeThemePreference());
   initAutoUpdater();
 
   void initializeLocalServices(dataRoot);
@@ -185,7 +185,7 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-      syncNativeTheme(activeThemePreference());
+      syncNativeTheme(activeThemePreference(), activeCodeThemePreference());
       if (store) startBackgroundServicesAfterFirstPaint(dataRoot);
     }
   });
@@ -194,7 +194,7 @@ app.whenReady().then(() => {
 async function initializeLocalServices(dataRoot: string): Promise<void> {
   try {
     store = createLocalStore(dataRoot, { isPackaged: app.isPackaged });
-    applyThemePreference(store.themePreference());
+    applyThemePreference(store.themePreference(), store.codeThemePreference());
     indexingQueue = new IndexingQueueService(store, new DocumentEnhancedIndexingExecutor(new WorkerThreadIndexingExecutor(), store.documentParser, store.ocr), {
       onQueueChanged: scheduleIndexingFilesChangedBroadcast,
     });
@@ -206,7 +206,7 @@ async function initializeLocalServices(dataRoot: string): Promise<void> {
     indexingQueue = null;
     resolveStoreReady(store);
   }
-  syncNativeTheme(activeThemePreference());
+  syncNativeTheme(activeThemePreference(), activeCodeThemePreference());
 }
 
 function activeThemePreference() {
@@ -214,6 +214,14 @@ function activeThemePreference() {
     return store?.themePreference() ?? "system";
   } catch {
     return "system";
+  }
+}
+
+function activeCodeThemePreference() {
+  try {
+    return store?.codeThemePreference() ?? "brevyn";
+  } catch {
+    return "brevyn";
   }
 }
 
@@ -302,6 +310,7 @@ function createDeferredStore(dataRoot: string): LocalStore {
     get(_target, property) {
       if (property === "dataRoot") return () => dataRoot;
       if (property === "themePreference") return () => store?.themePreference?.() ?? "system";
+      if (property === "codeThemePreference") return () => store?.codeThemePreference?.() ?? "brevyn";
       if (property === "onAgentEvent") {
         return (listener: Parameters<LocalStore["onAgentEvent"]>[0]) => {
           let unsubscribe: (() => void) | undefined;

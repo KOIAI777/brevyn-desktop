@@ -58,6 +58,18 @@ const PREVIEWABLE_EXTENSIONS = new Set([
   ...CODE_EXTENSIONS,
   ...DOCUMENT_EXTENSIONS,
 ]);
+const INLINE_FILE_COMMANDS = new Set([
+  "cat",
+  "code",
+  "less",
+  "more",
+  "nano",
+  "open",
+  "start",
+  "vi",
+  "vim",
+  "xdg-open",
+]);
 
 type FilePathPreviewHandler = (filePath: string) => void | Promise<void>;
 
@@ -109,7 +121,7 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
         void handleClick();
       }}
       onMouseDown={(event) => event.stopPropagation()}
-      className="not-prose inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border/60 bg-[hsl(var(--surface-warm)/0.72)] px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] text-muted-foreground align-middle shadow-[0_1px_0_rgba(120,113,108,0.08)] transition hover:border-border hover:bg-accent/75 hover:text-foreground disabled:cursor-default disabled:hover:border-border/60 disabled:hover:bg-[hsl(var(--surface-warm)/0.72)]"
+      className="brevyn-file-chip not-prose inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border px-1.5 py-[1px] font-mono text-[0.9em] font-medium leading-[1.5] align-middle transition disabled:cursor-default disabled:opacity-75"
       title={filePath}
     >
       <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center self-center leading-none">
@@ -123,6 +135,7 @@ export function FilePathChip({ filePath, threadId }: { filePath: string; threadI
 export function isFilePathLike(value: string): boolean {
   const text = value.trim();
   if (text.length < 3 || text.includes("\n")) return false;
+  if (looksLikeInlineCommand(text)) return false;
   if (isAbsoluteFilePath(text)) return true;
   return isRelativeFilePath(text);
 }
@@ -135,18 +148,25 @@ function isAbsoluteFilePath(value: string): boolean {
 }
 
 function isRelativeFilePath(value: string): boolean {
-  if (!hasSafeInlineFilePathCharacters(value)) return false;
-  if (isDirectoryPath(value) && value.includes("/")) return true;
+  if (!hasSafeInlineRelativeFilePathCharacters(value)) return false;
   const extension = extensionName(value);
   if (!extension || !PREVIEWABLE_EXTENSIONS.has(extension)) return false;
   if (value.startsWith(".") && !value.startsWith("./") && !value.includes("/")) return false;
   return true;
 }
 
-function hasSafeInlineFilePathCharacters(value: string): boolean {
-  if (/[\u0000-\u001f\u007f]/.test(value)) return false;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return false;
-  return !/[<>"|?*`]/.test(value);
+function hasSafeInlineRelativeFilePathCharacters(value: string): boolean {
+  const text = value.trim();
+  if (/[\u0000-\u001f\u007f]/.test(text)) return false;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(text)) return false;
+  if (/[<>"|?*`]/.test(text)) return false;
+  if (!text.includes("/") && /\s/.test(text)) return false;
+  return true;
+}
+
+function looksLikeInlineCommand(value: string): boolean {
+  const command = value.trim().split(/\s+/, 1)[0]?.toLowerCase();
+  return command ? INLINE_FILE_COMMANDS.has(command) : false;
 }
 
 function fileName(filePath: string): string {

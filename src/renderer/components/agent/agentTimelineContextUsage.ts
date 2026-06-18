@@ -4,22 +4,16 @@ import {
   MAX_AUTO_COMPACT_THRESHOLD_PERCENT,
   MIN_AUTO_COMPACT_THRESHOLD_PERCENT,
   type BrevynAgentTimelineRecord,
-  type BrevynUsageMetadata,
   type ModelProviderConfig,
 } from "../../../types/domain";
-import {
-  brevynUsageFromAnthropicUsage,
-  brevynUsageFromModelUsage,
-  mergeBrevynUsage,
-  mergeModelUsageContextWindow,
-  recordOf,
-} from "../../../shared/agent-usage";
 import { resolveModelContextWindow } from "../../../shared/model-context-window";
 import {
   isRuntimeRecord,
   type ContextUsage,
 } from "@/components/agent/agentTimelineModel";
-import { stringValue } from "@/components/agent/tool-cards/toolModel";
+import { recordObject, stringValue } from "@/components/agent/tool-cards/toolModel";
+
+const CACHE_USAGE_SAMPLE_LIMIT = 50;
 
 export interface ContextUsageOptions {
   activeProvider?: ModelProviderConfig;
@@ -54,36 +48,17 @@ export function defaultContextUsage(model?: string, provider?: ModelProviderConf
 
 export function latestContextUsage(records: BrevynAgentTimelineRecord[], options: ContextUsageOptions = {}): ContextUsage | null {
   let latest: ContextUsage | null = null;
-  let stableContextInputTokens = 0;
-  let stableUsageKey = "";
   for (const record of records) {
-    if (isRuntimeRecord(record)) continue;
-    const message = record as SDKMessage;
-    if (message.type === "system" && stringValue((message as { subtype?: unknown }).subtype, "") === "compact_boundary") {
-      latest = null;
-      stableContextInputTokens = 0;
-      stableUsageKey = "";
-      continue;
-    }
-    if (message.type === "assistant") {
-      const usage = contextUsageFromAssistant(message, options);
-      if (usage) {
-        const stabilized = stabilizeContextInputTokens(usage, stableUsageKey, stableContextInputTokens);
-        stableUsageKey = stabilized.key;
-        stableContextInputTokens = stabilized.contextInputTokens;
-        latest = stabilized.usage;
+    if (isRuntimeRecord(record)) {
+      if (record.event.type === "context_usage_updated") {
+        latest = contextUsageFromSnapshot(record.event.snapshot, options);
       }
       continue;
     }
-    if (message.type === "result") {
-      const usage = contextUsageFromResult(message, options);
-      if (usage) {
-        const stabilized = stabilizeContextInputTokens(usage, stableUsageKey, stableContextInputTokens);
-        stableUsageKey = stabilized.key;
-        stableContextInputTokens = stabilized.contextInputTokens;
-        latest = stabilized.usage;
-      }
-    }
+  }
+  const cacheStats = recentCacheUsageStats(records);
+  if (latest && cacheStats) {
+    latest = { ...latest, ...cacheStats };
   }
   return latest && ((latest.contextInputTokens ?? latest.inputTokens) > 0 || latest.contextWindow) ? latest : null;
 }
@@ -99,72 +74,35 @@ export function isCompactingContext(records: BrevynAgentTimelineRecord[]): boole
     if ((record as SDKMessage).type !== "system") continue;
     const subtype = stringValue((record as { subtype?: unknown }).subtype, "");
     if (subtype === "compacting") compacting = true;
-    if (subtype === "compact_boundary") compacting = false;
+    if (subtype === "compact_boundary" || subtype === "compact_failed") compacting = false;
   }
   return compacting;
 }
 
-function contextUsageFromAssistant(message: SDKMessage, options: ContextUsageOptions): ContextUsage | null {
-  const raw = recordOf(message);
-  const rawMessage = recordOf(raw.message);
-  const modelId = stringValue(rawMessage.model ?? raw._channelModelId, options.activeModelId || "");
-  const provider = providerForMessage(raw, modelId, options);
-  const providerProtocol = provider?.protocol === "openai_responses" ? "openai_responses" : "anthropic_messages";
-  const explicitUsage = explicitBrevynUsage(raw);
-  const usage = explicitUsage
-    ? mergeBrevynUsage(explicitUsage, { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider })
-    : brevynUsageFromAnthropicUsage(rawMessage.usage, { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider });
-  return usage ? contextUsageFromBrevynUsage(usage, "assistant", provider) : null;
-}
-
-function contextUsageFromResult(message: SDKMessage, options: ContextUsageOptions): ContextUsage | null {
-  const raw = recordOf(message);
-  const modelId = stringValue(raw._channelModelId, options.activeModelId || "");
-  const provider = providerForMessage(raw, modelId, options);
-  const providerProtocol = provider?.protocol === "openai_responses" ? "openai_responses" : "anthropic_messages";
-  const explicitUsage = explicitBrevynUsage(raw);
-  const source = { providerProtocol, providerId: provider?.id || stringValue(raw._channelProviderId, ""), modelId, provider } as const;
-  const usage = explicitUsage
-    ? mergeBrevynUsage(explicitUsage, source)
-    : mergeModelUsageContextWindow(brevynUsageFromAnthropicUsage(raw.usage, source), raw.modelUsage, source)
-      || brevynUsageFromModelUsage(raw.modelUsage, source);
-  return usage ? contextUsageFromBrevynUsage(usage, "result", provider) : null;
-}
-
-function contextUsageFromBrevynUsage(usage: BrevynUsageMetadata, source: "assistant" | "result", provider?: ModelProviderConfig): ContextUsage {
-  const resolvedWindow = usage.contextWindow
-    ? { contextWindow: usage.contextWindow, contextWindowSource: usage.contextWindowSource || ("model_config" as const) }
-    : resolveModelContextWindow({ modelId: usage.modelId, provider });
-  const cacheReadTokens = positiveToken(usage.cacheReadTokens);
-  const cacheCreationTokens = positiveToken(usage.cacheCreationTokens);
-  const contextInputTokens = positiveToken(usage.contextInputTokens) || usage.inputTokens + cacheReadTokens + cacheCreationTokens;
+function contextUsageFromSnapshot(
+  snapshot: Extract<Extract<BrevynAgentTimelineRecord, { kind: "runtime" }>["event"], { type: "context_usage_updated" }>["snapshot"],
+  options: ContextUsageOptions,
+): ContextUsage | null {
+  const modelId = snapshot.modelId || options.activeModelId || options.activeProvider?.selectedModel;
+  const provider = providerForModel(modelId, options);
+  const resolvedWindow = resolveModelContextWindow({ modelId, provider });
+  const contextWindow = positiveToken(snapshot.maxTokens) || positiveToken(snapshot.rawMaxTokens) || resolvedWindow.contextWindow;
+  const contextInputTokens = positiveToken(snapshot.usedTokens);
+  if (!contextInputTokens && !contextWindow) return null;
   return {
-    inputTokens: usage.inputTokens,
+    inputTokens: contextInputTokens,
     contextInputTokens,
-    outputTokens: positiveToken(usage.outputTokens) || undefined,
-    cacheReadTokens: cacheReadTokens || undefined,
-    cacheCreationTokens: cacheCreationTokens || undefined,
-    reasoningTokens: positiveToken(usage.reasoningTokens) || undefined,
-    totalTokens: positiveToken(usage.totalTokens) || undefined,
-    contextWindow: resolvedWindow.contextWindow,
-    contextWindowSource: resolvedWindow.contextWindowSource,
-    modelId: usage.modelId,
-    providerId: usage.providerId || provider?.id,
-    source,
+    contextWindow,
+    contextWindowSource: contextWindow ? "provider" : resolvedWindow.contextWindowSource,
+    modelId,
+    providerId: provider?.id,
+    remainingTokens: contextWindow ? Math.max(0, contextWindow - contextInputTokens) : undefined,
+    percentage: typeof snapshot.percentage === "number" && Number.isFinite(snapshot.percentage) ? snapshot.percentage : undefined,
+    source: "context_snapshot",
   };
 }
 
-function explicitBrevynUsage(raw: Record<string, unknown>): BrevynUsageMetadata | undefined {
-  const usage = recordOf(raw._brevynUsage);
-  return Object.keys(usage).length > 0 ? usage as unknown as BrevynUsageMetadata : undefined;
-}
-
-function providerForMessage(raw: Record<string, unknown>, modelId: string, options: ContextUsageOptions): ModelProviderConfig | undefined {
-  const channelProviderId = stringValue(raw._channelProviderId, "");
-  if (channelProviderId) {
-    const provider = options.providers?.find((item) => item.id === channelProviderId);
-    if (provider) return provider;
-  }
+function providerForModel(modelId: string | undefined, options: ContextUsageOptions): ModelProviderConfig | undefined {
   if (modelId) {
     const provider = options.providers?.find((item) => item.models.some((model) => model.id === modelId));
     if (provider) return provider;
@@ -172,33 +110,69 @@ function providerForMessage(raw: Record<string, unknown>, modelId: string, optio
   return options.activeProvider;
 }
 
-function stabilizeContextInputTokens(
-  usage: ContextUsage,
-  previousKey: string,
-  previousContextInputTokens: number,
-): { usage: ContextUsage; key: string; contextInputTokens: number } {
-  const key = contextUsageStabilityKey(usage);
-  const currentContextInputTokens = positiveToken(usage.contextInputTokens) || usage.inputTokens;
-  const contextInputTokens = key === previousKey
-    ? Math.max(previousContextInputTokens, currentContextInputTokens)
-    : currentContextInputTokens;
+function recentCacheUsageStats(records: BrevynAgentTimelineRecord[]): Pick<ContextUsage, "cacheReadTokens" | "cacheCreationTokens" | "cacheHitRate" | "cacheSampleCount"> | null {
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let inputLikeTokens = 0;
+  let sampleCount = 0;
+
+  for (let index = records.length - 1; index >= 0 && sampleCount < CACHE_USAGE_SAMPLE_LIMIT; index -= 1) {
+    const record = records[index];
+    if (isRuntimeRecord(record)) continue;
+    const usage = usageFromRecord(record as SDKMessage);
+    if (!usage) continue;
+    const denominator = usage.denominatorTokens;
+    if (denominator <= 0) continue;
+    sampleCount += 1;
+    inputLikeTokens += denominator;
+    cacheReadTokens += usage.cacheReadTokens;
+    cacheCreationTokens += usage.cacheCreationTokens;
+  }
+
+  if (sampleCount === 0) return null;
   return {
-    key,
-    contextInputTokens,
-    usage: {
-      ...usage,
-      contextInputTokens,
-    },
+    cacheReadTokens,
+    cacheCreationTokens,
+    cacheHitRate: inputLikeTokens > 0 ? cacheReadTokens / inputLikeTokens : undefined,
+    cacheSampleCount: sampleCount,
   };
 }
 
-function contextUsageStabilityKey(usage: ContextUsage): string {
-  return [
-    usage.providerId || "",
-    usage.modelId || "",
-    usage.contextWindow || "",
-    usage.contextWindowSource || "",
-  ].join("|");
+function usageFromRecord(record: SDKMessage): { denominatorTokens: number; cacheReadTokens: number; cacheCreationTokens: number } | null {
+  const root = recordObject(record);
+  const brevynUsage = usageNumbers(recordObject(root._brevynUsage));
+  if (brevynUsage) return brevynUsage;
+
+  const directUsage = usageNumbers(recordObject(root.usage));
+  if (directUsage) return directUsage;
+
+  const messageUsage = usageNumbers(recordObject(recordObject(root.message).usage));
+  if (messageUsage) return messageUsage;
+
+  return null;
+}
+
+function usageNumbers(usage: Record<string, unknown>): { denominatorTokens: number; cacheReadTokens: number; cacheCreationTokens: number } | null {
+  if (Object.keys(usage).length === 0) return null;
+  const inputDetails = recordObject(usage.input_tokens_details);
+  const promptDetails = recordObject(usage.prompt_tokens_details);
+  const cachedFromDetails = positiveToken(inputDetails.cached_tokens ?? promptDetails.cached_tokens);
+  const inputTokens = positiveToken(usage.inputTokens ?? usage.input_tokens ?? usage.prompt_tokens);
+  const cacheReadTokens = positiveToken(
+    usage.cacheReadTokens
+      ?? usage.cacheReadInputTokens
+      ?? usage.cache_read_input_tokens
+      ?? cachedFromDetails,
+  );
+  const cacheCreationTokens = positiveToken(
+    usage.cacheCreationTokens
+      ?? usage.cacheCreationInputTokens
+      ?? usage.cache_creation_input_tokens,
+  );
+  const contextInputTokens = positiveToken(usage.contextInputTokens ?? usage.context_input_tokens);
+  const denominatorTokens = contextInputTokens || (cachedFromDetails ? inputTokens : inputTokens + cacheReadTokens + cacheCreationTokens);
+  if (denominatorTokens <= 0 && cacheReadTokens <= 0 && cacheCreationTokens <= 0) return null;
+  return { denominatorTokens, cacheReadTokens, cacheCreationTokens };
 }
 
 function positiveToken(value: unknown): number {

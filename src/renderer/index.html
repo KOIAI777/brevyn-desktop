@@ -6,9 +6,12 @@
     <script>
       (() => {
         const cachedPreference = window.localStorage.getItem("brevyn.themePreference");
+        const cachedCodeTheme = window.localStorage.getItem("brevyn.codeThemePreference");
         const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         const theme = cachedPreference === "light" || cachedPreference === "dark" ? cachedPreference : systemTheme;
+        const codeTheme = ["brevyn", "github", "rose", "mono"].includes(cachedCodeTheme) ? cachedCodeTheme : "brevyn";
         document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.codeTheme = codeTheme;
         document.documentElement.style.colorScheme = theme;
         window.__BREVYN_STARTUP_SPLASH_SHOWN_AT__ = Date.now();
       })();

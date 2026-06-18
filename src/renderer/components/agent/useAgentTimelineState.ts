@@ -18,7 +18,7 @@ import {
   isCompactingContext,
   latestContextUsage,
 } from "@/components/agent/agentTimelineContextUsage";
-import { latestTodoList } from "@/components/agent/agentTimelineTodoModel";
+import { latestTaskProgressList } from "@/components/agent/agentTimelineTodoModel";
 import {
   hasRenderableAssistantContent,
   latestAssistantTextIndex,
@@ -100,7 +100,7 @@ export function useAgentTimelineState({
   const needsInstantResize = !running && liveRunning;
   const scrollTransitioning = needsInstantResize || scrollTransitioningCooldown;
   const runSummary = useMemo(() => latestRunSummary(timelineRecords, Date.now(), effectiveRunning), [effectiveRunning, timelineRecords]);
-  const todos = useMemo(() => latestTodoList(timelineRecords), [timelineRecords]);
+  const todos = useMemo(() => latestTaskProgressList(timelineRecords), [timelineRecords]);
   const contextUsage = useMemo(
     () => latestContextUsage(timelineRecords, { activeProvider, providers: agentProviders, activeModelId }) ?? defaultContextUsage(activeModelId, activeProvider),
     [activeModelId, activeProvider, agentProviders, timelineRecords],

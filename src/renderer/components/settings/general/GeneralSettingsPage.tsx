@@ -1,13 +1,13 @@
 import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
-import { Camera, ImagePlus, Languages, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { Braces, Camera, Check, ImagePlus, Languages, Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { ReadOnlyField } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
-import type { AppThemePreference, AppThemeState, UserProfileSettings } from "@/types/domain";
+import type { AppCodeThemePreference, AppThemePreference, AppThemeState, UserProfileSettings } from "@/types/domain";
 
 interface EmojiMartEmoji {
   native: string;
@@ -36,6 +36,9 @@ export function GeneralSettingsPage({
   const profileStatusTimerRef = useRef<number | null>(null);
   const appearanceStatusTimerRef = useRef<number | null>(null);
   const displayProfile = optimisticAvatarId ? { ...profile, avatarId: optimisticAvatarId } : profile;
+  const selectedCodeThemeOption = CODE_THEME_OPTIONS.find((option) => option.value === themeState.codeThemePreference) ?? CODE_THEME_OPTIONS[0];
+  const codeThemePreviewMode = themeState.effective === "dark" ? "dark" : "light";
+  const selectedCodeThemePreviewStyle = selectedCodeThemeOption.previewStyle[codeThemePreviewMode];
 
   useEffect(() => {
     setNameInput(profileDisplayName(profile));
@@ -113,6 +116,16 @@ export function GeneralSettingsPage({
       showAppearanceStatus("主题已更新。");
     } catch (error) {
       showAppearanceStatus(errorMessage(error, "保存主题失败。"), 5000);
+    }
+  }
+
+  async function updateCodeThemePreference(preference: AppCodeThemePreference) {
+    try {
+      const nextThemeState = await window.brevyn.app.updateCodeThemePreference(preference);
+      onThemeStateChange(nextThemeState);
+      showAppearanceStatus("代码主题已更新。");
+    } catch (error) {
+      showAppearanceStatus(errorMessage(error, "保存代码主题失败。"), 5000);
     }
   }
 
@@ -277,8 +290,8 @@ export function GeneralSettingsPage({
             <Monitor className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-foreground">界面外观</div>
-            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">设置应用主题，支持跟随系统或手动固定。</div>
+            <div className="text-sm font-semibold text-foreground">个性化</div>
+            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">设置应用主题和代码阅读样式。</div>
           </div>
         </div>
 
@@ -310,6 +323,95 @@ export function GeneralSettingsPage({
                     <option.icon className="h-4 w-4" />
                   </span>
                   <span className="text-[10px] leading-4 text-muted-foreground">{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-[var(--radius-card)] bg-background p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-foreground">代码主题</div>
+              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">预览对话里的命令、路径和代码块样式，不改变应用整体主题。</div>
+            </div>
+            <Braces className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+          </div>
+
+          <div className="brevyn-settings-code-preview mt-3" style={selectedCodeThemePreviewStyle}>
+            <div className="brevyn-settings-code-preview-header">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#ff5f57]" />
+                <span className="h-2 w-2 rounded-full bg-[#ffbd2e]" />
+                <span className="h-2 w-2 rounded-full bg-[#28c840]" />
+                <span className="ml-1 truncate font-mono text-[10px] text-[var(--code-muted)]">theme-preview.ts</span>
+              </div>
+              <div className="shrink-0 text-[10px] font-semibold text-[var(--code-muted)]">{selectedCodeThemeOption.label}</div>
+            </div>
+            <div className="brevyn-settings-code-preview-body brevyn-scrollbar-thin">
+              <div className="brevyn-settings-code-preview-grid">
+                <div className="brevyn-settings-code-pane">
+                  <div className="brevyn-settings-code-line">
+                    <span className="brevyn-settings-code-number">1</span>
+                    <span><span className="text-[#7c6fca]">const</span> themePreview = {"{"}</span>
+                  </div>
+                  <div className="brevyn-settings-code-line brevyn-settings-code-line-remove">
+                    <span className="brevyn-settings-code-number text-red-500">2</span>
+                    <span>surface: <span className="text-[#73c991]">"sidebar"</span>,</span>
+                  </div>
+                  <div className="brevyn-settings-code-line brevyn-settings-code-line-remove">
+                    <span className="brevyn-settings-code-number text-red-500">3</span>
+                    <span>accent: <span className="text-[#73c991]">"#c87552"</span>,</span>
+                  </div>
+                  <div className="brevyn-settings-code-line">
+                    <span className="brevyn-settings-code-number">4</span>
+                    <span>{"};"}</span>
+                  </div>
+                </div>
+                <div className="brevyn-settings-code-pane">
+                  <div className="brevyn-settings-code-line">
+                    <span className="brevyn-settings-code-number">1</span>
+                    <span><span className="text-[#7c6fca]">const</span> themePreview = {"{"}</span>
+                  </div>
+                  <div className="brevyn-settings-code-line brevyn-settings-code-line-add">
+                    <span className="brevyn-settings-code-number text-emerald-500">2</span>
+                    <span>surface: <span className="text-[#73c991]">"code"</span>,</span>
+                  </div>
+                  <div className="brevyn-settings-code-line brevyn-settings-code-line-add">
+                    <span className="brevyn-settings-code-number text-emerald-500">3</span>
+                    <span>accent: <span className="text-[var(--code-inline-fg)]">"{selectedCodeThemeOption.accentPreview}"</span>,</span>
+                  </div>
+                  <div className="brevyn-settings-code-line">
+                    <span className="brevyn-settings-code-number">4</span>
+                    <span>{"};"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {CODE_THEME_OPTIONS.map((option) => {
+              const selected = themeState.codeThemePreference === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cx(
+                    "group flex min-h-10 items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-xs transition active:scale-[0.99]",
+                    selected ? "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.38)]" : "bg-card text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.46)] hover:bg-accent hover:text-foreground",
+                  )}
+                  style={option.previewStyle[codeThemePreviewMode]}
+                  onClick={() => void updateCodeThemePreference(option.value)}
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-[var(--code-bg)] font-mono text-[12px] font-semibold text-[var(--code-inline-fg)] shadow-[inset_0_0_0_1px_var(--code-border)]">
+                    Aa
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block whitespace-nowrap font-semibold">{option.label}</span>
+                    <span className="block whitespace-nowrap text-[10px] text-muted-foreground">{option.description}</span>
+                  </span>
+                  {selected && <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-foreground/70" />}
                 </button>
               );
             })}
@@ -366,5 +468,118 @@ const THEME_OPTIONS: Array<{
     label: "深色",
     description: "固定黑色界面",
     icon: Moon,
+  },
+];
+
+const CODE_THEME_OPTIONS: Array<{
+  value: AppCodeThemePreference;
+  label: string;
+  description: string;
+  accentPreview: string;
+  previewStyle: Record<"light" | "dark", CSSProperties>;
+}> = [
+  {
+    value: "brevyn",
+    label: "Brevyn 暖调",
+    description: "默认阅读样式，和当前界面最统一",
+    accentPreview: "#c87552",
+    previewStyle: {
+      light: {
+        "--code-bg": "#f6efe6",
+        "--code-fg": "#2d261f",
+        "--code-inline-bg": "rgba(151, 104, 70, 0.115)",
+        "--code-inline-fg": "#7a3f24",
+        "--code-muted": "#8f7a66",
+        "--code-border": "rgba(130, 98, 68, 0.18)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 34px -28px rgba(85, 57, 32, 0.34)",
+      } as CSSProperties,
+      dark: {
+        "--code-bg": "#171412",
+        "--code-fg": "#efe4d7",
+        "--code-inline-bg": "rgba(238, 168, 117, 0.13)",
+        "--code-inline-fg": "#f0b88e",
+        "--code-muted": "#a99380",
+        "--code-border": "rgba(255, 232, 204, 0.105)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 40px -32px rgba(0, 0, 0, 0.72)",
+      } as CSSProperties,
+    },
+  },
+  {
+    value: "github",
+    label: "清爽亮色",
+    description: "对比更高，适合白天看代码",
+    accentPreview: "#0969da",
+    previewStyle: {
+      light: {
+        "--code-bg": "#f7f9fc",
+        "--code-fg": "#24292f",
+        "--code-inline-bg": "rgba(9, 105, 218, 0.09)",
+        "--code-inline-fg": "#0969da",
+        "--code-muted": "#6e7781",
+        "--code-border": "rgba(36, 41, 47, 0.13)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.66), 0 14px 30px -28px rgba(31, 43, 59, 0.3)",
+      } as CSSProperties,
+      dark: {
+        "--code-bg": "#0d1117",
+        "--code-fg": "#e6edf3",
+        "--code-inline-bg": "rgba(56, 139, 253, 0.14)",
+        "--code-inline-fg": "#79c0ff",
+        "--code-muted": "#7d8590",
+        "--code-border": "rgba(240, 246, 252, 0.12)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 18px 44px -34px rgba(0, 0, 0, 0.76)",
+      } as CSSProperties,
+    },
+  },
+  {
+    value: "rose",
+    label: "Rose Pine",
+    description: "柔和暗色，长代码更耐看",
+    accentPreview: "#c4a7e7",
+    previewStyle: {
+      light: {
+        "--code-bg": "#faf4ed",
+        "--code-fg": "#575279",
+        "--code-inline-bg": "rgba(144, 122, 169, 0.13)",
+        "--code-inline-fg": "#907aa9",
+        "--code-muted": "#9893a5",
+        "--code-border": "rgba(87, 82, 121, 0.15)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.58), 0 14px 34px -28px rgba(87, 82, 121, 0.32)",
+      } as CSSProperties,
+      dark: {
+        "--code-bg": "#191724",
+        "--code-fg": "#e0def4",
+        "--code-inline-bg": "rgba(196, 167, 231, 0.14)",
+        "--code-inline-fg": "#c4a7e7",
+        "--code-muted": "#908caa",
+        "--code-border": "rgba(224, 222, 244, 0.12)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 18px 44px -34px rgba(0, 0, 0, 0.76)",
+      } as CSSProperties,
+    },
+  },
+  {
+    value: "mono",
+    label: "极简灰阶",
+    description: "弱化色彩，突出结构和文本",
+    accentPreview: "#8f8a83",
+    previewStyle: {
+      light: {
+        "--code-bg": "#f2f1ee",
+        "--code-fg": "#282624",
+        "--code-inline-bg": "rgba(42, 39, 35, 0.08)",
+        "--code-inline-fg": "#36322e",
+        "--code-muted": "#77716a",
+        "--code-border": "rgba(43, 39, 35, 0.14)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 12px 28px -28px rgba(34, 31, 28, 0.34)",
+      } as CSSProperties,
+      dark: {
+        "--code-bg": "#121212",
+        "--code-fg": "#e7e2db",
+        "--code-inline-bg": "rgba(235, 229, 220, 0.09)",
+        "--code-inline-fg": "#e7e2db",
+        "--code-muted": "#948f88",
+        "--code-border": "rgba(235, 229, 220, 0.11)",
+        "--code-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 42px -34px rgba(0, 0, 0, 0.76)",
+      } as CSSProperties,
+    },
   },
 ];

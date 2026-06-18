@@ -264,7 +264,7 @@ function collapseCompactSystemGroups(groups: AgentTimelineViewGroup[]): AgentTim
 
 function isCompactSystemGroup(group: AgentTimelineViewGroup | undefined): group is Extract<AgentTimelineViewGroup, { type: "system" }> {
   return group?.type === "system"
-    && (group.item.displayKind === "compact-compacting" || group.item.displayKind === "compact-complete");
+    && (group.item.displayKind === "compact-compacting" || group.item.displayKind === "compact-complete" || group.item.displayKind === "compact-failed");
 }
 
 function assistantTurnViewItems(
@@ -1281,6 +1281,7 @@ function timelineItemDisplay(
     const subtype = stringValue((message as { subtype?: unknown }).subtype, "");
     if (subtype === "compacting") return { kind: "compact-compacting" };
     if (subtype === "compact_boundary") return { kind: "compact-complete" };
+    if (subtype === "compact_failed") return { kind: "compact-failed", assistantContent: stringValue((message as { message?: unknown }).message, "上下文压缩失败") };
     if (subtype === "permission_denied") return { kind: "permission-denied" };
   }
 

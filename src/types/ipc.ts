@@ -120,5 +120,6 @@ export const IPC_CHANNELS = {
   appDiagnostics: "brevyn:app:diagnostics",
   appTheme: "brevyn:app:theme",
   appUpdateThemePreference: "brevyn:app:update-theme-preference",
+  appUpdateCodeThemePreference: "brevyn:app:update-code-theme-preference",
   appThemeChanged: "brevyn:app:theme-changed",
 } as const;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
-import type { CanUseTool, Query, SDKMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, Query, SDKControlGetContextUsageResponse, SDKMessage, SdkBeta } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentApprovalDecision,
   AgentAttachment,
@@ -83,6 +83,7 @@ interface ActiveRun {
   assistantErrorWritten: boolean;
   compactCommand: boolean;
   compactBoundaryWritten: boolean;
+  compactFailedWritten: boolean;
 }
 
 interface ResolvedThreadContext {
@@ -144,6 +145,7 @@ export class AgentOrchestrator {
       assistantErrorWritten: false,
       compactCommand,
       compactBoundaryWritten: false,
+      compactFailedWritten: false,
     });
 
     try {
@@ -320,6 +322,7 @@ export class AgentOrchestrator {
                 if (current) {
                   current.assistantErrorWritten = true;
                   this.writeTerminalResult(current, "error_during_execution", assistantError);
+                  await this.emitContextUsageSnapshot(current);
                   this.writeTerminalLifecycle(current, "failed", assistantError);
                   current.query?.close();
                   break;
@@ -328,12 +331,19 @@ export class AgentOrchestrator {
               if (message.type === "result") {
                 if (current) {
                   const lifecycle = lifecycleForResult(message);
-                  if (current.compactCommand && lifecycle === "completed" && !current.compactBoundaryWritten) {
+                  const compactError = current.compactCommand ? compactResultErrorMessage(message) : undefined;
+                  const effectiveLifecycle = compactError ? "failed" : lifecycle;
+                  if (compactError) {
+                    this.writeCompactFailed(current, compactError);
+                    this.writeAssistantError(current, compactError);
+                  }
+                  if (current.compactCommand && effectiveLifecycle === "completed" && !current.compactBoundaryWritten) {
                     this.appendAndEmitSdkMessage(context.thread, compactBoundarySdkMessage());
                     current.compactBoundaryWritten = true;
                   }
                   current.terminalResultWritten = true;
-                  this.writeTerminalLifecycle(current, lifecycle, String((message as { result?: unknown }).result || ""));
+                  await this.emitContextUsageSnapshot(current);
+                  this.writeTerminalLifecycle(current, effectiveLifecycle, compactError || String((message as { result?: unknown }).result || ""));
                 }
               }
             } else if (shouldEmitLiveSdkMessage(message)) {
@@ -346,12 +356,14 @@ export class AgentOrchestrator {
           }
           if (active.abortController.signal.aborted) {
             this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", "Agent run stopped.");
+            await this.emitContextUsageSnapshot(active);
             this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", "Agent run stopped.");
           }
           if (!active.terminalLifecycleWritten) {
             const message = active.assistantErrorWritten ? "Agent provider request failed." : "Agent run ended without a result.";
             if (!active.assistantErrorWritten) this.writeAssistantError(active, message);
             this.writeTerminalResult(active, "error_during_execution", message);
+            await this.emitContextUsageSnapshot(active);
             this.writeTerminalLifecycle(active, "failed", message);
           }
           completed = true;
@@ -385,6 +397,7 @@ export class AgentOrchestrator {
         if (!active.stoppedByUser) this.writeAssistantError(active, message);
         this.emitRetryCleared(active);
         this.writeTerminalResult(active, active.stoppedByUser ? "stopped_by_user" : "error_during_execution", message);
+        await this.emitContextUsageSnapshot(active);
         this.writeTerminalLifecycle(active, active.stoppedByUser ? "stopped" : "failed", message);
       }
     } catch (error) {
@@ -396,6 +409,7 @@ export class AgentOrchestrator {
       else if (!stoppedByUser) this.appendAndEmitSdkMessage(context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
       if (active) {
         this.writeTerminalResult(active, stoppedByUser ? "stopped_by_user" : "error_during_execution", message);
+        await this.emitContextUsageSnapshot(active);
         this.writeTerminalLifecycle(active, stoppedByUser ? "stopped" : "failed", message);
       } else {
         this.appendAndEmitSdkMessage(context.thread, resultSdkMessage("error_during_execution", message));
@@ -655,6 +669,46 @@ export class AgentOrchestrator {
     });
   }
 
+  private async emitContextUsageSnapshot(active: ActiveRun): Promise<void> {
+    const query = active.query;
+    if (!query) return;
+    let usage: SDKControlGetContextUsageResponse;
+    try {
+      usage = await query.getContextUsage();
+    } catch (error) {
+      if (isClosedQueryContextUsageError(error)) return;
+      console.warn("[AgentOrchestrator] Failed to read SDK context usage:", error);
+      return;
+    }
+    const usedTokens = positiveInteger(usage.totalTokens);
+    if (!usedTokens) return;
+    const createdAt = now();
+    this.appendAndEmitRuntimeEvent(active.context.thread, {
+      type: "context_usage_updated",
+      snapshot: {
+        threadId: active.threadId,
+        runId: active.runId,
+        modelId: typeof usage.model === "string" && usage.model ? usage.model : active.modelId,
+        usedTokens,
+        maxTokens: positiveInteger(usage.maxTokens) || undefined,
+        rawMaxTokens: positiveInteger(usage.rawMaxTokens) || undefined,
+        percentage: positiveFiniteNumber(usage.percentage) || undefined,
+        categories: Array.isArray(usage.categories)
+          ? usage.categories
+            .map((category) => ({
+              name: typeof category.name === "string" ? category.name : "",
+              tokens: positiveInteger(category.tokens),
+              color: typeof category.color === "string" ? category.color : undefined,
+              isDeferred: category.isDeferred,
+            }))
+            .filter((category) => category.name && category.tokens > 0)
+          : undefined,
+        createdAt,
+      },
+      createdAt,
+    });
+  }
+
   private writeTerminalResult(active: ActiveRun, subtype: string, message: string): void {
     if (active.terminalResultWritten) return;
     active.terminalResultWritten = true;
@@ -665,6 +719,12 @@ export class AgentOrchestrator {
     if (active.assistantErrorWritten) return;
     active.assistantErrorWritten = true;
     this.appendAndEmitSdkMessage(active.context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
+  }
+
+  private writeCompactFailed(active: ActiveRun, message: string): void {
+    if (active.compactFailedWritten) return;
+    active.compactFailedWritten = true;
+    this.appendAndEmitSdkMessage(active.context.thread, compactFailedSdkMessage(message));
   }
 
   private finishActiveRun(active: ActiveRun): void {
@@ -991,6 +1051,17 @@ function compactBoundarySdkMessage(): SDKMessage {
   } as unknown as SDKMessage;
 }
 
+function compactFailedSdkMessage(message: string): SDKMessage {
+  return {
+    type: "system",
+    subtype: "compact_failed",
+    message,
+    uuid: entityId("compact"),
+    session_id: "",
+    _createdAt: Date.now(),
+  } as unknown as SDKMessage;
+}
+
 function promptWithAttachments(prompt: string, attachments: AgentAttachment[]): string {
   if (attachments.length === 0) return prompt;
   const refs = attachments
@@ -1094,11 +1165,33 @@ function sdkResultErrorMessage(message: SDKMessage): string | undefined {
   return result.is_error === true || subtype ? "Agent provider request failed." : undefined;
 }
 
+function compactResultErrorMessage(message: SDKMessage): string | undefined {
+  const result = message as unknown as { result?: unknown; errors?: unknown };
+  const candidates = [
+    typeof result.result === "string" ? result.result : "",
+    ...(Array.isArray(result.errors) ? result.errors.filter((item): item is string => typeof item === "string") : []),
+  ];
+  const match = candidates.find((item) => isCompactErrorText(item));
+  return match?.trim();
+}
+
 function sdkAssistantErrorMessage(message: SDKMessage): string | undefined {
   const error = (message as unknown as { error?: unknown }).error;
   if (!error || typeof error !== "object" || Array.isArray(error)) return undefined;
   const value = (error as { message?: unknown }).message;
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isCompactErrorText(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized.includes("error during compaction")
+    || normalized.includes("summarization produced empty response")
+    || normalized.includes("compaction failed")
+    || normalized.includes("failed to compact");
+}
+
+function isClosedQueryContextUsageError(error: unknown): boolean {
+  return errorMessage(error).toLowerCase().includes("query closed before response received");
 }
 
 function lifecycleForResult(message: SDKMessage): "completed" | "stopped" | "failed" {
@@ -1128,11 +1221,21 @@ function withCreatedAt(message: SDKMessage): SDKMessage {
   return { ...record, _createdAt: Date.now() } as unknown as SDKMessage;
 }
 
+function positiveInteger(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+function positiveFiniteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 function shouldPersistSdkMessage(message: SDKMessage): boolean {
   if (message.type === "stream_event") return false;
   if (message.type === "assistant" || message.type === "result") return true;
   if (message.type === "user") return userMessageHasToolResult(message);
-  return message.type === "system" && (message.subtype === "compact_boundary" || message.subtype === "permission_denied");
+  if (message.type !== "system") return false;
+  const subtype = String((message as { subtype?: unknown }).subtype || "");
+  return subtype === "compact_boundary" || subtype === "compact_failed" || subtype === "permission_denied";
 }
 
 function isCompactBoundaryMessage(message: SDKMessage): boolean {

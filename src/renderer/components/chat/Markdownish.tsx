@@ -1,7 +1,8 @@
-import { cloneElement, isValidElement, memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { isValidElement, memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FilePathChip, isFilePathLike } from "./FilePathChip";
+import type { AppCodeThemePreference, AppTheme } from "@/types/domain";
 
 const remarkPlugins = [remarkGfm];
 const LONG_MARKDOWN_CODE_LIMIT = 16_000;
@@ -12,6 +13,50 @@ const STREAM_PLAYBACK_LARGE_STEP = 28;
 const STREAM_PLAYBACK_MEDIUM_STEP = 16;
 const STREAM_PLAYBACK_SMALL_STEP = 8;
 const STREAM_INLINE_ANIMATION_LIMIT = 72;
+const SHIKI_THEME_BY_CODE_THEME: Record<AppCodeThemePreference, Record<AppTheme, string>> = {
+  brevyn: { light: "vitesse-light", dark: "vitesse-dark" },
+  github: { light: "github-light", dark: "github-dark" },
+  rose: { light: "rose-pine-dawn", dark: "rose-pine-moon" },
+  mono: { light: "min-light", dark: "min-dark" },
+};
+const SHIKI_LANGUAGE_ALIASES: Record<string, string> = {
+  js: "javascript",
+  jsx: "jsx",
+  ts: "typescript",
+  tsx: "tsx",
+  shell: "bash",
+  sh: "bash",
+  zsh: "bash",
+  yml: "yaml",
+  md: "markdown",
+  py: "python",
+  rb: "ruby",
+};
+const SHIKI_SUPPORTED_LANGUAGES = new Set([
+  "bash",
+  "css",
+  "diff",
+  "html",
+  "javascript",
+  "json",
+  "markdown",
+  "python",
+  "sql",
+  "tsx",
+  "typescript",
+  "xml",
+  "yaml",
+]);
+const highlightedCodeCache = new Map<string, string>();
+let shikiCodeToHtmlPromise: Promise<ShikiCodeToHtml> | null = null;
+
+type ShikiCodeToHtml = (code: string, options: {
+  lang: string;
+  theme: string;
+  transformers?: Array<{
+    pre?: (node: { properties: Record<string, unknown> }) => void;
+  }>;
+}) => Promise<string>;
 
 type MarkdownNode = {
   position?: {
@@ -324,7 +369,7 @@ function createMarkdownComponents({
           return <FilePathChip filePath={text.trim()} threadId={threadId} />;
         }
         return (
-          <code className="break-words rounded-md bg-muted px-1.5 py-0.5 text-[0.92em]" {...props}>
+          <code className="brevyn-inline-code break-words" {...props}>
             {renderChildren(children, blockPath("code", node))}
           </code>
         );
@@ -372,18 +417,33 @@ function MarkdownCodePre({ children, ...props }: ComponentProps<"pre">) {
   const [expanded, setExpanded] = useState(false);
   const text = textContent(children);
   const preview = text && !expanded ? truncateLongText(text, LONG_MARKDOWN_CODE_LIMIT, LONG_MARKDOWN_CODE_LINES) : null;
+  const code = preview ?? text;
   const truncated = Boolean(preview && preview !== text);
-  const renderedChildren = truncated ? replaceFirstTextChild(children, preview ?? "") : children;
+  const language = codeLanguage(children);
+  const { html, loading } = useHighlightedCode(code, language);
 
   return (
-    <div className="my-3 min-w-0 max-w-full overflow-hidden rounded-xl border bg-muted/35">
-      <pre className="max-h-96 max-w-full overflow-auto p-3 text-[12px] leading-5 [contain:layout_paint_style]" {...props}>
-        {renderedChildren}
-      </pre>
+    <div className="brevyn-code-shell my-3 min-w-0 max-w-full overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--code-border)] px-3 py-1.5">
+        <div className="brevyn-code-label min-w-0 truncate font-mono text-[10px] font-medium uppercase tracking-[0.16em]">
+          {language || "text"}
+        </div>
+        {loading && <div className="brevyn-code-label shrink-0 text-[10px]">正在高亮</div>}
+      </div>
+      {html ? (
+        <div
+          className="max-h-96 max-w-full overflow-auto p-3 [contain:layout_paint_style] brevyn-scrollbar-thin"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        <pre className="brevyn-code-pre max-h-96 max-w-full overflow-auto p-3 [contain:layout_paint_style] brevyn-scrollbar-thin" {...props}>
+          <code>{code}</code>
+        </pre>
+      )}
       {truncated && (
         <button
           type="button"
-          className="w-full border-t bg-background/75 px-3 py-2 text-left text-[11px] font-medium text-muted-foreground transition hover:text-foreground"
+          className="w-full border-t border-[var(--code-border)] bg-transparent px-3 py-2 text-left text-[11px] font-medium text-[var(--code-muted)] transition hover:text-[var(--code-fg)]"
           onClick={() => setExpanded(true)}
         >
           展开完整代码块
@@ -453,6 +513,159 @@ function inlineText(value: unknown): string {
   return "";
 }
 
+function useHighlightedCode(code: string, language: string): { html: string; loading: boolean } {
+  const [state, setState] = useState<{ key: string; html: string; loading: boolean }>({ key: "", html: "", loading: false });
+  const themeKey = useCodeThemeKey();
+  const normalizedLanguage = normalizeShikiLanguage(language);
+  const cacheKey = `${themeKey}:${normalizedLanguage}:${code}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!code.trim()) {
+      setState({ key: cacheKey, html: "", loading: false });
+      return () => {
+        cancelled = true;
+      };
+    }
+    const cached = highlightedCodeCache.get(cacheKey);
+    if (cached) {
+      setState({ key: cacheKey, html: cached, loading: false });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setState((current) => current.key === cacheKey
+      ? { ...current, loading: true }
+      : { key: cacheKey, html: "", loading: true });
+    void highlightCode(code, normalizedLanguage, themeKey)
+      .then((html) => {
+        if (cancelled) return;
+        if (highlightedCodeCache.size > 160) {
+          const oldestKey = highlightedCodeCache.keys().next().value;
+          if (oldestKey) highlightedCodeCache.delete(oldestKey);
+        }
+        highlightedCodeCache.set(cacheKey, html);
+        setState({ key: cacheKey, html, loading: false });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ key: cacheKey, html: "", loading: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheKey, code, normalizedLanguage, themeKey]);
+
+  return state.key === cacheKey ? { html: state.html, loading: state.loading } : { html: "", loading: true };
+}
+
+function useCodeThemeKey(): string {
+  const [themeKey, setThemeKey] = useState(() => currentShikiThemeKey());
+  useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      setThemeKey(currentShikiThemeKey());
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "data-code-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return themeKey;
+}
+
+async function highlightCode(code: string, language: string, theme: string): Promise<string> {
+  const codeToHtml = await shikiCodeToHtml();
+  return codeToHtml(code, {
+    lang: language,
+    theme,
+    transformers: [
+      {
+        pre(node) {
+          node.properties.class = "brevyn-code-pre";
+          node.properties.style = "";
+        },
+      },
+    ],
+  });
+}
+
+function shikiCodeToHtml(): Promise<ShikiCodeToHtml> {
+  if (!shikiCodeToHtmlPromise) {
+    shikiCodeToHtmlPromise = createShikiCodeToHtml();
+  }
+  return shikiCodeToHtmlPromise;
+}
+
+async function createShikiCodeToHtml(): Promise<ShikiCodeToHtml> {
+  const [
+    { createBundledHighlighter, createSingletonShorthands },
+    { createJavaScriptRegexEngine },
+  ] = await Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/javascript"),
+  ]);
+  const createHighlighter = createBundledHighlighter({
+    langs: {
+      bash: () => import("@shikijs/langs/bash"),
+      css: () => import("@shikijs/langs/css"),
+      diff: () => import("@shikijs/langs/diff"),
+      html: () => import("@shikijs/langs/html"),
+      javascript: () => import("@shikijs/langs/javascript"),
+      json: () => import("@shikijs/langs/json"),
+      markdown: () => import("@shikijs/langs/markdown"),
+      python: () => import("@shikijs/langs/python"),
+      sql: () => import("@shikijs/langs/sql"),
+      tsx: () => import("@shikijs/langs/tsx"),
+      typescript: () => import("@shikijs/langs/typescript"),
+      xml: () => import("@shikijs/langs/xml"),
+      yaml: () => import("@shikijs/langs/yaml"),
+    },
+    themes: {
+      "github-dark": () => import("@shikijs/themes/github-dark"),
+      "github-light": () => import("@shikijs/themes/github-light"),
+      "min-dark": () => import("@shikijs/themes/min-dark"),
+      "min-light": () => import("@shikijs/themes/min-light"),
+      "rose-pine-dawn": () => import("@shikijs/themes/rose-pine-dawn"),
+      "rose-pine-moon": () => import("@shikijs/themes/rose-pine-moon"),
+      "vitesse-dark": () => import("@shikijs/themes/vitesse-dark"),
+      "vitesse-light": () => import("@shikijs/themes/vitesse-light"),
+    },
+    engine: () => createJavaScriptRegexEngine(),
+  });
+  return createSingletonShorthands(createHighlighter).codeToHtml as ShikiCodeToHtml;
+}
+
+function currentShikiThemeKey(): string {
+  const appTheme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  const codeTheme = normalizeCodeTheme(document.documentElement.dataset.codeTheme);
+  return SHIKI_THEME_BY_CODE_THEME[codeTheme][appTheme];
+}
+
+function normalizeCodeTheme(value: unknown): AppCodeThemePreference {
+  return value === "github" || value === "rose" || value === "mono" || value === "brevyn" ? value : "brevyn";
+}
+
+function normalizeShikiLanguage(value: string): string {
+  const language = value.trim().toLowerCase();
+  if (!language) return "text";
+  const normalized = SHIKI_LANGUAGE_ALIASES[language] || language;
+  return SHIKI_SUPPORTED_LANGUAGES.has(normalized) ? normalized : "text";
+}
+
+function codeLanguage(value: ReactNode): string {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const language = codeLanguage(child);
+      if (language) return language;
+    }
+    return "";
+  }
+  if (!isValidElement(value)) return "";
+  const element = value as ReactElement<{ className?: string; children?: ReactNode }>;
+  const className = element.props.className || "";
+  const match = /(?:^|\s)language-([\w-]+)/.exec(className);
+  if (match?.[1]) return match[1];
+  return codeLanguage(element.props.children);
+}
+
 function textContent(value: ReactNode): string {
   if (typeof value === "string") return value;
   if (typeof value === "number") return String(value);
@@ -462,27 +675,6 @@ function textContent(value: ReactNode): string {
     return textContent(element.props.children);
   }
   return "";
-}
-
-function replaceFirstTextChild(value: ReactNode, text: string): ReactNode {
-  if (typeof value === "string" || typeof value === "number") return text;
-  if (Array.isArray(value)) {
-    let replaced = false;
-    return value.map((child) => {
-      if (replaced) return child;
-      const next = replaceFirstTextChild(child, text);
-      replaced = next !== child;
-      return next;
-    });
-  }
-  if (isValidElement(value)) {
-    const element = value as ReactElement<{ children?: ReactNode }>;
-    if (!("children" in element.props)) return value;
-    const nextChildren = replaceFirstTextChild(element.props.children, text);
-    if (nextChildren === element.props.children) return value;
-    return cloneElement(element, { children: nextChildren });
-  }
-  return value;
 }
 
 function truncateLongText(value: string, maxChars: number, maxLines: number): string {

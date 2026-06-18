@@ -24,6 +24,7 @@ import type {
   CloudRefreshInput,
   CloudSyncConversationProviderInput,
   CloudSyncOfficialProviderInput,
+  AppCodeThemePreference,
   AppThemePreference,
   AppThemeState,
   BrevynAgentEvent,
@@ -217,6 +218,7 @@ const api: BrevynAPI = {
     diagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.appDiagnostics),
     theme: () => ipcRenderer.invoke(IPC_CHANNELS.appTheme),
     updateThemePreference: (preference: AppThemePreference) => ipcRenderer.invoke(IPC_CHANNELS.appUpdateThemePreference, preference),
+    updateCodeThemePreference: (preference: AppCodeThemePreference) => ipcRenderer.invoke(IPC_CHANNELS.appUpdateCodeThemePreference, preference),
     onThemeChanged: (callback: (theme: AppThemeState) => void) => {
       const listener = (_event: IpcRendererEvent, theme: AppThemeState) => callback(theme);
       ipcRenderer.on(IPC_CHANNELS.appThemeChanged, listener);

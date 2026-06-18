@@ -555,6 +555,7 @@ function UserTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
 function SystemTimelineGroup({ item }: { item: AgentTimelineViewItem }) {
   if (item.displayKind === "compact-compacting") return <CompactContextNote state="compacting" />;
   if (item.displayKind === "compact-complete") return <CompactContextNote state="complete" />;
+  if (item.displayKind === "compact-failed") return <CompactContextNote state="failed" message={item.assistantContent} />;
   if (item.displayKind === "permission-denied") return <PermissionDeniedNotice record={item.record as SDKMessage} />;
   return null;
 }
@@ -888,7 +889,7 @@ function AssistantTurnEntry({
 
   if (displayKind === "hidden" || displayKind === "user-message") return null;
 
-  if (displayKind === "compact-compacting" || displayKind === "compact-complete") {
+  if (displayKind === "compact-compacting" || displayKind === "compact-complete" || displayKind === "compact-failed") {
     return <SystemTimelineGroup item={item} />;
   }
 

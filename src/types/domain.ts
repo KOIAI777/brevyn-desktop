@@ -925,6 +925,23 @@ export interface BrevynUsageMetadata {
   raw?: unknown;
 }
 
+export interface BrevynContextUsageSnapshot {
+  threadId: string;
+  runId: string;
+  modelId?: string;
+  usedTokens: number;
+  maxTokens?: number;
+  rawMaxTokens?: number;
+  percentage?: number;
+  categories?: Array<{
+    name: string;
+    tokens: number;
+    color?: string;
+    isDeferred?: boolean;
+  }>;
+  createdAt: string;
+}
+
 export interface AgentAttachment {
   id: string;
   threadId: string;
@@ -1043,6 +1060,7 @@ export type BrevynAgentRuntimeEvent =
   | { type: "run_started"; runId: string; threadId: string; permissionMode?: AgentPermissionMode; providerId?: string; modelId?: string; providerProtocol?: AgentProtocol; createdAt: string }
   | { type: "run_retrying"; runId: string; threadId: string; retryAttempt: number; maxRetries: number; reason: string; delayMs: number; createdAt: string }
   | { type: "run_retry_cleared"; runId: string; threadId: string; createdAt: string }
+  | { type: "context_usage_updated"; snapshot: BrevynContextUsageSnapshot; createdAt: string }
   | { type: "run_completed"; runId: string; threadId: string; resultSubtype?: string; createdAt: string }
   | { type: "run_stopped"; runId: string; threadId: string; reason?: string; createdAt: string }
   | { type: "run_failed"; runId: string; threadId: string; error: string; createdAt: string }
@@ -1117,6 +1135,7 @@ export interface AppSettings {
   };
   appearance: {
     themePreference: AppThemePreference;
+    codeThemePreference: AppCodeThemePreference;
   };
   profile: UserProfileSettings;
 }
@@ -1134,10 +1153,12 @@ export interface UserProfileUpdateInput {
 
 export type AppTheme = "light" | "dark";
 export type AppThemePreference = "system" | AppTheme;
+export type AppCodeThemePreference = "brevyn" | "github" | "rose" | "mono";
 
 export interface AppThemeState {
   preference: AppThemePreference;
   effective: AppTheme;
+  codeThemePreference: AppCodeThemePreference;
 }
 
 export interface AgentGatewayStatus {
@@ -1638,6 +1659,7 @@ export interface BrevynAPI {
     diagnostics: () => Promise<AppDiagnostics>;
     theme: () => Promise<AppThemeState>;
     updateThemePreference: (preference: AppThemePreference) => Promise<AppThemeState>;
+    updateCodeThemePreference: (preference: AppCodeThemePreference) => Promise<AppThemeState>;
     onThemeChanged: (callback: (theme: AppThemeState) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     revealPath: (path: string) => Promise<void>;

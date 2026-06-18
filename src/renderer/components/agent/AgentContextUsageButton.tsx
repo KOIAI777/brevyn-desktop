@@ -26,8 +26,8 @@ export function ContextUsageButton({
     anchorRef: buttonRef,
     popoverRef,
     width: 256,
-    estimatedHeight: 288,
-    minHeight: 216,
+    estimatedHeight: 236,
+    minHeight: 188,
     gap: 10,
   });
 
@@ -72,7 +72,13 @@ export function ContextUsageButton({
   const compactThreshold = usage.contextWindow ? usage.contextWindow * compactThresholdRatio : 0;
   const warning = compactThreshold > 0 ? contextInputTokens / compactThreshold >= 0.8 : false;
   const percent = usage.contextWindow ? Math.round((contextInputTokens / usage.contextWindow) * 100) : undefined;
-  const contextWindowLabel = usage.contextWindowSource === "inferred" ? "估算窗口" : usage.contextWindowSource === "unknown" ? "未知窗口" : "配置窗口";
+  const contextWindowLabel = usage.contextWindowSource === "inferred" ? "估算窗口" : usage.contextWindowSource === "unknown" ? "未知窗口" : "上下文窗口";
+  const usageLabel = usage.contextWindow
+    ? `${formatTokens(contextInputTokens)} / ${formatTokens(usage.contextWindow)}`
+    : `${formatTokens(contextInputTokens)} 已使用`;
+  const cacheHitLabel = typeof usage.cacheHitRate === "number" && Number.isFinite(usage.cacheHitRate)
+    ? `${Math.round(clampNumber(usage.cacheHitRate, 0, 1) * 100)}%`
+    : "暂无数据";
 
   return (
     <div className="relative">
@@ -103,7 +109,7 @@ export function ContextUsageButton({
             <div>
               <p className="text-[12px] font-semibold text-foreground">上下文用量</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {usage.contextWindow ? `${formatTokens(contextInputTokens)} / ${formatTokens(usage.contextWindow)} · ${contextWindowLabel}` : `${formatTokens(contextInputTokens)} used`}
+                {usageLabel} · {contextWindowLabel}
               </p>
             </div>
             {percent !== undefined && (
@@ -114,12 +120,13 @@ export function ContextUsageButton({
           </div>
           <div className="mt-3 grid gap-1.5">
             <ContextUsageTextRow label="模型" value={usage.modelId} />
-            <ContextUsageRow label="输入" value={usage.inputTokens} />
-            <ContextUsageRow label="输出" value={usage.outputTokens} />
-            <ContextUsageRow label="缓存读取" value={usage.cacheReadTokens} />
-            <ContextUsageRow label="缓存写入" value={usage.cacheCreationTokens} />
-            <ContextUsageRow label="推理" value={usage.reasoningTokens} />
-            <ContextUsageRow label="总计" value={usage.totalTokens} />
+            <ContextUsageTextRow label="使用量" value={usageLabel} />
+          </div>
+          <div className="mt-3 border-t border-border/55 pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-medium text-muted-foreground">平均缓存命中率</span>
+              <span className="font-mono text-[13px] font-semibold text-foreground">{cacheHitLabel}</span>
+            </div>
           </div>
           <button
             type="button"
@@ -191,16 +198,6 @@ function ContextUsageTextRow({ label, value }: { label: string; value?: string }
     <div className="flex items-center justify-between gap-3 text-[11px]">
       <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 truncate font-medium text-foreground">{value}</span>
-    </div>
-  );
-}
-
-function ContextUsageRow({ label, value }: { label: string; value?: number }) {
-  if (!value || value <= 0) return null;
-  return (
-    <div className="flex items-center justify-between gap-3 text-[11px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value.toLocaleString()}</span>
     </div>
   );
 }

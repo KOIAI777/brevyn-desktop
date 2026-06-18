@@ -6,18 +6,24 @@ import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
 import type { AgentAttachment } from "@/types/domain";
 import type { AnswerEvidenceSource } from "@/components/agent/ragEvidence";
 
-export function CompactContextNote({ state }: { state: "compacting" | "complete" }) {
+export function CompactContextNote({ state, message }: { state: "compacting" | "complete" | "failed"; message?: string }) {
   const compacting = state === "compacting";
+  const failed = state === "failed";
   return (
     <div className="flex w-full items-center gap-3 py-3">
       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-border/70 to-border/25" />
       <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] ${
         compacting
           ? "brevyn-status-pill-warning"
-          : "brevyn-status-pill-success"
+          : failed
+            ? "brevyn-status-pill-danger"
+            : "brevyn-status-pill-success"
       }`}>
-        <Minimize2 className="h-3.5 w-3.5 shrink-0" />
-        <span className={`font-semibold ${compacting ? "taskagent-sweep-text" : ""}`}>{compacting ? "正在压缩上下文" : "上下文已压缩"}</span>
+        {failed ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <Minimize2 className="h-3.5 w-3.5 shrink-0" />}
+        <span className={`font-semibold ${compacting ? "taskagent-sweep-text" : ""}`}>
+          {compacting ? "正在压缩上下文" : failed ? "上下文压缩失败" : "上下文已压缩"}
+        </span>
+        {failed && message ? <span className="max-w-[28rem] truncate opacity-75">{message}</span> : null}
       </div>
       <div className="h-px flex-1 bg-gradient-to-r from-border/25 via-border/70 to-transparent" />
     </div>

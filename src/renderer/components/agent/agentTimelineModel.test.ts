@@ -111,6 +111,29 @@ function runCompleted(runId: string): AgentTimelineRecord {
   } as AgentTimelineRecord;
 }
 
+function contextUsageUpdated(
+  overrides: Partial<Extract<BrevynAgentRuntimeEvent, { type: "context_usage_updated" }>["snapshot"]> = {},
+): AgentTimelineRecord {
+  const createdAt = overrides.createdAt ?? "2026-05-16T00:00:01.000Z";
+  return {
+    kind: "runtime",
+    event: {
+      type: "context_usage_updated",
+      snapshot: {
+        threadId: "thread_fixture",
+        runId: "run_fixture",
+        modelId: "claude-sonnet-4-6",
+        usedTokens: 120_000,
+        maxTokens: 1_000_000,
+        percentage: 12,
+        createdAt,
+        ...overrides,
+      },
+      createdAt,
+    },
+  } as AgentTimelineRecord;
+}
+
 function approvalRequested(runId: string, requestId: string, toolUseId: string): AgentTimelineRecord {
   return {
     kind: "runtime",
@@ -167,10 +190,11 @@ function stoppedResult(uuid: string): SDKMessage {
   } as unknown as SDKMessage;
 }
 
-function systemCompact(subtype: "compacting" | "compact_boundary", uuid: string): SDKMessage {
+function systemCompact(subtype: "compacting" | "compact_boundary" | "compact_failed", uuid: string, message?: string): SDKMessage {
   return {
     type: "system",
     subtype,
+    message,
     session_id: "session_fixture",
     uuid,
     _createdAt: 3,
@@ -255,6 +279,19 @@ function viewItem(record: AgentTimelineRecord, index: number): AgentTimelineView
     processKey: `record-${index}`,
     defaultCollapsed: true,
   };
+}
+
+function viewItems(records: AgentTimelineRecord[]): AgentTimelineViewItem[] {
+  return buildTimelineViewItems(records, {
+    forceProcessOpen: false,
+    ownerUserIndexByRecordIndex: records.map(() => 0),
+    processCollapsedByKey: {},
+    resolvedApprovals: new Map(),
+    resolvedExitPlans: new Map(),
+    resolvedQuestions: new Map(),
+    runSummary: null,
+    runSummaryByUserIndex: new Map(),
+  });
 }
 
 function firstToolEvent(turn: Extract<AgentTimelineViewGroup, { type: "assistant-turn" }> | undefined) {
@@ -740,20 +777,24 @@ const compactStatusRecords: AgentTimelineRecord[] = [
   result("result_compact_status"),
   systemCompact("compact_boundary", "system_compact_complete_status"),
 ];
-const compactStatusItems = buildTimelineViewItems(compactStatusRecords, {
-  forceProcessOpen: false,
-  ownerUserIndexByRecordIndex: compactStatusRecords.map(() => 0),
-  processCollapsedByKey: {},
-  resolvedApprovals: new Map(),
-  resolvedExitPlans: new Map(),
-  resolvedQuestions: new Map(),
-  runSummary: null,
-  runSummaryByUserIndex: new Map(),
-});
+const compactStatusItems = viewItems(compactStatusRecords);
 const compactStatusGroups = buildTimelineViewGroups(compactStatusRecords, compactStatusItems, { activeModelId: "deepseek-v4-pro" });
 assert.deepEqual(compactStatusGroups.map((group) => group.type), ["system"]);
 assert.equal(compactStatusGroups[0]?.type === "system" ? compactStatusGroups[0].item.displayKind : "", "compact-complete");
 assert.equal(compactStatusGroups[0]?.key, "system-compact-0");
+
+const compactFailedRecords: AgentTimelineRecord[] = [
+  userText("/compact", "user_compact_failed_status"),
+  systemCompact("compacting", "system_compacting_failed_status"),
+  result("result_compact_failed_status"),
+  systemCompact("compact_failed", "system_compact_failed_status", "Error during compaction: summarization produced empty response"),
+];
+const compactFailedItems = viewItems(compactFailedRecords);
+const compactFailedGroups = buildTimelineViewGroups(compactFailedRecords, compactFailedItems, { activeModelId: "deepseek-v4-pro" });
+assert.deepEqual(compactFailedGroups.map((group) => group.type), ["system"]);
+assert.equal(compactFailedGroups[0]?.type === "system" ? compactFailedGroups[0].item.displayKind : "", "compact-failed");
+assert.equal(compactFailedGroups[0]?.type === "system" ? compactFailedGroups[0].item.assistantContent : "", "Error during compaction: summarization produced empty response");
+assert.equal(compactFailedGroups[0]?.key, "system-compact-0");
 
 const thinkingOnlyStreamRecords: AgentTimelineRecord[] = [
   userText("Think first.", "user_thinking_stream_only"),
@@ -1280,118 +1321,132 @@ const openAiProvider = {
   createdAt: "2026-05-16T00:00:00.000Z",
   updatedAt: "2026-05-16T00:00:00.000Z",
 } satisfies ModelProviderConfig;
-const claudeUsageAssistant = {
-  ...assistant([{ type: "text", text: "Claude usage" }], "assistant_usage_claude"),
+const ignoredAssistantUsage = {
+  ...assistant([{ type: "text", text: "SDK usage should not drive context" }], "assistant_usage_ignored"),
   _channelProviderId: "provider_claude",
   _channelModelId: "claude-sonnet-4-6",
   message: {
     role: "assistant",
     model: "claude-sonnet-4-6",
-    content: [{ type: "text", text: "Claude usage" }],
+    content: [{ type: "text", text: "SDK usage should not drive context" }],
     usage: {
       input_tokens: 12_000,
       output_tokens: 800,
-      cache_read_input_tokens: 3_000,
+      cache_read_input_tokens: 300_000,
       cache_creation_input_tokens: 500,
     },
   },
 } as unknown as SDKMessage;
-const openAiUsageAssistant = {
-  ...assistant([{ type: "text", text: "OpenAI usage" }], "assistant_usage_openai"),
-  _brevynUsage: {
-    providerProtocol: "openai_responses",
-    providerId: "provider_openai",
-    modelId: "gpt-5.5",
-    inputTokens: 10_000,
-    outputTokens: 900,
-    cacheReadTokens: 2_000,
-    reasoningTokens: 450,
-    totalTokens: 10_900,
-    contextInputTokens: 10_000,
-    contextWindow: 258_000,
-    contextWindowSource: "provider",
-  },
-} as unknown as SDKMessage;
-const mixedProviderUsage = latestContextUsage(
-  [claudeUsageAssistant, openAiUsageAssistant],
-  { providers: [claudeProvider, openAiProvider], activeProvider: claudeProvider, activeModelId: "claude-sonnet-4-6" },
-);
-assert.equal(mixedProviderUsage?.providerId, "provider_openai");
-assert.equal(mixedProviderUsage?.modelId, "gpt-5.5");
-assert.equal(mixedProviderUsage?.contextWindow, 258_000);
-assert.equal(mixedProviderUsage?.reasoningTokens, 450);
-assert.equal(mixedProviderUsage?.contextInputTokens, 10_000);
-
-const liveAssistantUsage = latestContextUsage(
-  [userText("Live token update", "user_live_usage"), claudeUsageAssistant],
-  { providers: [claudeProvider], activeProvider: claudeProvider, activeModelId: "claude-sonnet-4-6" },
-);
-assert.equal(liveAssistantUsage?.source, "assistant");
-assert.equal(liveAssistantUsage?.contextInputTokens, 15_500);
-assert.equal(liveAssistantUsage?.contextWindow, 1_000_000);
-
-const modelUsageResult = {
-  ...result("result_model_usage"),
-  _channelProviderId: "provider_claude",
-  modelUsage: {
-    "claude-sonnet-4-6": {
-      inputTokens: 30_000,
-      outputTokens: 1_000,
-      cacheReadInputTokens: 5_000,
-      cacheCreationInputTokens: 0,
-      contextWindow: 1_000_000,
-    },
-  },
-} as unknown as SDKMessage;
-const resultUsage = latestContextUsage([modelUsageResult], { providers: [claudeProvider], activeProvider: claudeProvider });
-assert.equal(resultUsage?.source, "result");
-assert.equal(resultUsage?.modelId, "claude-sonnet-4-6");
-assert.equal(resultUsage?.contextInputTokens, 35_000);
-assert.equal(resultUsage?.contextWindow, 1_000_000);
-
-const resultWithLargeModelUsage = {
-  ...result("result_usage_preferred_over_model_usage"),
+const ignoredResultUsage = {
+  ...result("result_usage_ignored"),
   _channelProviderId: "provider_claude",
   _channelModelId: "claude-sonnet-4-6",
   usage: {
-    input_tokens: 8_000,
-    output_tokens: 200,
-    cache_read_input_tokens: 2_000,
+    input_tokens: 9_000,
+    output_tokens: 300,
+    cache_read_input_tokens: 400_000,
     cache_creation_input_tokens: 0,
   },
   modelUsage: {
     "claude-sonnet-4-6": {
       inputTokens: 80_000,
       outputTokens: 2_000,
-      cacheReadInputTokens: 20_000,
+      cacheReadInputTokens: 500_000,
       cacheCreationInputTokens: 0,
       contextWindow: 1_000_000,
     },
   },
 } as unknown as SDKMessage;
-const preferredResultUsage = latestContextUsage([resultWithLargeModelUsage], { providers: [claudeProvider], activeProvider: claudeProvider });
-assert.equal(preferredResultUsage?.contextInputTokens, 10_000);
-assert.equal(preferredResultUsage?.contextWindow, 1_000_000);
+assert.equal(latestContextUsage([ignoredAssistantUsage, ignoredResultUsage], { providers: [claudeProvider], activeProvider: claudeProvider }), null);
 
-const lowerResultUsage = {
-  ...result("result_lower_usage"),
-  _channelProviderId: "provider_claude",
-  _channelModelId: "claude-sonnet-4-6",
-  usage: {
-    input_tokens: 9_000,
-    output_tokens: 300,
-    cache_read_input_tokens: 1_000,
-    cache_creation_input_tokens: 0,
-  },
-} as unknown as SDKMessage;
-const stableUsage = latestContextUsage([claudeUsageAssistant, lowerResultUsage], { providers: [claudeProvider], activeProvider: claudeProvider });
-assert.equal(stableUsage?.contextInputTokens, 15_500);
+const snapshotUsage = latestContextUsage(
+  [userText("Read current context.", "user_context_snapshot"), ignoredAssistantUsage, contextUsageUpdated()],
+  { providers: [claudeProvider], activeProvider: claudeProvider, activeModelId: "claude-sonnet-4-6" },
+);
+assert.equal(snapshotUsage?.source, "context_snapshot");
+assert.equal(snapshotUsage?.providerId, "provider_claude");
+assert.equal(snapshotUsage?.modelId, "claude-sonnet-4-6");
+assert.equal(snapshotUsage?.contextInputTokens, 120_000);
+assert.equal(snapshotUsage?.contextWindow, 1_000_000);
+assert.equal(snapshotUsage?.remainingTokens, 880_000);
+assert.equal(snapshotUsage?.percentage, 12);
+assert.equal(snapshotUsage?.cacheReadTokens, 300_000);
+assert.equal(snapshotUsage?.cacheCreationTokens, 500);
+assert.equal(snapshotUsage?.cacheSampleCount, 1);
+assert.equal(Math.round((snapshotUsage?.cacheHitRate ?? 0) * 100), 96);
 
-const compactedUsage = latestContextUsage(
-  [claudeUsageAssistant, systemCompact("compact_boundary", "usage_compact_boundary"), lowerResultUsage],
+const cacheWindowRecords: AgentTimelineRecord[] = [
+  contextUsageUpdated(),
+  ...Array.from({ length: 51 }, (_, index) => ({
+    ...result(`cache_result_${index}`),
+    _brevynUsage: {
+      inputTokens: index === 0 ? 1000 : 10,
+      outputTokens: 100_000,
+      cacheReadTokens: index === 0 ? 0 : 30,
+      cacheCreationTokens: 0,
+    },
+  } as unknown as SDKMessage)),
+];
+const cacheWindowUsage = latestContextUsage(cacheWindowRecords, { providers: [claudeProvider], activeProvider: claudeProvider });
+assert.equal(cacheWindowUsage?.cacheSampleCount, 50);
+assert.equal(cacheWindowUsage?.cacheReadTokens, 1500);
+assert.equal(Math.round((cacheWindowUsage?.cacheHitRate ?? 0) * 100), 75);
+
+const openAiCachedUsage = latestContextUsage(
+  [
+    contextUsageUpdated({ modelId: "gpt-5.5" }),
+    {
+      ...result("openai_cached_tokens"),
+      usage: {
+        input_tokens: 100,
+        output_tokens: 100_000,
+        input_tokens_details: {
+          cached_tokens: 80,
+        },
+      },
+    } as unknown as SDKMessage,
+  ],
+  { providers: [openAiProvider], activeProvider: openAiProvider },
+);
+assert.equal(openAiCachedUsage?.cacheReadTokens, 80);
+assert.equal(Math.round((openAiCachedUsage?.cacheHitRate ?? 0) * 100), 80);
+
+const inferredSnapshotUsage = latestContextUsage(
+  [contextUsageUpdated({ modelId: "gpt-5.5", usedTokens: 25_000, maxTokens: undefined, rawMaxTokens: undefined, percentage: undefined })],
+  { providers: [openAiProvider], activeProvider: openAiProvider },
+);
+assert.equal(inferredSnapshotUsage?.providerId, "provider_openai");
+assert.equal(inferredSnapshotUsage?.contextInputTokens, 25_000);
+assert.equal(inferredSnapshotUsage?.contextWindow, 258_000);
+
+const rawWindowSnapshotUsage = latestContextUsage(
+  [contextUsageUpdated({ usedTokens: 75_000, maxTokens: undefined, rawMaxTokens: 900_000 })],
   { providers: [claudeProvider], activeProvider: claudeProvider },
 );
-assert.equal(compactedUsage?.contextInputTokens, 10_000);
+assert.equal(rawWindowSnapshotUsage?.contextWindow, 900_000);
+assert.equal(rawWindowSnapshotUsage?.remainingTokens, 825_000);
+
+const compactedUsage = latestContextUsage(
+  [contextUsageUpdated(), systemCompact("compact_boundary", "usage_compact_boundary"), ignoredResultUsage],
+  { providers: [claudeProvider], activeProvider: claudeProvider },
+);
+assert.equal(compactedUsage?.contextInputTokens, 120_000);
+
+const failedCompactUsage = latestContextUsage(
+  [contextUsageUpdated(), systemCompact("compact_failed", "usage_compact_failed", "Error during compaction: summarization produced empty response")],
+  { providers: [claudeProvider], activeProvider: claudeProvider },
+);
+assert.equal(failedCompactUsage?.contextInputTokens, 120_000);
+
+const refreshedAfterCompactUsage = latestContextUsage(
+  [
+    contextUsageUpdated({ usedTokens: 120_000 }),
+    systemCompact("compact_boundary", "usage_compact_boundary_refresh"),
+    contextUsageUpdated({ usedTokens: 32_000, createdAt: "2026-05-16T00:00:03.000Z" }),
+  ],
+  { providers: [claudeProvider], activeProvider: claudeProvider },
+);
+assert.equal(refreshedAfterCompactUsage?.contextInputTokens, 32_000);
 
 const defaultUsage = defaultContextUsage("gpt-5.5", openAiProvider);
 assert.equal(defaultUsage?.source, "default");

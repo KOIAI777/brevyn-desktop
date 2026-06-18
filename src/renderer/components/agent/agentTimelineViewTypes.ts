@@ -43,6 +43,7 @@ export type AgentTimelineDisplayKind =
   | "process"
   | "compact-compacting"
   | "compact-complete"
+  | "compact-failed"
   | "thinking"
   | "tool-use"
   | "approval-request"

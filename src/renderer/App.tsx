@@ -1,6 +1,6 @@
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AgentAttachment, AgentPermissionMode, AppTheme, AppThemeState, UserProfileSettings } from "@/types/domain";
+import type { AgentAttachment, AgentPermissionMode, AppCodeThemePreference, AppTheme, AppThemeState, UserProfileSettings } from "@/types/domain";
 import { CourseDashboard } from "@/components/courses/CourseDashboard";
 import { SemesterDashboard } from "@/components/courses/SemesterDashboard";
 import { WorkspaceOnboardingDashboard } from "@/components/courses/WorkspaceOnboardingDashboard";
@@ -29,15 +29,27 @@ function applyAppTheme(theme: AppTheme): void {
   document.documentElement.style.colorScheme = theme;
 }
 
+function applyCodeTheme(preference: AppCodeThemePreference): void {
+  document.documentElement.dataset.codeTheme = preference;
+}
+
 function applyAppThemeState(state: AppThemeState): void {
   applyAppTheme(state.effective);
+  applyCodeTheme(state.codeThemePreference);
   window.localStorage.setItem("brevyn.themePreference", state.preference);
+  window.localStorage.setItem("brevyn.codeThemePreference", state.codeThemePreference);
 }
 
 function preferredRendererTheme(): AppTheme {
   const cachedPreference = window.localStorage.getItem("brevyn.themePreference");
   if (cachedPreference === "light" || cachedPreference === "dark") return cachedPreference;
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function preferredRendererCodeTheme(): AppCodeThemePreference {
+  const cachedPreference = window.localStorage.getItem("brevyn.codeThemePreference");
+  if (cachedPreference === "brevyn" || cachedPreference === "github" || cachedPreference === "rose" || cachedPreference === "mono") return cachedPreference;
+  return "brevyn";
 }
 
 function App() {
@@ -47,7 +59,11 @@ function App() {
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
   const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Brevyn User", avatarId: "🧑‍💻" });
-  const [themeState, setThemeState] = useState<AppThemeState>({ preference: "system", effective: preferredRendererTheme() });
+  const [themeState, setThemeState] = useState<AppThemeState>({
+    preference: "system",
+    effective: preferredRendererTheme(),
+    codeThemePreference: preferredRendererCodeTheme(),
+  });
 
   const dialogs = useAppDialogState();
   const layoutState = useWorkspaceLayoutState({ contentGridRef });
@@ -108,6 +124,7 @@ function App() {
   useLayoutEffect(() => {
     let mounted = true;
     applyAppTheme(preferredRendererTheme());
+    applyCodeTheme(preferredRendererCodeTheme());
     void window.brevyn.app.theme()
       .then((state) => {
         if (!mounted) return;

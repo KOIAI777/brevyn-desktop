@@ -15,6 +15,7 @@ import type {
   AgentRunInput,
   AgentRunResult,
   AgentGatewayStatus,
+  AppCodeThemePreference,
   AppThemePreference,
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
@@ -621,6 +622,14 @@ export class LocalStore {
 
   updateThemePreference(preference: AppThemePreference): AppThemePreference {
     return this.appSettings.updateAppearance({ themePreference: preference }).appearance.themePreference;
+  }
+
+  codeThemePreference(): AppCodeThemePreference {
+    return this.appSettings.get().appearance.codeThemePreference;
+  }
+
+  updateCodeThemePreference(preference: AppCodeThemePreference): AppCodeThemePreference {
+    return this.appSettings.updateAppearance({ codeThemePreference: preference }).appearance.codeThemePreference;
   }
 
   cloudStatus(): CloudAccountStatus {

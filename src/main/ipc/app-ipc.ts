@@ -2,10 +2,11 @@ import { app, ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
 import { release } from "node:os";
 import { IPC_CHANNELS } from "../../types/ipc";
-import { applyThemePreference, currentThemeState, normalizeThemePreference } from "../services/app-theme";
+import { applyThemePreference, currentThemeState, normalizeThemePreference, syncNativeTheme } from "../services/app-theme";
 import type { IpcContext } from "./context";
 import { requireString } from "./validation";
 import type { AppDiagnostics, SkillItem } from "../../types/domain";
+import { normalizeCodeThemePreference } from "../services/app-settings-store";
 
 export function registerAppIpc(ctx: IpcContext): void {
   const service = ctx.openWithService;
@@ -15,11 +16,16 @@ export function registerAppIpc(ctx: IpcContext): void {
 
   ipcMain.handle(IPC_CHANNELS.appDiagnostics, () => buildAppDiagnostics(ctx));
 
-  ipcMain.handle(IPC_CHANNELS.appTheme, () => currentThemeState(ctx.store.themePreference()));
+  ipcMain.handle(IPC_CHANNELS.appTheme, () => currentThemeState(ctx.store.themePreference(), ctx.store.codeThemePreference()));
 
   ipcMain.handle(IPC_CHANNELS.appUpdateThemePreference, async (_event, preference: unknown) => {
     const nextPreference = await ctx.store.updateThemePreference(normalizeThemePreference(preference));
-    return applyThemePreference(nextPreference);
+    return applyThemePreference(nextPreference, ctx.store.codeThemePreference());
+  });
+
+  ipcMain.handle(IPC_CHANNELS.appUpdateCodeThemePreference, async (_event, preference: unknown) => {
+    const nextCodeThemePreference = await ctx.store.updateCodeThemePreference(normalizeCodeThemePreference(preference));
+    return syncNativeTheme(ctx.store.themePreference(), nextCodeThemePreference);
   });
 
   ipcMain.handle(IPC_CHANNELS.appUpdateProfile, (_event, input: unknown) => {
@@ -102,7 +108,7 @@ export function registerAppIpc(ctx: IpcContext): void {
 
 async function buildAppDiagnostics(ctx: IpcContext): Promise<AppDiagnostics> {
   const skills = await safeCallAsync(() => ctx.store.listSkills(), [] as SkillItem[]);
-  const theme = currentThemeState(ctx.store.themePreference());
+  const theme = currentThemeState(ctx.store.themePreference(), ctx.store.codeThemePreference());
 
   return {
     generatedAt: new Date().toISOString(),

@@ -53,6 +53,13 @@
     --status-warning: 36 76% 42%;
     --status-danger: 0 67% 50%;
     --status-info: 210 49% 61%;
+    --code-bg: #f6efe6;
+    --code-fg: #2d261f;
+    --code-muted: #8f7a66;
+    --code-border: rgba(130, 98, 68, 0.18);
+    --code-inline-bg: rgba(151, 104, 70, 0.115);
+    --code-inline-fg: #7a3f24;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 34px -28px rgba(85, 57, 32, 0.34);
   }
 
   :root[data-theme="dark"] {
@@ -97,6 +104,73 @@
     --status-warning: 36 72% 58%;
     --status-danger: 0 62% 58%;
     --status-info: 207 52% 66%;
+    --code-bg: #171412;
+    --code-fg: #efe4d7;
+    --code-muted: #a99380;
+    --code-border: rgba(255, 232, 204, 0.105);
+    --code-inline-bg: rgba(238, 168, 117, 0.13);
+    --code-inline-fg: #f0b88e;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 40px -32px rgba(0, 0, 0, 0.72);
+  }
+
+  :root[data-code-theme="github"] {
+    --code-bg: #f7f9fc;
+    --code-fg: #24292f;
+    --code-muted: #6e7781;
+    --code-border: rgba(36, 41, 47, 0.13);
+    --code-inline-bg: rgba(9, 105, 218, 0.09);
+    --code-inline-fg: #0969da;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.66), 0 14px 30px -28px rgba(31, 43, 59, 0.3);
+  }
+
+  :root[data-theme="dark"][data-code-theme="github"] {
+    --code-bg: #0d1117;
+    --code-fg: #e6edf3;
+    --code-muted: #7d8590;
+    --code-border: rgba(240, 246, 252, 0.12);
+    --code-inline-bg: rgba(56, 139, 253, 0.14);
+    --code-inline-fg: #79c0ff;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 18px 44px -34px rgba(0, 0, 0, 0.76);
+  }
+
+  :root[data-code-theme="rose"] {
+    --code-bg: #faf4ed;
+    --code-fg: #575279;
+    --code-muted: #9893a5;
+    --code-border: rgba(87, 82, 121, 0.15);
+    --code-inline-bg: rgba(144, 122, 169, 0.13);
+    --code-inline-fg: #907aa9;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58), 0 14px 34px -28px rgba(87, 82, 121, 0.32);
+  }
+
+  :root[data-theme="dark"][data-code-theme="rose"] {
+    --code-bg: #191724;
+    --code-fg: #e0def4;
+    --code-muted: #908caa;
+    --code-border: rgba(224, 222, 244, 0.12);
+    --code-inline-bg: rgba(196, 167, 231, 0.14);
+    --code-inline-fg: #c4a7e7;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 18px 44px -34px rgba(0, 0, 0, 0.76);
+  }
+
+  :root[data-code-theme="mono"] {
+    --code-bg: #f2f1ee;
+    --code-fg: #282624;
+    --code-muted: #77716a;
+    --code-border: rgba(43, 39, 35, 0.14);
+    --code-inline-bg: rgba(42, 39, 35, 0.08);
+    --code-inline-fg: #36322e;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 12px 28px -28px rgba(34, 31, 28, 0.34);
+  }
+
+  :root[data-theme="dark"][data-code-theme="mono"] {
+    --code-bg: #121212;
+    --code-fg: #e7e2db;
+    --code-muted: #948f88;
+    --code-border: rgba(235, 229, 220, 0.11);
+    --code-inline-bg: rgba(235, 229, 220, 0.09);
+    --code-inline-fg: #e7e2db;
+    --code-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 42px -34px rgba(0, 0, 0, 0.76);
   }
 
   * {
@@ -155,6 +229,12 @@
     box-shadow:
       0 0 0 1px hsl(var(--focus-glow) / 0.42),
       0 0 0 4px hsl(var(--focus-glow) / 0.13);
+  }
+
+  .brevyn-task-progress-button:focus,
+  .brevyn-task-progress-button:focus-visible {
+    outline: none;
+    box-shadow: none;
   }
 
   input:focus,
@@ -701,6 +781,124 @@
     border-radius: var(--radius-card);
     background: hsl(var(--card));
     box-shadow: var(--shadow-card);
+  }
+
+  .brevyn-inline-code {
+    border-radius: 0.42rem;
+    background: var(--code-inline-bg);
+    padding: 0.1rem 0.36rem;
+    color: var(--code-inline-fg);
+    font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 0.91em;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--code-inline-fg) 15%, transparent);
+  }
+
+  .brevyn-file-chip {
+    border-color: var(--code-border);
+    background: color-mix(in srgb, var(--code-bg) 84%, hsl(var(--background)) 16%);
+    color: var(--code-muted);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  .brevyn-file-chip:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--code-inline-fg) 28%, var(--code-border));
+    background: color-mix(in srgb, var(--code-bg) 72%, hsl(var(--accent)) 28%);
+    color: var(--code-fg);
+  }
+
+  .brevyn-code-shell {
+    border: 1px solid var(--code-border);
+    border-radius: var(--radius-card);
+    background: var(--code-bg);
+    color: var(--code-fg);
+    box-shadow: var(--code-shadow);
+  }
+
+  .brevyn-code-shell pre,
+  .brevyn-code-pre {
+    margin: 0;
+    background: transparent !important;
+    color: var(--code-fg);
+    font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.68;
+    tab-size: 2;
+  }
+
+  .brevyn-code-shell code {
+    font-family: inherit;
+  }
+
+  .brevyn-code-label {
+    color: var(--code-muted);
+  }
+
+  .brevyn-settings-code-preview {
+    overflow: hidden;
+    border: 1px solid var(--code-border);
+    border-radius: var(--radius-card);
+    background: var(--code-bg);
+    color: var(--code-fg);
+    box-shadow: var(--code-shadow);
+  }
+
+  .brevyn-settings-code-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--code-border);
+    background: color-mix(in srgb, var(--code-bg) 86%, hsl(var(--card)) 14%);
+    padding: 0.55rem 0.7rem;
+  }
+
+  .brevyn-settings-code-preview-body {
+    overflow-x: auto;
+    padding: 0.45rem;
+  }
+
+  .brevyn-settings-code-preview-grid {
+    display: grid;
+    min-width: 34rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    overflow: hidden;
+    border-radius: calc(var(--radius-card) - 5px);
+    background: color-mix(in srgb, var(--code-bg) 92%, #000 8%);
+  }
+
+  .brevyn-settings-code-pane + .brevyn-settings-code-pane {
+    border-left: 1px solid var(--code-border);
+  }
+
+  .brevyn-settings-code-line {
+    display: grid;
+    min-height: 1.72rem;
+    grid-template-columns: 2.3rem minmax(0, 1fr);
+    align-items: center;
+    padding-right: 0.65rem;
+    font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: pre;
+  }
+
+  .brevyn-settings-code-number {
+    user-select: none;
+    color: color-mix(in srgb, var(--code-muted) 72%, transparent);
+    text-align: right;
+    padding-right: 0.7rem;
+  }
+
+  .brevyn-settings-code-line-remove {
+    background: color-mix(in srgb, #ef4444 16%, var(--code-bg));
+    color: color-mix(in srgb, var(--code-fg) 92%, #ef4444 8%);
+  }
+
+  .brevyn-settings-code-line-add {
+    background: color-mix(in srgb, #22c55e 15%, var(--code-bg));
+    color: color-mix(in srgb, var(--code-fg) 92%, #22c55e 8%);
   }
 
   .brevyn-control-surface {
