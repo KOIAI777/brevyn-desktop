@@ -763,9 +763,9 @@ function excerptText(text: string, query: string): string {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const lower = normalized.toLowerCase();
   const matchIndex = terms.map((term) => lower.indexOf(term)).filter((index) => index >= 0).sort((a, b) => a - b)[0];
-  if (matchIndex === undefined) return normalized.slice(0, 260);
-  const start = Math.max(0, matchIndex - 90);
-  const end = Math.min(normalized.length, matchIndex + 180);
+  if (matchIndex === undefined) return normalized.slice(0, 900);
+  const start = Math.max(0, matchIndex - 260);
+  const end = Math.min(normalized.length, matchIndex + 900);
   return normalized.slice(start, end).trim();
 }
 
