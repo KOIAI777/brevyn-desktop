@@ -3,6 +3,7 @@ import Picker from "@emoji-mart/react";
 import { Braces, Camera, Check, ImagePlus, Languages, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { Markdownish } from "@/components/chat/Markdownish";
 import { ReadOnlyField } from "@/components/settings/shared/SettingsControls";
 import { errorMessage } from "@/components/settings/shared/settingsErrors";
 import { cx } from "@/lib/cn";
@@ -38,7 +39,6 @@ export function GeneralSettingsPage({
   const displayProfile = optimisticAvatarId ? { ...profile, avatarId: optimisticAvatarId } : profile;
   const selectedCodeThemeOption = CODE_THEME_OPTIONS.find((option) => option.value === themeState.codeThemePreference) ?? CODE_THEME_OPTIONS[0];
   const codeThemePreviewMode = themeState.effective === "dark" ? "dark" : "light";
-  const selectedCodeThemePreviewStyle = selectedCodeThemeOption.previewStyle[codeThemePreviewMode];
 
   useEffect(() => {
     setNameInput(profileDisplayName(profile));
@@ -296,36 +296,33 @@ export function GeneralSettingsPage({
         </div>
 
         <div className="rounded-[var(--radius-card)] bg-background p-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-xs font-semibold text-foreground">主题</div>
               <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
                 {themeState.preference === "system" ? `跟随系统，当前为${themeState.effective === "dark" ? "深色" : "浅色"}` : "手动固定应用外观"}
               </div>
             </div>
-          </div>
-
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            {THEME_OPTIONS.map((option) => {
-              const selected = themeState.preference === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={cx(
-                    "flex min-h-[4.75rem] flex-col items-start justify-between rounded-[var(--radius-control)] px-3 py-2.5 text-left text-xs transition active:scale-[0.99]",
-                    selected ? "bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.45)]" : "bg-card text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.48)] hover:bg-accent hover:text-foreground",
-                  )}
-                  onClick={() => void updateThemePreference(option.value)}
-                >
-                  <span className="flex w-full items-center justify-between gap-2">
-                    <span className="font-semibold">{option.label}</span>
-                    <option.icon className="h-4 w-4" />
-                  </span>
-                  <span className="text-[10px] leading-4 text-muted-foreground">{option.description}</span>
-                </button>
-              );
-            })}
+            <div className="inline-flex shrink-0 rounded-[var(--radius-control)] bg-card p-1 shadow-inner ring-1 ring-black/[0.04]">
+              {THEME_OPTIONS.map((option) => {
+                const selected = themeState.preference === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={cx(
+                      "inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-[var(--radius-badge)] px-3 text-[11px] font-semibold transition active:scale-[0.98]",
+                      selected ? "bg-foreground text-background shadow-sm" : "text-muted-foreground hover:bg-background hover:text-foreground",
+                    )}
+                    title={option.description}
+                    onClick={() => void updateThemePreference(option.value)}
+                  >
+                    <option.icon className="h-3.5 w-3.5" />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -338,55 +335,13 @@ export function GeneralSettingsPage({
             <Braces className="h-4 w-4 shrink-0 text-muted-foreground/70" />
           </div>
 
-          <div className="brevyn-settings-code-preview mt-3" style={selectedCodeThemePreviewStyle}>
-            <div className="brevyn-settings-code-preview-header">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[#ff5f57]" />
-                <span className="h-2 w-2 rounded-full bg-[#ffbd2e]" />
-                <span className="h-2 w-2 rounded-full bg-[#28c840]" />
-                <span className="ml-1 truncate font-mono text-[10px] text-[var(--code-muted)]">theme-preview.ts</span>
-              </div>
-              <div className="shrink-0 text-[10px] font-semibold text-[var(--code-muted)]">{selectedCodeThemeOption.label}</div>
+          <div className="mt-3 rounded-[var(--radius-card)] bg-card px-3 py-2.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold text-muted-foreground">
+              <span>真实渲染预览</span>
+              <span>{selectedCodeThemeOption.label}</span>
             </div>
-            <div className="brevyn-settings-code-preview-body brevyn-scrollbar-thin">
-              <div className="brevyn-settings-code-preview-grid">
-                <div className="brevyn-settings-code-pane">
-                  <div className="brevyn-settings-code-line">
-                    <span className="brevyn-settings-code-number">1</span>
-                    <span><span className="text-[#7c6fca]">const</span> themePreview = {"{"}</span>
-                  </div>
-                  <div className="brevyn-settings-code-line brevyn-settings-code-line-remove">
-                    <span className="brevyn-settings-code-number text-red-500">2</span>
-                    <span>surface: <span className="text-[#73c991]">"sidebar"</span>,</span>
-                  </div>
-                  <div className="brevyn-settings-code-line brevyn-settings-code-line-remove">
-                    <span className="brevyn-settings-code-number text-red-500">3</span>
-                    <span>accent: <span className="text-[#73c991]">"#c87552"</span>,</span>
-                  </div>
-                  <div className="brevyn-settings-code-line">
-                    <span className="brevyn-settings-code-number">4</span>
-                    <span>{"};"}</span>
-                  </div>
-                </div>
-                <div className="brevyn-settings-code-pane">
-                  <div className="brevyn-settings-code-line">
-                    <span className="brevyn-settings-code-number">1</span>
-                    <span><span className="text-[#7c6fca]">const</span> themePreview = {"{"}</span>
-                  </div>
-                  <div className="brevyn-settings-code-line brevyn-settings-code-line-add">
-                    <span className="brevyn-settings-code-number text-emerald-500">2</span>
-                    <span>surface: <span className="text-[#73c991]">"code"</span>,</span>
-                  </div>
-                  <div className="brevyn-settings-code-line brevyn-settings-code-line-add">
-                    <span className="brevyn-settings-code-number text-emerald-500">3</span>
-                    <span>accent: <span className="text-[var(--code-inline-fg)]">"{selectedCodeThemeOption.accentPreview}"</span>,</span>
-                  </div>
-                  <div className="brevyn-settings-code-line">
-                    <span className="brevyn-settings-code-number">4</span>
-                    <span>{"};"}</span>
-                  </div>
-                </div>
-              </div>
+            <div className="mt-2">
+              <Markdownish content={CODE_THEME_MARKDOWN_PREVIEW} />
             </div>
           </div>
 
@@ -470,6 +425,22 @@ const THEME_OPTIONS: Array<{
     icon: Moon,
   },
 ];
+
+const CODE_THEME_MARKDOWN_PREVIEW = [
+  "行内命令示例：`open index.html`，文件路径示例：`src/renderer/App.tsx`。",
+  "",
+  "```ts",
+  "const themePreview = {",
+  '  surface: "code",',
+  '  accent: "current-theme",',
+  "  readable: true,",
+  "};",
+  "",
+  "export function applyPreview(theme: typeof themePreview) {",
+  "  return theme.readable ? theme.accent : null;",
+  "}",
+  "```",
+].join("\n");
 
 const CODE_THEME_OPTIONS: Array<{
   value: AppCodeThemePreference;

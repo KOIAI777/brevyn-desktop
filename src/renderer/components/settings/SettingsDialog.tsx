@@ -2,6 +2,7 @@ import {
   Archive,
   CalendarDays,
   Check,
+  CreditCard,
   Info,
   Languages,
   PlugZap,
@@ -15,6 +16,7 @@ import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AboutUpdateSettingsPage } from "@/components/settings/about/AboutUpdateSettingsPage";
 import { ArchiveSettingsPage } from "@/components/settings/archive/ArchiveSettingsPage";
 import { AccountSettingsPage, type CloudAccountForm, type CloudBusyAction } from "@/components/settings/account/AccountSettingsPage";
+import { BillingRecordsSettingsPage } from "@/components/settings/billing/BillingRecordsSettingsPage";
 import { redeemKindLabel, redeemStatusLabel, redeemValueLabel, redeemedPlanLabel } from "@/components/settings/account/cloudAccountUtils";
 import { formatCloudPoints } from "@/components/settings/account/cloudPlanUtils";
 import { GeneralSettingsPage } from "@/components/settings/general/GeneralSettingsPage";
@@ -40,7 +42,7 @@ import {
 import { BREVYN_CLOUD_DEVELOPMENT_BASE_URL, BREVYN_CLOUD_SHOP_URL } from "../../../types/cloud-config";
 import { cx } from "@/lib/cn";
 
-type SettingsPage = "account" | "general" | "providers" | "semesters" | "archive" | "skills" | "about";
+type SettingsPage = "account" | "billing" | "general" | "providers" | "semesters" | "archive" | "skills" | "about";
 
 const CLOUD_ENTITLEMENTS_POLL_MS = 40_000;
 const CLOUD_ENTITLEMENTS_FOCUS_REFRESH_MS = 60_000;
@@ -543,18 +545,25 @@ export function SettingsDialog({
                 onClick={() => setActivePage("account")}
               />
               <SettingsNavButton
-                active={activePage === "general"}
-                icon={<Languages className="h-4 w-4" />}
-                title="个性化"
-                detail="主题 · 代码样式"
-                onClick={() => setActivePage("general")}
-              />
-              <SettingsNavButton
                 active={activePage === "providers"}
                 icon={<PlugZap className="h-4 w-4" />}
                 title="模型配置"
                 detail={`${enabledProviders} 个启用 · ${embeddingProviderDetail} · ${visionProviderDetail}`}
                 onClick={() => setActivePage("providers")}
+              />
+              <SettingsNavButton
+                active={activePage === "billing"}
+                icon={<CreditCard className="h-4 w-4" />}
+                title="使用记录"
+                detail="充值 · 模型使用"
+                onClick={() => setActivePage("billing")}
+              />
+              <SettingsNavButton
+                active={activePage === "general"}
+                icon={<Languages className="h-4 w-4" />}
+                title="个性化"
+                detail="主题 · 代码样式"
+                onClick={() => setActivePage("general")}
               />
               <SettingsNavButton
                 active={activePage === "semesters"}
@@ -609,6 +618,8 @@ export function SettingsDialog({
                 onOpenShop={() => void openCloudShop()}
                 onLogout={() => void logoutCloudAccount()}
               />
+            ) : activePage === "billing" ? (
+              <BillingRecordsSettingsPage />
             ) : activePage === "general" ? (
               <GeneralSettingsPage profile={profile} themeState={themeState} onProfileChange={onProfileChange} onThemeStateChange={onThemeStateChange} />
             ) : activePage === "providers" ? (
