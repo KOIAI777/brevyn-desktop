@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronRight, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
+import { Archive, Check, ChevronRight, CircleAlert, Loader2, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import { cx } from "@/lib/cn";
+import { useAgentThreadListStatuses, type AgentThreadListStatus } from "@/lib/agent-live-store";
 import { profileDisplayName, UserAvatar } from "@/lib/user-profile";
 import { formatRelative } from "@/lib/workspace-files";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -63,7 +64,8 @@ export function WorkspaceSidebar({
   const [renamingThreadId, setRenamingThreadId] = useState("");
   const [archivingTaskId, setArchivingTaskId] = useState("");
   const { confirm, confirmDialog } = useConfirmDialog();
-  const recentThreads = [...threads].sort(compareThreadsByUpdatedAtDesc).slice(0, 8);
+  const threadStatuses = useAgentThreadListStatuses();
+  const recentThreads = sortThreadsForSidebar(threads, threadStatuses).slice(0, 8);
   const homeCourse = courses.find((course) => course.workspaceKind === "semester_home");
   const courseList = courses.filter((course) => course.workspaceKind !== "semester_home");
   const canCreateThread = activeCourseId === homeCourse?.id || Boolean(activeTaskId);
@@ -101,13 +103,12 @@ export function WorkspaceSidebar({
         </button>
         <div className="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {recentThreads.map((thread, index) => (
-            <button
+            <CollapsedThreadButton
               key={thread.id}
-              className={cx(
-                "relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-[11px] font-semibold transition active:scale-[0.98]",
-                thread.id === activeThreadId ? "bg-muted text-foreground ring-1 ring-black/[0.05]" : "bg-secondary/70 text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-              title={thread.title}
+              thread={thread}
+              index={index}
+              active={thread.id === activeThreadId}
+              status={threadStatuses.get(thread.id)}
               onClick={() => onSelectThread(thread)}
               onContextMenu={(event) => {
                 event.preventDefault();
@@ -116,9 +117,7 @@ export function WorkspaceSidebar({
                   anchor: anchorFromElement(event.currentTarget),
                 });
               }}
-            >
-              {thread.title.slice(0, 1).toUpperCase() || index + 1}
-            </button>
+            />
           ))}
         </div>
         <ThreadContextMenu
@@ -210,13 +209,13 @@ export function WorkspaceSidebar({
             </div>
             <SidebarCollapse open={homeOpen} className="ml-7 mt-1">
               <div className="space-y-1 rounded-[var(--radius-control)] bg-background/28 p-1">
-                {threads
-                  .filter((thread) => thread.courseId === homeCourse.id)
+                {sortThreadsForSidebar(threads.filter((thread) => thread.courseId === homeCourse.id), threadStatuses)
                   .map((thread) => (
                     <ThreadButton
                       key={thread.id}
                       thread={thread}
                       active={thread.id === activeThreadId}
+                      status={threadStatuses.get(thread.id)}
                       editing={renamingThreadId === thread.id}
                       onClick={() => onSelectThread(thread)}
                       canArchive={!emptyThreadIds.has(thread.id)}
@@ -272,7 +271,10 @@ export function WorkspaceSidebar({
                     const taskOpen = openTasks[task.id] ?? task.id === activeTaskId;
                     const taskActive = task.id === activeTaskId;
                     const toggleTaskOpen = () => setOpenTasks((current) => ({ ...current, [task.id]: !(current[task.id] ?? task.id === activeTaskId) }));
-                    const taskThreads = threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id);
+                    const taskThreads = sortThreadsForSidebar(
+                      threads.filter((thread) => thread.courseId === course.id && thread.taskId === task.id),
+                      threadStatuses,
+                    );
                     return (
                       <div key={task.id} className="group/task">
                         <div className="flex items-center gap-1">
@@ -329,6 +331,7 @@ export function WorkspaceSidebar({
                                 key={thread.id}
                                 thread={thread}
                                 active={thread.id === activeThreadId}
+                                status={threadStatuses.get(thread.id)}
                                 editing={renamingThreadId === thread.id}
                                 onClick={() => onSelectThread(thread)}
                                 canArchive={!emptyThreadIds.has(thread.id)}
@@ -377,6 +380,23 @@ function compareThreadsByUpdatedAtDesc(a: Thread, b: Thread): number {
   return safeBTime - safeATime;
 }
 
+function sortThreadsForSidebar(threads: Thread[], statuses: ReadonlyMap<string, AgentThreadListStatus>): Thread[] {
+  return [...threads].sort((a, b) => {
+    const priorityDiff = threadStatusSortRank(statuses.get(a.id)) - threadStatusSortRank(statuses.get(b.id));
+    if (priorityDiff !== 0) return priorityDiff;
+    return compareThreadsByUpdatedAtDesc(a, b);
+  });
+}
+
+function threadStatusSortRank(status?: AgentThreadListStatus): number {
+  if (!status) return 4;
+  if (status.kind === "running") return 0;
+  if (!status.seen && (status.kind === "failed" || status.kind === "interrupted")) return 1;
+  if (!status.seen && status.kind === "completed") return 2;
+  if (!status.seen && status.kind === "stopped") return 3;
+  return 4;
+}
+
 function semesterHomeDisplayName(name: string): string {
   const normalized = name.trim().toLowerCase();
   if (!normalized || normalized === "home" || normalized === "home taskagent" || normalized === "home session") return "学期总览";
@@ -419,9 +439,44 @@ function SidebarFooterButton({ icon, label, onClick }: { icon: ReactNode; label:
   );
 }
 
+function CollapsedThreadButton({
+  thread,
+  index,
+  active,
+  status,
+  onClick,
+  onContextMenu,
+}: {
+  thread: Thread;
+  index: number;
+  active: boolean;
+  status?: AgentThreadListStatus;
+  onClick: () => void;
+  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
+}) {
+  const visibleStatus = visibleThreadStatus(status);
+  return (
+    <button
+      className={cx(
+        "relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] text-[11px] font-semibold transition active:scale-[0.98]",
+        active ? "bg-muted text-foreground ring-1 ring-black/[0.05]" : "bg-secondary/70 text-muted-foreground hover:bg-accent hover:text-foreground",
+      )}
+      title={threadStatusTitle(status) || thread.title}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+    >
+      {thread.title.slice(0, 1).toUpperCase() || index + 1}
+      {visibleStatus === "running" && <Loader2 className="absolute -right-0.5 -top-0.5 h-3 w-3 animate-spin rounded-full bg-background text-primary" />}
+      {visibleStatus === "completed" && <span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-[hsl(var(--status-info)/0.92)] text-[7px] text-background"><Check className="h-2 w-2" /></span>}
+      {visibleStatus === "failed" && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[hsl(var(--status-warning))]" />}
+    </button>
+  );
+}
+
 type ThreadButtonProps = {
   thread: Thread;
   active: boolean;
+  status?: AgentThreadListStatus;
   editing: boolean;
   canArchive: boolean;
   onClick: () => void;
@@ -432,7 +487,7 @@ type ThreadButtonProps = {
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
 };
 
-function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEditing, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
+function ThreadButton({ thread, active, status, editing, canArchive, onClick, onStartEditing, onArchive, onRename, onEditingDone, onContextMenu }: ThreadButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const savingRef = useRef(false);
   const skipNextBlurRef = useRef(false);
@@ -504,7 +559,7 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
           onClick={onClick}
         >
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-          <span className="shrink-0 text-[9px] text-muted-foreground/70">{formatRelative(thread.updatedAt)}</span>
+          <ThreadStatusBadge status={status} fallback={formatRelative(thread.updatedAt)} />
         </button>
       )}
       {!editing && (
@@ -535,6 +590,50 @@ function ThreadButton({ thread, active, editing, canArchive, onClick, onStartEdi
       )}
     </div>
   );
+}
+
+function ThreadStatusBadge({ status, fallback }: { status?: AgentThreadListStatus; fallback: string }) {
+  const visibleStatus = visibleThreadStatus(status);
+  if (visibleStatus === "running") {
+    return (
+      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-pill)] bg-primary/10 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]" title="运行中" aria-label="运行中">
+        <Loader2 className="h-3 w-3 animate-spin" />
+      </span>
+    );
+  }
+  if (visibleStatus === "completed") {
+    return (
+      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-pill)] bg-[hsl(var(--status-info)/0.12)] text-[hsl(var(--status-info))] shadow-[inset_0_0_0_1px_hsl(var(--status-info)/0.2)]" title="已完成，打开后消失" aria-label="已完成">
+        <Check className="h-3 w-3" />
+      </span>
+    );
+  }
+  if (visibleStatus === "failed") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-pill)] bg-[hsl(var(--status-warning)/0.11)] px-1.5 py-0.5 text-[9px] font-medium text-[hsl(var(--status-warning))] shadow-[inset_0_0_0_1px_hsl(var(--status-warning)/0.18)]">
+        <CircleAlert className="h-2.5 w-2.5" />
+        异常
+      </span>
+    );
+  }
+  return <span className="shrink-0 text-[9px] text-muted-foreground/70">{fallback}</span>;
+}
+
+function visibleThreadStatus(status?: AgentThreadListStatus): "running" | "completed" | "failed" | undefined {
+  if (!status) return undefined;
+  if (status.kind === "running") return "running";
+  if (status.seen) return undefined;
+  if (status.kind === "completed") return "completed";
+  if (status.kind === "failed" || status.kind === "interrupted") return "failed";
+  return undefined;
+}
+
+function threadStatusTitle(status?: AgentThreadListStatus): string {
+  const visibleStatus = visibleThreadStatus(status);
+  if (visibleStatus === "running") return "运行中";
+  if (visibleStatus === "completed") return "已完成，打开后消失";
+  if (visibleStatus === "failed") return "运行异常，打开后消失";
+  return "";
 }
 
 type ThreadContextMenuState = {

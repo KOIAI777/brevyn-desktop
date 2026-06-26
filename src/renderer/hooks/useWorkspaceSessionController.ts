@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Course, BrevynTask, GitStatus, SemesterWorkspace, SkillItem, Thread } from "@/types/domain";
+import { markAgentThreadStatusSeen } from "@/lib/agent-live-store";
 
 export const SEMESTER_HOME_COURSE_ID = "semester-home";
 const LAST_WORKSPACE_THREAD_STORAGE_KEY = "brevyn.workspace.lastThreadId";
@@ -326,6 +327,7 @@ export function useWorkspaceSessionController({
     }
     commitActiveCourseId(courseId);
     setActiveTaskId(taskId);
+    markAgentThreadStatusSeen(thread.id);
     commitActiveThreadId(thread.id, semester?.id);
   }, [commitActiveCourseId, commitActiveThreadId, createThread, semester?.id, threads]);
 
@@ -337,6 +339,7 @@ export function useWorkspaceSessionController({
     setWorkspaceError("");
     commitActiveCourseId(thread.courseId);
     setActiveTaskId(thread.taskId);
+    markAgentThreadStatusSeen(thread.id);
     commitActiveThreadId(thread.id, thread.semesterId || semester?.id);
   }, [commitActiveCourseId, commitActiveThreadId, semester?.id]);
 

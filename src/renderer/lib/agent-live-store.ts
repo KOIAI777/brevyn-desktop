@@ -3,8 +3,6 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { timelineRecordIdentity, timelineRecordRenderKey } from "@/lib/agent-timeline-identity";
 import type { BrevynAgentRuntimeEvent, BrevynAgentTimelineRecord } from "@/types/domain";
 
-const EMPTY_RECORDS: BrevynAgentTimelineRecord[] = [];
-
 interface LiveStreamState {
   runId: string;
   segment: number;
@@ -13,8 +11,20 @@ interface LiveStreamState {
   inputByKey: Map<string, string>;
 }
 
+export type AgentThreadListStatusKind = "idle" | "running" | "completed" | "failed" | "stopped" | "interrupted";
+
+export interface AgentThreadListStatus {
+  kind: AgentThreadListStatusKind;
+  updatedAtMs: number;
+  seen: boolean;
+}
+
+const EMPTY_RECORDS: BrevynAgentTimelineRecord[] = [];
+const EMPTY_THREAD_LIST_STATUSES = new Map<string, AgentThreadListStatus>();
+
 let liveRecordsByThread = new Map<string, BrevynAgentTimelineRecord[]>();
 let liveRunningByThread = new Map<string, boolean>();
+let threadListStatusByThread = new Map<string, AgentThreadListStatus>();
 let pendingRecordsByThread = new Map<string, BrevynAgentTimelineRecord[]>();
 let liveStreamStateByThread = new Map<string, LiveStreamState>();
 let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -72,6 +82,7 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
   if (!threadId) return "";
   if (event.type === "run_started") {
     resetLiveStreamState(threadId, event.runId);
+    setAgentThreadListStatus(threadId, "running", { updatedAtMs: eventCreatedAtMs(event) });
     setAgentLiveRunning(threadId, true);
   }
   if (event.type === "run_retrying") {
@@ -84,6 +95,7 @@ export function appendAgentRuntimeEvent(event: BrevynAgentRuntimeEvent): string 
   if (isTerminalRuntimeEvent(event)) {
     removeLiveRetryRecord(threadId, "runId" in event ? event.runId : undefined, { silent: true });
     if (!terminalEventMatchesLiveRun(threadId, event.runId)) return threadId;
+    setAgentThreadListStatus(threadId, terminalThreadListStatusKind(event), { updatedAtMs: eventCreatedAtMs(event) });
     appendAgentLiveRecords(threadId, [{ kind: "runtime", event }]);
     setAgentLiveRunning(threadId, false);
     flushAgentLiveRecords(threadId);
@@ -145,13 +157,14 @@ export function useAgentLiveRunning(threadId: string): boolean {
 }
 
 export function clearAllAgentLiveRecords(): void {
-  const hadState = liveRecordsByThread.size > 0 || liveRunningByThread.size > 0 || pendingRecordsByThread.size > 0;
+  const hadState = liveRecordsByThread.size > 0 || liveRunningByThread.size > 0 || pendingRecordsByThread.size > 0 || threadListStatusByThread.size > 0;
   if (pendingFlushTimer !== null) {
     clearLiveFlushTimer(pendingFlushTimer);
     pendingFlushTimer = null;
   }
   pendingRecordsByThread = new Map();
   liveRunningByThread = new Map();
+  threadListStatusByThread = new Map();
   liveRecordsByThread = new Map();
   liveStreamStateByThread = new Map();
   if (hadState) emitAgentLiveRecordsChanged();
@@ -165,6 +178,28 @@ export function getAgentLiveRecords(threadId: string): BrevynAgentTimelineRecord
 export function getAgentLiveRunning(threadId: string): boolean {
   if (!threadId) return false;
   return liveRunningByThread.get(threadId) ?? false;
+}
+
+export function getAgentThreadListStatuses(): ReadonlyMap<string, AgentThreadListStatus> {
+  return threadListStatusByThread;
+}
+
+export function markAgentThreadStatusSeen(threadId: string): void {
+  if (!threadId) return;
+  const current = threadListStatusByThread.get(threadId);
+  if (!current || current.seen) return;
+  const next = new Map(threadListStatusByThread);
+  next.set(threadId, { ...current, seen: true });
+  threadListStatusByThread = next;
+  emitAgentLiveRecordsChanged();
+}
+
+export function useAgentThreadListStatuses(): ReadonlyMap<string, AgentThreadListStatus> {
+  return useSyncExternalStore(
+    subscribeAgentLiveRecords,
+    () => getAgentThreadListStatuses(),
+    () => EMPTY_THREAD_LIST_STATUSES,
+  );
 }
 
 export function useAgentLiveRecords(threadId: string): BrevynAgentTimelineRecord[] {
@@ -528,4 +563,28 @@ function isTerminalRuntimeEvent(event: BrevynAgentRuntimeEvent): event is Extrac
 function terminalEventMatchesLiveRun(threadId: string, runId: string): boolean {
   const state = liveStreamStateByThread.get(threadId);
   return !state || state.runId === runId;
+}
+
+export function setAgentThreadListStatus(threadId: string, kind: AgentThreadListStatusKind, options?: { seen?: boolean; updatedAtMs?: number }): void {
+  if (!threadId) return;
+  const updatedAtMs = options?.updatedAtMs ?? Date.now();
+  const seen = options?.seen ?? false;
+  const current = threadListStatusByThread.get(threadId);
+  if (current && current.kind === kind && current.seen === seen && current.updatedAtMs === updatedAtMs) return;
+  const next = new Map(threadListStatusByThread);
+  next.set(threadId, { kind, updatedAtMs, seen });
+  threadListStatusByThread = next;
+  emitAgentLiveRecordsChanged();
+}
+
+function terminalThreadListStatusKind(event: Extract<BrevynAgentRuntimeEvent, { type: "run_completed" | "run_stopped" | "run_failed" | "run_interrupted" }>): AgentThreadListStatusKind {
+  if (event.type === "run_completed") return "completed";
+  if (event.type === "run_failed") return "failed";
+  if (event.type === "run_interrupted") return "interrupted";
+  return "stopped";
+}
+
+function eventCreatedAtMs(event: BrevynAgentRuntimeEvent): number {
+  const createdAt = "createdAt" in event ? Date.parse(event.createdAt) : NaN;
+  return Number.isFinite(createdAt) ? createdAt : Date.now();
 }

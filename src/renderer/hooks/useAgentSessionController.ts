@@ -16,8 +16,10 @@ import {
   clearAgentLiveRecords,
   clearAllAgentLiveRecords,
   flushAgentLiveRecords,
+  markAgentThreadStatusSeen,
   removeAgentLiveMessage,
   setAgentLiveRunning,
+  setAgentThreadListStatus,
 } from "@/lib/agent-live-store";
 
 const AGENT_MODEL_STORAGE_PREFIX = "brevyn.agent.modelSelection.";
@@ -280,6 +282,9 @@ export function useAgentSessionController({
       if (event.kind === "sdk_message") {
         const appended = appendAgentLiveMessage(eventThreadId, event.message, { modelId: modelIdFromSelection(runModelSelectionByThreadRef.current.get(eventThreadId) || selectedAgentModelRef.current) });
         if (event.message.type === "result") {
+          const resultStatus = threadListStatusFromResultMessage(event.message);
+          setAgentThreadListStatus(eventThreadId, resultStatus, { updatedAtMs: Date.now(), seen: eventThreadId === activeThreadIdRef.current });
+          setAgentLiveRunning(eventThreadId, false);
           flushAgentLiveRecords(eventThreadId);
         }
         if (!appended) return;
@@ -301,7 +306,8 @@ export function useAgentSessionController({
         const runSelection = agentModelSelectionFromProviderSelection({ providerId: event.event.providerId, modelId: event.event.modelId });
         if (runSelection) runModelSelectionByThreadRef.current.set(eventThreadId, runSelection);
       } else if (isTerminalRuntimeEvent(event.event)) {
-        if (shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId)) {
+        const shouldApplyTerminalState = shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId);
+        if (shouldApplyTerminalState) {
           activeRunIdByThreadRef.current.delete(eventThreadId);
           runModelSelectionByThreadRef.current.delete(eventThreadId);
           runInFlightByThreadRef.current.delete(eventThreadId);
@@ -318,12 +324,13 @@ export function useAgentSessionController({
         setRunning(true);
         setError("");
       } else if (isTerminalRuntimeEvent(event.event)) {
-        if (!shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId)) return;
+        if (!shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId) && activeRunIdByThreadRef.current.has(eventThreadId)) return;
         activeRunIdByThreadRef.current.delete(eventThreadId);
         runInFlightByThreadRef.current.delete(eventThreadId);
         runningRef.current = false;
         setRunning(false);
         setAgentLiveRunning(eventThreadId, false);
+        markAgentThreadStatusSeen(eventThreadId);
         flushAgentLiveRecords(eventThreadId);
         if (event.event.type === "run_failed") setError(event.event.error);
       }
@@ -391,6 +398,14 @@ function resultErrorMessage(message: BrevynAgentSessionRecord): string {
   const result = (message as { result?: unknown }).result;
   if (typeof result === "string" && result.trim()) return result;
   return "Agent run failed.";
+}
+
+function threadListStatusFromResultMessage(message: BrevynAgentSessionRecord): "completed" | "failed" | "stopped" | "interrupted" {
+  const subtype = String((message as { subtype?: unknown }).subtype || "");
+  if (subtype === "success" || !subtype) return "completed";
+  if (subtype === "stopped_by_user") return "stopped";
+  if (subtype === "interrupted") return "interrupted";
+  return "failed";
 }
 
 function isLiveStreamEventMessage(message: BrevynAgentTimelineRecord): boolean {
