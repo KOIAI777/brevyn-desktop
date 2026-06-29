@@ -103,6 +103,7 @@ export const IPC_CHANNELS = {
   attachmentsSaveData: "brevyn:attachments:save-data",
   attachmentsDelete: "brevyn:attachments:delete",
   updaterCheck: "brevyn:updater:check",
+  updaterDownload: "brevyn:updater:download",
   updaterStatus: "brevyn:updater:status",
   updaterStatusChanged: "brevyn:updater:status-changed",
   updaterReleasesList: "brevyn:updater:releases:list",

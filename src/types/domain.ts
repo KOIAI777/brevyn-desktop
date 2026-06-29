@@ -1646,6 +1646,7 @@ export interface BrevynAPI {
   };
   updater: {
     checkForUpdates: () => Promise<void>;
+    downloadUpdate: () => Promise<void>;
     getStatus: () => Promise<UpdaterStatus>;
     listReleases: (options?: GitHubReleaseListOptions) => Promise<GitHubRelease[]>;
     getReleaseByTag: (tag: string) => Promise<GitHubRelease | null>;

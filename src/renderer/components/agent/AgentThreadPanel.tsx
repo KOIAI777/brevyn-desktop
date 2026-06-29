@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { CalendarDays, Check, ChevronDown, ClipboardCheck, Copy, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
@@ -6,6 +6,7 @@ import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { AgentComposer } from "@/components/agent/AgentComposer";
 import { AssistantTextBubble, CompactContextNote, PromptTooLongCard, ProviderErrorCard, ResolvedRuntimeNote, RetryRuntimeNote, StreamingMarkdownish, UserMessageBubble } from "@/components/agent/AgentMessageParts";
 import { ProcessTimelinePanel as BaseProcessTimelinePanel } from "@/components/agent/AgentProcessTimeline";
+import { UserMessageNavigator, type UserMessageNavItem } from "@/components/agent/UserMessageNavigator";
 import { FilePathPreviewProvider } from "@/components/chat/FilePathChip";
 import type { ProcessEvent, RunSummary } from "@/components/agent/agentTimelineModel";
 import {
@@ -260,10 +261,24 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
     ready: !loading,
     transitioning: scrollTransitioning,
   });
-  const scrollElementRef = useRef<HTMLDivElement | null>(null);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const userMessageNavItems = useMemo(() => {
+    let userIndex = 0;
+    return timelineGroups.flatMap((group): UserMessageNavItem[] => {
+      if (group.type !== "user" || group.item.displayKind !== "user-message") return [];
+      const preview = userNavigationPreview(userText(group.item.record as SDKMessage));
+      if (!preview) return [];
+      userIndex += 1;
+      return [{
+        id: userNavigationId(group.key),
+        index: userIndex,
+        preview,
+      }];
+    });
+  }, [timelineGroups]);
 
   const handleScrollRef = useCallback((node: HTMLDivElement | null) => {
-    scrollElementRef.current = node;
+    setScrollElement(node);
     scrollRef(node);
   }, [scrollRef]);
 
@@ -294,6 +309,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
               {timelineGroups.map((group) => (
                 <div
                   key={group.key}
+                  data-user-message-id={group.type === "user" ? userNavigationId(group.key) : undefined}
                   className="timeline-group min-w-0 w-full [contain:layout_paint_style]"
                 >
                   <AgentTimelineGroup
@@ -301,18 +317,19 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
                     agentProviders={agentProviders}
                     onToggleItemProcess={onToggleItemProcess}
                     onApprove={onApprove}
-                  onReject={onReject}
-                  onAnswerQuestion={onAnswerQuestion}
-                  onResolveExitPlan={onResolveExitPlan}
-                  onCompact={onCompact}
-                  onRequestAcademicCheck={onRequestAcademicCheck}
-                />
+                    onReject={onReject}
+                    onAnswerQuestion={onAnswerQuestion}
+                    onResolveExitPlan={onResolveExitPlan}
+                    onCompact={onCompact}
+                    onRequestAcademicCheck={onRequestAcademicCheck}
+                  />
                 </div>
               ))}
             </div>
           )}
         </div>
       </div>
+      <UserMessageNavigator items={userMessageNavItems} scrollContainer={scrollElement} bottomOffset={scrollToBottomButtonBottom + 48} />
       {!isFollowingOutput && (
         <button
           type="button"
@@ -386,6 +403,19 @@ function formatRunDuration(durationMs: number): string {
   const seconds = totalSeconds % 60;
   if (minutes <= 0) return `${seconds}s`;
   return `${minutes}m ${seconds}s`;
+}
+
+function userNavigationId(groupKey: string): string {
+  return `user-nav-${groupKey}`;
+}
+
+function userNavigationPreview(value: string): string {
+  const text = value
+    .replace(/```[\s\S]*?```/g, " [code] ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= 220) return text;
+  return `${text.slice(0, 217)}...`;
 }
 
 function EmptyThreadWelcome({ thread }: { thread: Thread }) {

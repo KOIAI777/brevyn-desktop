@@ -83,6 +83,19 @@ export function AboutUpdateSettingsPage() {
     }
   }
 
+  async function downloadUpdate() {
+    try {
+      await window.brevyn.updater.downloadUpdate();
+    } catch (error) {
+      setStatus({
+        status: "error",
+        currentVersion: status?.currentVersion || "0.0.0",
+        supported: Boolean(status?.supported),
+        error: errorMessage(error, "下载更新失败。"),
+      });
+    }
+  }
+
   async function quitAndInstall() {
     await window.brevyn.updater.quitAndInstall();
   }
@@ -145,6 +158,7 @@ export function AboutUpdateSettingsPage() {
           checking={checking}
           release={releaseNotes}
           onCheck={() => void checkForUpdates()}
+          onDownload={() => void downloadUpdate()}
           onDismissDownloaded={() => void dismissDownloadedUpdate()}
           onQuitAndInstall={() => void quitAndInstall()}
         />

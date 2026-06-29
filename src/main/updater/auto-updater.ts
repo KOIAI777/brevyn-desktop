@@ -107,6 +107,25 @@ export async function checkForUpdates(): Promise<void> {
   }
 }
 
+export async function downloadUpdate(): Promise<void> {
+  if (!app.isPackaged || !hasUpdateFeedConfig()) {
+    setStatus(initialStatus());
+    return;
+  }
+  if (currentStatus.status !== "available") return;
+
+  const version = currentStatus.version;
+  try {
+    setStatus(withBase({ status: "downloading", version, progress: { percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 } }));
+    await autoUpdater.downloadUpdate();
+  } catch (error) {
+    setStatus(withBase({
+      status: "error",
+      error: error instanceof Error ? error.message : String(error || "Failed to download update."),
+    }));
+  }
+}
+
 export function quitAndInstallUpdate(): void {
   if (currentStatus.status !== "downloaded") return;
   installingUpdate = true;
@@ -144,8 +163,8 @@ export function initAutoUpdater(): void {
     error: (...args: unknown[]) => console.error("[brevyn-updater]", ...args),
     debug: (...args: unknown[]) => console.debug("[brevyn-updater]", ...args),
   };
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on("checking-for-update", () => {
     setStatus(withBase({ status: "checking" }));

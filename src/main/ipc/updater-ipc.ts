@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import { IPC_CHANNELS } from "../../types/ipc";
 import {
   checkForUpdates,
+  downloadUpdate,
   dismissDownloadedUpdate,
   getUpdaterStatus,
   quitAndInstallUpdate,
@@ -11,6 +12,10 @@ import { getGitHubReleaseByTag, listGitHubReleases } from "../updater/github-rel
 export function registerUpdaterIpc(): void {
   ipcMain.handle(IPC_CHANNELS.updaterCheck, async () => {
     await checkForUpdates();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.updaterDownload, async () => {
+    await downloadUpdate();
   });
 
   ipcMain.handle(IPC_CHANNELS.updaterStatus, () => getUpdaterStatus());

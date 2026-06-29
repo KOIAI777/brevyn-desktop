@@ -201,6 +201,7 @@ const api: BrevynAPI = {
   },
   updater: {
     checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.updaterCheck),
+    downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.updaterDownload),
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.updaterStatus),
     listReleases: (options) => ipcRenderer.invoke(IPC_CHANNELS.updaterReleasesList, options),
     getReleaseByTag: (tag: string) => ipcRenderer.invoke(IPC_CHANNELS.updaterReleaseByTag, tag),
