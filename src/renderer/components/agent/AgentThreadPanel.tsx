@@ -329,7 +329,13 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
           )}
         </div>
       </div>
-      <UserMessageNavigator items={userMessageNavItems} scrollContainer={scrollElement} bottomOffset={scrollToBottomButtonBottom + 48} />
+      <UserMessageNavigator
+        key={thread.id}
+        items={userMessageNavItems}
+        scrollContainer={scrollElement}
+        bottomOffset={scrollToBottomButtonBottom + 48}
+        ready={timelineReady && !loading}
+      />
       {!isFollowingOutput && (
         <button
           type="button"
