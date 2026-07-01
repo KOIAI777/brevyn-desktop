@@ -53,7 +53,12 @@ jobs:
             -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/apple/build.keychain"
-          security find-identity -p codesigning -v "$RUNNER_TEMP/apple/build.keychain"
+          SIGNING_IDENTITIES="$(security find-identity -p codesigning -v "$RUNNER_TEMP/apple/build.keychain")"
+          printf '%s\n' "$SIGNING_IDENTITIES"
+          if ! grep -q 'Developer ID Application: Zhenghao Jia (4SWSN4QB7Y)' <<< "$SIGNING_IDENTITIES"; then
+            echo "::error::No valid Developer ID Application signing identity was imported."
+            exit 1
+          fi
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
