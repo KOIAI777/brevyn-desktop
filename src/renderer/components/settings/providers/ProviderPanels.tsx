@@ -4,7 +4,7 @@ import { getProviderProfileLogo, resolveModelProviderLogo } from "@/lib/model-pr
 import { cx } from "@/lib/cn";
 import type { AgentGatewayStatus, ModelProviderConfig, ProviderKind, ProviderModel, RecognizedAcademicCalendar, RecognizedCourseTimetable } from "../../../../types/domain";
 import { ProviderSwitch } from "./ProviderControls";
-import { isCloudConversationProvider, officialProviderGroupLabel, providerDisplayName } from "./providerUtils";
+import { officialProviderGroupLabel, providerDisplayName } from "./providerUtils";
 
 type VisionTestResult = RecognizedAcademicCalendar | RecognizedCourseTimetable;
 
@@ -24,12 +24,12 @@ export function OfficialProviderPanel({
   const primaryProvider = activeProvider || providers[0];
   const enabled = Boolean(activeProvider);
   const modelCount = primaryProvider?.models?.length ?? 0;
-  const statusLabel = enabled ? "Cloud 套餐模型已启用" : "Cloud 套餐模型已关闭";
+  const statusLabel = enabled ? "官方模型已启用" : "官方模型已关闭";
   const groups = providers.map((provider) => ({
     provider,
     label: officialProviderGroupLabel(provider),
   }));
-  const panelTitle = primaryProvider && isCloudConversationProvider(primaryProvider) ? "Cloud 套餐模型" : "Brevyn 官方模型";
+  const panelTitle = "Brevyn 官方模型";
 
   return (
     <section
@@ -52,8 +52,8 @@ export function OfficialProviderPanel({
                 {enabled ? "已启用" : "已关闭"}
               </span>
             </div>
-            <div className="mt-1 truncate text-[11px] text-muted-foreground" title={primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${modelCount} 个模型` : "未同步 Cloud 套餐模型"}>
-              {primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${modelCount} 个模型` : "未同步 Cloud 套餐模型"}
+            <div className="mt-1 truncate text-[11px] text-muted-foreground" title={primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${modelCount} 个模型` : "未同步官方模型"}>
+              {primaryProvider ? `${officialProviderGroupLabel(primaryProvider)} · ${modelCount} 个模型` : "未同步官方模型"}
             </div>
           </div>
         </div>
@@ -69,11 +69,11 @@ export function OfficialProviderPanel({
               {modelCount} 个模型
             </span>
           </button>
-          <IconActionButton icon={<Eye className="h-3.5 w-3.5" />} label="查看套餐模型" onClick={() => onEdit(primaryProvider)} disabled={busy} />
+          <IconActionButton icon={<Eye className="h-3.5 w-3.5" />} label="查看官方模型" onClick={() => onEdit(primaryProvider)} disabled={busy} />
         </div>
       ) : (
         <div className="mt-3 rounded-lg border border-dashed border-border/70 bg-background/50 px-3 py-6 text-center text-xs text-muted-foreground">
-          账号同步后会在这里显示 Cloud 套餐模型。
+          账号同步后会在这里显示官方模型。
         </div>
       )}
 

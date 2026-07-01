@@ -45,6 +45,7 @@ import {
   mergeBrevynUsage,
   recordOf,
 } from "../../shared/agent-usage";
+import { formatAgentUserError, isNonRetryableAgentError } from "../../shared/agent-error-format";
 import { isOneMillionContextModel } from "../../shared/model-context-window";
 
 interface AgentOrchestratorOptions {
@@ -236,7 +237,7 @@ export class AgentOrchestrator {
             threadId: context.thread.id,
             retryAttempt: attempt - 1,
             maxRetries: AGENT_RUN_MAX_RETRIES,
-            reason: retryReason || "Agent request failed.",
+            reason: formatAgentUserError(retryReason || "Agent request failed."),
             delayMs,
             createdAt: now(),
           });
@@ -392,7 +393,7 @@ export class AgentOrchestrator {
         const message = active.abortController.signal.aborted
           ? "Agent run stopped."
           : retryReason
-            ? `重试 ${AGENT_RUN_MAX_RETRIES} 次后仍然失败: ${retryReason}`
+            ? `重试 ${AGENT_RUN_MAX_RETRIES} 次后仍然失败：${formatAgentUserError(retryReason)}`
             : "Agent run failed.";
         if (!active.stoppedByUser) this.writeAssistantError(active, message);
         this.emitRetryCleared(active);
@@ -406,13 +407,13 @@ export class AgentOrchestrator {
       const message = active?.abortController.signal.aborted ? "Agent run stopped." : errorMessage(error);
       if (isInvalidSdkSessionError(message)) this.saveSdkSessionId(context.thread.id, undefined);
       if (!stoppedByUser && active) this.writeAssistantError(active, message);
-      else if (!stoppedByUser) this.appendAndEmitSdkMessage(context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
+      else if (!stoppedByUser) this.appendAndEmitSdkMessage(context.thread, assistantErrorSdkMessage(formatAgentUserError(message), errorCodeForMessage(message)));
       if (active) {
         this.writeTerminalResult(active, stoppedByUser ? "stopped_by_user" : "error_during_execution", message);
         await this.emitContextUsageSnapshot(active);
         this.writeTerminalLifecycle(active, stoppedByUser ? "stopped" : "failed", message);
       } else {
-        this.appendAndEmitSdkMessage(context.thread, resultSdkMessage("error_during_execution", message));
+        this.appendAndEmitSdkMessage(context.thread, resultSdkMessage("error_during_execution", formatAgentUserError(message)));
       }
     } finally {
       const active = this.activeRuns.get(context.thread.id);
@@ -712,13 +713,14 @@ export class AgentOrchestrator {
   private writeTerminalResult(active: ActiveRun, subtype: string, message: string): void {
     if (active.terminalResultWritten) return;
     active.terminalResultWritten = true;
-    this.appendAndEmitSdkMessage(active.context.thread, resultSdkMessage(subtype, message));
+    this.appendAndEmitSdkMessage(active.context.thread, resultSdkMessage(subtype, formatAgentUserError(message)));
   }
 
   private writeAssistantError(active: ActiveRun, message: string): void {
     if (active.assistantErrorWritten) return;
     active.assistantErrorWritten = true;
-    this.appendAndEmitSdkMessage(active.context.thread, assistantErrorSdkMessage(message, errorCodeForMessage(message)));
+    const userMessage = formatAgentUserError(message);
+    this.appendAndEmitSdkMessage(active.context.thread, assistantErrorSdkMessage(userMessage, errorCodeForMessage(message)));
   }
 
   private writeCompactFailed(active: ActiveRun, message: string): void {
@@ -779,7 +781,7 @@ export class AgentOrchestrator {
       type: "run_failed",
       runId: active.runId,
       threadId: active.threadId,
-      error: message || "Agent run failed.",
+      error: formatAgentUserError(message || "Agent run failed."),
       createdAt,
     };
   }
@@ -987,6 +989,7 @@ function createAttemptAbortController(parentSignal: AbortSignal, timeoutMs: numb
 function isRetryableAgentRunError(message: string): boolean {
   const normalized = message.toLowerCase();
   if (!normalized.trim()) return false;
+  if (isNonRetryableAgentError(message)) return false;
   if (PROMPT_TOO_LONG_PATTERNS.some((pattern) => normalized.includes(pattern))) return false;
   return [
     "timeout",

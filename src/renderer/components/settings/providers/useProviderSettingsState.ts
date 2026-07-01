@@ -648,7 +648,7 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
     const nextEnabled = !enabledOfficialProvider;
     const targetProvider = enabledOfficialProvider || officialProviders[0];
     if (!targetProvider) {
-      setStatusLine("还没有 Cloud 套餐模型。请先在账号页登录 Cloud 并兑换套餐。");
+      setStatusLine("还没有官方模型。请先在账号页登录官方账号并启用分组。");
       return;
     }
 
@@ -667,9 +667,9 @@ export function useProviderSettingsState({ onAgentProviderChanged }: UseProvider
       if (nextEnabled && savedTarget?.selectedModel) {
         await onAgentProviderChanged?.(agentProviderSelectionValue(savedTarget.id, savedTarget.selectedModel));
       }
-      setStatusLine(nextEnabled ? `Cloud 套餐模型已启用：${providerDisplayName(targetProvider)}。` : "Cloud 套餐模型已关闭。");
+      setStatusLine(nextEnabled ? `官方模型已启用：${providerDisplayName(targetProvider)}。` : "官方模型已关闭。");
     } catch (error) {
-      setStatusLine(`更新 Cloud 套餐模型失败：${errorMessage(error)}`);
+      setStatusLine(`更新官方模型失败：${errorMessage(error)}`);
     } finally {
       setProviderBusy("agent-official-toggle", false);
     }

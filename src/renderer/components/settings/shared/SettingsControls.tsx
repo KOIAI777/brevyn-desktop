@@ -62,7 +62,7 @@ export function ReadOnlyField({ label, value }: { label: string; value: string }
   );
 }
 
-export function CloudAuthStep({ icon, label }: { icon: ReactNode; label: string }) {
+export function AccountAuthStep({ icon, label }: { icon: ReactNode; label: string }) {
   return (
     <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-background px-2.5 py-2 text-[11px] text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.45)]">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-badge)] bg-muted text-muted-foreground">

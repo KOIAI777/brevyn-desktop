@@ -1,6 +1,4 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { BrevynCloudEnvironment } from "./cloud-config";
-
 export interface Course {
   id: string;
   semesterId?: string;
@@ -925,6 +923,47 @@ export interface BrevynUsageMetadata {
   raw?: unknown;
 }
 
+export interface LocalModelUsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  contextInputTokens: number;
+}
+
+export interface LocalModelUsageModelSummary extends LocalModelUsageTotals {
+  modelId: string;
+  providerId?: string;
+  requestCount: number;
+  lastUsedAt?: string;
+}
+
+export interface LocalModelUsageRecord extends LocalModelUsageTotals {
+  id: string;
+  threadId: string;
+  threadTitle: string;
+  modelId: string;
+  providerId?: string;
+  createdAt: string;
+}
+
+export interface LocalModelUsageSummary {
+  generatedAt: string;
+  totals: LocalModelUsageTotals;
+  today: LocalModelUsageTotals;
+  last7Days: LocalModelUsageTotals;
+  last30Days: LocalModelUsageTotals;
+  requestCount: number;
+  threadCount: number;
+  modelCount: number;
+  firstUsedAt?: string;
+  lastUsedAt?: string;
+  models: LocalModelUsageModelSummary[];
+  recentRecords: LocalModelUsageRecord[];
+}
+
 export interface BrevynContextUsageSnapshot {
   threadId: string;
   runId: string;
@@ -1169,313 +1208,201 @@ export interface AgentGatewayStatus {
   error?: string;
 }
 
-export interface CloudUser {
-  id: string;
+export type Sub2GroupPlatform = "anthropic" | "openai" | "gemini" | "antigravity" | string;
+export type Sub2SubscriptionType = "standard" | "subscription" | string;
+
+export interface Sub2User {
+  id: number;
+  username: string;
   email: string;
-  displayName: string;
-  status: string;
-}
-
-export interface CloudTokenPair {
-  accessToken: string;
-  refreshToken: string;
-  tokenType: string;
-  expiresIn: number;
-}
-
-export interface CloudWallet {
+  role: string;
   balance: number;
-}
-
-export interface CloudGatewayAccount {
-  provider: string;
-  externalUserId: number;
-  externalEmail: string;
-  defaultGroupId: number;
   concurrency: number;
+  rpmLimit?: number;
   status: string;
-  lastSyncedAt: string | null;
-}
-
-export type CloudOfficialCapability = "embedding" | "vision" | "ocr";
-
-export interface CloudOfficialPurposeConfig {
-  modelIds: string[];
-  defaultModelId: string;
-}
-
-export type CloudOfficialModelConfig = Record<CloudOfficialCapability | string, CloudOfficialPurposeConfig>;
-
-export interface CloudOfficialCapabilityDefinition {
-  key: string;
-  name: string;
-  providerKind: string;
-  adapterKind: string;
-  protocol: string;
-  modelHintCapabilities?: string[];
-  minClientVersion?: string;
-}
-
-export interface CloudGatewayGroup {
-  externalGroupId: number;
-  name: string;
-  description: string;
-  platform: string;
-  subscriptionType: string;
-  rateMultiplier: number;
-  dailyLimitUsd?: number;
-  weeklyLimitUsd?: number;
-  monthlyLimitUsd?: number;
-  defaultValidityDays: number;
-  rpmLimit: number;
-  status: string;
-  modelCount: number;
-  source?: string;
-  isCurrent: boolean;
-  officialModelConfig?: CloudOfficialModelConfig;
-  officialCapabilities?: CloudOfficialCapability[];
-}
-
-export interface CloudEntitlementWallet {
-  source: string;
-  scope: string;
-  remaining: number;
-  unit: string;
-  status: string;
-}
-
-export interface CloudQuotaWindow {
-  limit: number;
-  used: number;
-  remaining: number;
-  unit: string;
-  windowStart?: string | null;
-}
-
-export interface CloudBalanceGroupEntitlement {
-  externalGroupId: number;
-  name: string;
-  description?: string;
-  platform: string;
-  billingKind: "balance";
-  subscriptionType: "standard";
-  balanceScope: string;
-  limit: number;
-  used: number;
-  remaining: number;
-  unit: string;
-  rateMultiplier: number;
-  status: string;
-  groupStatus?: string;
-  modelCount: number;
-  source?: string;
-  isCurrent: boolean;
-  officialModelConfig?: CloudOfficialModelConfig;
-  officialCapabilities?: CloudOfficialCapability[];
-}
-
-export interface CloudSubscriptionGroupEntitlement {
-  externalGroupId: number;
-  name: string;
-  description?: string;
-  platform: string;
-  billingKind: "subscription";
-  subscriptionType: "subscription";
-  rateMultiplier: number;
-  status: string;
-  groupStatus?: string;
-  modelCount: number;
-  source?: string;
-  isCurrent: boolean;
-  subscriptionId?: number;
-  startsAt?: string | null;
-  expiresAt?: string | null;
-  remaining: number;
-  unit: string;
-  unlimited: boolean;
-  constrainingWindow?: string;
-  depletedWindow?: string;
-  daily?: CloudQuotaWindow;
-  weekly?: CloudQuotaWindow;
-  monthly?: CloudQuotaWindow;
-  defaultValidityDays: number;
-  officialModelConfig?: CloudOfficialModelConfig;
-  officialCapabilities?: CloudOfficialCapability[];
-}
-
-export type CloudGatewayEntitlementGroup = CloudBalanceGroupEntitlement | CloudSubscriptionGroupEntitlement;
-
-export interface CloudGatewayEntitlements {
-  externalUserId: number;
-  wallet: CloudEntitlementWallet;
-  balanceGroups: CloudBalanceGroupEntitlement[];
-  subscriptionGroups: CloudSubscriptionGroupEntitlement[];
-  officialCapabilityDefinitions?: CloudOfficialCapabilityDefinition[];
+  allowedGroups: number[] | null;
+  createdAt: string;
   updatedAt: string;
-  stale: boolean;
-  refreshLimited?: boolean;
-  nextRefreshAfterSeconds?: number;
 }
 
-export interface CloudRefreshInput {
-  forceEntitlements?: boolean;
-  reason?: string;
+export interface Sub2TokenPair {
+  accessToken: string;
+  refreshToken?: string;
+  tokenType: string;
+  expiresIn?: number;
 }
 
-export interface CloudProviderModel {
-  id: string;
+export interface Sub2Group {
+  id: number;
   name: string;
-  displayName: string;
-  providerFamily: string;
-  platform?: string;
-  externalGroupId?: number;
-  groupName?: string;
-  billingMode?: string;
-  capabilities: string[];
-  supportsVision: boolean;
-  supportsStreaming: boolean;
-  enabled: boolean;
-}
-
-export interface CloudProviderConfig {
-  purpose: string;
-  providerKind: string;
-  adapterKind: string;
-  protocol: string;
-  name: string;
-  baseUrl: string;
-  authMode: string;
-  apiKey: string;
-  selectedModel: string;
-  enabled: boolean;
-  minClientVersion?: string;
-  modelHintCapabilities?: string[];
-  models: CloudProviderModel[];
-  externalGroupId?: number;
-  groupName?: string;
-}
-
-export interface CloudAPIKey {
-  id: string;
-  provider: string;
-  externalKeyId: number;
-  externalGroupId: number;
-  groupName?: string;
-  groupType?: string;
-  platform?: string;
-  maskedApiKey: string;
+  description?: string | null;
+  platform: Sub2GroupPlatform;
+  rateMultiplier: number;
+  rpmLimit?: number;
+  isExclusive: boolean;
   status: string;
+  subscriptionType: Sub2SubscriptionType;
+  dailyLimitUsd?: number | null;
+  weeklyLimitUsd?: number | null;
+  monthlyLimitUsd?: number | null;
+  allowImageGeneration?: boolean;
+  claudeCodeOnly?: boolean;
+  allowMessagesDispatch?: boolean;
+  requireOauthOnly?: boolean;
+  isCurrent: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Sub2APIKey {
+  id: number;
+  key?: string;
+  name: string;
+  groupId: number | null;
+  status: string;
+  quota: number;
+  quotaUsed: number;
   lastUsedAt: string | null;
+  expiresAt: string | null;
   createdAt: string;
+  updatedAt: string;
+  group?: Sub2Group;
 }
 
-export interface CloudAPIError {
-  code: string;
-  message: string;
-}
-
-export interface CloudRedemption {
-  id: string;
-  codeId: string;
-  productName: string;
-  kind: string;
-  value: number;
-  validityDays: number;
-  externalUserId: number;
-  externalGroupId: number;
-  gatewayOperation: string;
+export interface Sub2Subscription {
+  id: number;
+  groupId: number;
   status: string;
-  errorMessage: string;
-  errorCode: string;
-  errorClass: string;
-  errorStage: string;
-  errorRetryable: boolean;
-  errorDetail: string;
+  startsAt: string;
+  expiresAt: string | null;
+  dailyUsageUsd: number;
+  weeklyUsageUsd: number;
+  monthlyUsageUsd: number;
+  group?: Sub2Group;
+}
+
+export interface Sub2UsageDashboardStats {
+  totalApiKeys: number;
+  activeApiKeys: number;
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  totalCost: number;
+  totalActualCost: number;
+  todayRequests: number;
+  todayInputTokens: number;
+  todayOutputTokens: number;
+  todayTokens: number;
+  todayCost: number;
+  todayActualCost: number;
+  rpm: number;
+  tpm: number;
+}
+
+export interface Sub2UsageLog {
+  id: number;
+  apiKeyId: number;
+  model: string;
+  groupId: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  totalCost: number;
+  actualCost: number;
+  requestType?: string;
+  stream: boolean;
+  durationMs: number;
   createdAt: string;
+  apiKey?: Sub2APIKey;
+  group?: Sub2Group;
 }
 
-export interface CloudRedeemResult {
-  redemption: CloudRedemption;
-  wallet: CloudWallet;
-  gateway: CloudGatewayAccount;
-  apiKey?: CloudAPIKey;
-}
-
-export interface CloudOfficialProviderRef {
+export interface Sub2ProviderRef {
   providerId: string;
   purpose?: ProviderPurpose;
-  externalGroupId: number;
+  groupId: number;
   groupName: string;
   selectedModel: string;
   modelCount: number;
   syncedAt: string;
 }
 
-export interface CloudAccountStatus {
+export interface Sub2AccountStatus {
   baseUrl: string;
   defaultBaseUrl: string;
-  environment: BrevynCloudEnvironment;
   baseUrlEditable: boolean;
-  shopUrl: string;
   authenticated: boolean;
-  user: CloudUser | null;
-  wallet: CloudWallet | null;
-  gateway: CloudGatewayAccount | null;
-  currentGroup: CloudGatewayGroup | null;
-  groups: CloudGatewayGroup[];
-  entitlements: CloudGatewayEntitlements | null;
-  providerRefs: CloudOfficialProviderRef[];
+  requires2FA?: boolean;
+  pending2FAToken?: string;
+  pending2FAEmail?: string;
+  user: Sub2User | null;
+  currentGroup: Sub2Group | null;
+  groups: Sub2Group[];
+  apiKeys: Sub2APIKey[];
+  subscriptions: Sub2Subscription[];
+  usage?: Sub2UsageDashboardStats | null;
+  providerRefs: Sub2ProviderRef[];
   lastSyncedAt?: string;
   lastError?: string;
 }
 
-export type CloudAuthMode = "login" | "register";
-
-export interface CloudAuthInput {
+export interface Sub2AuthInput {
   baseUrl?: string;
   email: string;
   password: string;
   displayName?: string;
 }
 
-export interface CloudSyncOfficialProviderInput {
-  externalGroupId?: number;
+export interface Sub2Login2FAInput {
+  tempToken: string;
+  code: string;
+  baseUrl?: string;
 }
 
-export interface CloudSyncConversationProviderInput {
-  externalGroupId?: number;
+export interface Sub2RefreshInput {
+  force?: boolean;
+  reason?: string;
 }
 
-export interface CloudActivateOfficialProviderInput {
-  externalGroupId: number;
+export interface Sub2SyncOfficialProviderInput {
+  groupId?: number;
 }
 
-export interface CloudActivateConversationProviderInput {
-  externalGroupId: number;
+export interface Sub2ActivateOfficialProviderInput {
+  groupId: number;
 }
 
-export interface CloudRedeemCodeInput {
+export interface Sub2RedeemCodeInput {
   code: string;
 }
 
-export interface CloudOfficialProviderSyncResult {
+export interface Sub2OfficialProviderSyncResult {
   status: "synced" | "provisioning" | "locked";
   detail?: string;
-  retryAfterSeconds?: number;
   provider?: ModelProviderConfig;
   providers?: ModelProviderConfig[];
-  cloud: CloudAccountStatus;
+  sub2: Sub2AccountStatus;
 }
 
-export interface CloudRedeemCodeResult {
+export interface Sub2RedeemCodeResult {
   status: string;
-  error?: CloudAPIError;
-  result: CloudRedeemResult;
-  cloud: CloudAccountStatus;
+  message?: string;
+  type?: string;
+  value?: number;
+  newBalance?: number;
+  newConcurrency?: number;
+  sub2: Sub2AccountStatus;
   provider?: ModelProviderConfig;
   providers?: ModelProviderConfig[];
   providerSyncStatus?: "synced" | "provisioning" | "failed";
   providerSyncDetail?: string;
+}
+
+export interface Sub2UsageSummary {
+  stats: Sub2UsageDashboardStats | null;
+  records: Sub2UsageLog[];
+  updatedAt: string;
 }
 
 export interface AppDiagnostics {
@@ -1610,6 +1537,7 @@ export interface BrevynAPI {
   };
   agent: {
     messages: (threadId: string) => Promise<BrevynAgentTimelineRecord[]>;
+    usageSummary: () => Promise<LocalModelUsageSummary>;
     run: (input: AgentRunInput) => Promise<AgentRunResult>;
     queueMessage: (input: AgentQueueMessageInput) => Promise<string>;
     stop: (threadId: string) => Promise<boolean>;
@@ -1623,18 +1551,17 @@ export interface BrevynAPI {
     status: () => Promise<AgentGatewayStatus>;
     setEnabled: (enabled: boolean) => Promise<AgentGatewayStatus>;
   };
-  cloud: {
-    status: () => Promise<CloudAccountStatus>;
-    login: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
-    register: (input: CloudAuthInput) => Promise<CloudOfficialProviderSyncResult>;
-    refresh: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
-    refreshEntitlements: (input?: CloudRefreshInput) => Promise<CloudAccountStatus>;
-    syncConversationProvider: (input?: CloudSyncConversationProviderInput) => Promise<CloudOfficialProviderSyncResult>;
-    activateConversationProvider: (input: CloudActivateConversationProviderInput) => Promise<CloudOfficialProviderSyncResult>;
-    syncOfficialProvider: (input?: CloudSyncOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
-    activateOfficialProvider: (input: CloudActivateOfficialProviderInput) => Promise<CloudOfficialProviderSyncResult>;
-    redeemCode: (input: CloudRedeemCodeInput) => Promise<CloudRedeemCodeResult>;
-    logout: () => Promise<CloudAccountStatus>;
+  sub2: {
+    status: () => Promise<Sub2AccountStatus>;
+    login: (input: Sub2AuthInput) => Promise<Sub2OfficialProviderSyncResult>;
+    register: (input: Sub2AuthInput) => Promise<Sub2OfficialProviderSyncResult>;
+    login2FA: (input: Sub2Login2FAInput) => Promise<Sub2OfficialProviderSyncResult>;
+    refresh: (input?: Sub2RefreshInput) => Promise<Sub2AccountStatus>;
+    syncOfficialProvider: (input?: Sub2SyncOfficialProviderInput) => Promise<Sub2OfficialProviderSyncResult>;
+    activateOfficialProvider: (input: Sub2ActivateOfficialProviderInput) => Promise<Sub2OfficialProviderSyncResult>;
+    redeemCode: (input: Sub2RedeemCodeInput) => Promise<Sub2RedeemCodeResult>;
+    usageSummary: () => Promise<Sub2UsageSummary>;
+    logout: () => Promise<Sub2AccountStatus>;
   };
   attachments: {
     pick: (threadId: string) => Promise<AgentAttachment[]>;

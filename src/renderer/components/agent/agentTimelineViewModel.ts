@@ -27,6 +27,7 @@ import { completePartialToolInputHints, isCompleteToolInputJson, parsePartialToo
 import { processStateKey } from "@/components/agent/agentTimelineRunState";
 import { getToolInputPath, recordObject, stringValue, type ToolResultBlock, type ToolUseBlock } from "@/components/agent/tool-cards/toolModel";
 import { buildAnswerEvidenceSources, parseRagEvidenceOutput, type AnswerEvidenceSource, type RagEvidence } from "@/components/agent/ragEvidence";
+import { formatAgentUserError } from "../../../shared/agent-error-format";
 import type {
   AgentTimelineDisplayKind,
   AgentTimelineToolGroupSummary,
@@ -1264,11 +1265,11 @@ function timelineItemDisplay(
 
   if (message.type === "assistant") {
     if (isPromptTooLongMessage(message)) {
-      return { kind: "prompt-too-long", assistantContent: assistantText(message) || agentErrorMessage(message) };
+      return { kind: "prompt-too-long", assistantContent: formatAgentUserError(assistantText(message) || agentErrorMessage(message)) };
     }
     const errorMessage = agentErrorMessage(message);
     if (errorMessage) {
-      return { kind: "provider-error", assistantContent: assistantText(message) || errorMessage };
+      return { kind: "provider-error", assistantContent: formatAgentUserError(assistantText(message) || errorMessage) };
     }
     const content = assistantBlocks(message).flatMap((block) => block.type === "text" ? [block.text] : []).join("\n\n");
     if (!content.trim()) return { kind: "hidden" };

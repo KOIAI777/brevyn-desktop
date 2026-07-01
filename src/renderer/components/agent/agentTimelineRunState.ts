@@ -17,6 +17,7 @@ import {
   type RunSummary,
 } from "@/components/agent/agentTimelineModel";
 import { stringValue } from "@/components/agent/tool-cards/toolModel";
+import { formatAgentUserError } from "../../../shared/agent-error-format";
 
 export function processStateKey(summary: RunSummary | null, userIndex: number | undefined, records: AgentTimelineRecord[], recordIndex: number): string {
   if (summary?.runId) return `run-${summary.runId}`;
@@ -61,7 +62,7 @@ export function runSummaryForUserIndex(records: AgentTimelineRecord[], userIndex
         running: true,
         status,
         permissionMode,
-        detail: retry.reason,
+        detail: formatAgentUserError(retry.reason),
         startedAtMs: startMs,
         hasActivity,
         retryAttempt: retry.retryAttempt,
@@ -216,7 +217,7 @@ function resultDetail(result?: SDKMessage): string | undefined {
 function normalizedRunDetail(detail?: string): string | undefined {
   const text = detail?.trim();
   if (!text || text === "Agent run stopped.") return undefined;
-  return text;
+  return formatAgentUserError(text);
 }
 
 function eventsSinceStart(records: AgentTimelineRecord[], userIndex: number): boolean {

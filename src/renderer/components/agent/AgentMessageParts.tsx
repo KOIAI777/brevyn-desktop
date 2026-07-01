@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, Check, ChevronDown, ClipboardCheck, Copy, FileSearch, Minimize2, RotateCw, ShieldCheck, X } from "lucide-react";
+import { AgentImageAttachmentPreview, isAgentImageAttachment } from "@/components/agent/AgentImageAttachmentPreview";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
@@ -137,6 +138,8 @@ export function UserMessageBubble({
 
 function MessageAttachments({ attachments, threadId }: { attachments: AgentAttachment[]; threadId?: string }) {
   const onPreviewFilePath = useFilePathPreviewHandler();
+  const imageAttachments = attachments.filter(isAgentImageAttachment);
+  const fileAttachments = attachments.filter((attachment) => !isAgentImageAttachment(attachment));
 
   async function openAttachment(attachment: AgentAttachment) {
     if (onPreviewFilePath) {
@@ -148,20 +151,36 @@ function MessageAttachments({ attachments, threadId }: { attachments: AgentAttac
   }
 
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {attachments.map((attachment) => (
-        <button
-          key={attachment.id || attachment.path}
-          type="button"
-          className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background/72 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent/65"
-          title={attachment.path}
-          onClick={() => void openAttachment(attachment)}
-        >
-          <FileTypeIcon name={attachment.name} size={15} />
-          <span className="max-w-48 truncate">{attachment.name}</span>
-          {attachment.sizeLabel && <span className="text-[10px] text-muted-foreground">{attachment.sizeLabel}</span>}
-        </button>
-      ))}
+    <div className="mt-2 space-y-2">
+      {imageAttachments.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {imageAttachments.map((attachment) => (
+            <AgentImageAttachmentPreview
+              key={attachment.id || attachment.path}
+              attachment={attachment}
+              variant="message"
+              onOpen={() => openAttachment(attachment)}
+            />
+          ))}
+        </div>
+      )}
+      {fileAttachments.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {fileAttachments.map((attachment) => (
+            <button
+              key={attachment.id || attachment.path}
+              type="button"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/70 bg-background/72 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm transition hover:bg-accent/65"
+              title={attachment.path}
+              onClick={() => void openAttachment(attachment)}
+            >
+              <FileTypeIcon name={attachment.name} size={15} />
+              <span className="max-w-48 truncate">{attachment.name}</span>
+              {attachment.sizeLabel && <span className="text-[10px] text-muted-foreground">{attachment.sizeLabel}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

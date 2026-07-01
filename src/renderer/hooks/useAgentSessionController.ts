@@ -21,8 +21,10 @@ import {
   setAgentLiveRunning,
   setAgentThreadListStatus,
 } from "@/lib/agent-live-store";
+import { cleanAgentErrorMessage, formatAgentUserError } from "../../shared/agent-error-format";
 
 const AGENT_MODEL_STORAGE_PREFIX = "brevyn.agent.modelSelection.";
+const AGENT_ERROR_DEDUPE_MS = 2500;
 
 interface UseAgentSessionControllerArgs {
   activeThreadId: string;
@@ -54,6 +56,7 @@ export function useAgentSessionController({
   const runModelSelectionByThreadRef = useRef<Map<string, string>>(new Map());
   const onThreadHasMessagesRef = useRef(onThreadHasMessages);
   const onThreadUpdatedRef = useRef(onThreadUpdated);
+  const lastErrorRef = useRef<{ message: string; shownAt: number }>({ message: "", shownAt: 0 });
 
   const [records, setRecords] = useState<BrevynAgentTimelineRecord[]>([]);
   const [recordsThreadId, setRecordsThreadId] = useState("");
@@ -68,11 +71,24 @@ export function useAgentSessionController({
   onThreadHasMessagesRef.current = onThreadHasMessages;
   onThreadUpdatedRef.current = onThreadUpdated;
 
+  const setAgentError = useCallback((value: string) => {
+    const message = value ? formatAgentUserError(value) : "";
+    if (!message) {
+      lastErrorRef.current = { message: "", shownAt: 0 };
+      setError("");
+      return;
+    }
+    const now = Date.now();
+    if (lastErrorRef.current.message === message && now - lastErrorRef.current.shownAt < AGENT_ERROR_DEDUPE_MS) return;
+    lastErrorRef.current = { message, shownAt: now };
+    setError(message);
+  }, []);
+
   const loadMessages = useCallback(async (threadId: string, options: { expectedRunId?: string; skipRunStateUpdate?: boolean } = {}): Promise<boolean> => {
     const requestId = agentLoadRequestRef.current + 1;
     agentLoadRequestRef.current = requestId;
     setLoading(true);
-    setError("");
+    setAgentError("");
     try {
       const nextRecords = await window.brevyn.agent.messages(threadId);
       if (!mountedRef.current || agentLoadRequestRef.current !== requestId || activeThreadIdRef.current !== threadId) return false;
@@ -91,7 +107,7 @@ export function useAgentSessionController({
       return true;
     } catch (loadError) {
       if (mountedRef.current && agentLoadRequestRef.current === requestId) {
-        setError(errorMessage(loadError, "Failed to load agent timeline."));
+        setAgentError(errorMessage(loadError, "Failed to load agent timeline."));
         setRecords([]);
         setRecordsThreadId(threadId);
         if (!options.skipRunStateUpdate && shouldApplyRunStateForLoad(activeRunIdByThreadRef.current, threadId, options.expectedRunId)) {
@@ -105,7 +121,7 @@ export function useAgentSessionController({
     } finally {
       if (agentLoadRequestRef.current === requestId) setLoading(false);
     }
-  }, []);
+  }, [setAgentError]);
 
   const refreshProviders = useCallback(async (preferredSelection?: string) => {
     try {
@@ -125,11 +141,11 @@ export function useAgentSessionController({
   }, []);
 
   const selectProvider = useCallback(async (providerSelection: string) => {
-    setError("");
+    setAgentError("");
     const nextSelection = validAgentModelSelection(providers, providerSelection || selectedAgentModelRef.current);
     setSelectedModel(nextSelection);
     writeStoredAgentModelSelection(activeThreadIdRef.current, nextSelection);
-  }, [providers]);
+  }, [providers, setAgentError]);
 
   const runForThread = useCallback(async (
     threadId: string,
@@ -144,7 +160,7 @@ export function useAgentSessionController({
     const isActiveThread = threadId === activeThreadIdRef.current;
     if ((isActiveThread && runningRef.current) || runInFlightByThreadRef.current.has(threadId)) return false;
     if (isActiveThread) {
-      setError("");
+      setAgentError("");
       setRecordsThreadId(threadId);
       runningRef.current = true;
       setRunning(true);
@@ -182,12 +198,12 @@ export function useAgentSessionController({
       setAgentLiveRunning(threadId, false);
       const message = errorMessage(runError, "Failed to start agent run.");
       const suppressError = options?.suppressActiveRunError && isAgentRunStillActiveMessage(message);
-      if (isActiveThread && !suppressError) setError(message);
+      if (isActiveThread && !suppressError) setAgentError(message);
       throw new Error(message);
     } finally {
       runInFlightByThreadRef.current.delete(threadId);
     }
-  }, []);
+  }, [setAgentError]);
 
   const run = useCallback(async (
     prompt: string,
@@ -201,10 +217,10 @@ export function useAgentSessionController({
       const message = runningRef.current
         ? "An agent run is already active for this thread."
         : "Agent run did not start.";
-      setError(message);
+      setAgentError(message);
       throw new Error(message);
     }
-  }, [runForThread]);
+  }, [runForThread, setAgentError]);
 
   const stop = useCallback(async (): Promise<void> => {
     const threadId = activeThreadIdRef.current;
@@ -216,9 +232,9 @@ export function useAgentSessionController({
       setAgentLiveRunning(threadId, false);
       flushAgentLiveRecords(threadId);
     } catch (stopError) {
-      setError(errorMessage(stopError, "Failed to stop agent run."));
+      setAgentError(errorMessage(stopError, "Failed to stop agent run."));
     }
-  }, []);
+  }, [setAgentError]);
 
   const approve = useCallback(async (requestId: string): Promise<void> => {
     const threadId = activeThreadIdRef.current;
@@ -226,9 +242,9 @@ export function useAgentSessionController({
     try {
       await window.brevyn.agent.approve({ threadId, requestId });
     } catch (approveError) {
-      setError(errorMessage(approveError, "Failed to approve tool call."));
+      setAgentError(errorMessage(approveError, "Failed to approve tool call."));
     }
-  }, []);
+  }, [setAgentError]);
 
   const reject = useCallback(async (requestId: string): Promise<void> => {
     const threadId = activeThreadIdRef.current;
@@ -236,9 +252,9 @@ export function useAgentSessionController({
     try {
       await window.brevyn.agent.reject({ threadId, requestId });
     } catch (rejectError) {
-      setError(errorMessage(rejectError, "Failed to deny tool call."));
+      setAgentError(errorMessage(rejectError, "Failed to deny tool call."));
     }
-  }, []);
+  }, [setAgentError]);
 
   const answerQuestion = useCallback(async (requestId: string, answers: Record<string, string>): Promise<void> => {
     const threadId = activeThreadIdRef.current;
@@ -246,9 +262,9 @@ export function useAgentSessionController({
     try {
       await window.brevyn.agent.answerQuestion({ threadId, requestId, answers });
     } catch (answerError) {
-      setError(errorMessage(answerError, "Failed to answer agent question."));
+      setAgentError(errorMessage(answerError, "Failed to answer agent question."));
     }
-  }, []);
+  }, [setAgentError]);
 
   const resolveExitPlan = useCallback(async (requestId: string, decision: "approve" | "deny", feedback?: string): Promise<void> => {
     const threadId = activeThreadIdRef.current;
@@ -256,9 +272,9 @@ export function useAgentSessionController({
     try {
       await window.brevyn.agent.resolveExitPlan({ threadId, requestId, decision, feedback });
     } catch (resolveError) {
-      setError(errorMessage(resolveError, "Failed to resolve plan request."));
+      setAgentError(errorMessage(resolveError, "Failed to resolve plan request."));
     }
-  }, []);
+  }, [setAgentError]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -295,7 +311,7 @@ export function useAgentSessionController({
           void loadMessages(eventThreadId, { skipRunStateUpdate: true });
           const subtype = String((event.message as { subtype?: unknown }).subtype || "");
           if (subtype && subtype !== "success" && subtype !== "stopped_by_user" && subtype !== "interrupted") {
-            setError(resultErrorMessage(event.message));
+            setAgentError(resultErrorMessage(event.message));
           }
         }
         return;
@@ -322,7 +338,7 @@ export function useAgentSessionController({
         runInFlightByThreadRef.current.delete(eventThreadId);
         runningRef.current = true;
         setRunning(true);
-        setError("");
+        setAgentError("");
       } else if (isTerminalRuntimeEvent(event.event)) {
         if (!shouldApplyRunStateForRunId(activeRunIdByThreadRef.current, eventThreadId, event.event.runId) && activeRunIdByThreadRef.current.has(eventThreadId)) return;
         activeRunIdByThreadRef.current.delete(eventThreadId);
@@ -332,11 +348,11 @@ export function useAgentSessionController({
         setAgentLiveRunning(eventThreadId, false);
         markAgentThreadStatusSeen(eventThreadId);
         flushAgentLiveRecords(eventThreadId);
-        if (event.event.type === "run_failed") setError(event.event.error);
+        if (event.event.type === "run_failed") setAgentError(event.event.error);
       }
     });
     return unsubscribe;
-  }, [loadMessages]);
+  }, [loadMessages, setAgentError]);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -354,11 +370,11 @@ export function useAgentSessionController({
       setLoading(false);
       runningRef.current = false;
       setRunning(false);
-      setError("");
+      setAgentError("");
       return;
     }
     void loadMessages(activeThreadId);
-  }, [activeThreadId, loadMessages]);
+  }, [activeThreadId, loadMessages, setAgentError]);
 
   return {
     records: recordsThreadId === activeThreadId ? records : [],
@@ -381,12 +397,13 @@ export function useAgentSessionController({
 
 function errorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error || "");
-  const message = raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "").trim();
-  return message.trim() || fallback;
+  const message = cleanAgentErrorMessage(raw);
+  return formatAgentUserError(message || fallback);
 }
 
 function isAgentRunStillActiveMessage(message: string): boolean {
-  return message.includes("An agent run is already active for this thread");
+  return message.includes("An agent run is already active for this thread") ||
+    message.includes("当前会话已有任务正在运行");
 }
 
 function resultErrorMessage(message: BrevynAgentSessionRecord): string {

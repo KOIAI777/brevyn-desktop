@@ -5,6 +5,7 @@ import type { AgentAttachment, AgentPermissionMode, ModelProviderConfig, SkillIt
 import type { AgentTodoItem, ContextUsage } from "@/components/agent/agentTimelineModel";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
 import { AttachmentChip } from "@/components/agent/AgentAttachmentChips";
+import { AgentImageAttachmentPreview, isAgentImageAttachment } from "@/components/agent/AgentImageAttachmentPreview";
 import { ContextUsageButton } from "@/components/agent/AgentContextUsageButton";
 import {
   buildPromptWithMentions,
@@ -111,6 +112,8 @@ export const AgentComposer = memo(function AgentComposer({
   const hasMentionedSkills = mentionedSkills.length > 0;
   const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills);
   const canQueueWhileRunning = canSubmit && pendingAttachments.length === 0;
+  const pendingImageAttachments = pendingAttachments.filter(isAgentImageAttachment);
+  const pendingFileAttachments = pendingAttachments.filter((attachment) => !isAgentImageAttachment(attachment));
   promptValueRef.current = promptValue;
   threadIdRef.current = threadId;
 
@@ -252,17 +255,32 @@ export const AgentComposer = memo(function AgentComposer({
           onDrop={handleDrop}
         >
           {pendingAttachments.length > 0 && (
-            <div className="mb-2">
-              <div className="flex flex-wrap gap-1.5">
-                {pendingAttachments.map((attachment) => (
-                  <AttachmentChip
-                    key={attachment.id}
-                    attachment={attachment}
-                    removable
-                    onRemove={() => void removeAttachment(attachment)}
-                  />
-                ))}
-              </div>
+            <div className="mb-2 space-y-2">
+              {pendingImageAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {pendingImageAttachments.map((attachment) => (
+                    <AgentImageAttachmentPreview
+                      key={attachment.id}
+                      attachment={attachment}
+                      variant="composer"
+                      removable
+                      onRemove={() => void removeAttachment(attachment)}
+                    />
+                  ))}
+                </div>
+              )}
+              {pendingFileAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {pendingFileAttachments.map((attachment) => (
+                    <AttachmentChip
+                      key={attachment.id}
+                      attachment={attachment}
+                      removable
+                      onRemove={() => void removeAttachment(attachment)}
+                    />
+                  ))}
+                </div>
+              )}
               {running && (
                 <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
                   当前回复完成后即可发送附件。

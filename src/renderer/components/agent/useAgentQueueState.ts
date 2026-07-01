@@ -303,7 +303,9 @@ function completedRunEvent(event: BrevynAgentEvent): { threadId: string; runId: 
 }
 
 function isAgentRunStillActiveError(error: unknown): boolean {
-  return String(error instanceof Error ? error.message : error || "").includes("An agent run is already active for this thread");
+  const message = String(error instanceof Error ? error.message : error || "");
+  return message.includes("An agent run is already active for this thread") ||
+    message.includes("当前会话已有任务正在运行");
 }
 
 function delay(ms: number): Promise<void> {

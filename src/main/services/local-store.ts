@@ -19,22 +19,13 @@ import type {
   AppThemePreference,
   BrevynAgentEvent,
   BrevynAgentTimelineRecord,
+  BrevynUsageMetadata,
   DeleteFileInput,
   ExternalSource,
   ExternalSourceAddFilesInput,
   ExternalSourceAddResult,
   ExternalSourceAddUrlInput,
   ExternalSourceListInput,
-  CloudAccountStatus,
-  CloudActivateConversationProviderInput,
-  CloudActivateOfficialProviderInput,
-  CloudAuthInput,
-  CloudOfficialProviderSyncResult,
-  CloudRedeemCodeInput,
-  CloudRedeemCodeResult,
-  CloudRefreshInput,
-  CloudSyncConversationProviderInput,
-  CloudSyncOfficialProviderInput,
   CreateCourseInput,
   CreateSemesterInput,
   CreateTaskInput,
@@ -46,6 +37,10 @@ import type {
   GitStatus,
   IndexActiveSemesterResult,
   IndexingJob,
+  LocalModelUsageModelSummary,
+  LocalModelUsageRecord,
+  LocalModelUsageSummary,
+  LocalModelUsageTotals,
   ModelProviderConfig,
   ProviderDraftInput,
   ProviderModel,
@@ -61,6 +56,16 @@ import type {
   SourceCandidateListInput,
   SourceCandidateProposeInput,
   SourceCandidateProposeResult,
+  Sub2AccountStatus,
+  Sub2ActivateOfficialProviderInput,
+  Sub2AuthInput,
+  Sub2Login2FAInput,
+  Sub2OfficialProviderSyncResult,
+  Sub2RedeemCodeInput,
+  Sub2RedeemCodeResult,
+  Sub2RefreshInput,
+  Sub2SyncOfficialProviderInput,
+  Sub2UsageSummary,
   SkillImportInput,
   SkillItem,
   SkillUpdateInput,
@@ -78,12 +83,6 @@ import type {
   ArchivedTaskScope,
   WorkspaceFileNode,
 } from "../../types/domain";
-import {
-  BREVYN_CLOUD_DEVELOPMENT_BASE_URL,
-  BREVYN_CLOUD_PRODUCTION_BASE_URL,
-  BREVYN_CLOUD_SHOP_URL,
-  type BrevynCloudEnvironment,
-} from "../../types/cloud-config";
 import { AgentEventBus, AgentGatewayService, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
 import type { IndexingTaskRecord, IndexingWorkerResult } from "../indexing";
 import { SkillFileStore } from "../skills/skill-file-store";
@@ -92,7 +91,6 @@ import { SQLiteBusinessStore } from "../storage";
 import { FileService } from "./file-service";
 import { AppSettingsStore } from "./app-settings-store";
 import { broadcastSourceCandidatesChanged } from "../ipc/source-candidates-ipc";
-import { CloudAccountService } from "./cloud-account-service";
 import { DocumentParseService } from "./document-parse-service";
 import { ProviderConfigStore } from "./provider-config-store";
 import { OcrRecognitionService } from "./ocr-recognition-service";
@@ -100,6 +98,7 @@ import { ProviderSecretStore } from "./provider-secret-store";
 import { ProviderService, envApiKeyForProvider } from "./provider-service";
 import { ProviderTransactionStore } from "./provider-transaction-store";
 import { RagIndexService, type RagSearchOptions } from "./rag-index-service";
+import { Sub2AccountService } from "./sub2-account-service";
 import { VisionRecognitionService } from "./vision-recognition-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
@@ -109,8 +108,6 @@ import { formatSize, kindForPath } from "./workspace-file-tree";
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
 const MAX_AGENT_ATTACHMENT_DATA_BYTES = 100 * 1024 * 1024;
-const CLOUD_ENTITLEMENTS_USAGE_REFRESH_DELAY_MS = 2_500;
-const CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS = 30_000;
 
 interface LocalStoreOptions {
   isPackaged?: boolean;
@@ -129,10 +126,8 @@ export class LocalStore {
   private readonly agent: AgentOrchestrator;
   private readonly appSettings: AppSettingsStore;
   private readonly agentGateway: AgentGatewayService;
-  private readonly cloud: CloudAccountService;
-  private cloudEntitlementsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private cloudEntitlementsRefreshInFlight = false;
-  private cloudEntitlementsLastForceAt = 0;
+  private readonly agentSessions: AgentSessionStore;
+  private readonly sub2: Sub2AccountService;
 
   constructor(
     private readonly filePath: string,
@@ -147,12 +142,9 @@ export class LocalStore {
       enabled: this.appSettings.get().agentGateway.openAiResponsesEnabled,
     });
     this.providers = new ProviderService(providerConfigs, providerSecrets, new ProviderTransactionStore(join(this.rootDataDir, "provider-transactions.json")));
-    const cloudConfig = resolveCloudRuntimeConfig(options);
-    this.cloud = new CloudAccountService(join(this.rootDataDir, "cloud-account.json"), this.providers, {
-      defaultBaseUrl: cloudConfig.defaultBaseUrl,
-      environment: cloudConfig.environment,
-      baseUrlEditable: cloudConfig.baseUrlEditable,
-      shopUrl: cloudConfig.shopUrl,
+    this.sub2 = new Sub2AccountService(join(this.rootDataDir, "sub2-account.json"), this.providers, {
+      defaultBaseUrl: envString("BREVYN_SUB2_BASE_URL") || "https://api.brevyn.org",
+      baseUrlEditable: !options.isPackaged || envFlag("BREVYN_SUB2_ALLOW_BASE_URL_EDIT"),
     });
     this.skillFiles = new SkillFileStore(this.rootDataDir);
     this.skillFiles.ensureDefaultSkillTemplates(BUILTIN_SKILL_BLUEPRINTS);
@@ -188,18 +180,14 @@ export class LocalStore {
     this.documentParser = new DocumentParseService({
       providers: this.providers,
     });
+    this.agentSessions = new AgentSessionStore(this.rootDataDir);
     const agentEventBus = new AgentEventBus();
-    agentEventBus.on((event) => {
-      if (isTerminalAgentRunEvent(event)) {
-        this.scheduleCloudEntitlementsRefresh("agent_request_complete");
-      }
-    });
     this.agent = new AgentOrchestrator({
       rootDataDir: this.rootDataDir,
       businessStore,
       providers: this.providers,
       skillFiles: this.skillFiles,
-      sessions: new AgentSessionStore(this.rootDataDir),
+      sessions: this.agentSessions,
       eventBus: agentEventBus,
       promptBuilder: new PromptBuilder(),
       permissions: new PermissionService(),
@@ -346,11 +334,7 @@ export class LocalStore {
   }
 
   async searchRag(query: string, courseId?: string, options?: RagSearchOptions & { limit?: number }): Promise<RagSearchResult[]> {
-    try {
-      return await this.files.searchRag(query, courseId, options);
-    } finally {
-      this.scheduleCloudEntitlementsRefresh("embedding_search_complete");
-    }
+    return await this.files.searchRag(query, courseId, options);
   }
 
   listFiles(courseId?: string): WorkspaceFileNode[] {
@@ -477,11 +461,7 @@ export class LocalStore {
   }
 
   async completeIndexingTask(taskId: string, result: IndexingWorkerResult, workerId?: string, lockedUntil?: string): Promise<IndexingJob | null> {
-    try {
-      return await this.files.completeIndexingTask(taskId, result, workerId, lockedUntil);
-    } finally {
-      this.scheduleCloudEntitlementsRefresh("embedding_index_complete");
-    }
+    return await this.files.completeIndexingTask(taskId, result, workerId, lockedUntil);
   }
 
   failIndexingTask(taskId: string, message: string, workerId?: string, lockedUntil?: string): IndexingJob | null {
@@ -564,19 +544,11 @@ export class LocalStore {
   }
 
   async recognizeAcademicCalendar(input: VisionRecognitionInput): Promise<RecognizedAcademicCalendar> {
-    try {
-      return await this.vision.recognizeAcademicCalendar(input);
-    } finally {
-      this.scheduleCloudEntitlementsRefresh("vision_request_complete");
-    }
+    return await this.vision.recognizeAcademicCalendar(input);
   }
 
   async recognizeCourseTimetable(input: VisionRecognitionInput): Promise<RecognizedCourseTimetable> {
-    try {
-      return await this.vision.recognizeCourseTimetable(input);
-    } finally {
-      this.scheduleCloudEntitlementsRefresh("vision_request_complete");
-    }
+    return await this.vision.recognizeCourseTimetable(input);
   }
 
   importAcademicCalendar(input: RecognizedAcademicCalendar): RecognizedAcademicCalendar {
@@ -632,79 +604,44 @@ export class LocalStore {
     return this.appSettings.updateAppearance({ codeThemePreference: preference }).appearance.codeThemePreference;
   }
 
-  cloudStatus(): CloudAccountStatus {
-    return this.cloud.status();
+  sub2Status(): Sub2AccountStatus {
+    return this.sub2.status();
   }
 
-  cloudLogin(input: CloudAuthInput): Promise<CloudOfficialProviderSyncResult> {
-    return this.cloud.login(input);
+  sub2Login(input: Sub2AuthInput): Promise<Sub2OfficialProviderSyncResult> {
+    return this.sub2.login(input);
   }
 
-  cloudRegister(input: CloudAuthInput): Promise<CloudOfficialProviderSyncResult> {
-    return this.cloud.register(input);
+  sub2Register(input: Sub2AuthInput): Promise<Sub2OfficialProviderSyncResult> {
+    return this.sub2.register(input);
   }
 
-  cloudRefresh(input?: CloudRefreshInput): Promise<CloudAccountStatus> {
-    return this.cloud.refresh(input);
+  sub2Login2FA(input: Sub2Login2FAInput): Promise<Sub2OfficialProviderSyncResult> {
+    return this.sub2.login2FA(input);
   }
 
-  cloudRefreshEntitlements(input?: CloudRefreshInput): Promise<CloudAccountStatus> {
-    return this.cloud.refreshEntitlements(input);
+  sub2Refresh(input?: Sub2RefreshInput): Promise<Sub2AccountStatus> {
+    return this.sub2.refresh(input);
   }
 
-  private scheduleCloudEntitlementsRefresh(reason: string, delayMs = CLOUD_ENTITLEMENTS_USAGE_REFRESH_DELAY_MS): void {
-    if (!this.cloud.status().authenticated) return;
-    if (this.cloudEntitlementsRefreshTimer) clearTimeout(this.cloudEntitlementsRefreshTimer);
-    this.cloudEntitlementsRefreshTimer = setTimeout(() => {
-      this.cloudEntitlementsRefreshTimer = null;
-      void this.refreshCloudEntitlementsAfterUsage(reason);
-    }, delayMs);
+  sub2SyncOfficialProvider(input?: Sub2SyncOfficialProviderInput): Promise<Sub2OfficialProviderSyncResult> {
+    return this.sub2.syncOfficialProvider(input);
   }
 
-  private async refreshCloudEntitlementsAfterUsage(reason: string): Promise<void> {
-    if (this.cloudEntitlementsRefreshInFlight) {
-      this.scheduleCloudEntitlementsRefresh(reason, CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS);
-      return;
-    }
-    const now = Date.now();
-    const remainingCooldown = CLOUD_ENTITLEMENTS_FORCE_COOLDOWN_MS - (now - this.cloudEntitlementsLastForceAt);
-    if (remainingCooldown > 0) {
-      this.scheduleCloudEntitlementsRefresh(reason, remainingCooldown);
-      return;
-    }
-    this.cloudEntitlementsRefreshInFlight = true;
-    this.cloudEntitlementsLastForceAt = now;
-    try {
-      await this.cloud.refreshEntitlements({ forceEntitlements: true, reason });
-    } catch (error) {
-      console.warn("[cloud] Usage-triggered entitlement refresh failed", error);
-    } finally {
-      this.cloudEntitlementsRefreshInFlight = false;
-    }
+  sub2ActivateOfficialProvider(input: Sub2ActivateOfficialProviderInput): Promise<Sub2OfficialProviderSyncResult> {
+    return this.sub2.activateOfficialProvider(input);
   }
 
-  cloudSyncConversationProvider(input?: CloudSyncConversationProviderInput): Promise<CloudOfficialProviderSyncResult> {
-    return this.cloud.syncConversationProvider(input);
+  sub2RedeemCode(input: Sub2RedeemCodeInput): Promise<Sub2RedeemCodeResult> {
+    return this.sub2.redeemCode(input);
   }
 
-  cloudActivateConversationProvider(input: CloudActivateConversationProviderInput): Promise<CloudOfficialProviderSyncResult> {
-    return this.cloud.activateConversationProvider(input);
+  sub2UsageSummary(): Promise<Sub2UsageSummary> {
+    return this.sub2.usageSummary();
   }
 
-  cloudSyncOfficialProvider(input?: CloudSyncOfficialProviderInput): Promise<CloudOfficialProviderSyncResult> {
-    return this.cloud.syncOfficialProvider(input);
-  }
-
-  cloudActivateOfficialProvider(input: CloudActivateOfficialProviderInput): Promise<CloudOfficialProviderSyncResult> {
-    return this.cloud.activateOfficialProvider(input);
-  }
-
-  cloudRedeemCode(input: CloudRedeemCodeInput): Promise<CloudRedeemCodeResult> {
-    return this.cloud.redeemCode(input);
-  }
-
-  cloudLogout(): Promise<CloudAccountStatus> {
-    return this.cloud.logout();
+  sub2Logout(): Promise<Sub2AccountStatus> {
+    return this.sub2.logout();
   }
 
   listTimetableEvents(query: TimetableRangeQuery): TimetableEvent[] {
@@ -731,6 +668,101 @@ export class LocalStore {
 
   agentMessages(threadId: string): BrevynAgentTimelineRecord[] {
     return this.agent.messages(threadId);
+  }
+
+  agentUsageSummary(): LocalModelUsageSummary {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const last7DaysStart = new Date(now);
+    last7DaysStart.setDate(last7DaysStart.getDate() - 6);
+    last7DaysStart.setHours(0, 0, 0, 0);
+    const last30DaysStart = new Date(now);
+    last30DaysStart.setDate(last30DaysStart.getDate() - 29);
+    last30DaysStart.setHours(0, 0, 0, 0);
+
+    const totals = emptyUsageTotals();
+    const today = emptyUsageTotals();
+    const last7Days = emptyUsageTotals();
+    const last30Days = emptyUsageTotals();
+    const records: LocalModelUsageRecord[] = [];
+    const modelStats = new Map<string, LocalModelUsageModelSummary>();
+    const threadIds = new Set<string>();
+    let firstUsedAt: string | undefined;
+    let lastUsedAt: string | undefined;
+
+    for (const thread of this.businessStore.listThreads()) {
+      let threadHasUsage = false;
+      let timeline: BrevynAgentTimelineRecord[] = [];
+      try {
+        timeline = this.agentSessions.read(thread);
+      } catch (error) {
+        console.warn("[local-usage] Failed to read agent session", thread.id, error);
+        continue;
+      }
+      for (const record of timeline) {
+        const usage = localUsageFromRecord(record);
+        if (!usage) continue;
+        const createdAt = recordTimestamp(record);
+        const createdAtIso = createdAt ? new Date(createdAt).toISOString() : "";
+        const providerId = stringFromRecord(recordObject(record)._channelProviderId) || usage.providerId;
+        const modelId = usage.modelId || stringFromRecord(recordObject(record)._channelModelId) || "Unknown model";
+        const entryTotals = usageTotalsFromMetadata(usage);
+
+        addUsageTotals(totals, entryTotals);
+        if (createdAt) {
+          if (createdAt >= todayStart.getTime()) addUsageTotals(today, entryTotals);
+          if (createdAt >= last7DaysStart.getTime()) addUsageTotals(last7Days, entryTotals);
+          if (createdAt >= last30DaysStart.getTime()) addUsageTotals(last30Days, entryTotals);
+          if (!firstUsedAt || createdAt < Date.parse(firstUsedAt)) firstUsedAt = createdAtIso;
+          if (!lastUsedAt || createdAt > Date.parse(lastUsedAt)) lastUsedAt = createdAtIso;
+        }
+
+        threadHasUsage = true;
+        const statKey = `${providerId || ""}:${modelId}`;
+        const stat = modelStats.get(statKey) || {
+          modelId,
+          providerId,
+          requestCount: 0,
+          lastUsedAt: undefined,
+          ...emptyUsageTotals(),
+        };
+        stat.requestCount += 1;
+        addUsageTotals(stat, entryTotals);
+        if (createdAt && (!stat.lastUsedAt || createdAt > Date.parse(stat.lastUsedAt))) stat.lastUsedAt = createdAtIso;
+        modelStats.set(statKey, stat);
+
+        records.push({
+          id: `${thread.id}:${records.length}`,
+          threadId: thread.id,
+          threadTitle: thread.title,
+          modelId,
+          providerId,
+          createdAt: createdAtIso,
+          ...entryTotals,
+        });
+      }
+      if (threadHasUsage) threadIds.add(thread.id);
+    }
+
+    records.sort((a, b) => Date.parse(b.createdAt || "0") - Date.parse(a.createdAt || "0"));
+    const models = [...modelStats.values()]
+      .sort((a, b) => b.totalTokens - a.totalTokens || b.requestCount - a.requestCount || a.modelId.localeCompare(b.modelId));
+
+    return {
+      generatedAt: now.toISOString(),
+      totals,
+      today,
+      last7Days,
+      last30Days,
+      requestCount: records.length,
+      threadCount: threadIds.size,
+      modelCount: models.length,
+      firstUsedAt,
+      lastUsedAt,
+      models: models.slice(0, 12),
+      recentRecords: records.slice(0, 80),
+    };
   }
 
   runAgent(input: AgentRunInput): Promise<AgentRunResult> {
@@ -857,10 +889,6 @@ export class LocalStore {
   }
 
   async close(): Promise<void> {
-    if (this.cloudEntitlementsRefreshTimer) {
-      clearTimeout(this.cloudEntitlementsRefreshTimer);
-      this.cloudEntitlementsRefreshTimer = null;
-    }
     let closeError: unknown;
     try {
       this.stopAllAgents();
@@ -892,6 +920,7 @@ export class LocalStore {
 
     if (closeError) throw closeError;
   }
+
 }
 
 function bundledDefaultSkillDirs(): string[] {
@@ -940,12 +969,98 @@ function uniqueAttachmentPath(dir: string, fileName: string): string {
   return candidate;
 }
 
-function isTerminalAgentRunEvent(event: BrevynAgentEvent): boolean {
-  if (event.kind !== "brevyn_event") return false;
-  return event.event.type === "run_completed" ||
-    event.event.type === "run_stopped" ||
-    event.event.type === "run_failed" ||
-    event.event.type === "run_interrupted";
+function emptyUsageTotals(): LocalModelUsageTotals {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+    contextInputTokens: 0,
+  };
+}
+
+function addUsageTotals(target: LocalModelUsageTotals, source: LocalModelUsageTotals): void {
+  target.inputTokens += source.inputTokens;
+  target.outputTokens += source.outputTokens;
+  target.cacheReadTokens += source.cacheReadTokens;
+  target.cacheCreationTokens += source.cacheCreationTokens;
+  target.reasoningTokens += source.reasoningTokens;
+  target.totalTokens += source.totalTokens;
+  target.contextInputTokens += source.contextInputTokens;
+}
+
+function usageTotalsFromMetadata(usage: BrevynUsageMetadata): LocalModelUsageTotals {
+  const inputTokens = positiveNumber(usage.inputTokens);
+  const outputTokens = positiveNumber(usage.outputTokens);
+  const cacheReadTokens = positiveNumber(usage.cacheReadTokens);
+  const cacheCreationTokens = positiveNumber(usage.cacheCreationTokens);
+  const reasoningTokens = positiveNumber(usage.reasoningTokens);
+  const totalTokens = positiveNumber(usage.totalTokens) || inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+  const contextInputTokens = positiveNumber(usage.contextInputTokens) || inputTokens + cacheReadTokens + cacheCreationTokens;
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    reasoningTokens,
+    totalTokens,
+    contextInputTokens,
+  };
+}
+
+function localUsageFromRecord(record: BrevynAgentTimelineRecord): BrevynUsageMetadata | null {
+  const usage = recordObject(recordObject(record)._brevynUsage);
+  if (Object.keys(usage).length === 0) return null;
+  const inputTokens = positiveNumber(usage.inputTokens);
+  const outputTokens = positiveNumber(usage.outputTokens);
+  const cacheReadTokens = positiveNumber(usage.cacheReadTokens);
+  const cacheCreationTokens = positiveNumber(usage.cacheCreationTokens);
+  const totalTokens = positiveNumber(usage.totalTokens);
+  if (inputTokens <= 0 && outputTokens <= 0 && cacheReadTokens <= 0 && cacheCreationTokens <= 0 && totalTokens <= 0) return null;
+  return {
+    providerProtocol: usage.providerProtocol === "openai_responses" ? "openai_responses" : "anthropic_messages",
+    providerId: stringFromRecord(usage.providerId),
+    modelId: stringFromRecord(usage.modelId),
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    reasoningTokens: positiveNumber(usage.reasoningTokens),
+    totalTokens,
+    contextInputTokens: positiveNumber(usage.contextInputTokens),
+  };
+}
+
+function recordTimestamp(record: BrevynAgentTimelineRecord): number | undefined {
+  if (isRuntimeTimelineRecord(record)) {
+    const parsed = Date.parse(record.event.createdAt);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  const object = recordObject(record);
+  if (typeof object._createdAt === "number" && Number.isFinite(object._createdAt)) return object._createdAt;
+  if (typeof object.timestamp === "string") {
+    const parsed = Date.parse(object.timestamp);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function isRuntimeTimelineRecord(record: BrevynAgentTimelineRecord): record is Extract<BrevynAgentTimelineRecord, { kind: "runtime" }> {
+  return Boolean(record && typeof record === "object" && "kind" in record && record.kind === "runtime");
+}
+
+function recordObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function positiveNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function stringFromRecord(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function listSessionFileNodes(dir: string, rootDir: string, thread: Thread): WorkspaceFileNode[] {
@@ -992,23 +1107,6 @@ export function createLocalStore(rootDataPath: string, options: LocalStoreOption
     new ProviderSecretStore(join(rootDataPath, "provider-secrets.json")),
     options,
   );
-}
-
-function resolveCloudRuntimeConfig(options: LocalStoreOptions): {
-  defaultBaseUrl: string;
-  environment: BrevynCloudEnvironment;
-  baseUrlEditable: boolean;
-  shopUrl: string;
-} {
-  const environment: BrevynCloudEnvironment = options.isPackaged ? "production" : "development";
-  const defaultBaseUrl = envString("BREVYN_CLOUD_BASE_URL")
-    || (environment === "production" ? BREVYN_CLOUD_PRODUCTION_BASE_URL : BREVYN_CLOUD_DEVELOPMENT_BASE_URL);
-  return {
-    defaultBaseUrl,
-    environment,
-    baseUrlEditable: environment === "development" || envFlag("BREVYN_CLOUD_ALLOW_BASE_URL_EDIT"),
-    shopUrl: envString("BREVYN_CLOUD_SHOP_URL") || BREVYN_CLOUD_SHOP_URL,
-  };
 }
 
 function envString(name: string): string {
