@@ -30,12 +30,6 @@ asarUnpack:
   - "node_modules/pptxgenjs/**"
   - "node_modules/pdf-lib/package.json"
   - "node_modules/pdf-lib/cjs/**"
-  - "node_modules/pdf-parse/**"
-  - "node_modules/pdfjs-dist/package.json"
-  - "node_modules/pdfjs-dist/build/**"
-  - "node_modules/pdfjs-dist/standard_fonts/**"
-  - "node_modules/pdfjs-dist/cmaps/**"
-  - "node_modules/pdfjs-dist/image_decoders/**"
   - "node_modules/react/**"
   - "node_modules/react-dom/**"
   - "node_modules/react-icons/package.json"
@@ -255,6 +249,8 @@ extraResources:
 mac:
   category: public.app-category.education
   icon: resources/icon.icns
+  identity: "Zhenghao Jia (4SWSN4QB7Y)"
+  notarize: true
   target:
     - dmg
     - zip
