@@ -23,6 +23,7 @@ import type {
   Sub2RedeemCodeInput,
   Sub2RefreshInput,
   Sub2SyncOfficialProviderInput,
+  Sub2UsageSummaryInput,
   AppCodeThemePreference,
   AppThemePreference,
   AppThemeState,
@@ -187,7 +188,8 @@ const api: BrevynAPI = {
     syncOfficialProvider: (input?: Sub2SyncOfficialProviderInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2SyncOfficialProvider, input),
     activateOfficialProvider: (input: Sub2ActivateOfficialProviderInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2ActivateOfficialProvider, input),
     redeemCode: (input: Sub2RedeemCodeInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2RedeemCode, input),
-    usageSummary: () => ipcRenderer.invoke(IPC_CHANNELS.sub2UsageSummary),
+    usageSummary: (input?: Sub2UsageSummaryInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2UsageSummary, input),
+    billingRecords: () => ipcRenderer.invoke(IPC_CHANNELS.sub2BillingRecords),
     logout: () => ipcRenderer.invoke(IPC_CHANNELS.sub2Logout),
   },
   attachments: {

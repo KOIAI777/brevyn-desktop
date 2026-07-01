@@ -59,12 +59,14 @@ import type {
   Sub2AccountStatus,
   Sub2ActivateOfficialProviderInput,
   Sub2AuthInput,
+  Sub2BillingRecordsSummary,
   Sub2Login2FAInput,
   Sub2OfficialProviderSyncResult,
   Sub2RedeemCodeInput,
   Sub2RedeemCodeResult,
   Sub2RefreshInput,
   Sub2SyncOfficialProviderInput,
+  Sub2UsageSummaryInput,
   Sub2UsageSummary,
   SkillImportInput,
   SkillItem,
@@ -636,8 +638,12 @@ export class LocalStore {
     return this.sub2.redeemCode(input);
   }
 
-  sub2UsageSummary(): Promise<Sub2UsageSummary> {
-    return this.sub2.usageSummary();
+  sub2UsageSummary(input?: Sub2UsageSummaryInput): Promise<Sub2UsageSummary> {
+    return this.sub2.usageSummary(input);
+  }
+
+  sub2BillingRecords(): Promise<Sub2BillingRecordsSummary> {
+    return this.sub2.billingRecords();
   }
 
   sub2Logout(): Promise<Sub2AccountStatus> {

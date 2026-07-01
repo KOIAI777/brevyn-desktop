@@ -8,18 +8,23 @@ import type {
   Sub2ActivateOfficialProviderInput,
   Sub2APIKey,
   Sub2AuthInput,
+  Sub2BillingRecord,
+  Sub2BillingRecordsSummary,
   Sub2Group,
   Sub2Login2FAInput,
   Sub2OfficialProviderSyncResult,
+  Sub2PaymentOrder,
   Sub2ProviderRef,
   Sub2RedeemCodeInput,
   Sub2RedeemCodeResult,
+  Sub2RedeemHistoryItem,
   Sub2RefreshInput,
   Sub2Subscription,
   Sub2SyncOfficialProviderInput,
   Sub2TokenPair,
   Sub2UsageDashboardStats,
   Sub2UsageLog,
+  Sub2UsageSummaryInput,
   Sub2UsageSummary,
   Sub2User,
 } from "../../types/domain";
@@ -336,23 +341,65 @@ export class Sub2AccountService {
     };
   }
 
-  async usageSummary(): Promise<Sub2UsageSummary> {
+  async usageSummary(input: Sub2UsageSummaryInput = {}): Promise<Sub2UsageSummary> {
     this.requireRefreshToken();
+    const page = clampPositiveInteger(input.page, 1, 100_000, 1);
+    const pageSize = clampPositiveInteger(input.pageSize, 5, 100, 20);
+    const usageParams = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+      sort_by: "created_at",
+      sort_order: "desc",
+    });
     const [statsResult, logsResult] = await Promise.all([
       this.requestRaw<unknown>("/api/v1/usage/dashboard/stats").catch((error: unknown) => ({ __error: error })),
-      this.requestRaw<PaginatedResponse<unknown>>("/api/v1/usage?page=1&page_size=50&sort_by=created_at&sort_order=desc").catch((error: unknown) => ({ __error: error })),
+      this.requestRaw<PaginatedResponse<unknown>>(`/api/v1/usage?${usageParams.toString()}`).catch((error: unknown) => ({ __error: error })),
     ]);
     const stats = hasRequestError(statsResult) ? this.data.usage ?? null : normalizeUsageStats(statsResult);
     const records = hasRequestError(logsResult) ? [] : normalizeUsageLogs(logsResult.items ?? []);
+    const pagination = hasRequestError(logsResult) ? {
+      page,
+      pageSize,
+      total: 0,
+      pages: 0,
+    } : normalizePagination(logsResult, page, pageSize, records.length);
+    const errors = [hasRequestError(statsResult) ? errorMessage(statsResult.__error) : "", hasRequestError(logsResult) ? errorMessage(logsResult.__error) : ""].filter(Boolean);
     this.patchData({
       usage: stats,
       lastSyncedAt: new Date().toISOString(),
-      lastError: [hasRequestError(statsResult) ? errorMessage(statsResult.__error) : "", hasRequestError(logsResult) ? errorMessage(logsResult.__error) : ""].filter(Boolean).join("；"),
+      lastError: errors.join("；"),
     });
     return {
       stats,
       records,
+      pagination,
       updatedAt: new Date().toISOString(),
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
+  async billingRecords(): Promise<Sub2BillingRecordsSummary> {
+    this.requireRefreshToken();
+    const [ordersResult, redeemResult] = await Promise.all([
+      this.requestRaw<PaginatedResponse<unknown>>("/api/v1/payment/orders/my?page=1&page_size=50").catch((error: unknown) => ({ __error: error })),
+      this.requestRaw<unknown>("/api/v1/redeem/history").catch((error: unknown) => ({ __error: error })),
+    ]);
+    const orders = hasRequestError(ordersResult) ? [] : normalizePaymentOrders(ordersResult.items ?? []);
+    const redeemHistory = hasRequestError(redeemResult) ? [] : normalizeRedeemHistory(redeemResult);
+    const errors = [
+      hasRequestError(ordersResult) ? `充值订单读取失败：${errorMessage(ordersResult.__error)}` : "",
+      hasRequestError(redeemResult) ? `兑换记录读取失败：${errorMessage(redeemResult.__error)}` : "",
+    ].filter(Boolean);
+    this.patchData({
+      lastSyncedAt: new Date().toISOString(),
+      lastError: errors.join("；"),
+    });
+    return {
+      orders,
+      redeemHistory,
+      records: normalizeBillingRecords(orders, redeemHistory),
+      updatedAt: new Date().toISOString(),
+      errors: errors.length > 0 ? errors : undefined,
     };
   }
 
@@ -1108,23 +1155,36 @@ function normalizeSubscriptions(raw: unknown): Sub2Subscription[] {
 
 function normalizeUsageStats(raw: unknown): Sub2UsageDashboardStats {
   const item = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const totalInputTokens = numberValue(item.total_input_tokens ?? item.totalInputTokens, 0);
+  const totalOutputTokens = numberValue(item.total_output_tokens ?? item.totalOutputTokens, 0);
+  const totalCacheCreationTokens = numberValue(item.total_cache_creation_tokens ?? item.totalCacheCreationTokens, 0);
+  const totalCacheReadTokens = numberValue(item.total_cache_read_tokens ?? item.totalCacheReadTokens, 0);
+  const todayInputTokens = numberValue(item.today_input_tokens ?? item.todayInputTokens, 0);
+  const todayOutputTokens = numberValue(item.today_output_tokens ?? item.todayOutputTokens, 0);
+  const todayCacheCreationTokens = numberValue(item.today_cache_creation_tokens ?? item.todayCacheCreationTokens, 0);
+  const todayCacheReadTokens = numberValue(item.today_cache_read_tokens ?? item.todayCacheReadTokens, 0);
   return {
     totalApiKeys: numberValue(item.total_api_keys ?? item.totalApiKeys, 0),
     activeApiKeys: numberValue(item.active_api_keys ?? item.activeApiKeys, 0),
     totalRequests: numberValue(item.total_requests ?? item.totalRequests, 0),
-    totalInputTokens: numberValue(item.total_input_tokens ?? item.totalInputTokens, 0),
-    totalOutputTokens: numberValue(item.total_output_tokens ?? item.totalOutputTokens, 0),
-    totalTokens: numberValue(item.total_tokens ?? item.totalTokens, 0),
+    totalInputTokens,
+    totalOutputTokens,
+    totalCacheCreationTokens,
+    totalCacheReadTokens,
+    totalTokens: numberValue(item.total_tokens ?? item.totalTokens, totalInputTokens + totalOutputTokens + totalCacheCreationTokens + totalCacheReadTokens),
     totalCost: numberValue(item.total_cost ?? item.totalCost, 0),
     totalActualCost: numberValue(item.total_actual_cost ?? item.totalActualCost, 0),
     todayRequests: numberValue(item.today_requests ?? item.todayRequests, 0),
-    todayInputTokens: numberValue(item.today_input_tokens ?? item.todayInputTokens, 0),
-    todayOutputTokens: numberValue(item.today_output_tokens ?? item.todayOutputTokens, 0),
-    todayTokens: numberValue(item.today_tokens ?? item.todayTokens, 0),
+    todayInputTokens,
+    todayOutputTokens,
+    todayCacheCreationTokens,
+    todayCacheReadTokens,
+    todayTokens: numberValue(item.today_tokens ?? item.todayTokens, todayInputTokens + todayOutputTokens + todayCacheCreationTokens + todayCacheReadTokens),
     todayCost: numberValue(item.today_cost ?? item.todayCost, 0),
     todayActualCost: numberValue(item.today_actual_cost ?? item.todayActualCost, 0),
     rpm: numberValue(item.rpm, 0),
     tpm: numberValue(item.tpm, 0),
+    averageDurationMs: numberValue(item.average_duration_ms ?? item.averageDurationMs ?? item.avg_duration_ms ?? item.avgDurationMs, 0),
   };
 }
 
@@ -1132,25 +1192,276 @@ function normalizeUsageLogs(raw: unknown): Sub2UsageLog[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((value) => {
     const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const inputTokens = numberValue(item.input_tokens ?? item.inputTokens, 0);
+    const outputTokens = numberValue(item.output_tokens ?? item.outputTokens, 0);
+    const cacheCreationTokens = numberValue(item.cache_creation_tokens ?? item.cacheCreationTokens, 0);
+    const cacheReadTokens = numberValue(item.cache_read_tokens ?? item.cacheReadTokens, 0);
     const log: Sub2UsageLog = {
       id: positiveInteger(item.id),
       apiKeyId: positiveInteger(item.api_key_id ?? item.apiKeyId),
+      requestId: stringValue(item.request_id ?? item.requestId),
       model: stringValue(item.model),
+      requestedModel: nullableString(item.requested_model ?? item.requestedModel),
+      upstreamModel: nullableString(item.upstream_model ?? item.upstreamModel),
       groupId: item.group_id === null || item.groupId === null ? null : positiveInteger(item.group_id ?? item.groupId) || null,
-      inputTokens: numberValue(item.input_tokens ?? item.inputTokens, 0),
-      outputTokens: numberValue(item.output_tokens ?? item.outputTokens, 0),
-      totalTokens: numberValue(item.total_tokens ?? item.totalTokens, 0),
+      subscriptionId: item.subscription_id === null || item.subscriptionId === null ? null : positiveInteger(item.subscription_id ?? item.subscriptionId) || null,
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+      cacheCreation5mTokens: numberValue(item.cache_creation_5m_tokens ?? item.cacheCreation5mTokens, 0),
+      cacheCreation1hTokens: numberValue(item.cache_creation_1h_tokens ?? item.cacheCreation1hTokens, 0),
+      totalTokens: numberValue(item.total_tokens ?? item.totalTokens, inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens),
+      inputCost: numberValue(item.input_cost ?? item.inputCost, 0),
+      outputCost: numberValue(item.output_cost ?? item.outputCost, 0),
+      cacheCreationCost: numberValue(item.cache_creation_cost ?? item.cacheCreationCost, 0),
+      cacheReadCost: numberValue(item.cache_read_cost ?? item.cacheReadCost, 0),
       totalCost: numberValue(item.total_cost ?? item.totalCost, 0),
       actualCost: numberValue(item.actual_cost ?? item.actualCost, 0),
+      rateMultiplier: numberValue(item.rate_multiplier ?? item.rateMultiplier, 1),
+      billingType: numberValue(item.billing_type ?? item.billingType, 0),
+      billingMode: nullableString(item.billing_mode ?? item.billingMode),
       requestType: stringValue(item.request_type ?? item.requestType),
       stream: Boolean(item.stream),
       durationMs: numberValue(item.duration_ms ?? item.durationMs, 0),
+      firstTokenMs: optionalNullableNumber(item.first_token_ms ?? item.firstTokenMs),
+      inboundEndpoint: nullableString(item.inbound_endpoint ?? item.inboundEndpoint),
+      upstreamEndpoint: nullableString(item.upstream_endpoint ?? item.upstreamEndpoint),
+      reasoningEffort: nullableString(item.reasoning_effort ?? item.reasoningEffort),
+      serviceTier: nullableString(item.service_tier ?? item.serviceTier),
+      imageCount: numberValue(item.image_count ?? item.imageCount, 0),
+      imageSize: nullableString(item.image_size ?? item.imageSize),
+      imageInputSize: nullableString(item.image_input_size ?? item.imageInputSize),
+      imageOutputSize: nullableString(item.image_output_size ?? item.imageOutputSize),
+      cacheTtlOverridden: Boolean(item.cache_ttl_overridden ?? item.cacheTtlOverridden),
       createdAt: stringValue(item.created_at ?? item.createdAt),
       apiKey: item.api_key ? normalizeApiKey(item.api_key) : undefined,
       group: item.group ? normalizeGroup(item.group) : undefined,
     };
     return log.id > 0 ? [log] : [];
   });
+}
+
+function normalizePaymentOrders(raw: unknown): Sub2PaymentOrder[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value) => {
+    const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const order: Sub2PaymentOrder = {
+      id: positiveInteger(item.id),
+      userId: positiveInteger(item.user_id ?? item.userId),
+      amount: numberValue(item.amount, 0),
+      payAmount: numberValue(item.pay_amount ?? item.payAmount, 0),
+      currency: stringValue(item.currency) || undefined,
+      feeRate: numberValue(item.fee_rate ?? item.feeRate, 0),
+      paymentType: stringValue(item.payment_type ?? item.paymentType),
+      outTradeNo: stringValue(item.out_trade_no ?? item.outTradeNo),
+      status: stringValue(item.status),
+      orderType: stringValue(item.order_type ?? item.orderType),
+      createdAt: stringValue(item.created_at ?? item.createdAt),
+      expiresAt: stringValue(item.expires_at ?? item.expiresAt),
+      paidAt: stringValue(item.paid_at ?? item.paidAt) || undefined,
+      completedAt: stringValue(item.completed_at ?? item.completedAt) || undefined,
+      refundAmount: numberValue(item.refund_amount ?? item.refundAmount, 0),
+      refundReason: stringValue(item.refund_reason ?? item.refundReason) || undefined,
+      refundRequestedAt: stringValue(item.refund_requested_at ?? item.refundRequestedAt) || undefined,
+      refundRequestReason: stringValue(item.refund_request_reason ?? item.refundRequestReason) || undefined,
+      planId: optionalNumber(item.plan_id ?? item.planId),
+      providerInstanceId: stringValue(item.provider_instance_id ?? item.providerInstanceId) || undefined,
+    };
+    return order.id > 0 ? [order] : [];
+  });
+}
+
+function normalizeRedeemHistory(raw: unknown): Sub2RedeemHistoryItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value) => {
+    const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const group = item.group && typeof item.group === "object" ? item.group as Record<string, unknown> : null;
+    const record: Sub2RedeemHistoryItem = {
+      id: positiveInteger(item.id),
+      code: stringValue(item.code),
+      type: stringValue(item.type),
+      value: numberValue(item.value, 0),
+      status: stringValue(item.status),
+      usedAt: stringValue(item.used_at ?? item.usedAt),
+      createdAt: stringValue(item.created_at ?? item.createdAt),
+      notes: stringValue(item.notes) || undefined,
+      groupId: optionalNumber(item.group_id ?? item.groupId),
+      validityDays: optionalNumber(item.validity_days ?? item.validityDays),
+      group: group ? {
+        id: positiveInteger(group.id),
+        name: stringValue(group.name),
+      } : undefined,
+    };
+    return record.id > 0 ? [record] : [];
+  });
+}
+
+function normalizeBillingRecords(orders: Sub2PaymentOrder[], redeemHistory: Sub2RedeemHistoryItem[]): Sub2BillingRecord[] {
+  const orderRecords = orders.map((order): Sub2BillingRecord => {
+    const effectiveAt = order.completedAt || order.paidAt || order.createdAt;
+    return {
+      id: `order:${order.id}`,
+      source: "payment_order",
+      createdAt: order.createdAt,
+      effectiveAt,
+      title: paymentOrderTitle(order),
+      description: paymentOrderDescription(order),
+      amountLabel: paymentOrderAmountLabel(order),
+      amountUsd: order.orderType === "balance" && isCreditedPaymentStatus(order.status) ? order.amount : undefined,
+      status: order.status,
+      statusLabel: paymentStatusLabel(order.status),
+      rawId: order.id,
+      order,
+    };
+  });
+  const redeemRecords = redeemHistory.map((redeem): Sub2BillingRecord => {
+    const effectiveAt = redeem.usedAt || redeem.createdAt;
+    return {
+      id: `redeem:${redeem.id}`,
+      source: "redeem_history",
+      createdAt: redeem.createdAt,
+      effectiveAt,
+      title: redeemTitle(redeem),
+      description: redeemDescription(redeem),
+      amountLabel: redeemAmountLabel(redeem),
+      amountUsd: redeem.type === "balance" || redeem.type === "admin_balance" ? redeem.value : undefined,
+      status: redeem.status,
+      statusLabel: redeemStatusLabel(redeem.status),
+      rawId: redeem.id,
+      redeem,
+    };
+  });
+  return [...orderRecords, ...redeemRecords].sort((a, b) => timestampValue(b.effectiveAt) - timestampValue(a.effectiveAt));
+}
+
+function paymentOrderTitle(order: Sub2PaymentOrder): string {
+  if (order.orderType === "subscription") return "订阅订单";
+  if (order.orderType === "balance") return "余额充值";
+  return "支付订单";
+}
+
+function paymentOrderDescription(order: Sub2PaymentOrder): string {
+  const parts = [
+    paymentTypeLabel(order.paymentType),
+    order.outTradeNo ? `订单 ${order.outTradeNo}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function paymentOrderAmountLabel(order: Sub2PaymentOrder): string {
+  const payAmount = order.payAmount > 0 ? order.payAmount : order.amount;
+  const amount = order.orderType === "subscription" ? payAmount : order.amount;
+  const prefix = order.orderType === "subscription" ? "订阅 " : "";
+  const suffix = order.refundAmount > 0 ? ` · 已退 ${formatUsd(order.refundAmount)}` : "";
+  return `${prefix}${formatUsd(amount)}${suffix}`;
+}
+
+function paymentTypeLabel(value: string): string {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("alipay")) return "支付宝";
+  if (normalized.includes("wxpay") || normalized.includes("wechat")) return "微信支付";
+  if (normalized.includes("stripe")) return "Stripe";
+  if (normalized.includes("airwallex")) return "Airwallex";
+  if (normalized.includes("easypay")) return "EasyPay";
+  return value || "在线支付";
+}
+
+function paymentStatusLabel(status: string): string {
+  switch (status) {
+    case "PENDING":
+      return "待支付";
+    case "PAID":
+      return "已支付";
+    case "RECHARGING":
+      return "入账中";
+    case "COMPLETED":
+      return "已完成";
+    case "EXPIRED":
+      return "已过期";
+    case "CANCELLED":
+      return "已取消";
+    case "FAILED":
+      return "失败";
+    case "REFUND_REQUESTED":
+      return "退款申请中";
+    case "REFUNDING":
+      return "退款中";
+    case "PARTIALLY_REFUNDED":
+      return "部分退款";
+    case "REFUNDED":
+      return "已退款";
+    case "REFUND_FAILED":
+      return "退款失败";
+    default:
+      return status || "未知";
+  }
+}
+
+function isCreditedPaymentStatus(status: string): boolean {
+  return status === "COMPLETED";
+}
+
+function redeemTitle(item: Sub2RedeemHistoryItem): string {
+  if (item.type === "balance") return "兑换码充值";
+  if (item.type === "admin_balance") return item.value >= 0 ? "余额调整" : "余额扣减";
+  if (item.type === "concurrency") return "并发额度";
+  if (item.type === "admin_concurrency") return item.value >= 0 ? "并发调整" : "并发扣减";
+  if (item.type === "subscription") return "订阅权益";
+  return "兑换记录";
+}
+
+function redeemDescription(item: Sub2RedeemHistoryItem): string {
+  const parts = [
+    item.code ? `兑换码 ${maskRedeemCode(item.code)}` : "",
+    item.group?.name || "",
+    item.notes || "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function redeemAmountLabel(item: Sub2RedeemHistoryItem): string {
+  const sign = item.value >= 0 ? "+" : "";
+  if (item.type === "balance" || item.type === "admin_balance") return `${sign}${formatUsd(item.value)}`;
+  if (item.type === "subscription") {
+    const days = item.validityDays || Math.max(0, Math.round(item.value));
+    return item.group?.name ? `${days} 天 · ${item.group.name}` : `${days} 天`;
+  }
+  return `${sign}${trimNumber(item.value)} 次`;
+}
+
+function redeemStatusLabel(status: string): string {
+  const normalized = status.toLowerCase();
+  if (normalized === "used" || normalized === "completed" || normalized === "success") return "已使用";
+  if (normalized === "active" || normalized === "pending") return "待使用";
+  if (normalized === "expired") return "已过期";
+  if (normalized === "disabled" || normalized === "cancelled") return "已失效";
+  return status || "未知";
+}
+
+function formatUsd(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  const amount = Math.abs(value);
+  return `${sign}$${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: amount >= 100 ? 0 : 2,
+    maximumFractionDigits: amount >= 100 ? 2 : 4,
+  }).format(amount)}`;
+}
+
+function maskRedeemCode(code: string): string {
+  const value = code.trim();
+  if (value.length <= 8) return value;
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+function trimNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function timestampValue(value?: string): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeGatewayModels(payload: Sub2ModelsResponse): ProviderModel[] {
@@ -1228,7 +1539,15 @@ function cloneSubscriptions(subscriptions: Sub2Subscription[]): Sub2Subscription
 }
 
 function cloneUsageStats(stats: Sub2UsageDashboardStats): Sub2UsageDashboardStats {
-  return { ...stats };
+  return normalizeUsageStats(stats);
+}
+
+function normalizePagination<T>(raw: PaginatedResponse<T>, fallbackPage: number, fallbackPageSize: number, itemCount: number): { page: number; pageSize: number; total: number; pages: number } {
+  const page = clampPositiveInteger(raw.page, 1, 100_000, fallbackPage);
+  const pageSize = clampPositiveInteger(raw.page_size, 1, 100, fallbackPageSize);
+  const total = Math.max(0, Math.floor(numberValue(raw.total, itemCount)));
+  const pages = Math.max(0, Math.floor(numberValue(raw.pages, total > 0 ? Math.ceil(total / pageSize) : 0)));
+  return { page, pageSize, total, pages };
 }
 
 function cloneProviderRefs(refs: Sub2ProviderRef[]): Sub2ProviderRef[] {
@@ -1342,6 +1661,12 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
+function optionalNullableNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function numberValue(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -1353,8 +1678,19 @@ function positiveInteger(value: unknown): number {
   return Math.floor(numeric);
 }
 
+function clampPositiveInteger(value: unknown, min: number, max: number, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(numeric)));
+}
+
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+}
+
+function nullableString(value: unknown): string | null {
+  const normalized = stringValue(value).trim();
+  return normalized || null;
 }
 
 function errorMessage(error: unknown): string {

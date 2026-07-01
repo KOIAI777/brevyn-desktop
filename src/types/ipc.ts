@@ -96,6 +96,7 @@ export const IPC_CHANNELS = {
   sub2ActivateOfficialProvider: "brevyn:sub2:activate-official-provider",
   sub2RedeemCode: "brevyn:sub2:redeem-code",
   sub2UsageSummary: "brevyn:sub2:usage-summary",
+  sub2BillingRecords: "brevyn:sub2:billing-records",
   sub2Logout: "brevyn:sub2:logout",
   attachmentsPick: "brevyn:attachments:pick",
   attachmentsList: "brevyn:attachments:list",

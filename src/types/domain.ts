@@ -1287,35 +1287,145 @@ export interface Sub2UsageDashboardStats {
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
   totalTokens: number;
   totalCost: number;
   totalActualCost: number;
   todayRequests: number;
   todayInputTokens: number;
   todayOutputTokens: number;
+  todayCacheCreationTokens: number;
+  todayCacheReadTokens: number;
   todayTokens: number;
   todayCost: number;
   todayActualCost: number;
   rpm: number;
   tpm: number;
+  averageDurationMs: number;
 }
 
 export interface Sub2UsageLog {
   id: number;
   apiKeyId: number;
+  requestId?: string;
   model: string;
+  requestedModel?: string | null;
+  upstreamModel?: string | null;
   groupId: number | null;
+  subscriptionId?: number | null;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  cacheCreation5mTokens: number;
+  cacheCreation1hTokens: number;
   totalTokens: number;
+  inputCost: number;
+  outputCost: number;
+  cacheCreationCost: number;
+  cacheReadCost: number;
   totalCost: number;
   actualCost: number;
+  rateMultiplier: number;
+  billingType: number;
+  billingMode?: string | null;
   requestType?: string;
   stream: boolean;
   durationMs: number;
+  firstTokenMs?: number | null;
+  inboundEndpoint?: string | null;
+  upstreamEndpoint?: string | null;
+  reasoningEffort?: string | null;
+  serviceTier?: string | null;
+  imageCount: number;
+  imageSize?: string | null;
+  imageInputSize?: string | null;
+  imageOutputSize?: string | null;
+  cacheTtlOverridden?: boolean;
   createdAt: string;
   apiKey?: Sub2APIKey;
   group?: Sub2Group;
+}
+
+export type Sub2PaymentOrderStatus =
+  | "PENDING"
+  | "PAID"
+  | "RECHARGING"
+  | "COMPLETED"
+  | "EXPIRED"
+  | "CANCELLED"
+  | "FAILED"
+  | "REFUND_REQUESTED"
+  | "REFUNDING"
+  | "PARTIALLY_REFUNDED"
+  | "REFUNDED"
+  | "REFUND_FAILED"
+  | string;
+
+export type Sub2PaymentOrderType = "balance" | "subscription" | string;
+
+export interface Sub2PaymentOrder {
+  id: number;
+  userId: number;
+  amount: number;
+  payAmount: number;
+  currency?: string;
+  feeRate: number;
+  paymentType: string;
+  outTradeNo: string;
+  status: Sub2PaymentOrderStatus;
+  orderType: Sub2PaymentOrderType;
+  createdAt: string;
+  expiresAt: string;
+  paidAt?: string;
+  completedAt?: string;
+  refundAmount: number;
+  refundReason?: string;
+  refundRequestedAt?: string;
+  refundRequestReason?: string;
+  planId?: number;
+  providerInstanceId?: string;
+}
+
+export interface Sub2RedeemHistoryItem {
+  id: number;
+  code: string;
+  type: string;
+  value: number;
+  status: string;
+  usedAt: string;
+  createdAt: string;
+  notes?: string;
+  groupId?: number;
+  validityDays?: number;
+  group?: Pick<Sub2Group, "id" | "name">;
+}
+
+export type Sub2BillingRecordSource = "payment_order" | "redeem_history";
+
+export interface Sub2BillingRecord {
+  id: string;
+  source: Sub2BillingRecordSource;
+  createdAt: string;
+  effectiveAt: string;
+  title: string;
+  description?: string;
+  amountLabel: string;
+  amountUsd?: number;
+  status: string;
+  statusLabel: string;
+  rawId: number;
+  order?: Sub2PaymentOrder;
+  redeem?: Sub2RedeemHistoryItem;
+}
+
+export interface Sub2BillingRecordsSummary {
+  orders: Sub2PaymentOrder[];
+  redeemHistory: Sub2RedeemHistoryItem[];
+  records: Sub2BillingRecord[];
+  updatedAt: string;
+  errors?: string[];
 }
 
 export interface Sub2ProviderRef {
@@ -1399,10 +1509,24 @@ export interface Sub2RedeemCodeResult {
   providerSyncDetail?: string;
 }
 
+export interface Sub2UsageSummaryInput {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface Sub2UsagePagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  pages: number;
+}
+
 export interface Sub2UsageSummary {
   stats: Sub2UsageDashboardStats | null;
   records: Sub2UsageLog[];
+  pagination: Sub2UsagePagination;
   updatedAt: string;
+  errors?: string[];
 }
 
 export interface AppDiagnostics {
@@ -1560,7 +1684,8 @@ export interface BrevynAPI {
     syncOfficialProvider: (input?: Sub2SyncOfficialProviderInput) => Promise<Sub2OfficialProviderSyncResult>;
     activateOfficialProvider: (input: Sub2ActivateOfficialProviderInput) => Promise<Sub2OfficialProviderSyncResult>;
     redeemCode: (input: Sub2RedeemCodeInput) => Promise<Sub2RedeemCodeResult>;
-    usageSummary: () => Promise<Sub2UsageSummary>;
+    usageSummary: (input?: Sub2UsageSummaryInput) => Promise<Sub2UsageSummary>;
+    billingRecords: () => Promise<Sub2BillingRecordsSummary>;
     logout: () => Promise<Sub2AccountStatus>;
   };
   attachments: {
