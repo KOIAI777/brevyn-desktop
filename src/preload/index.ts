@@ -19,6 +19,7 @@ import type {
   AgentRunInput,
   Sub2ActivateOfficialProviderInput,
   Sub2AuthInput,
+  Sub2BillingRecordsInput,
   Sub2Login2FAInput,
   Sub2RedeemCodeInput,
   Sub2RefreshInput,
@@ -189,7 +190,7 @@ const api: BrevynAPI = {
     activateOfficialProvider: (input: Sub2ActivateOfficialProviderInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2ActivateOfficialProvider, input),
     redeemCode: (input: Sub2RedeemCodeInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2RedeemCode, input),
     usageSummary: (input?: Sub2UsageSummaryInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2UsageSummary, input),
-    billingRecords: () => ipcRenderer.invoke(IPC_CHANNELS.sub2BillingRecords),
+    billingRecords: (input?: Sub2BillingRecordsInput) => ipcRenderer.invoke(IPC_CHANNELS.sub2BillingRecords, input),
     logout: () => ipcRenderer.invoke(IPC_CHANNELS.sub2Logout),
   },
   attachments: {

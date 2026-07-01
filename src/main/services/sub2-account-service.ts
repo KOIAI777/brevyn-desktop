@@ -8,6 +8,7 @@ import type {
   Sub2ActivateOfficialProviderInput,
   Sub2APIKey,
   Sub2AuthInput,
+  Sub2BillingRecordsInput,
   Sub2BillingRecord,
   Sub2BillingRecordsSummary,
   Sub2Group,
@@ -378,14 +379,33 @@ export class Sub2AccountService {
     };
   }
 
-  async billingRecords(): Promise<Sub2BillingRecordsSummary> {
+  async billingRecords(input: Sub2BillingRecordsInput = {}): Promise<Sub2BillingRecordsSummary> {
     this.requireRefreshToken();
+    const page = clampPositiveInteger(input.page, 1, 100_000, 1);
+    const pageSize = clampPositiveInteger(input.pageSize, 5, 100, 20);
+    const ordersToFetch = Math.min(page * pageSize, 100_000);
+    const orderPageSize = Math.min(1000, Math.max(pageSize, ordersToFetch, 50));
+    const orderPagesToFetch = Math.max(1, Math.ceil(ordersToFetch / orderPageSize));
     const [ordersResult, redeemResult] = await Promise.all([
-      this.requestRaw<PaginatedResponse<unknown>>("/api/v1/payment/orders/my?page=1&page_size=50").catch((error: unknown) => ({ __error: error })),
+      this.fetchPaymentOrdersPrefix(orderPagesToFetch, orderPageSize).catch((error: unknown) => ({ __error: error })),
       this.requestRaw<unknown>("/api/v1/redeem/history").catch((error: unknown) => ({ __error: error })),
     ]);
-    const orders = hasRequestError(ordersResult) ? [] : normalizePaymentOrders(ordersResult.items ?? []);
+    const orders = hasRequestError(ordersResult) ? [] : ordersResult.orders;
     const redeemHistory = hasRequestError(redeemResult) ? [] : normalizeRedeemHistory(redeemResult);
+    const allRecords = normalizeBillingRecords(orders, redeemHistory);
+    const knownTotal = hasRequestError(ordersResult)
+      ? allRecords.length
+      : Math.max(allRecords.length, ordersResult.total + redeemHistory.length);
+    const pages = knownTotal > 0 ? Math.ceil(knownTotal / pageSize) : 0;
+    const effectivePage = pages > 0 ? Math.min(page, pages) : page;
+    const pageStart = (effectivePage - 1) * pageSize;
+    const records = allRecords.slice(pageStart, pageStart + pageSize);
+    const pagination = {
+      page: effectivePage,
+      pageSize,
+      total: knownTotal,
+      pages,
+    };
     const errors = [
       hasRequestError(ordersResult) ? `充值订单读取失败：${errorMessage(ordersResult.__error)}` : "",
       hasRequestError(redeemResult) ? `兑换记录读取失败：${errorMessage(redeemResult.__error)}` : "",
@@ -397,10 +417,31 @@ export class Sub2AccountService {
     return {
       orders,
       redeemHistory,
-      records: normalizeBillingRecords(orders, redeemHistory),
+      records,
+      pagination,
       updatedAt: new Date().toISOString(),
       errors: errors.length > 0 ? errors : undefined,
     };
+  }
+
+  private async fetchPaymentOrdersPrefix(pagesToFetch: number, pageSize: number): Promise<{ orders: Sub2PaymentOrder[]; total: number }> {
+    const pages = clampPositiveInteger(pagesToFetch, 1, 100, 1);
+    const size = clampPositiveInteger(pageSize, 5, 1000, 50);
+    const orders: Sub2PaymentOrder[] = [];
+    let total = 0;
+    for (let page = 1; page <= pages; page += 1) {
+      const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(size),
+      });
+      const result = await this.requestRaw<PaginatedResponse<unknown>>(`/api/v1/payment/orders/my?${params.toString()}`);
+      const pageOrders = normalizePaymentOrders(result.items ?? []);
+      orders.push(...pageOrders);
+      total = Math.max(total, Math.floor(numberValue(result.total, orders.length)));
+      const resultPages = Math.max(0, Math.floor(numberValue(result.pages, total > 0 ? Math.ceil(total / size) : 0)));
+      if (pageOrders.length === 0 || page >= resultPages) break;
+    }
+    return { orders, total: Math.max(total, orders.length) };
   }
 
   async logout(): Promise<Sub2AccountStatus> {

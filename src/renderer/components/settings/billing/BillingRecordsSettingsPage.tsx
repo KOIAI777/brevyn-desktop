@@ -7,6 +7,7 @@ import type {
   Sub2BillingRecordsSummary,
   Sub2UsageDashboardStats,
   Sub2UsageLog,
+  Sub2UsagePagination,
   Sub2UsageSummary,
 } from "../../../../types/domain";
 
@@ -42,6 +43,8 @@ export function BillingRecordsSettingsPage() {
   const [billingSummary, setBillingSummary] = useState<Sub2BillingRecordsSummary | null>(null);
   const [billingLoading, setBillingLoading] = useState(true);
   const [billingError, setBillingError] = useState("");
+  const [billingPage, setBillingPage] = useState(1);
+  const [billingPageSize, setBillingPageSize] = useState(20);
 
   const loadUsageSummary = async (page = usagePage, pageSize = usagePageSize) => {
     setUsageLoading(true);
@@ -58,11 +61,14 @@ export function BillingRecordsSettingsPage() {
     }
   };
 
-  const loadBillingRecords = async () => {
+  const loadBillingRecords = async (page = billingPage, pageSize = billingPageSize) => {
     setBillingLoading(true);
     setBillingError("");
     try {
-      setBillingSummary(await window.brevyn.sub2.billingRecords());
+      const nextSummary = await window.brevyn.sub2.billingRecords({ page, pageSize });
+      setBillingSummary(nextSummary);
+      setBillingPage(nextSummary.pagination.page || page);
+      setBillingPageSize(nextSummary.pagination.pageSize || pageSize);
     } catch (error) {
       setBillingError(errorMessage(error, "加载充值记录失败。"));
     } finally {
@@ -77,7 +83,7 @@ export function BillingRecordsSettingsPage() {
 
   const activeLoading = recordTab === "recharge" ? billingLoading : usageLoading;
   const refreshActiveTab = () => {
-    if (recordTab === "recharge") void loadBillingRecords();
+    if (recordTab === "recharge") void loadBillingRecords(billingPage, billingPageSize);
     else void loadUsageSummary(usagePage, usagePageSize);
   };
 
@@ -88,6 +94,15 @@ export function BillingRecordsSettingsPage() {
   const changeUsagePageSize = (pageSize: number) => {
     setUsagePageSize(pageSize);
     void loadUsageSummary(1, pageSize);
+  };
+
+  const changeBillingPage = (page: number) => {
+    void loadBillingRecords(page, billingPageSize);
+  };
+
+  const changeBillingPageSize = (pageSize: number) => {
+    setBillingPageSize(pageSize);
+    void loadBillingRecords(1, pageSize);
   };
 
   return (
@@ -137,6 +152,8 @@ export function BillingRecordsSettingsPage() {
               summary={billingSummary}
               loading={billingLoading}
               error={billingError}
+              onPageChange={changeBillingPage}
+              onPageSizeChange={changeBillingPageSize}
             />
           ) : (
             <Sub2UsagePanel
@@ -214,7 +231,7 @@ function Sub2UsagePanel({
             <div className="text-xs font-semibold text-foreground">最近扣费</div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
               {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
-              <span>{formatUsagePageLabel(pagination, summary?.updatedAt)}</span>
+              <span>{formatPageLabel(pagination, summary?.updatedAt)}</span>
             </div>
           </div>
           <div className="grid grid-cols-[0.85fr_minmax(0,1fr)_0.72fr_0.72fr_0.68fr] gap-2 border-b border-border/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -233,7 +250,7 @@ function Sub2UsagePanel({
               </div>
             )}
           </div>
-          <UsagePaginationControls
+          <RecordsPaginationControls
             pagination={pagination}
             loading={loading}
             onPageChange={onPageChange}
@@ -249,15 +266,20 @@ function Sub2RechargePanel({
   summary,
   loading,
   error,
+  onPageChange,
+  onPageSizeChange,
 }: {
   summary: Sub2BillingRecordsSummary | null;
   loading: boolean;
   error: string;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
 }) {
   const records = summary?.records ?? [];
   const orders = summary?.orders ?? [];
   const redeemHistory = summary?.redeemHistory ?? [];
-  const creditedAmount = records.reduce((sum, record) => sum + (record.amountUsd ?? 0), 0);
+  const pagination = summary?.pagination ?? { page: 1, pageSize: 20, total: records.length, pages: records.length > 0 ? 1 : 0 };
+  const pageCreditedAmount = records.reduce((sum, record) => sum + (record.amountUsd ?? 0), 0);
   const pendingOrders = orders.filter((order) => ["PENDING", "PAID", "RECHARGING", "REFUND_REQUESTED", "REFUNDING"].includes(order.status)).length;
 
   if (loading && !summary) {
@@ -283,13 +305,20 @@ function Sub2RechargePanel({
     <div className="p-3">
       {summary?.errors?.length ? <RecordsNotice messages={summary.errors} /> : null}
       <div className="grid gap-2 md:grid-cols-4">
-        <UsageMetricCard label="已入账" value={formatUsd(creditedAmount)} detail="已完成订单和兑换变动" icon={<Wallet className="h-3.5 w-3.5" />} />
-        <UsageMetricCard label="支付订单" value={formatNumber(orders.length)} detail={`${pendingOrders} 笔待处理`} icon={<ReceiptText className="h-3.5 w-3.5" />} />
-        <UsageMetricCard label="兑换记录" value={formatNumber(redeemHistory.length)} detail="兑换码和后台调整" icon={<Database className="h-3.5 w-3.5" />} />
+        <UsageMetricCard label="本页入账" value={formatUsd(pageCreditedAmount)} detail="当前页已完成变动" icon={<Wallet className="h-3.5 w-3.5" />} />
+        <UsageMetricCard label="已同步订单" value={formatNumber(orders.length)} detail={`${pendingOrders} 笔待处理`} icon={<ReceiptText className="h-3.5 w-3.5" />} />
+        <UsageMetricCard label="兑换记录" value={formatNumber(redeemHistory.length)} detail="来自 sub2 兑换历史" icon={<Database className="h-3.5 w-3.5" />} />
         <UsageMetricCard label="最近同步" value={formatDateShort(summary?.updatedAt)} detail="sub2 官方账号" icon={<Clock3 className="h-3.5 w-3.5" />} />
       </div>
 
       <section className="mt-3 overflow-hidden rounded-[var(--radius-card)] bg-card/70 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.45)]">
+        <div className="flex items-center justify-between gap-3 border-b border-border/45 px-3 py-2.5">
+          <div className="text-xs font-semibold text-foreground">充值和兑换流水</div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+            <span>{formatPageLabel(pagination, summary?.updatedAt)}</span>
+          </div>
+        </div>
         <div className="grid grid-cols-[0.85fr_minmax(0,1.1fr)_0.8fr_0.72fr_0.68fr] gap-2 border-b border-border/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           <span>时间</span>
           <span>类型</span>
@@ -298,10 +327,16 @@ function Sub2RechargePanel({
           <span>来源</span>
         </div>
         <div className="max-h-[22rem] overflow-auto">
-          {records.slice(0, 40).map((record) => (
+          {records.map((record) => (
             <BillingRecordRow key={record.id} record={record} />
           ))}
         </div>
+        <RecordsPaginationControls
+          pagination={pagination}
+          loading={loading}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+        />
       </section>
     </div>
   );
@@ -401,13 +436,13 @@ function ModelUsageDonut({ slices }: { slices: UsageModelSlice[] }) {
   );
 }
 
-function UsagePaginationControls({
+function RecordsPaginationControls({
   pagination,
   loading,
   onPageChange,
   onPageSizeChange,
 }: {
-  pagination: Sub2UsageSummary["pagination"];
+  pagination: Sub2UsagePagination;
   loading: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
@@ -420,7 +455,7 @@ function UsagePaginationControls({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/35 px-3 py-2">
       <div className="text-[10px] tabular-nums text-muted-foreground">
-        {formatUsageRange(pagination)}
+        {formatPaginationRange(pagination)}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <div className="inline-flex overflow-hidden rounded-[var(--radius-control)] bg-background shadow-[inset_0_0_0_1px_hsl(var(--border)/0.5)]">
@@ -670,13 +705,13 @@ function friendlyRecordsError(error: string): string {
   return error;
 }
 
-function formatUsagePageLabel(pagination: Sub2UsageSummary["pagination"], updatedAt?: string): string {
+function formatPageLabel(pagination: Sub2UsagePagination, updatedAt?: string): string {
   const page = Math.max(1, pagination.page);
   const pages = Math.max(1, pagination.pages || 1);
   return `第 ${page} / ${pages} 页 · ${formatDateShort(updatedAt)}`;
 }
 
-function formatUsageRange(pagination: Sub2UsageSummary["pagination"]): string {
+function formatPaginationRange(pagination: Sub2UsagePagination): string {
   const page = Math.max(1, pagination.page);
   const pageSize = Math.max(1, pagination.pageSize);
   const total = Math.max(0, pagination.total);

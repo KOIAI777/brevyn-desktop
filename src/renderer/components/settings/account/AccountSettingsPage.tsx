@@ -222,7 +222,7 @@ export function AccountSettingsPage({
                   </span>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <AccountMetric icon={<Wallet className="h-3.5 w-3.5" />} label="账户余额" value={formatUsd(accountStatus.user?.balance ?? 0)} detail={`${accountStatus.user?.concurrency ?? 0} 并发`} />
+                  <AccountMetric icon={<Wallet className="h-3.5 w-3.5" />} label="账户余额" value={formatUsd(accountStatus.user?.balance ?? 0)} detail={`并发额度 ${formatInteger(accountStatus.user?.concurrency ?? 0)}`} />
                   <AccountMetric icon={<ServerCog className="h-3.5 w-3.5" />} label="对话分组" value={activeOfficialProvider?.name || accountStatus.currentGroup?.name || "尚未选择"} detail={`${groups.length} 个可用分组`} />
                   <AccountMetric icon={<PlugZap className="h-3.5 w-3.5" />} label="官方模型" value={activeOfficialPurposeSummary(activeOfficialProviders) || "待同步"} detail={`${activeOfficialProviders.length}/${officialProviders.length} 个配置`} />
                 </div>

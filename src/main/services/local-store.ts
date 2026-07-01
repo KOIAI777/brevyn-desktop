@@ -59,6 +59,7 @@ import type {
   Sub2AccountStatus,
   Sub2ActivateOfficialProviderInput,
   Sub2AuthInput,
+  Sub2BillingRecordsInput,
   Sub2BillingRecordsSummary,
   Sub2Login2FAInput,
   Sub2OfficialProviderSyncResult,
@@ -642,8 +643,8 @@ export class LocalStore {
     return this.sub2.usageSummary(input);
   }
 
-  sub2BillingRecords(): Promise<Sub2BillingRecordsSummary> {
-    return this.sub2.billingRecords();
+  sub2BillingRecords(input?: Sub2BillingRecordsInput): Promise<Sub2BillingRecordsSummary> {
+    return this.sub2.billingRecords(input);
   }
 
   sub2Logout(): Promise<Sub2AccountStatus> {

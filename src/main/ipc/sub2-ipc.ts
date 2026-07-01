@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import type { Sub2AuthInput, Sub2RefreshInput, Sub2SyncOfficialProviderInput, Sub2UsageSummaryInput } from "../../types/domain";
+import type { Sub2AuthInput, Sub2BillingRecordsInput, Sub2RefreshInput, Sub2SyncOfficialProviderInput, Sub2UsageSummaryInput } from "../../types/domain";
 import { IPC_CHANNELS } from "../../types/ipc";
 import type { IpcContext } from "./context";
 import { optionalString, requireObject, requireString } from "./validation";
@@ -14,7 +14,7 @@ export function registerSub2Ipc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.sub2ActivateOfficialProvider, (_event, input: unknown) => store.sub2ActivateOfficialProvider(normalizeSub2ActivateInput(input)));
   ipcMain.handle(IPC_CHANNELS.sub2RedeemCode, (_event, input: unknown) => store.sub2RedeemCode(normalizeSub2RedeemInput(input)));
   ipcMain.handle(IPC_CHANNELS.sub2UsageSummary, (_event, input: unknown) => store.sub2UsageSummary(normalizeSub2UsageSummaryInput(input)));
-  ipcMain.handle(IPC_CHANNELS.sub2BillingRecords, () => store.sub2BillingRecords());
+  ipcMain.handle(IPC_CHANNELS.sub2BillingRecords, (_event, input: unknown) => store.sub2BillingRecords(normalizeSub2BillingRecordsInput(input)));
   ipcMain.handle(IPC_CHANNELS.sub2Logout, () => store.sub2Logout());
 }
 
@@ -72,6 +72,15 @@ function normalizeSub2RedeemInput(value: unknown): { code: string } {
 function normalizeSub2UsageSummaryInput(value: unknown): Sub2UsageSummaryInput | undefined {
   if (value === undefined || value === null) return undefined;
   const input = requireObject(value, "sub2 usage input");
+  return {
+    page: boundedPositiveInteger(input.page, 1, 100_000),
+    pageSize: boundedPositiveInteger(input.pageSize ?? input.page_size, 5, 100),
+  };
+}
+
+function normalizeSub2BillingRecordsInput(value: unknown): Sub2BillingRecordsInput | undefined {
+  if (value === undefined || value === null) return undefined;
+  const input = requireObject(value, "sub2 billing records input");
   return {
     page: boundedPositiveInteger(input.page, 1, 100_000),
     pageSize: boundedPositiveInteger(input.pageSize ?? input.page_size, 5, 100),

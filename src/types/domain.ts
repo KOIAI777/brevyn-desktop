@@ -1424,6 +1424,7 @@ export interface Sub2BillingRecordsSummary {
   orders: Sub2PaymentOrder[];
   redeemHistory: Sub2RedeemHistoryItem[];
   records: Sub2BillingRecord[];
+  pagination: Sub2UsagePagination;
   updatedAt: string;
   errors?: string[];
 }
@@ -1510,6 +1511,11 @@ export interface Sub2RedeemCodeResult {
 }
 
 export interface Sub2UsageSummaryInput {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface Sub2BillingRecordsInput {
   page?: number;
   pageSize?: number;
 }
@@ -1685,7 +1691,7 @@ export interface BrevynAPI {
     activateOfficialProvider: (input: Sub2ActivateOfficialProviderInput) => Promise<Sub2OfficialProviderSyncResult>;
     redeemCode: (input: Sub2RedeemCodeInput) => Promise<Sub2RedeemCodeResult>;
     usageSummary: (input?: Sub2UsageSummaryInput) => Promise<Sub2UsageSummary>;
-    billingRecords: () => Promise<Sub2BillingRecordsSummary>;
+    billingRecords: (input?: Sub2BillingRecordsInput) => Promise<Sub2BillingRecordsSummary>;
     logout: () => Promise<Sub2AccountStatus>;
   };
   attachments: {
