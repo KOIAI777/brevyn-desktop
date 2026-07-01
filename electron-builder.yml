@@ -249,7 +249,7 @@ extraResources:
 mac:
   category: public.app-category.education
   icon: resources/icon.icns
-  identity: "Zhenghao Jia (4SWSN4QB7Y)"
+  identity: "Developer ID Application: Zhenghao Jia (4SWSN4QB7Y)"
   notarize: true
   target:
     - dmg

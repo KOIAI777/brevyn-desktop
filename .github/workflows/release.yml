@@ -34,11 +34,34 @@ jobs:
         env:
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
 
+      - name: Import Apple signing certificate
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/apple"
+          printf '%s' "$MAC_CSC_LINK" | base64 -D > "$RUNNER_TEMP/apple/certificate.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/apple/build.keychain"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/apple/build.keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/apple/build.keychain"
+          security default-keychain -s "$RUNNER_TEMP/apple/build.keychain"
+          security list-keychains -d user -s "$RUNNER_TEMP/apple/build.keychain" login.keychain
+
+          security import "$RUNNER_TEMP/apple/certificate.p12" \
+            -k "$RUNNER_TEMP/apple/build.keychain" \
+            -P "$MAC_CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/apple/build.keychain"
+          security find-identity -p codesigning -v "$RUNNER_TEMP/apple/build.keychain"
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Build and publish macOS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ runner.temp }}/apple/AuthKey.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
