@@ -31,6 +31,8 @@ export const IPC_CHANNELS = {
   threadsDelete: "brevyn:threads:delete",
   skillsList: "brevyn:skills:list",
   skillsUpdate: "brevyn:skills:update",
+  skillsLibrarySettings: "brevyn:skills:library-settings",
+  skillsUpdateLibrarySettings: "brevyn:skills:update-library-settings",
   skillsReadContent: "brevyn:skills:read-content",
   skillsWriteContent: "brevyn:skills:write-content",
   skillsImportFolder: "brevyn:skills:import-folder",

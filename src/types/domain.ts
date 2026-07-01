@@ -198,6 +198,17 @@ export interface SkillItem {
   sourcePath?: string;
 }
 
+export interface SkillCategory {
+  id: string;
+  name: string;
+  system?: boolean;
+}
+
+export interface SkillLibrarySettings {
+  categories: SkillCategory[];
+  assignments: Record<string, string>;
+}
+
 export interface SkillUpdateInput {
   id: string;
   enabled: boolean;
@@ -1177,6 +1188,7 @@ export interface AppSettings {
     codeThemePreference: AppCodeThemePreference;
   };
   profile: UserProfileSettings;
+  skillLibrary: SkillLibrarySettings;
 }
 
 export interface UserProfileSettings {
@@ -1604,6 +1616,8 @@ export interface BrevynAPI {
   skills: {
     list: () => Promise<SkillItem[]>;
     update: (input: SkillUpdateInput) => Promise<SkillItem>;
+    librarySettings: () => Promise<SkillLibrarySettings>;
+    updateLibrarySettings: (settings: SkillLibrarySettings) => Promise<SkillLibrarySettings>;
     readContent: (skillId: string) => Promise<string>;
     writeContent: (input: SkillWriteInput) => Promise<SkillItem>;
     importFolder: (input: SkillImportInput) => Promise<SkillItem>;

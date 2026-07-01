@@ -71,6 +71,7 @@ import type {
   Sub2UsageSummary,
   SkillImportInput,
   SkillItem,
+  SkillLibrarySettings,
   SkillUpdateInput,
   SkillWriteInput,
   TaskStatus,
@@ -473,6 +474,14 @@ export class LocalStore {
 
   listSkills(): SkillItem[] {
     return mergeSkills(this.skillFiles.listSkills());
+  }
+
+  skillLibrarySettings(): SkillLibrarySettings {
+    return this.appSettings.skillLibrary();
+  }
+
+  updateSkillLibrarySettings(settings: SkillLibrarySettings): SkillLibrarySettings {
+    return this.appSettings.updateSkillLibrary(settings);
   }
 
   updateSkill(input: SkillUpdateInput): SkillItem {

@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AppCodeThemePreference, AppSettings, AppThemePreference, UserProfileSettings } from "../../types/domain";
+import type { AppCodeThemePreference, AppSettings, AppThemePreference, SkillLibrarySettings, UserProfileSettings } from "../../types/domain";
+
+const UNCATEGORIZED_SKILL_CATEGORY_ID = "uncategorized";
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   agentGateway: {
@@ -13,6 +15,15 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   profile: {
     displayName: "Brevyn User",
     avatarId: "🧑‍💻",
+  },
+  skillLibrary: {
+    categories: [
+      { id: "creative-design", name: "创意设计" },
+      { id: "tools", name: "工具" },
+      { id: "study-assignment", name: "学习与作业" },
+      { id: UNCATEGORIZED_SKILL_CATEGORY_ID, name: "未分类", system: true },
+    ],
+    assignments: {},
   },
 };
 
@@ -65,6 +76,16 @@ export class AppSettingsStore {
     });
   }
 
+  skillLibrary(): SkillLibrarySettings {
+    return cloneSkillLibrarySettings(this.data.settings.skillLibrary);
+  }
+
+  updateSkillLibrary(settings: SkillLibrarySettings): SkillLibrarySettings {
+    return this.update({
+      skillLibrary: normalizeSkillLibrarySettings(settings),
+    }).skillLibrary;
+  }
+
   private readData(): AppSettingsFile {
     if (!existsSync(this.filePath)) {
       return { version: 1, settings: cloneSettings(DEFAULT_APP_SETTINGS) };
@@ -99,6 +120,7 @@ function mergeSettings(base: AppSettings, patch: Partial<AppSettings>): AppSetti
       ...base.profile,
       ...(patch.profile || {}),
     }),
+    skillLibrary: normalizeSkillLibrarySettings(patch.skillLibrary ?? base.skillLibrary),
   };
 }
 
@@ -112,6 +134,7 @@ function cloneSettings(settings: AppSettings): AppSettings {
       codeThemePreference: normalizeCodeThemePreference(settings.appearance.codeThemePreference),
     },
     profile: normalizeProfile(settings.profile),
+    skillLibrary: cloneSkillLibrarySettings(settings.skillLibrary),
   };
 }
 
@@ -132,4 +155,53 @@ function normalizeProfile(profile: Partial<UserProfileSettings>): UserProfileSet
     displayName: displayName || DEFAULT_APP_SETTINGS.profile.displayName,
     avatarId: avatarId || DEFAULT_APP_SETTINGS.profile.avatarId,
   };
+}
+
+function cloneSkillLibrarySettings(settings: SkillLibrarySettings): SkillLibrarySettings {
+  const normalized = normalizeSkillLibrarySettings(settings);
+  return {
+    categories: normalized.categories.map((category) => ({ ...category })),
+    assignments: { ...normalized.assignments },
+  };
+}
+
+function normalizeSkillLibrarySettings(settings: Partial<SkillLibrarySettings> | undefined): SkillLibrarySettings {
+  const defaults = DEFAULT_APP_SETTINGS.skillLibrary;
+  const sourceCategories = settings?.categories?.length ? settings.categories : defaults.categories;
+  const categories = [...sourceCategories, uncategorizedCategory()].reduce<SkillLibrarySettings["categories"]>((result, category) => {
+    const id = normalizeSkillCategoryId(category?.id || category?.name);
+    const name = normalizeSkillCategoryName(category?.name);
+    if (!id || !name || result.some((item) => item.id === id)) return result;
+    result.push({
+      id,
+      name,
+      system: id === UNCATEGORIZED_SKILL_CATEGORY_ID || Boolean(category?.system),
+    });
+    return result;
+  }, []);
+  const assignments: Record<string, string> = {};
+  for (const [skillId, categoryId] of Object.entries(settings?.assignments || {})) {
+    const normalizedSkillId = skillId.trim();
+    const normalizedCategoryId = normalizeSkillCategoryId(categoryId);
+    if (!normalizedSkillId || !categories.some((category) => category.id === normalizedCategoryId)) continue;
+    assignments[normalizedSkillId] = normalizedCategoryId;
+  }
+  return { categories, assignments };
+}
+
+function uncategorizedCategory(): SkillLibrarySettings["categories"][number] {
+  return DEFAULT_APP_SETTINGS.skillLibrary.categories.find((category) => category.id === UNCATEGORIZED_SKILL_CATEGORY_ID)!;
+}
+
+function normalizeSkillCategoryId(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function normalizeSkillCategoryName(value: unknown): string {
+  return String(value || "").trim().slice(0, 24);
 }

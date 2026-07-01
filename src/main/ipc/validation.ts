@@ -23,6 +23,7 @@ import type {
   RecognizedCourseTimetable,
   RenameThreadInput,
   SkillImportInput,
+  SkillLibrarySettings,
   SkillUpdateInput,
   SkillWriteInput,
   TaskIconKey,
@@ -212,6 +213,29 @@ export function normalizeSkillImportInput(value: unknown): SkillImportInput {
   };
 }
 
+export function normalizeSkillLibrarySettings(value: unknown): SkillLibrarySettings {
+  const input = requireObject(value, "Skill library settings");
+  const categories = Array.isArray(input.categories)
+    ? input.categories.flatMap((raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+        const category = raw as Record<string, unknown>;
+        const name = stringValue(category.name).trim().slice(0, 24);
+        const id = normalizeSkillCategoryId(category.id || name);
+        return id && name ? [{ id, name, system: Boolean(category.system) }] : [];
+      })
+    : [];
+  const assignments: Record<string, string> = {};
+  const rawAssignments = input.assignments && typeof input.assignments === "object" && !Array.isArray(input.assignments)
+    ? input.assignments as Record<string, unknown>
+    : {};
+  for (const [skillId, categoryId] of Object.entries(rawAssignments)) {
+    const normalizedSkillId = skillId.trim();
+    const normalizedCategoryId = normalizeSkillCategoryId(categoryId);
+    if (normalizedSkillId && normalizedCategoryId) assignments[normalizedSkillId] = normalizedCategoryId;
+  }
+  return { categories, assignments };
+}
+
 export function normalizeSkillUpdateInput(value: unknown): SkillUpdateInput {
   const input = requireObject(value, "Skill update input");
   return {
@@ -370,6 +394,15 @@ function normalizeStringArray(value: unknown): string[] {
     const text = optionalString(item);
     return text ? [text] : [];
   });
+}
+
+function normalizeSkillCategoryId(value: unknown): string {
+  return stringValue(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
 }
 
 function normalizeWeekday(value: unknown): WeekdayKey | undefined {

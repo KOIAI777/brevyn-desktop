@@ -41,6 +41,7 @@ import type {
   RecognizedCourseTimetable,
   VisionRecognitionInput,
   SkillImportInput,
+  SkillLibrarySettings,
   SkillWriteInput,
   SkillUpdateInput,
   TimetableRangeQuery,
@@ -91,6 +92,8 @@ const api: BrevynAPI = {
   skills: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.skillsList),
     update: (input: SkillUpdateInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsUpdate, input),
+    librarySettings: () => ipcRenderer.invoke(IPC_CHANNELS.skillsLibrarySettings),
+    updateLibrarySettings: (settings: SkillLibrarySettings) => ipcRenderer.invoke(IPC_CHANNELS.skillsUpdateLibrarySettings, settings),
     readContent: (skillId: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsReadContent, skillId),
     writeContent: (input: SkillWriteInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsWriteContent, input),
     importFolder: (input: SkillImportInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsImportFolder, input),
