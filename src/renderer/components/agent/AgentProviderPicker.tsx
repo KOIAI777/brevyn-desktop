@@ -54,7 +54,7 @@ export function AgentProviderPicker({
         menuClassName="bg-[hsl(var(--card))]"
         menuWidth={menuWidth}
         menuMinWidth={220}
-        menuItemHeight={64}
+        menuItemHeight={50}
         menuMaxVisibleItems={5}
         renderValue={(option) => (
           option ? (
