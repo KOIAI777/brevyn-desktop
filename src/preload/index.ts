@@ -47,6 +47,8 @@ import type {
   TimetableRangeQuery,
   UserProfileUpdateInput,
   BrevynAPI,
+  WorkspaceMemoryReadInput,
+  WorkspaceMemoryWriteInput,
 } from "../types/domain";
 import { IPC_CHANNELS } from "../types/ipc";
 
@@ -98,6 +100,11 @@ const api: BrevynAPI = {
     writeContent: (input: SkillWriteInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsWriteContent, input),
     importFolder: (input: SkillImportInput) => ipcRenderer.invoke(IPC_CHANNELS.skillsImportFolder, input),
     openFolder: (skillId: string) => ipcRenderer.invoke(IPC_CHANNELS.skillsOpenFolder, skillId),
+  },
+  memory: {
+    summary: (scopeId?: string) => ipcRenderer.invoke(IPC_CHANNELS.memorySummary, scopeId),
+    readFile: (input: WorkspaceMemoryReadInput) => ipcRenderer.invoke(IPC_CHANNELS.memoryReadFile, input),
+    writeFile: (input: WorkspaceMemoryWriteInput) => ipcRenderer.invoke(IPC_CHANNELS.memoryWriteFile, input),
   },
   rag: {
     search: (query: string, courseId?: string) => ipcRenderer.invoke(IPC_CHANNELS.ragSearch, query, courseId),

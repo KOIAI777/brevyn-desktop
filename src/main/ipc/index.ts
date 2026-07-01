@@ -6,6 +6,7 @@ import type { IpcContext } from "./context";
 import { registerFilesIpc } from "./files-ipc";
 import { registerExternalSourcesIpc } from "./external-sources-ipc";
 import { registerIndexingIpc } from "./indexing-ipc";
+import { registerMemoryIpc } from "./memory-ipc";
 import { registerProvidersIpc } from "./provider-ipc";
 import { registerSourceCandidatesIpc } from "./source-candidates-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
@@ -26,6 +27,7 @@ export function registerIpcHandlers(ctx: IpcContext): void {
   registerSourceCandidatesIpc(ctx);
   registerIndexingIpc(ctx);
   registerSkillsIpc(ctx);
+  registerMemoryIpc(ctx);
   registerProvidersIpc(ctx);
   registerSub2Ipc(ctx);
   registerVisionIpc(ctx);

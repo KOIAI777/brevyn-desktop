@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type {
   AgentAttachment,
   AgentAttachmentDataInput,
@@ -85,6 +85,13 @@ import type {
   UpdateCourseInput,
   UpdateTaskInput,
   ArchivedTaskScope,
+  WorkspaceMemoryFileContent,
+  WorkspaceMemoryFileKind,
+  WorkspaceMemoryFileNode,
+  WorkspaceMemoryReadInput,
+  WorkspaceMemoryScopeOption,
+  WorkspaceMemorySummary,
+  WorkspaceMemoryWriteInput,
   WorkspaceFileNode,
 } from "../../types/domain";
 import { AgentEventBus, AgentGatewayService, AgentOrchestrator, AgentSessionStore, AskUserService, ClaudeSdkAdapter, ExitPlanService, PermissionService, PromptBuilder } from "../agent";
@@ -106,12 +113,14 @@ import { Sub2AccountService } from "./sub2-account-service";
 import { VisionRecognitionService } from "./vision-recognition-service";
 import { WorkspaceService } from "./workspace-service";
 import { archivedCourseIdsForSemester, currentActiveSemesterId, isCurrentSemesterArchived } from "./workspace-state";
-import { ensureAgentProjectScaffold, isPathInside, sanitizeFsSegment, workspacePathForThread } from "./workspace-paths";
+import { ensureAgentProjectScaffold, ensureAgentWorkspaceMemoryScaffold, ensureSemesterSharedDirs, ensureTaskWorkspaceDir, isPathInside, sanitizeFsSegment, workspacePathForThread } from "./workspace-paths";
 import { formatSize, kindForPath } from "./workspace-file-tree";
 
 export { SEMESTER_HOME_COURSE_ID } from "./workspace-paths";
 
 const MAX_AGENT_ATTACHMENT_DATA_BYTES = 100 * 1024 * 1024;
+const MAX_WORKSPACE_MEMORY_BYTES = 1024 * 1024;
+const MAX_WORKSPACE_MEMORY_TREE_DEPTH = 4;
 
 interface LocalStoreOptions {
   isPackaged?: boolean;
@@ -519,6 +528,47 @@ export class LocalStore {
     return dir;
   }
 
+  workspaceMemorySummary(scopeId?: string): WorkspaceMemorySummary {
+    return this.buildWorkspaceMemorySummary(scopeId);
+  }
+
+  readWorkspaceMemoryFile(input: WorkspaceMemoryReadInput): WorkspaceMemoryFileContent {
+    const kind = input.kind === "auto" ? "auto" : "claude";
+    const summary = this.buildWorkspaceMemorySummary(input.scopeId);
+    const info = kind === "claude"
+      ? summary.claudeMd
+      : memoryFileInfo("auto", resolveWorkspaceAutoMemoryPath(summary.autoMemoryDir, input.relativePath || "MEMORY.md"), normalizeMemoryRelativePath(input.relativePath || "MEMORY.md"));
+    if (!info.exists) {
+      return {
+        ...info,
+        content: "",
+      };
+    }
+    if (info.size > MAX_WORKSPACE_MEMORY_BYTES) {
+      throw new Error("记忆文件过大，暂不支持在设置里编辑。");
+    }
+    return {
+      ...info,
+      content: readFileSync(info.path, "utf8"),
+    };
+  }
+
+  writeWorkspaceMemoryFile(input: WorkspaceMemoryWriteInput): WorkspaceMemoryFileContent {
+    const kind = input.kind === "auto" ? "auto" : "claude";
+    const content = stringValue(input.content);
+    const byteLength = Buffer.byteLength(content, "utf8");
+    if (byteLength > MAX_WORKSPACE_MEMORY_BYTES) {
+      throw new Error("记忆内容过大，暂不支持保存。");
+    }
+    const summary = this.buildWorkspaceMemorySummary(input.scopeId);
+    const info = kind === "claude"
+      ? summary.claudeMd
+      : memoryFileInfo("auto", resolveWorkspaceAutoMemoryPath(summary.autoMemoryDir, input.relativePath || "MEMORY.md"), normalizeMemoryRelativePath(input.relativePath || "MEMORY.md"));
+    mkdirSync(dirname(info.path), { recursive: true });
+    writeFileSync(info.path, content, "utf8");
+    return this.readWorkspaceMemoryFile({ scopeId: input.scopeId, kind, relativePath: info.relativePath });
+  }
+
   listProviders(): ModelProviderConfig[] {
     return this.providers.list().map((provider) => ({ ...provider }));
   }
@@ -889,6 +939,80 @@ export class LocalStore {
     return ensureAgentProjectScaffold(cwd, thread.id).sessionDir;
   }
 
+  private buildWorkspaceMemorySummary(scopeId?: string): WorkspaceMemorySummary {
+    const semester = this.currentSemester();
+    if (!semester) {
+      throw new Error("请先创建或选择一个学期。");
+    }
+    const scopes = this.workspaceMemoryScopes(semester);
+    const selectedScope = scopes.find((scope) => scope.id === scopeId) || scopes[0];
+    const workspacePath = this.workspacePathForMemoryScope(semester.id, selectedScope);
+    mkdirSync(workspacePath, { recursive: true });
+    const scaffold = ensureAgentWorkspaceMemoryScaffold(workspacePath);
+    const claudePath = join(workspacePath, "CLAUDE.md");
+    const autoIndexPath = join(scaffold.autoMemoryDir, "MEMORY.md");
+    return {
+      enabled: true,
+      scopeId: selectedScope.id,
+      scopeKind: selectedScope.kind,
+      scopeName: selectedScope.label,
+      workspacePath,
+      autoMemoryDir: scaffold.autoMemoryDir,
+      claudeMd: memoryFileInfo("claude", claudePath, "CLAUDE.md"),
+      autoMemoryIndex: memoryFileInfo("auto", autoIndexPath, "MEMORY.md"),
+      autoMemoryFiles: buildWorkspaceAutoMemoryTree(scaffold.autoMemoryDir),
+      scopes,
+    };
+  }
+
+  private workspaceMemoryScopes(semester: SemesterWorkspace): WorkspaceMemoryScopeOption[] {
+    const courses = new Map(
+      this.businessStore
+        .listCourses(semester.id)
+        .filter((course) => !course.archivedAt)
+        .map((course) => [course.id, course.name || course.code || course.id]),
+    );
+    const taskScopes = this.businessStore
+      .listTasks(semester.id)
+      .filter((task) => !task.archivedAt)
+      .map((task) => {
+        const courseName = courses.get(task.courseId);
+        return {
+          id: `task:${task.id}`,
+          kind: "task" as const,
+          label: task.title || "未命名任务",
+          detail: courseName || "任务记忆",
+        };
+      })
+      .sort((a, b) => {
+        const detailCompare = (a.detail || "").localeCompare(b.detail || "", "zh-Hans-CN", { numeric: true });
+        if (detailCompare !== 0) return detailCompare;
+        return a.label.localeCompare(b.label, "zh-Hans-CN", { numeric: true });
+      });
+    return [
+      {
+        id: "semester",
+        kind: "semester" as const,
+        label: `${semester.term} · 学期共享`,
+        detail: "学期总览记忆",
+      },
+      ...taskScopes,
+    ];
+  }
+
+  private workspacePathForMemoryScope(semesterId: string, scope: WorkspaceMemoryScopeOption): string {
+    if (scope.kind === "task") {
+      const taskId = scope.id.startsWith("task:") ? scope.id.slice("task:".length) : "";
+      const task = taskId ? this.businessStore.getTask(taskId) : null;
+      if (!task || task.archivedAt || task.semesterId !== semesterId) {
+        throw new Error("记忆作用域不可用。");
+      }
+      return ensureTaskWorkspaceDir(this.rootDataDir, semesterId, task);
+    }
+    const workspaceRoot = ensureSemesterSharedDirs(this.rootDataDir, semesterId);
+    return join(workspaceRoot, "Semester shared");
+  }
+
   private attachmentForPath(threadId: string, filePath: string, mediaType?: string): AgentAttachment {
     const stats = statSync(filePath);
     return {
@@ -1113,6 +1237,116 @@ function listSessionFileNodes(dir: string, rootDir: string, thread: Thread): Wor
         kind: kindForPath(sourcePath),
       }];
     });
+}
+
+function memoryFileInfo(kind: WorkspaceMemoryFileKind, path: string, relativePath: string): WorkspaceMemorySummary["claudeMd"] {
+  if (!existsSync(path)) {
+    return {
+      kind,
+      relativePath,
+      path,
+      exists: false,
+      size: 0,
+    };
+  }
+  const stats = statSync(path);
+  return {
+    kind,
+    relativePath,
+    path,
+    exists: stats.isFile(),
+    size: stats.isFile() ? stats.size : 0,
+    updatedAt: stats.mtime.toISOString(),
+  };
+}
+
+function buildWorkspaceAutoMemoryTree(rootDir: string, currentDir = rootDir, depth = 0): WorkspaceMemoryFileNode[] {
+  if (depth > MAX_WORKSPACE_MEMORY_TREE_DEPTH || !existsSync(currentDir)) return [];
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = readdirSync(currentDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const nodes: WorkspaceMemoryFileNode[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const path = join(currentDir, entry.name);
+    const relativePath = relative(rootDir, path).split(/[\\/]/).join("/");
+    if (entry.isDirectory()) {
+      nodes.push({
+        relativePath,
+        name: entry.name,
+        type: "directory",
+        children: buildWorkspaceAutoMemoryTree(rootDir, path, depth + 1),
+      });
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    let size = 0;
+    try {
+      size = statSync(path).size;
+    } catch {
+      continue;
+    }
+    if (isLikelyBinaryMemoryFile(path, size)) continue;
+    nodes.push({
+      relativePath,
+      name: entry.name,
+      type: "file",
+      size,
+    });
+  }
+
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+    if (a.relativePath === "MEMORY.md") return -1;
+    if (b.relativePath === "MEMORY.md") return 1;
+    return a.name.localeCompare(b.name, "zh-Hans-CN", { numeric: true });
+  });
+  return nodes;
+}
+
+function resolveWorkspaceAutoMemoryPath(memoryDir: string, relativePath: string): string {
+  const normalized = normalizeMemoryRelativePath(relativePath);
+  const resolved = resolve(memoryDir, normalized);
+  const relativeResolved = relative(memoryDir, resolved);
+  if (relativeResolved === "" || relativeResolved.startsWith("..") || isAbsolute(relativeResolved)) {
+    throw new Error("记忆文件路径不可用。");
+  }
+
+  const memoryRealDir = existsSync(memoryDir) ? realpathSync(memoryDir) : memoryDir;
+  let probe = resolved;
+  while (probe !== memoryDir && !existsSync(probe)) {
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  if (existsSync(probe)) {
+    const realProbe = realpathSync(probe);
+    const realRelative = relative(memoryRealDir, realProbe);
+    if (realRelative.startsWith("..") || isAbsolute(realRelative)) {
+      throw new Error("记忆文件路径不可用。");
+    }
+  }
+
+  return resolved;
+}
+
+function normalizeMemoryRelativePath(value: string): string {
+  const normalized = value.replace(/\\/g, "/").trim();
+  if (!normalized || normalized === "." || normalized.includes("\0") || normalized.startsWith("/")) {
+    throw new Error("记忆文件路径不可用。");
+  }
+  return normalized.split("/").filter(Boolean).join("/");
+}
+
+function isLikelyBinaryMemoryFile(path: string, size: number): boolean {
+  if (size > MAX_WORKSPACE_MEMORY_BYTES) return true;
+  const extension = extname(path).toLowerCase();
+  if ([".md", ".markdown", ".txt", ".json", ".yaml", ".yml"].includes(extension)) return false;
+  return true;
 }
 
 export function createLocalStore(rootDataPath: string, options: LocalStoreOptions = {}): LocalStore {

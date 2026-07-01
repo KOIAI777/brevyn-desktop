@@ -258,6 +258,8 @@ export class AgentOrchestrator {
             env,
             systemPrompt,
             settings: {
+              autoMemoryEnabled: true,
+              autoMemoryDirectory: projectScaffold.autoMemoryDir,
               plansDirectory: projectScaffold.sessionPlanRelativeDir,
             },
             resumeSessionId,

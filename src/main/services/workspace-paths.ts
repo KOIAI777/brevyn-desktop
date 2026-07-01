@@ -28,6 +28,12 @@ export interface AgentProjectScaffold {
   sessionContextDir: string;
   sessionPlanDir: string;
   sessionPlanRelativeDir: string;
+  autoMemoryDir: string;
+  projectSettingsPath: string;
+}
+
+export interface AgentWorkspaceMemoryScaffold {
+  autoMemoryDir: string;
   projectSettingsPath: string;
 }
 
@@ -216,23 +222,36 @@ export function ensureAgentProjectScaffold(cwd: string, threadId: string): Agent
   const sessionDir = join(cwd, ".brevyn", "sessions", idPathSegment(threadId));
   const sessionContextDir = join(sessionDir, ".context");
   const sessionPlanDir = join(sessionContextDir, "plan");
-  const projectSettingsDir = join(cwd, ".claude");
-  const projectSettingsPath = join(projectSettingsDir, "settings.json");
   mkdirSync(sessionPlanDir, { recursive: true });
-  mkdirSync(projectSettingsDir, { recursive: true });
-
-  const existingSettings = readJsonObject(projectSettingsPath);
   const sessionPlanRelativeDir = relative(cwd, sessionPlanDir).split(sep).join("/");
-  writeFileSync(projectSettingsPath, `${JSON.stringify({
-    ...existingSettings,
-    skipWebFetchPreflight: true,
-  }, null, 2)}\n`, "utf8");
+  const memoryScaffold = ensureAgentWorkspaceMemoryScaffold(cwd);
 
   return {
     sessionDir,
     sessionContextDir,
     sessionPlanDir,
     sessionPlanRelativeDir,
+    autoMemoryDir: memoryScaffold.autoMemoryDir,
+    projectSettingsPath: memoryScaffold.projectSettingsPath,
+  };
+}
+
+export function ensureAgentWorkspaceMemoryScaffold(cwd: string): AgentWorkspaceMemoryScaffold {
+  const projectSettingsDir = join(cwd, ".claude");
+  const autoMemoryDir = join(projectSettingsDir, "memory");
+  const projectSettingsPath = join(projectSettingsDir, "settings.json");
+  mkdirSync(autoMemoryDir, { recursive: true });
+
+  const existingSettings = readJsonObject(projectSettingsPath);
+  writeFileSync(projectSettingsPath, `${JSON.stringify({
+    ...existingSettings,
+    autoMemoryEnabled: true,
+    autoMemoryDirectory: autoMemoryDir,
+    skipWebFetchPreflight: true,
+  }, null, 2)}\n`, "utf8");
+
+  return {
+    autoMemoryDir,
     projectSettingsPath,
   };
 }

@@ -1574,6 +1574,63 @@ export interface AppDiagnostics {
   theme: AppThemeState;
 }
 
+export type WorkspaceMemoryFileKind = "claude" | "auto";
+export type WorkspaceMemoryScopeKind = "semester" | "task";
+
+export interface WorkspaceMemoryScopeOption {
+  id: string;
+  kind: WorkspaceMemoryScopeKind;
+  label: string;
+  detail?: string;
+}
+
+export interface WorkspaceMemoryFileInfo {
+  kind: WorkspaceMemoryFileKind;
+  relativePath: string;
+  path: string;
+  exists: boolean;
+  size: number;
+  updatedAt?: string;
+}
+
+export interface WorkspaceMemoryFileNode {
+  relativePath: string;
+  name: string;
+  type: "file" | "directory";
+  size?: number;
+  children?: WorkspaceMemoryFileNode[];
+}
+
+export interface WorkspaceMemorySummary {
+  enabled: boolean;
+  scopeId: string;
+  scopeKind: WorkspaceMemoryScopeKind;
+  scopeName: string;
+  workspacePath: string;
+  autoMemoryDir: string;
+  claudeMd: WorkspaceMemoryFileInfo;
+  autoMemoryIndex: WorkspaceMemoryFileInfo;
+  autoMemoryFiles: WorkspaceMemoryFileNode[];
+  scopes: WorkspaceMemoryScopeOption[];
+}
+
+export interface WorkspaceMemoryFileContent extends WorkspaceMemoryFileInfo {
+  content: string;
+}
+
+export interface WorkspaceMemoryReadInput {
+  scopeId?: string;
+  kind: WorkspaceMemoryFileKind;
+  relativePath?: string;
+}
+
+export interface WorkspaceMemoryWriteInput {
+  scopeId?: string;
+  kind: WorkspaceMemoryFileKind;
+  relativePath?: string;
+  content: string;
+}
+
 export interface BrevynAPI {
   semester: {
     list: () => Promise<SemesterWorkspace[]>;
@@ -1622,6 +1679,11 @@ export interface BrevynAPI {
     writeContent: (input: SkillWriteInput) => Promise<SkillItem>;
     importFolder: (input: SkillImportInput) => Promise<SkillItem>;
     openFolder: (skillId: string) => Promise<void>;
+  };
+  memory: {
+    summary: (scopeId?: string) => Promise<WorkspaceMemorySummary>;
+    readFile: (input: WorkspaceMemoryReadInput) => Promise<WorkspaceMemoryFileContent>;
+    writeFile: (input: WorkspaceMemoryWriteInput) => Promise<WorkspaceMemoryFileContent>;
   };
   rag: {
     search: (query: string, courseId?: string) => Promise<RagSearchResult[]>;

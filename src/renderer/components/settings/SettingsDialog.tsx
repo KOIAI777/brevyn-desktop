@@ -5,6 +5,7 @@ import {
   CreditCard,
   Info,
   Languages,
+  Brain,
   PlugZap,
   Server,
   Settings,
@@ -24,6 +25,7 @@ import {
 } from "@/components/settings/account/AccountSettingsPage";
 import { BillingRecordsSettingsPage } from "@/components/settings/billing/BillingRecordsSettingsPage";
 import { GeneralSettingsPage } from "@/components/settings/general/GeneralSettingsPage";
+import { MemorySettingsPage } from "@/components/settings/memory/MemorySettingsPage";
 import { McpSettingsPage } from "@/components/settings/mcp/McpSettingsPage";
 import { ProviderSettingsPage } from "@/components/settings/providers/ProviderSettingsPage";
 import { useProviderSettingsState } from "@/components/settings/providers/useProviderSettingsState";
@@ -44,7 +46,7 @@ import {
   type UserProfileSettings,
 } from "../../../types/domain";
 
-type SettingsPage = "account" | "billing" | "general" | "providers" | "semesters" | "archive" | "skills" | "mcp" | "about";
+type SettingsPage = "account" | "billing" | "general" | "providers" | "semesters" | "archive" | "skills" | "memory" | "mcp" | "about";
 
 const ACCOUNT_STATUS_AUTO_DISMISS_MS = 4_000;
 const DEFAULT_SUB2_BASE_URL = "https://api.brevyn.org";
@@ -513,6 +515,13 @@ export function SettingsDialog({
                 onClick={() => setActivePage("skills")}
               />
               <SettingsNavButton
+                active={activePage === "memory"}
+                icon={<Brain className="h-4 w-4" />}
+                title="记忆"
+                detail="规则 · Auto Memory"
+                onClick={() => setActivePage("memory")}
+              />
+              <SettingsNavButton
                 active={activePage === "mcp"}
                 icon={<Server className="h-4 w-4" />}
                 title="MCP 工具"
@@ -581,6 +590,8 @@ export function SettingsDialog({
                 onOpenSkillFolder={openSkillFolder}
                 onToggleSkill={toggleSkill}
               />
+            ) : activePage === "memory" ? (
+              <MemorySettingsPage />
             ) : activePage === "mcp" ? (
               <McpSettingsPage />
             ) : (
