@@ -1,16 +1,14 @@
-import { app, BrowserWindow, Menu, nativeTheme, net, protocol, shell } from "electron";
+import { app, BrowserWindow, Menu, nativeTheme, protocol, shell } from "electron";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { registerIpcHandlers } from "./ipc";
 import { IPC_CHANNELS } from "../types/ipc";
 import { DocumentEnhancedIndexingExecutor, IndexingQueueService, WorkerThreadIndexingExecutor } from "./indexing";
 import { createLocalStore, type LocalStore } from "./services/local-store";
 import { applyThemePreference, currentWindowBackgroundColor, syncNativeTheme } from "./services/app-theme";
 import { startWorkspaceFileWatcher, stopWorkspaceFileWatcher } from "./services/workspace-file-watcher";
-import { WORKSPACE_FILE_PREVIEW_PROTOCOL } from "./services/file-service";
-import { isPathInside } from "./services/workspace-paths";
+import { registerWorkspaceFilePreviewProtocol, WORKSPACE_FILE_PREVIEW_PROTOCOL } from "./services/workspace-file-preview-protocol";
 import { cleanupUpdater, initAutoUpdater, isInstallingUpdate } from "./updater/auto-updater";
 
 app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? "Brevyn" : "Brevyn Dev"));
@@ -174,7 +172,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   const dataRoot = brevynDataRoot();
   configureClaudeSdk(dataRoot);
-  registerWorkspaceFilePreviewProtocol(dataRoot);
+  registerWorkspaceFilePreviewProtocol();
   registerIpcHandlers({ store: createDeferredStore(dataRoot), indexingQueue: createDeferredIndexingQueue() });
   createWindow();
   syncNativeTheme(activeThemePreference(), activeCodeThemePreference());
@@ -370,23 +368,6 @@ function configureClaudeSdk(dataRoot: string): void {
   const configDir = join(dataRoot, "sdk-config");
   mkdirSync(configDir, { recursive: true });
   process.env.CLAUDE_CONFIG_DIR = configDir;
-}
-
-function registerWorkspaceFilePreviewProtocol(dataRoot: string): void {
-  protocol.handle(WORKSPACE_FILE_PREVIEW_PROTOCOL, (request) => {
-    const url = new URL(request.url);
-    if (url.hostname !== "workspace") {
-      return new Response("Invalid workspace file host.", { status: 400 });
-    }
-    const requestedPath = decodeURIComponent(url.pathname.slice(1));
-    if (!isPathInside(requestedPath, dataRoot)) {
-      return new Response("Workspace file is outside the Brevyn data root.", { status: 403 });
-    }
-    if (!existsSync(requestedPath)) {
-      return new Response("Workspace file does not exist.", { status: 404 });
-    }
-    return net.fetch(pathToFileURL(requestedPath).toString());
-  });
 }
 
 function startWatcherForMainWindow(dataRoot: string): void {

@@ -78,6 +78,7 @@ import {
   isCurrentSemesterArchived,
   taskInCourseOrThrow,
 } from "./workspace-state";
+import { workspaceDirectoryPreviewUrl, workspaceFilePreviewUrl } from "./workspace-file-preview-protocol";
 
 const require = createRequire(__filename);
 const now = () => new Date().toISOString();
@@ -93,7 +94,6 @@ const MAX_LECTURE_WEEK_FOLDERS = 30;
 const PREVIEW_CACHE_DIR = ".preview-cache";
 const AGENT_WORKSPACE_MEMORY_FILE = "CLAUDE.md";
 const EXTERNAL_SOURCES_FOLDER = "External Sources";
-export const WORKSPACE_FILE_PREVIEW_PROTOCOL = "brevyn-file";
 
 export interface FileServiceOptions {
   rootDataDir: string;
@@ -2137,7 +2137,7 @@ function preparePdfCanvasPreview(rootDataDir: string, sourcePath?: string, title
       fileUrl: workspaceFilePreviewUrl(sourcePath),
       pdfScriptUrl: workspaceFilePreviewUrl(assets.pdfScriptPath),
       pdfWorkerUrl: workspaceFilePreviewUrl(assets.pdfWorkerPath),
-      standardFontDataUrl: `${workspaceFilePreviewUrl(assets.standardFontsDir)}/`,
+      standardFontDataUrl: `${workspaceDirectoryPreviewUrl(assets.standardFontsDir)}/`,
     });
     return {
       summary: "已生成 PDF 画布预览。",
@@ -2200,11 +2200,6 @@ function pdfCanvasPreviewDocument(input: {
       * { box-sizing: border-box; }
       :root { color-scheme: light; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; background: #f5f2ec; color: #1f2933; }
       body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 18% 0%, rgba(255,255,255,.92), transparent 28rem), #f5f2ec; }
-      .toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid rgba(31,41,51,.1); background: rgba(250,248,242,.86); backdrop-filter: blur(14px); }
-      .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
-      .controls { display: flex; align-items: center; gap: 6px; color: #667085; font-size: 11px; }
-      button { height: 26px; min-width: 28px; border: 1px solid rgba(31,41,51,.14); border-radius: 8px; background: #fffdf8; color: #1f2933; font: inherit; cursor: pointer; }
-      button:hover { background: #f0ebe2; }
       #pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; min-width: 100%; }
       canvas { display: block; max-width: none; border-radius: 4px; background: white; box-shadow: 0 18px 48px rgba(31,41,51,.16), 0 1px 0 rgba(31,41,51,.08); }
       .loading, .error, .page-info { width: 100%; padding: 34px 18px; text-align: center; color: #667085; font-size: 12px; line-height: 1.6; }
@@ -2213,22 +2208,33 @@ function pdfCanvasPreviewDocument(input: {
     </style>
   </head>
   <body>
-    <div class="toolbar">
-      <div class="title">${escapePreviewHtml(input.title)}</div>
-      <div class="controls">
-        <button id="zoomOut" title="缩小">-</button>
-        <span id="zoom">100%</span>
-        <button id="zoomIn" title="放大">+</button>
-      </div>
-    </div>
     <main id="pages"><div class="loading">正在加载 PDF...</div></main>
     <script type="module">
       const pages = document.getElementById("pages");
-      const zoomLabel = document.getElementById("zoom");
       const steps = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
       let stepIndex = 2;
       let pdfDoc = null;
-      function setZoomLabel() { zoomLabel.textContent = Math.round(steps[stepIndex] * 100) + "%"; }
+      let pendingScrollTop = 0;
+      function notifyZoom() {
+        window.parent.postMessage({ type: "pdf-zoom-changed", zoom: Math.round(steps[stepIndex] * 100) }, "*");
+      }
+      function notifyScroll() {
+        window.parent.postMessage({ type: "pdf-scroll-changed", scrollTop: window.scrollY || document.documentElement.scrollTop || 0 }, "*");
+      }
+      function stepIndexForZoom(zoom) {
+        const target = Number(zoom) / 100;
+        if (!Number.isFinite(target)) return stepIndex;
+        let bestIndex = stepIndex;
+        let bestDistance = Infinity;
+        for (let index = 0; index < steps.length; index += 1) {
+          const distance = Math.abs(steps[index] - target);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+          }
+        }
+        return bestIndex;
+      }
       async function renderAll() {
         if (!pdfDoc) return;
         pages.innerHTML = "";
@@ -2249,17 +2255,44 @@ function pdfCanvasPreviewDocument(input: {
         info.className = "page-info";
         info.textContent = "共 " + pdfDoc.numPages + " 页";
         pages.appendChild(info);
-        setZoomLabel();
+        notifyZoom();
+        if (pendingScrollTop > 0) {
+          window.scrollTo({ top: pendingScrollTop });
+          pendingScrollTop = 0;
+        }
       }
-      document.getElementById("zoomOut").addEventListener("click", () => {
-        if (stepIndex <= 0) return;
-        stepIndex -= 1;
-        void renderAll();
-      });
-      document.getElementById("zoomIn").addEventListener("click", () => {
-        if (stepIndex >= steps.length - 1) return;
-        stepIndex += 1;
-        void renderAll();
+      let scrollTimer = null;
+      window.addEventListener("scroll", () => {
+        if (scrollTimer) window.clearTimeout(scrollTimer);
+        scrollTimer = window.setTimeout(notifyScroll, 80);
+      }, { passive: true });
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "pdf-scroll" && typeof event.data.scrollTop === "number") {
+          pendingScrollTop = Math.max(0, event.data.scrollTop);
+          window.scrollTo({ top: pendingScrollTop });
+          return;
+        }
+        if (event.data?.type !== "pdf-zoom") return;
+        if (typeof event.data.zoom === "number") {
+          pendingScrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+          stepIndex = stepIndexForZoom(event.data.zoom);
+          void renderAll();
+          return;
+        }
+        if (event.data.direction === "reset") {
+          stepIndex = 2;
+          void renderAll();
+          return;
+        }
+        if (event.data.direction === "out" && stepIndex > 0) {
+          stepIndex -= 1;
+          void renderAll();
+          return;
+        }
+        if (event.data.direction === "in" && stepIndex < steps.length - 1) {
+          stepIndex += 1;
+          void renderAll();
+        }
       });
       try {
         const pdfjsLib = await import(${JSON.stringify(input.pdfScriptUrl)});
@@ -2721,8 +2754,4 @@ function sectionIdForFile(file: WorkspaceFileNode): string | undefined {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || "Unknown cleanup failure");
-}
-
-export function workspaceFilePreviewUrl(sourcePath: string): string {
-  return `${WORKSPACE_FILE_PREVIEW_PROTOCOL}://workspace/${encodeURIComponent(sourcePath)}`;
 }

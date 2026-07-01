@@ -1,10 +1,22 @@
-import { ChevronDown, Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Presentation, Table2, Terminal, Type } from "lucide-react";
+import { ChevronDown, Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Minus, MoveHorizontal, Plus, Presentation, RotateCcw, Table2, Terminal, Type } from "lucide-react";
 import type { FilePreview, OpenPathOption } from "@/types/domain";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 const openPathOptionsCache = new Map<string, OpenPathOption[]>();
+const IMAGE_ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3, 4];
+const PREVIEW_VIEW_STATE_LIMIT = 60;
+const previewViewStates = new Map<string, PreviewViewState>();
+
+type PreviewViewState = {
+  scrollTop?: number;
+  pdfZoom?: number;
+  pdfScrollTop?: number;
+  imageZoomIndex?: number;
+  imageScrollLeft?: number;
+  imageScrollTop?: number;
+};
 
 export function FilePreviewPane({
   preview,
@@ -17,6 +29,23 @@ export function FilePreviewPane({
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const previewKey = preview ? filePreviewViewKey(preview) : "";
+
+  useEffect(() => {
+    if (!previewKey) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const saved = readPreviewViewState(previewKey);
+      if (scrollRef.current) scrollRef.current.scrollTop = saved?.scrollTop || 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [previewKey]);
+
+  function handlePreviewScroll() {
+    if (!previewKey || !scrollRef.current) return;
+    updatePreviewViewState(previewKey, { scrollTop: scrollRef.current.scrollTop });
+  }
+
   if (!preview) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -95,7 +124,7 @@ export function FilePreviewPane({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 brevyn-scrollbar">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3 brevyn-scrollbar" onScroll={handlePreviewScroll}>
         {preview.summary && <div className="mb-3 rounded-lg border bg-background/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">{preview.summary}</div>}
 
         {preview.kind === "markdown" && preview.content && (
@@ -104,11 +133,7 @@ export function FilePreviewPane({
           </div>
         )}
 
-        {preview.kind === "pdf" && (preview.previewUrl || preview.fileUrl) && (
-          <div className="h-[70vh] overflow-hidden rounded-lg border bg-background">
-            <iframe className="h-full w-full bg-background" src={preview.previewUrl || preview.fileUrl} title={preview.title} />
-          </div>
-        )}
+        {preview.kind === "pdf" && (preview.previewUrl || preview.fileUrl) && <PdfPreviewFrame preview={preview} viewKey={previewKey} />}
 
         {(preview.kind === "code" || preview.kind === "text") && preview.content && (
           <pre className="overflow-x-auto rounded-lg border bg-muted/40 px-3 py-3 text-[12px] leading-6 text-foreground">
@@ -116,15 +141,7 @@ export function FilePreviewPane({
           </pre>
         )}
 
-        {preview.kind === "image" && (
-          <div className="overflow-hidden rounded-lg border bg-background p-2">
-            {preview.fileUrl ? (
-              <img className="max-h-[70vh] w-full rounded-md object-contain" src={preview.fileUrl} alt={preview.title} />
-            ) : (
-              <div className="flex aspect-[4/3] items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">图片源不可用。</div>
-            )}
-          </div>
-        )}
+        {preview.kind === "image" && <ImagePreviewFrame preview={preview} viewKey={previewKey} />}
 
         {preview.kind === "docx" && preview.html && (
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
@@ -172,6 +189,191 @@ export function FilePreviewPane({
         )}
       </div>
     </div>
+  );
+}
+
+function PdfPreviewFrame({ preview, viewKey }: { preview: FilePreview; viewKey: string }) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [zoom, setZoom] = useState(() => readPreviewViewState(viewKey)?.pdfZoom || 100);
+  const src = preview.previewUrl || preview.fileUrl || "";
+
+  useEffect(() => {
+    setZoom(readPreviewViewState(viewKey)?.pdfZoom || 100);
+  }, [src, viewKey]);
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.data?.type === "pdf-zoom-changed" && typeof event.data.zoom === "number") {
+        setZoom(event.data.zoom);
+        updatePreviewViewState(viewKey, { pdfZoom: event.data.zoom });
+      }
+      if (event.data?.type === "pdf-scroll-changed" && typeof event.data.scrollTop === "number") {
+        updatePreviewViewState(viewKey, { pdfScrollTop: event.data.scrollTop });
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [viewKey]);
+
+  function sendPdfZoom(direction: "in" | "out" | "reset") {
+    iframeRef.current?.contentWindow?.postMessage({ type: "pdf-zoom", direction }, "*");
+  }
+
+  function restorePdfView() {
+    const saved = readPreviewViewState(viewKey);
+    window.setTimeout(() => {
+      if (saved?.pdfZoom) {
+        iframeRef.current?.contentWindow?.postMessage({ type: "pdf-zoom", zoom: saved.pdfZoom }, "*");
+      }
+      if (saved?.pdfScrollTop) {
+        iframeRef.current?.contentWindow?.postMessage({ type: "pdf-scroll", scrollTop: saved.pdfScrollTop }, "*");
+      }
+    }, 80);
+  }
+
+  return (
+    <PreviewCanvasFrame
+      toolbar={(
+        <>
+          <PreviewIconButton title="缩小" onClick={() => sendPdfZoom("out")}>
+            <Minus className="h-3.5 w-3.5" />
+          </PreviewIconButton>
+          <span className="min-w-[42px] text-center font-mono text-[11px] text-muted-foreground">{zoom}%</span>
+          <PreviewIconButton title="放大" onClick={() => sendPdfZoom("in")}>
+            <Plus className="h-3.5 w-3.5" />
+          </PreviewIconButton>
+          <PreviewIconButton title="重置缩放" onClick={() => sendPdfZoom("reset")}>
+            <RotateCcw className="h-3.5 w-3.5" />
+          </PreviewIconButton>
+        </>
+      )}
+    >
+      <iframe ref={iframeRef} className="h-full w-full border-0 bg-background" src={src} title={preview.title} onLoad={restorePdfView} />
+    </PreviewCanvasFrame>
+  );
+}
+
+function ImagePreviewFrame({ preview, viewKey }: { preview: FilePreview; viewKey: string }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [zoomIndex, setZoomIndexState] = useState(() => readPreviewViewState(viewKey)?.imageZoomIndex ?? IMAGE_ZOOM_STEPS.indexOf(1));
+  const zoom = IMAGE_ZOOM_STEPS[Math.max(0, zoomIndex)] || 1;
+  const zoomLabel = `${Math.round(zoom * 100)}%`;
+  const imageStyle = useMemo(() => ({
+    width: `${zoom * 100}%`,
+    maxWidth: zoom <= 1 ? "100%" : "none",
+  }), [zoom]);
+
+  useEffect(() => {
+    const saved = readPreviewViewState(viewKey);
+    setZoomIndexState(saved?.imageZoomIndex ?? IMAGE_ZOOM_STEPS.indexOf(1));
+    const frame = window.requestAnimationFrame(() => {
+      if (!scrollRef.current) return;
+      scrollRef.current.scrollLeft = saved?.imageScrollLeft || 0;
+      scrollRef.current.scrollTop = saved?.imageScrollTop || 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [preview.fileUrl, viewKey]);
+
+  function setZoomIndex(value: number | ((current: number) => number)) {
+    setZoomIndexState((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      updatePreviewViewState(viewKey, { imageZoomIndex: next });
+      return next;
+    });
+  }
+
+  function handleImageScroll() {
+    if (!scrollRef.current) return;
+    updatePreviewViewState(viewKey, {
+      imageScrollLeft: scrollRef.current.scrollLeft,
+      imageScrollTop: scrollRef.current.scrollTop,
+    });
+  }
+
+  if (!preview.fileUrl) {
+    return (
+      <div className="overflow-hidden rounded-lg border bg-background p-2">
+        <div className="flex aspect-[4/3] items-center justify-center rounded-md border border-dashed text-center text-xs text-muted-foreground">图片源不可用。</div>
+      </div>
+    );
+  }
+
+  return (
+    <PreviewCanvasFrame
+      toolbar={(
+        <>
+          <PreviewIconButton title="缩小" onClick={() => setZoomIndex((current) => Math.max(0, current - 1))}>
+            <Minus className="h-3.5 w-3.5" />
+          </PreviewIconButton>
+          <span className="min-w-[42px] text-center font-mono text-[11px] text-muted-foreground">{zoomLabel}</span>
+          <PreviewIconButton title="放大" onClick={() => setZoomIndex((current) => Math.min(IMAGE_ZOOM_STEPS.length - 1, current + 1))}>
+            <Plus className="h-3.5 w-3.5" />
+          </PreviewIconButton>
+          <PreviewIconButton title="适应宽度" onClick={() => setZoomIndex(IMAGE_ZOOM_STEPS.indexOf(1))}>
+            <MoveHorizontal className="h-3.5 w-3.5" />
+          </PreviewIconButton>
+        </>
+      )}
+    >
+      <div ref={scrollRef} className="flex min-h-full items-start justify-center overflow-auto bg-[hsl(var(--muted))]/25 p-4 brevyn-scrollbar" onScroll={handleImageScroll}>
+        <img
+          className="block rounded-md object-contain shadow-sm ring-1 ring-border/70"
+          src={preview.fileUrl}
+          alt={preview.title}
+          style={imageStyle}
+        />
+      </div>
+    </PreviewCanvasFrame>
+  );
+}
+
+function filePreviewViewKey(preview: FilePreview): string {
+  return preview.sourcePath || preview.id || preview.path;
+}
+
+function readPreviewViewState(key: string): PreviewViewState | undefined {
+  const state = previewViewStates.get(key);
+  if (!state) return undefined;
+  previewViewStates.delete(key);
+  previewViewStates.set(key, state);
+  return state;
+}
+
+function updatePreviewViewState(key: string, patch: PreviewViewState): void {
+  if (!key) return;
+  const current = readPreviewViewState(key) || {};
+  previewViewStates.set(key, { ...current, ...patch });
+  while (previewViewStates.size > PREVIEW_VIEW_STATE_LIMIT) {
+    const oldest = previewViewStates.keys().next().value;
+    if (!oldest) break;
+    previewViewStates.delete(oldest);
+  }
+}
+
+function PreviewCanvasFrame({ toolbar, children }: { toolbar: ReactNode; children: ReactNode }) {
+  return (
+    <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
+      <div className="flex h-9 items-center justify-end gap-1 border-b bg-card/75 px-2">
+        {toolbar}
+      </div>
+      <div className="h-[calc(70vh-2.25rem)] min-h-0 overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PreviewIconButton({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/70 hover:text-foreground"
+      onClick={onClick}
+      title={title}
+    >
+      {children}
+    </button>
   );
 }
 
