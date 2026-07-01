@@ -30,6 +30,7 @@ import type {
   CreateSemesterInput,
   CreateTaskInput,
   CreateThreadInput,
+  ForkThreadInput,
   FileImportInput,
   FileImportResult,
   FilePreview,
@@ -324,6 +325,10 @@ export class LocalStore {
 
   createThread(input: CreateThreadInput): Thread {
     return this.workspace.createThread(input);
+  }
+
+  async forkThread(input: ForkThreadInput): Promise<Thread> {
+    return await this.workspace.forkThread(input);
   }
 
   renameThread(input: RenameThreadInput): Thread {

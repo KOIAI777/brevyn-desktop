@@ -345,6 +345,7 @@ function App() {
                     error={agentSession.error}
                     onRun={runAgent}
                     onRunForThread={runAgentForThread}
+                    onForkThread={workspace.forkThread}
                     onStop={stopAgent}
                     onApprove={approveAgent}
                     onReject={rejectAgent}

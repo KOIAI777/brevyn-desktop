@@ -128,6 +128,10 @@ export interface Thread {
   titleSource?: ThreadTitleSource;
   titleGeneratedAt?: string;
   sdkSessionId?: string;
+  parentThreadId?: string;
+  rootThreadId?: string;
+  forkFromMessageUuid?: string;
+  forkSourceSdkSessionId?: string;
   isDraft?: boolean;
   messageCount?: number;
   lastMessageAt?: string;
@@ -141,11 +145,20 @@ export interface CreateThreadInput {
   taskId?: string;
   title?: string;
   isDraft?: boolean;
+  parentThreadId?: string;
+  rootThreadId?: string;
+  forkFromMessageUuid?: string;
+  forkSourceSdkSessionId?: string;
 }
 
 export interface RenameThreadInput {
   threadId: string;
   title: string;
+}
+
+export interface ForkThreadInput {
+  threadId: string;
+  upToMessageUuid: string;
 }
 
 export interface ArchivedThreadScope {
@@ -1665,6 +1678,7 @@ export interface BrevynAPI {
     list: (courseId?: string) => Promise<Thread[]>;
     listArchived: (scope?: ArchivedThreadScope) => Promise<Thread[]>;
     create: (input: CreateThreadInput) => Promise<Thread>;
+    fork: (input: ForkThreadInput) => Promise<Thread>;
     rename: (input: RenameThreadInput) => Promise<Thread>;
     archive: (threadId: string) => Promise<boolean>;
     restore: (threadId: string) => Promise<Thread>;

@@ -1,6 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { CalendarDays, Check, ChevronDown, ClipboardCheck, Copy, Loader2, ShieldAlert } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, ClipboardCheck, Copy, GitBranch, Loader2, ShieldAlert } from "lucide-react";
 import { type AgentAttachment, type AgentPermissionMode, type BrevynAgentTimelineRecord, type ModelProviderConfig, type SkillItem, type Thread, type WorkspaceFileNode } from "../../../types/domain";
 import brevynAppIconUrl from "@/assets/brevyn-app-icon.png";
 import { AgentComposer } from "@/components/agent/AgentComposer";
@@ -33,6 +33,7 @@ interface AgentThreadPanelProps {
   error?: string;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onRunForThread: (threadId: string, prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[], options?: AgentRunForThreadOptions) => Promise<boolean>;
+  onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
   onStop: () => Promise<void>;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string) => Promise<void>;
@@ -57,6 +58,7 @@ export function AgentThreadPanel({
   error,
   onRun,
   onRunForThread,
+  onForkThread,
   onStop,
   onApprove,
   onReject,
@@ -183,6 +185,7 @@ export function AgentThreadPanel({
         onAnswerQuestion={onAnswerQuestion}
         onResolveExitPlan={onResolveExitPlan}
         onCompact={handleCompactRequest}
+        onForkThread={onForkThread}
         onRequestAcademicCheck={handleRequestAcademicCheck}
         onScrollApiReady={handleScrollApiReady}
         onAddQuotedSelection={onRestoreQuotedSelection}
@@ -240,6 +243,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onForkThread,
   onRequestAcademicCheck,
   onScrollApiReady,
   onAddQuotedSelection,
@@ -259,6 +263,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
   onRequestAcademicCheck: () => void;
   onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
   onAddQuotedSelection?: (quote: AgentQuotedSelection) => void;
@@ -451,6 +456,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
                     onAnswerQuestion={onAnswerQuestion}
                     onResolveExitPlan={onResolveExitPlan}
                     onCompact={onCompact}
+                    onForkThread={onForkThread}
                     onRequestAcademicCheck={onRequestAcademicCheck}
                   />
                 </div>
@@ -648,6 +654,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onForkThread,
   onRequestAcademicCheck,
 }: {
   group: ReturnType<typeof useAgentThreadPanelState>["timelineGroups"][number];
@@ -658,6 +665,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
   onRequestAcademicCheck: () => void;
 }) {
   if (group.type === "user") {
@@ -696,6 +704,7 @@ const AgentTimelineGroup = memo(function AgentTimelineGroup({
       onAnswerQuestion={onAnswerQuestion}
       onResolveExitPlan={onResolveExitPlan}
       onCompact={onCompact}
+      onForkThread={onForkThread}
       onRequestAcademicCheck={onRequestAcademicCheck}
     />
   );
@@ -711,6 +720,7 @@ function areAgentTimelineGroupPropsEqual(
     onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
     onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
     onCompact: () => void;
+    onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
     onRequestAcademicCheck: () => void;
   },
   next: {
@@ -722,6 +732,7 @@ function areAgentTimelineGroupPropsEqual(
     onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
     onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
     onCompact: () => void;
+    onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
     onRequestAcademicCheck: () => void;
   },
 ): boolean {
@@ -733,6 +744,7 @@ function areAgentTimelineGroupPropsEqual(
     && previous.onAnswerQuestion === next.onAnswerQuestion
     && previous.onResolveExitPlan === next.onResolveExitPlan
     && previous.onCompact === next.onCompact
+    && previous.onForkThread === next.onForkThread
     && previous.onRequestAcademicCheck === next.onRequestAcademicCheck;
 }
 
@@ -869,6 +881,7 @@ function AssistantTurnTimelineGroup({
   onAnswerQuestion,
   onResolveExitPlan,
   onCompact,
+  onForkThread,
   onRequestAcademicCheck,
 }: {
   items: AgentTimelineViewItem[];
@@ -885,6 +898,7 @@ function AssistantTurnTimelineGroup({
   onAnswerQuestion: (requestId: string, answers: Record<string, string>) => Promise<void>;
   onResolveExitPlan: (requestId: string, decision: "approve" | "deny", feedback?: string) => Promise<void>;
   onCompact: () => void;
+  onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
   onRequestAcademicCheck: () => void;
 }) {
   const showTimelineItems = processItem?.processExpanded ?? true;
@@ -923,7 +937,7 @@ function AssistantTurnTimelineGroup({
           })}
         </div>
       )}
-      <AssistantTurnCopyAction items={items} summary={summary} createdAt={createdAt} />
+      <AssistantTurnCopyAction items={items} summary={summary} createdAt={createdAt} onForkThread={onForkThread} />
     </div>
   );
 }
@@ -1154,12 +1168,16 @@ function AssistantTurnCopyAction({
   items,
   summary,
   createdAt,
+  onForkThread,
 }: {
   items: AgentTimelineViewItem[];
   summary: RunSummary | null;
   createdAt?: number;
+  onForkThread: (threadId: string, upToMessageUuid: string) => Promise<Thread | null>;
 }) {
+  const threadId = useContext(AgentThreadIdContext);
   const [copied, setCopied] = useState(false);
+  const [forking, setForking] = useState(false);
   const running = items.some((item) => item.processSummary?.running);
   const durationLabel = assistantDurationLabel(summary);
   const timeLabel = createdAt ? formatHeaderTime(createdAt) : "";
@@ -1169,6 +1187,7 @@ function AssistantTurnCopyAction({
     .filter((text) => text.trim())
     .join("\n\n")
     .trim();
+  const forkTargetUuid = latestAssistantMessageUuid(items);
 
   if (running || !content) return null;
 
@@ -1182,11 +1201,33 @@ function AssistantTurnCopyAction({
     }
   }
 
+  async function handleFork() {
+    if (!threadId || !forkTargetUuid || forking) return;
+    setForking(true);
+    try {
+      await onForkThread(threadId, forkTargetUuid);
+    } catch (error) {
+      console.error("[AgentThreadPanel] Failed to fork assistant turn:", error);
+    } finally {
+      setForking(false);
+    }
+  }
+
   return (
     <div className="-mt-1 flex items-center justify-start gap-1.5 px-1 text-[11px] text-muted-foreground/55 opacity-0 transition-opacity group-hover/assistant-turn:opacity-100 focus-within:opacity-100">
       {durationLabel && <span className="select-none">{durationLabel}</span>}
       {durationLabel && timeLabel && <span className="select-none text-muted-foreground/35">·</span>}
       {timeLabel && <span className="select-none">{timeLabel}</span>}
+      <button
+        type="button"
+        onClick={() => void handleFork()}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/65 transition hover:bg-accent/65 hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+        aria-label={forking ? "Forking conversation" : "Fork conversation"}
+        title={forkTargetUuid ? (forking ? "分叉中" : "从这里分叉") : "没有可分叉的消息"}
+        disabled={!forkTargetUuid || forking}
+      >
+        <GitBranch className={`h-3.5 w-3.5 ${forking ? "animate-pulse" : ""}`} />
+      </button>
       <button
         type="button"
         onClick={() => void handleCopy()}
@@ -1204,6 +1245,18 @@ function assistantDurationLabel(summary: RunSummary | null): string {
   const label = summary?.label.trim() || "";
   const match = label.match(/(\d+m\s+\d+s|\d+s)/);
   return match?.[1] || "";
+}
+
+function latestAssistantMessageUuid(items: AgentTimelineViewItem[]): string {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (!item || item.displayKind === "process") continue;
+    const record = item.record as { parent_tool_use_id?: unknown; type?: unknown; uuid?: unknown };
+    if (record.type !== "assistant") continue;
+    if (record.parent_tool_use_id) continue;
+    if (typeof record.uuid === "string" && record.uuid.trim()) return record.uuid.trim();
+  }
+  return "";
 }
 
 const OrderedToolUseEntry = memo(function OrderedToolUseEntry({

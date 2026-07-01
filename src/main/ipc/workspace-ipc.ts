@@ -9,6 +9,7 @@ import {
   normalizeCreateSemesterInput,
   normalizeCreateTaskInput,
   normalizeCreateThreadInput,
+  normalizeForkThreadInput,
   normalizeRenameThreadInput,
   normalizeUpdateCourseInput,
   normalizeUpdateTaskInput,
@@ -43,6 +44,7 @@ export function registerWorkspaceIpc({ store }: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.threadsList, (_event, courseId?: unknown) => store.listThreads(optionalString(courseId)));
   ipcMain.handle(IPC_CHANNELS.threadsListArchived, (_event, scope?: unknown) => store.listArchivedThreads(normalizeArchivedThreadScope(scope)));
   ipcMain.handle(IPC_CHANNELS.threadsCreate, (_event, input: unknown) => store.createThread(normalizeCreateThreadInput(input)));
+  ipcMain.handle(IPC_CHANNELS.threadsFork, (_event, input: unknown) => store.forkThread(normalizeForkThreadInput(input)));
   ipcMain.handle(IPC_CHANNELS.threadsRename, (_event, input: unknown) => store.renameThread(normalizeRenameThreadInput(input)));
   ipcMain.handle(IPC_CHANNELS.threadsArchive, (_event, threadId: unknown) => store.archiveThread(requireString(threadId, "Thread id")));
   ipcMain.handle(IPC_CHANNELS.threadsRestore, (_event, threadId: unknown) => store.restoreThread(requireString(threadId, "Thread id")));

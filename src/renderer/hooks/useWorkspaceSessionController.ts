@@ -265,6 +265,23 @@ export function useWorkspaceSessionController({
     }
   }, [activeCourse?.id, commitActiveCourseId, commitActiveThreadId, findEmptyThreadForScope, semester?.id, threadTitleForScope]);
 
+  const forkThread = useCallback(async (threadId: string, upToMessageUuid: string): Promise<Thread | null> => {
+    setWorkspaceError("");
+    try {
+      const forked = await window.brevyn.threads.fork({ threadId, upToMessageUuid });
+      if (!threadBelongsToSemester(forked, semester?.id)) throw new Error("Forked session does not belong to the selected semester.");
+      setThreads((current) => dedupeThreads([forked, ...current]));
+      commitActiveCourseId(forked.courseId);
+      setActiveTaskId(forked.taskId);
+      commitActiveThreadId(forked.id, forked.semesterId || semester?.id);
+      if (forked.courseId) onReloadCourseFilesRef.current(forked.courseId);
+      return forked;
+    } catch (error) {
+      setWorkspaceError(errorMessage(error, "Fork session failed."));
+      return null;
+    }
+  }, [commitActiveCourseId, commitActiveThreadId, semester?.id]);
+
   const archiveThread = useCallback(async (thread: Thread) => {
     setWorkspaceError("");
     try {
@@ -397,6 +414,7 @@ export function useWorkspaceSessionController({
     refreshThreads,
     markThreadHasMessages,
     createThread,
+    forkThread,
     archiveThread,
     archiveTask,
     renameThread,

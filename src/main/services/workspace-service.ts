@@ -1,6 +1,7 @@
-import { existsSync, rmSync } from "node:fs";
+import { createInterface } from "node:readline";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type {
   ArchivedCourseScope,
   ArchivedTaskScope,
@@ -10,6 +11,7 @@ import type {
   CreateSemesterInput,
   CreateTaskInput,
   CreateThreadInput,
+  ForkThreadInput,
   GitStatus,
   SemesterWorkspace,
   Thread,
@@ -452,6 +454,95 @@ export class WorkspaceService {
     return thread;
   }
 
+  async forkThread(input: ForkThreadInput): Promise<Thread> {
+    const sourceThread = this.assertThreadUsable(input.threadId);
+    if (!sourceThread.semesterId) throw new Error(`Thread ${sourceThread.id} has no semester scope.`);
+    if (!sourceThread.sdkSessionId) throw new Error("This thread does not have a Claude SDK session yet.");
+
+    const forkTarget = await this.resolveForkTarget(sourceThread, input.upToMessageUuid);
+    let forkSourceSdkSessionId = sourceThread.sdkSessionId;
+    let effectiveUpToMessageUuid = input.upToMessageUuid;
+    if (forkTarget) {
+      effectiveUpToMessageUuid = forkTarget.effectiveUpToMessageUuid;
+      if (forkTarget.effectiveSdkSessionId) forkSourceSdkSessionId = forkTarget.effectiveSdkSessionId;
+      if (forkTarget.usedSidechainFallback) {
+        console.log(`[workspace] Fork target ${input.upToMessageUuid} is sidechain output; using mainline assistant ${effectiveUpToMessageUuid}.`);
+      }
+      if (forkSourceSdkSessionId !== sourceThread.sdkSessionId) {
+        console.log(`[workspace] Fork target belongs to SDK session ${forkSourceSdkSessionId}; current thread session is ${sourceThread.sdkSessionId}.`);
+      }
+    }
+
+    const sdk = await import("@anthropic-ai/claude-agent-sdk");
+    const cwd = this.resolveThreadWorkspacePath(sourceThread);
+    let forkResult: Awaited<ReturnType<typeof sdk.forkSession>>;
+    try {
+      forkResult = await sdk.forkSession(forkSourceSdkSessionId, {
+        upToMessageId: effectiveUpToMessageUuid,
+        dir: cwd,
+      });
+    } catch (error) {
+      console.warn("[workspace] forkSession with workspace dir failed; retrying with SDK global search.", error);
+      forkResult = await sdk.forkSession(forkSourceSdkSessionId, {
+        upToMessageId: effectiveUpToMessageUuid,
+      });
+    }
+
+    const thread: Thread = {
+      id: entityId("thread"),
+      semesterId: sourceThread.semesterId,
+      courseId: sourceThread.courseId,
+      taskId: sourceThread.taskId,
+      threadType: sourceThread.threadType,
+      title: `${sourceThread.title} 分叉`,
+      titleSource: "default",
+      sdkSessionId: forkResult.sessionId,
+      parentThreadId: sourceThread.id,
+      rootThreadId: sourceThread.rootThreadId || sourceThread.id,
+      forkFromMessageUuid: input.upToMessageUuid,
+      forkSourceSdkSessionId,
+      isDraft: false,
+      messageCount: 0,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+
+    ensureThreadMessagesDir(this.options.rootDataDir, sourceThread.semesterId);
+    this.options.businessStore.saveThread(thread);
+    const copied = await this.copyThreadMessages(sourceThread, thread, input.upToMessageUuid);
+    const updatedThread = {
+      ...thread,
+      messageCount: copied.sdkMessageCount,
+      lastMessageAt: copied.lastMessageAt,
+      updatedAt: copied.lastMessageAt || thread.updatedAt,
+    };
+    this.options.businessStore.saveThread(updatedThread);
+    return updatedThread;
+  }
+
+  private async resolveForkTarget(sourceThread: Thread, upToMessageUuid: string): Promise<ForkTargetResolution | null> {
+    if (!sourceThread.semesterId) return null;
+    const sourcePath = threadMessagesPath(this.options.rootDataDir, sourceThread.semesterId, sourceThread.id);
+    if (!existsSync(sourcePath)) return null;
+    const target = await findForkTargetInThreadMessages(sourcePath, upToMessageUuid);
+    if (!target) throw new Error("未在会话历史中找到指定消息，无法分叉。");
+    if (!target.isSidechain) {
+      return {
+        effectiveUpToMessageUuid: target.uuid,
+        effectiveSdkSessionId: target.sessionId,
+        usedSidechainFallback: false,
+      };
+    }
+    if (!target.fallbackMainline) {
+      throw new Error("选中的是工具或子任务过程消息，前面没有可分叉的主回复。");
+    }
+    return {
+      effectiveUpToMessageUuid: target.fallbackMainline.uuid,
+      effectiveSdkSessionId: target.fallbackMainline.sessionId,
+      usedSidechainFallback: true,
+    };
+  }
+
   renameThread(threadId: string, title: string): Thread {
     const thread = this.assertThreadUsable(threadId);
     if (thread.archivedAt) throw new Error("Restore the thread before renaming it.");
@@ -608,6 +699,69 @@ export class WorkspaceService {
     }
   }
 
+  private resolveThreadWorkspacePath(thread: Thread): string {
+    if (!thread.semesterId) throw new Error(`Thread ${thread.id} has no semester scope.`);
+    if (thread.threadType === "semester_home" || thread.courseId === SEMESTER_HOME_COURSE_ID) {
+      return join(ensureSemesterSharedDirs(this.options.rootDataDir, thread.semesterId), "Semester shared");
+    }
+    if (!thread.taskId) throw new Error("Create sessions from a task, not the course container.");
+    const task = this.options.businessStore.getTask(thread.taskId);
+    if (!task) throw new Error(`Task not found: ${thread.taskId}`);
+    return ensureTaskWorkspaceDir(this.options.rootDataDir, thread.semesterId, task);
+  }
+
+  private async copyThreadMessages(sourceThread: Thread, destThread: Thread, upToMessageUuid: string): Promise<{ sdkMessageCount: number; lastMessageAt?: string }> {
+    if (!sourceThread.semesterId || !destThread.semesterId) return { sdkMessageCount: 0 };
+    const sourcePath = threadMessagesPath(this.options.rootDataDir, sourceThread.semesterId, sourceThread.id);
+    if (!existsSync(sourcePath)) return { sdkMessageCount: 0 };
+    const destPath = threadMessagesPath(this.options.rootDataDir, destThread.semesterId, destThread.id);
+    mkdirSync(dirname(destPath), { recursive: true });
+    const out = createWriteStream(destPath, { flags: "a", encoding: "utf8" });
+    const rl = createInterface({ input: createReadStream(sourcePath), crlfDelay: Infinity });
+    let sdkMessageCount = 0;
+    let lastMessageAt: string | undefined;
+    let reachedForkPoint = false;
+    let pendingRunId = "";
+    let copiedTerminal = false;
+    try {
+      for await (const line of rl) {
+        if (!line.trim()) continue;
+        const record = safeJsonRecord(line);
+        if (reachedForkPoint && isUserInputRecord(record)) {
+          if (pendingRunId && !copiedTerminal) {
+            await writeJsonlLine(out, completedRuntimeRecord(destThread.id, pendingRunId, lastMessageAt));
+          }
+          break;
+        }
+        if (!isRuntimeRecord(record)) {
+          sdkMessageCount += 1;
+          lastMessageAt = timestampFromRecord(record) || lastMessageAt;
+        }
+        const startedRunId = runStartedRecordId(record);
+        if (startedRunId) {
+          pendingRunId = startedRunId;
+          copiedTerminal = false;
+        }
+        if (isRuntimeTerminalRecord(record)) {
+          copiedTerminal = true;
+          pendingRunId = "";
+        }
+        const rewritten = rewriteForkRecord(record, destThread.id);
+        if (rewritten) await writeJsonlLine(out, rewritten);
+        else await writeLine(out, line);
+        if (recordUuid(record) === upToMessageUuid) reachedForkPoint = true;
+        if (reachedForkPoint && isRuntimeTerminalRecord(record)) break;
+      }
+      await new Promise<void>((resolve) => out.end(resolve));
+    } catch (error) {
+      out.destroy();
+      console.warn("[workspace] Failed to copy forked thread messages:", error);
+    } finally {
+      rl.close();
+    }
+    return { sdkMessageCount, lastMessageAt };
+  }
+
   private async deleteRagChunksForCourse(semesterId: string, courseId: string): Promise<void> {
     try {
       await this.options.ragIndex.deleteChunksByCourse(semesterId, courseId);
@@ -683,6 +837,172 @@ function pickCourseColor(index: number): string {
 
 function entityId(prefix: string): string {
   return `${prefix}-${randomUUID()}`;
+}
+
+function safeJsonRecord(line: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+interface ForkStoredMessageRef {
+  uuid: string;
+  sessionId?: string;
+}
+
+interface ForkTargetResolution {
+  effectiveUpToMessageUuid: string;
+  effectiveSdkSessionId?: string;
+  usedSidechainFallback: boolean;
+}
+
+interface ForkTargetMessage extends ForkStoredMessageRef {
+  isSidechain: boolean;
+  fallbackMainline?: ForkStoredMessageRef;
+}
+
+async function findForkTargetInThreadMessages(filePath: string, upToMessageUuid: string): Promise<ForkTargetMessage | null> {
+  const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
+  let lastMainlineAssistant: ForkStoredMessageRef | undefined;
+  let target: ForkTargetMessage | null = null;
+  try {
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      const record = safeJsonRecord(line);
+      const uuid = recordUuid(record);
+      const sessionId = recordSessionId(record);
+      const isMainlineAssistant = record?.type === "assistant" && Boolean(uuid) && !recordParentToolUseId(record);
+
+      if (uuid === upToMessageUuid) {
+        target = {
+          uuid,
+          sessionId,
+          isSidechain: record?.type === "assistant" && Boolean(recordParentToolUseId(record)),
+          fallbackMainline: lastMainlineAssistant,
+        };
+      }
+
+      if (isMainlineAssistant && uuid) {
+        lastMainlineAssistant = { uuid, sessionId };
+      }
+    }
+  } finally {
+    rl.close();
+  }
+  return target;
+}
+
+function isRuntimeRecord(record: Record<string, unknown> | null): boolean {
+  return record?.kind === "runtime";
+}
+
+function rewriteForkRecord(record: Record<string, unknown> | null, threadId: string): Record<string, unknown> | null {
+  if (!record || !isRuntimeRecord(record)) return record;
+  const event = record.event;
+  if (!event || typeof event !== "object" || Array.isArray(event)) return record;
+  const nextEvent = { ...event as Record<string, unknown> };
+  if ("threadId" in nextEvent) nextEvent.threadId = threadId;
+  if (nextEvent.type === "context_usage_updated") {
+    const snapshot = nextEvent.snapshot;
+    if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)) {
+      nextEvent.snapshot = { ...snapshot as Record<string, unknown>, threadId };
+    }
+  }
+  return { ...record, event: nextEvent };
+}
+
+function runStartedRecordId(record: Record<string, unknown> | null): string {
+  if (!record || record.kind !== "runtime") return "";
+  const event = record.event;
+  if (!event || typeof event !== "object" || Array.isArray(event)) return "";
+  const type = (event as { type?: unknown }).type;
+  if (type !== "run_started") return "";
+  const runId = (event as { runId?: unknown }).runId;
+  return typeof runId === "string" ? runId : "";
+}
+
+function isRuntimeTerminalRecord(record: Record<string, unknown> | null): boolean {
+  if (!record || record.kind !== "runtime") return false;
+  const event = record.event;
+  if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+  const type = (event as { type?: unknown }).type;
+  return type === "run_completed" || type === "run_stopped" || type === "run_failed" || type === "run_interrupted";
+}
+
+function completedRuntimeRecord(threadId: string, runId: string, timestamp?: string): Record<string, unknown> {
+  return {
+    kind: "runtime",
+    event: {
+      type: "run_completed",
+      runId,
+      threadId,
+      createdAt: timestamp || new Date().toISOString(),
+    },
+  };
+}
+
+async function writeLine(out: ReturnType<typeof createWriteStream>, line: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    out.write(`${line}\n`, (error) => error ? reject(error) : resolve());
+  });
+}
+
+async function writeJsonlLine(out: ReturnType<typeof createWriteStream>, record: Record<string, unknown>): Promise<void> {
+  await writeLine(out, JSON.stringify(record));
+}
+
+function isUserInputRecord(record: Record<string, unknown> | null): boolean {
+  if (!record || record.type !== "user") return false;
+  return !recordHasToolResult(record) && Boolean(userRecordText(record).trim());
+}
+
+function recordHasToolResult(record: Record<string, unknown>): boolean {
+  const message = record.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => Boolean(block && typeof block === "object" && (block as { type?: unknown }).type === "tool_result"));
+}
+
+function userRecordText(record: Record<string, unknown>): string {
+  const message = record.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((block) => {
+    if (!block || typeof block !== "object") return "";
+    const text = (block as { text?: unknown }).text;
+    return typeof text === "string" ? text : "";
+  }).join("\n");
+}
+
+function recordUuid(record: Record<string, unknown> | null): string | undefined {
+  const value = record?.uuid;
+  return typeof value === "string" ? value : undefined;
+}
+
+function recordSessionId(record: Record<string, unknown> | null): string | undefined {
+  const value = record?.session_id;
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function recordParentToolUseId(record: Record<string, unknown> | null): string | undefined {
+  const value = record?.parent_tool_use_id;
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function timestampFromRecord(record: Record<string, unknown> | null): string | undefined {
+  const createdAt = record?._createdAt;
+  if (typeof createdAt === "number" && Number.isFinite(createdAt)) return new Date(createdAt).toISOString();
+  if (typeof createdAt === "string" && createdAt.trim()) {
+    const parsed = Date.parse(createdAt);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
+  }
+  return undefined;
 }
 
 function errorMessage(error: unknown): string {

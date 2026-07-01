@@ -10,6 +10,7 @@ import type {
   AgentQueueMessageInput,
   AgentRunInput,
   CourseIconKey,
+  ForkThreadInput,
   CreateCourseInput,
   CreateSemesterInput,
   CreateTaskInput,
@@ -141,6 +142,18 @@ export function normalizeCreateThreadInput(value: unknown): CreateThreadInput {
     taskId: optionalString(input.taskId),
     title: optionalString(input.title),
     isDraft: input.isDraft === undefined ? undefined : Boolean(input.isDraft),
+    parentThreadId: optionalString(input.parentThreadId),
+    rootThreadId: optionalString(input.rootThreadId),
+    forkFromMessageUuid: optionalString(input.forkFromMessageUuid),
+    forkSourceSdkSessionId: optionalString(input.forkSourceSdkSessionId),
+  };
+}
+
+export function normalizeForkThreadInput(value: unknown): ForkThreadInput {
+  const input = requireObject(value, "Thread fork input");
+  return {
+    threadId: requireString(input.threadId, "Thread id"),
+    upToMessageUuid: requireString(input.upToMessageUuid, "Message uuid"),
   };
 }
 

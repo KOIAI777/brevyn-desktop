@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
   threadsList: "brevyn:threads:list",
   threadsListArchived: "brevyn:threads:list-archived",
   threadsCreate: "brevyn:threads:create",
+  threadsFork: "brevyn:threads:fork",
   threadsRename: "brevyn:threads:rename",
   threadsArchive: "brevyn:threads:archive",
   threadsRestore: "brevyn:threads:restore",
