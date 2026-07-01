@@ -6,6 +6,7 @@ import {
   Info,
   Languages,
   PlugZap,
+  Server,
   Settings,
   Sparkles,
   UserRound,
@@ -23,6 +24,7 @@ import {
 } from "@/components/settings/account/AccountSettingsPage";
 import { BillingRecordsSettingsPage } from "@/components/settings/billing/BillingRecordsSettingsPage";
 import { GeneralSettingsPage } from "@/components/settings/general/GeneralSettingsPage";
+import { McpSettingsPage } from "@/components/settings/mcp/McpSettingsPage";
 import { ProviderSettingsPage } from "@/components/settings/providers/ProviderSettingsPage";
 import { useProviderSettingsState } from "@/components/settings/providers/useProviderSettingsState";
 import { SemesterSettingsPage } from "@/components/settings/semesters/SemesterSettingsPage";
@@ -42,7 +44,7 @@ import {
   type UserProfileSettings,
 } from "../../../types/domain";
 
-type SettingsPage = "account" | "billing" | "general" | "providers" | "semesters" | "archive" | "skills" | "about";
+type SettingsPage = "account" | "billing" | "general" | "providers" | "semesters" | "archive" | "skills" | "mcp" | "about";
 
 const ACCOUNT_STATUS_AUTO_DISMISS_MS = 4_000;
 const DEFAULT_SUB2_BASE_URL = "https://api.brevyn.org";
@@ -511,6 +513,13 @@ export function SettingsDialog({
                 onClick={() => setActivePage("skills")}
               />
               <SettingsNavButton
+                active={activePage === "mcp"}
+                icon={<Server className="h-4 w-4" />}
+                title="MCP 工具"
+                detail="内置课程工具"
+                onClick={() => setActivePage("mcp")}
+              />
+              <SettingsNavButton
                 active={activePage === "about"}
                 icon={<Info className="h-4 w-4" />}
                 title="关于 / 更新"
@@ -572,6 +581,8 @@ export function SettingsDialog({
                 onOpenSkillFolder={openSkillFolder}
                 onToggleSkill={toggleSkill}
               />
+            ) : activePage === "mcp" ? (
+              <McpSettingsPage />
             ) : (
               <AboutUpdateSettingsPage />
             )}

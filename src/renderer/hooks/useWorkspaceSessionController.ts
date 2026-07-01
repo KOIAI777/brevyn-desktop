@@ -12,7 +12,7 @@ interface UseWorkspaceSessionControllerArgs {
   onRefreshAgentProviders: () => void;
 }
 
-export type SettingsPage = "account" | "general" | "providers" | "semesters" | "archive" | "skills" | "about";
+export type SettingsPage = "account" | "general" | "providers" | "semesters" | "archive" | "skills" | "mcp" | "about";
 
 export function useWorkspaceSessionController({
   onClearFiles,
