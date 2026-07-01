@@ -1,5 +1,6 @@
 import { Loader2, Pencil, Send, Trash2 } from "lucide-react";
 import type { QueuedAgentMessage } from "@/components/agent/agentComposerTypes";
+import { quoteLabel, stripQuotedSelections } from "@/components/agent/quotedSelection";
 
 export function QueuedMessageDock({
   messages,
@@ -34,6 +35,7 @@ export function QueuedMessageDock({
       <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
         {messages.map((message, index) => {
           const sending = sendingMessageIds.includes(message.id);
+          const preview = stripQuotedSelections(message.prompt) || (message.quotedSelection ? "请根据引用内容继续。" : message.prompt);
           return (
             <div
               key={message.id}
@@ -42,8 +44,8 @@ export function QueuedMessageDock({
               <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--foreground)/0.07)] text-[10px] font-semibold text-muted-foreground">
                 {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : index + 1}
               </span>
-              <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={message.prompt}>
-                {message.prompt}
+              <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={preview}>
+                {message.quotedSelection ? `引用 ${quoteLabel(message.quotedSelection)} · ${preview}` : preview}
               </span>
               {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{sendingLabel}</span>}
               <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">

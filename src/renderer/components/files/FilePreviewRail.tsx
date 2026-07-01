@@ -1,5 +1,6 @@
 import { useEffect, useState, type PointerEvent } from "react";
 import type { FilePreview } from "@/types/domain";
+import type { AgentQuotedSelection } from "@/components/agent/quotedSelection";
 import { FilePreviewPane } from "./FilePreviewPane";
 
 export function FilePreviewRail({
@@ -8,12 +9,16 @@ export function FilePreviewRail({
   loading,
   resizing,
   onResizeStart,
+  threadId,
+  onAddQuotedSelection,
 }: {
   collapsed: boolean;
   preview: FilePreview | null;
   loading?: boolean;
   resizing?: boolean;
   onResizeStart: (event: PointerEvent) => void;
+  threadId?: string;
+  onAddQuotedSelection?: (quote: AgentQuotedSelection) => void;
 }) {
   const [renderContent, setRenderContent] = useState(!collapsed);
 
@@ -41,7 +46,7 @@ export function FilePreviewRail({
         <span className="absolute left-0 top-3 h-[calc(100%-1.5rem)] w-px rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover/rail:opacity-100" />
       </button>
       <div className={`flex min-h-0 flex-1 transition-opacity duration-150 ${collapsed ? "opacity-0" : "opacity-100"}`}>
-        {renderContent ? <FilePreviewPane preview={preview} loading={loading} /> : null}
+        {renderContent ? <FilePreviewPane preview={preview} loading={loading} threadId={threadId} onAddQuotedSelection={onAddQuotedSelection} /> : null}
       </div>
     </aside>
   );

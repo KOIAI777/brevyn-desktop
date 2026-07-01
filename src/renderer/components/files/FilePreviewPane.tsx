@@ -1,7 +1,8 @@
-import { ChevronDown, Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Minus, MoveHorizontal, Plus, Presentation, RotateCcw, Table2, Terminal, Type } from "lucide-react";
+import { ChevronDown, Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Minus, MoveHorizontal, Plus, Presentation, Quote, RotateCcw, Table2, Terminal, Type } from "lucide-react";
 import type { FilePreview, OpenPathOption } from "@/types/domain";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Markdownish } from "@/components/chat/Markdownish";
+import { createQuotedSelection, MAX_QUOTED_SELECTION_CHARS, type AgentQuotedSelection } from "@/components/agent/quotedSelection";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 const openPathOptionsCache = new Map<string, OpenPathOption[]>();
@@ -18,19 +19,32 @@ type PreviewViewState = {
   imageScrollTop?: number;
 };
 
+interface SelectionPromptState {
+  text: string;
+  truncated: boolean;
+  x: number;
+  y: number;
+}
+
 export function FilePreviewPane({
   preview,
   loading = false,
   expanded,
   onToggleExpanded,
+  threadId,
+  onAddQuotedSelection,
 }: {
   preview: FilePreview | null;
   loading?: boolean;
   expanded?: boolean;
   onToggleExpanded?: () => void;
+  threadId?: string;
+  onAddQuotedSelection?: (quote: AgentQuotedSelection) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const previewKey = preview ? filePreviewViewKey(preview) : "";
+  const [selectionPrompt, setSelectionPrompt] = useState<SelectionPromptState | null>(null);
+  const captureQuoteSelection = Boolean(threadId && preview && preview.sourcePath && onAddQuotedSelection);
 
   useEffect(() => {
     if (!previewKey) return undefined;
@@ -41,9 +55,93 @@ export function FilePreviewPane({
     return () => window.cancelAnimationFrame(frame);
   }, [previewKey]);
 
+  const updateSelectionPrompt = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container || !preview || !threadId || !preview.sourcePath) {
+      setSelectionPrompt(null);
+      return;
+    }
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setSelectionPrompt(null);
+      return;
+    }
+    const text = selection.toString().replace(/\u00a0/g, " ").trim();
+    if (!text) {
+      setSelectionPrompt(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode || !focusNode || !container.contains(anchorNode) || !container.contains(focusNode)) {
+      setSelectionPrompt(null);
+      return;
+    }
+    const rangeRect = range.getBoundingClientRect();
+    if (!rangeRect.width && !rangeRect.height) {
+      setSelectionPrompt(null);
+      return;
+    }
+    const selectedText = text.slice(0, MAX_QUOTED_SELECTION_CHARS);
+    const truncated = text.length > MAX_QUOTED_SELECTION_CHARS;
+    const x = Math.min(Math.max(rangeRect.left + rangeRect.width / 2, 84), Math.max(84, window.innerWidth - 84));
+    const y = Math.max(12, rangeRect.top - 44);
+    setSelectionPrompt({
+      text: selectedText,
+      truncated,
+      x,
+      y,
+    });
+  }, [preview, threadId]);
+
+  useEffect(() => {
+    if (!captureQuoteSelection) {
+      setSelectionPrompt(null);
+      return undefined;
+    }
+    const container = scrollRef.current;
+    if (!container) return undefined;
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updateSelectionPrompt();
+      });
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("[data-quote-selection-action]")) return;
+      setSelectionPrompt(null);
+    };
+    container.addEventListener("mouseup", schedule);
+    container.addEventListener("keyup", schedule);
+    container.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("selectionchange", schedule);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      container.removeEventListener("mouseup", schedule);
+      container.removeEventListener("keyup", schedule);
+      container.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("selectionchange", schedule);
+    };
+  }, [captureQuoteSelection, updateSelectionPrompt]);
+
   function handlePreviewScroll() {
     if (!previewKey || !scrollRef.current) return;
     updatePreviewViewState(previewKey, { scrollTop: scrollRef.current.scrollTop });
+  }
+
+  function addSelectionToConversation() {
+    if (!selectionPrompt || !preview?.sourcePath || !threadId || !onAddQuotedSelection) return;
+    onAddQuotedSelection(createQuotedSelection({
+      threadId,
+      text: selectionPrompt.text,
+      filePath: preview.sourcePath,
+    }));
+    setSelectionPrompt(null);
+    window.getSelection()?.removeAllRanges();
   }
 
   if (!preview) {
@@ -124,7 +222,29 @@ export function FilePreviewPane({
         )}
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3 brevyn-scrollbar" onScroll={handlePreviewScroll}>
+      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto p-3 brevyn-scrollbar" onScroll={handlePreviewScroll}>
+        {captureQuoteSelection && selectionPrompt && (
+          <div
+            className="fixed z-50 -translate-x-1/2"
+            style={{ left: selectionPrompt.x, top: selectionPrompt.y }}
+          >
+            <button
+              type="button"
+              data-quote-selection-action
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card/95 px-3 text-[12px] font-semibold text-foreground shadow-[0_12px_32px_rgba(35,31,24,0.18)] ring-1 ring-background/60 transition hover:-translate-y-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={addSelectionToConversation}
+              title={selectionPrompt.truncated ? `已截断到 ${MAX_QUOTED_SELECTION_CHARS} 字` : "添加选中文本到对话"}
+            >
+              <Quote className="h-3.5 w-3.5" />
+              <span>添加到对话</span>
+              {selectionPrompt.truncated && <span className="text-[10px] text-muted-foreground">前 {MAX_QUOTED_SELECTION_CHARS} 字</span>}
+            </button>
+          </div>
+        )}
         {preview.summary && <div className="mb-3 rounded-lg border bg-background/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">{preview.summary}</div>}
 
         {preview.kind === "markdown" && preview.content && (

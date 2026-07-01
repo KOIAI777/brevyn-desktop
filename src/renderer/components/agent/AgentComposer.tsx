@@ -22,6 +22,7 @@ import { TodoDock } from "@/components/agent/AgentTodoDock";
 import { useAgentAttachmentsState } from "@/components/agent/useAgentAttachmentsState";
 import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
 import { agentAttachmentsForRun, clearPendingAgentAttachmentData, deletePersistedAgentAttachments, persistAgentAttachments } from "@/components/agent/agentAttachmentPersistence";
+import { promptWithQuotedSelection, QuotedSelectionChip, stripQuotedSelections, type AgentQuotedSelection } from "@/components/agent/quotedSelection";
 
 interface AgentComposerProps {
   todos: AgentTodoItem[];
@@ -38,8 +39,11 @@ interface AgentComposerProps {
   activeProviderId: string;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
+  quotedSelection?: AgentQuotedSelection | null;
   onHeightChange?: (height: number) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
+  onRemoveQuotedSelection?: () => void;
+  onRestoreQuotedSelection?: (quote: AgentQuotedSelection) => void;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
   onSendQueuedMessage: (messageId: string) => void;
@@ -76,8 +80,11 @@ export const AgentComposer = memo(function AgentComposer({
   activeProviderId,
   files,
   skills,
+  quotedSelection,
   onHeightChange,
   onSetPermissionMode,
+  onRemoveQuotedSelection,
+  onRestoreQuotedSelection,
   onRun,
   onQueueMessage,
   onSendQueuedMessage,
@@ -110,7 +117,7 @@ export const AgentComposer = memo(function AgentComposer({
   const mentionableSkills = useMemo(() => flattenMentionableSkills(skills), [skills]);
   const promptText = promptValue.trim();
   const hasMentionedSkills = mentionedSkills.length > 0;
-  const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills);
+  const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills || quotedSelection);
   const canQueueWhileRunning = canSubmit && pendingAttachments.length === 0;
   const pendingImageAttachments = pendingAttachments.filter(isAgentImageAttachment);
   const pendingFileAttachments = pendingAttachments.filter((attachment) => !isAgentImageAttachment(attachment));
@@ -157,21 +164,25 @@ export const AgentComposer = memo(function AgentComposer({
     const effectiveMentionedSkills = skillMentionsFromPrompt(promptText, mentionableSkills);
     const mentionedSkillSlugs = skillSlugsForPrompt(effectiveMentionedSkills);
     const prompt = buildPromptWithMentions(promptText, mentionedFiles, effectiveMentionedSkills);
-    if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0) return;
+    const fallbackPrompt = mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : quotedSelection ? "请根据引用内容继续。" : "请查看附件。";
+    const finalPrompt = promptWithQuotedSelection(prompt || fallbackPrompt, quotedSelection);
+    if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0 && !quotedSelection) return;
 
     if (running) {
       if (pendingAttachments.length > 0) return;
       onQueueMessage({
         id: `queued_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        prompt: prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"),
+        prompt: finalPrompt,
         permissionMode,
         providerSelection: parseProviderModelValue(activeProviderId),
         mentionedSkills: mentionedSkillSlugs,
+        quotedSelection: quotedSelection || undefined,
         createdAt: Date.now(),
       });
       setPromptValue("");
       setMentionedFiles([]);
       setMentionedSkills([]);
+      onRemoveQuotedSelection?.();
       return;
     }
 
@@ -179,14 +190,16 @@ export const AgentComposer = memo(function AgentComposer({
     const submittedPromptValue = promptValue;
     const submittedMentionedFiles = mentionedFiles;
     const submittedMentionedSkills = mentionedSkills;
+    const submittedQuotedSelection = quotedSelection || undefined;
     setPromptValue("");
     setMentionedFiles([]);
     setMentionedSkills([]);
+    onRemoveQuotedSelection?.();
     const attachments = clearAttachments();
     let persistedAttachments: AgentAttachment[] = [];
     try {
       persistedAttachments = await persistAgentAttachments(submittedThreadId, attachments);
-      await onRun(prompt || (mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : "请查看附件。"), permissionMode, agentAttachmentsForRun(persistedAttachments), parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
+      await onRun(finalPrompt, permissionMode, agentAttachmentsForRun(persistedAttachments), parseProviderModelValue(activeProviderId), mentionedSkillSlugs);
       clearPendingAgentAttachmentData(attachments);
     } catch (error) {
       if (persistedAttachments.length > 0) void deletePersistedAgentAttachments(persistedAttachments);
@@ -196,6 +209,7 @@ export const AgentComposer = memo(function AgentComposer({
           setPromptValue(submittedPromptValue);
           setMentionedFiles(submittedMentionedFiles);
           setMentionedSkills(submittedMentionedSkills);
+          if (submittedQuotedSelection) onRestoreQuotedSelection?.(submittedQuotedSelection);
         }
       } else {
         composerDraftsRef.current = {
@@ -207,6 +221,7 @@ export const AgentComposer = memo(function AgentComposer({
           },
         };
         restoreAttachments(attachments, submittedThreadId);
+        if (submittedQuotedSelection) onRestoreQuotedSelection?.(submittedQuotedSelection);
       }
       console.error("[AgentComposer] Failed to start agent run:", error);
     }
@@ -236,8 +251,9 @@ export const AgentComposer = memo(function AgentComposer({
             onDelete={onDeleteQueuedMessage}
             onEdit={(message) => {
               onDeleteQueuedMessage(message.id);
-              setPromptValue(promptWithSkillTokens(message.prompt, message.mentionedSkills));
+              setPromptValue(promptWithSkillTokens(stripQuotedSelections(message.prompt), message.mentionedSkills));
               setMentionedSkills(skillMentionsFromSlugs(message.mentionedSkills, mentionableSkills));
+              if (message.quotedSelection) onRestoreQuotedSelection?.(message.quotedSelection);
             }}
           />
         )}
@@ -254,7 +270,7 @@ export const AgentComposer = memo(function AgentComposer({
           onDragLeave={() => setDraggingFiles(false)}
           onDrop={handleDrop}
         >
-          {pendingAttachments.length > 0 && (
+          {(pendingAttachments.length > 0 || quotedSelection) && (
             <div className="mb-2 space-y-2">
               {pendingImageAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -279,6 +295,11 @@ export const AgentComposer = memo(function AgentComposer({
                       onRemove={() => void removeAttachment(attachment)}
                     />
                   ))}
+                </div>
+              )}
+              {quotedSelection && (
+                <div className="flex flex-wrap gap-1.5">
+                  <QuotedSelectionChip quote={quotedSelection} removable onRemove={() => onRemoveQuotedSelection?.()} />
                 </div>
               )}
               {running && (
@@ -393,8 +414,11 @@ function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentCom
     && previous.activeProviderId === next.activeProviderId
     && previous.files === next.files
     && previous.skills === next.skills
+    && previous.quotedSelection === next.quotedSelection
     && previous.onHeightChange === next.onHeightChange
     && previous.onSetPermissionMode === next.onSetPermissionMode
+    && previous.onRemoveQuotedSelection === next.onRemoveQuotedSelection
+    && previous.onRestoreQuotedSelection === next.onRestoreQuotedSelection
     && previous.onRun === next.onRun
     && previous.onQueueMessage === next.onQueueMessage
     && previous.onSendQueuedMessage === next.onSendQueuedMessage

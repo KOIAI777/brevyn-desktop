@@ -6,6 +6,7 @@ import { FileTypeIcon } from "@/components/files/FileTypeIcon";
 import { useFilePathPreviewHandler } from "@/components/chat/FilePathChip";
 import type { AgentAttachment } from "@/types/domain";
 import type { AnswerEvidenceSource } from "@/components/agent/ragEvidence";
+import { parseQuotedSelections, QuotedSelectionChip } from "@/components/agent/quotedSelection";
 
 export function CompactContextNote({ state, message }: { state: "compacting" | "complete" | "failed"; message?: string }) {
   const compacting = state === "compacting";
@@ -122,15 +123,27 @@ export function UserMessageBubble({
   threadId?: string;
   attachments?: AgentAttachment[];
 }) {
-  if (!content.trim() && attachments.length === 0) return null;
+  const { quotes, text } = parseQuotedSelections(content);
+  if (!text.trim() && attachments.length === 0 && quotes.length === 0) return null;
   return (
     <div className="group/message flex min-w-0 justify-end">
       <div className="flex min-w-0 max-w-[76%] flex-col items-end">
         <div className="min-w-0 max-w-full overflow-hidden rounded-[1.35rem] bg-[hsl(var(--surface-warm)/0.9)] px-4 py-3 text-sm leading-6 text-foreground transition-colors duration-200">
-          {content.trim() && <Markdownish content={content} threadId={threadId} />}
+          {quotes.length > 0 && (
+            <div className="mb-2 flex flex-wrap justify-end gap-1.5">
+              {quotes.map((quote, index) => (
+                <QuotedSelectionChip key={`${quote.kind}:${quote.path || quote.filename}:${index}`} quote={quote} />
+              ))}
+            </div>
+          )}
+          {text.trim() && (
+            <div data-quote-message-role="user">
+              <Markdownish content={text} threadId={threadId} />
+            </div>
+          )}
           {attachments.length > 0 && <MessageAttachments attachments={attachments} threadId={threadId} />}
         </div>
-        {content.trim() && <MessageCopyAction content={content} align="right" />}
+        {text.trim() && <MessageCopyAction content={text} align="right" />}
       </div>
     </div>
   );
@@ -267,7 +280,9 @@ export function AssistantTextBubble({
         data-thread-id={threadId}
         data-streaming={streaming ? "true" : "false"}
       >
-        <Markdownish content={displayContent} threadId={threadId} streaming={streaming} />
+        <div data-quote-message-role="assistant">
+          <Markdownish content={displayContent} threadId={threadId} streaming={streaming} />
+        </div>
         {!streaming && evidence && evidence.length > 0 && (
           <AnswerEvidenceStrip
             content={displayContent}

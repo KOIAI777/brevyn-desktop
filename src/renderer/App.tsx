@@ -13,6 +13,7 @@ import { useWorkspaceFilesState } from "@/hooks/useWorkspaceFilesState";
 import { SEMESTER_HOME_COURSE_ID, useWorkspaceSessionController } from "@/hooks/useWorkspaceSessionController";
 import { useAppDialogState } from "@/hooks/useAppDialogState";
 import { useWorkspacePreviewCoordinator } from "@/hooks/useWorkspacePreviewCoordinator";
+import type { AgentQuotedSelection } from "@/components/agent/quotedSelection";
 
 const AgentThreadPanel = lazy(() => import("@/components/agent/AgentThreadPanel").then((module) => ({ default: module.AgentThreadPanel })));
 const CourseManagementDialog = lazy(() => import("@/components/courses/CourseManagementDialog").then((module) => ({ default: module.CourseManagementDialog })));
@@ -58,6 +59,7 @@ function App() {
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
+  const [quotedSelectionsByThread, setQuotedSelectionsByThread] = useState<Record<string, AgentQuotedSelection>>({});
   const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Brevyn User", avatarId: "🧑‍💻" });
   const [themeState, setThemeState] = useState<AppThemeState>({
     preference: "system",
@@ -210,6 +212,23 @@ function App() {
     previewCoordinator.revealSelectedFile("file");
     await fileState.previewWorkspacePath(filePath);
   }, [fileState.previewWorkspacePath, previewCoordinator]);
+  const activeQuotedSelection = workspace.activeThreadId ? quotedSelectionsByThread[workspace.activeThreadId] || null : null;
+  const addQuotedSelection = useCallback((quote: AgentQuotedSelection) => {
+    setQuotedSelectionsByThread((current) => ({
+      ...current,
+      [quote.threadId]: quote,
+    }));
+  }, []);
+  const removeActiveQuotedSelection = useCallback(() => {
+    const threadId = workspace.activeThreadId;
+    if (!threadId) return;
+    setQuotedSelectionsByThread((current) => {
+      if (!current[threadId]) return current;
+      const next = { ...current };
+      delete next[threadId];
+      return next;
+    });
+  }, [workspace.activeThreadId]);
   const workspaceBooting = workspace.bootState === "loading";
   const showWorkspaceOnboarding = !workspaceBooting && (workspace.noActiveSemesters || workspace.needsSemesterSelection);
 
@@ -336,6 +355,9 @@ function App() {
                     onSelectProvider={selectAgentProvider}
                     files={fileState.fileTree}
                     skills={workspace.skills}
+                    quotedSelection={activeQuotedSelection}
+                    onRemoveQuotedSelection={removeActiveQuotedSelection}
+                    onRestoreQuotedSelection={addQuotedSelection}
                     onPreviewFilePath={previewInlineFilePath}
                   />
                 </Suspense>
@@ -422,6 +444,8 @@ function App() {
               preview={fileState.filePreview}
               loading={fileState.filePreviewLoading}
               resizing={layoutState.resizingRail === "preview"}
+              threadId={workspace.activeThreadId}
+              onAddQuotedSelection={addQuotedSelection}
               onResizeStart={(event) => layoutState.startRailResize("preview", event)}
             />
           </Suspense>

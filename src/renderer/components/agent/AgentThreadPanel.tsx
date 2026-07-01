@@ -23,6 +23,7 @@ import { ApprovalCard, AskUserCard, ExitPlanCard } from "@/components/agent/Agen
 import { ToolGlyph, ToolTitle, ToolUseCard } from "@/components/agent/AgentToolRenderers";
 import { resolveModelProviderLogo } from "@/lib/model-provider-logo";
 import { CHAT_BODY_WIDTH_CLASS } from "@/components/agent/agentLayout";
+import { createQuotedMessageSelection, MAX_QUOTED_SELECTION_CHARS, type AgentQuotedSelection } from "@/components/agent/quotedSelection";
 
 interface AgentThreadPanelProps {
   thread: Thread;
@@ -42,6 +43,9 @@ interface AgentThreadPanelProps {
   onSelectProvider: (providerId: string) => Promise<void>;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
+  quotedSelection?: AgentQuotedSelection | null;
+  onRemoveQuotedSelection?: () => void;
+  onRestoreQuotedSelection?: (quote: AgentQuotedSelection) => void;
   onPreviewFilePath?: (filePath: string) => void | Promise<void>;
 }
 
@@ -63,6 +67,9 @@ export function AgentThreadPanel({
   onSelectProvider,
   files,
   skills,
+  quotedSelection,
+  onRemoveQuotedSelection,
+  onRestoreQuotedSelection,
   onPreviewFilePath,
 }: AgentThreadPanelProps) {
   const [timelineReady, setTimelineReady] = useState(false);
@@ -178,6 +185,7 @@ export function AgentThreadPanel({
         onCompact={handleCompactRequest}
         onRequestAcademicCheck={handleRequestAcademicCheck}
         onScrollApiReady={handleScrollApiReady}
+        onAddQuotedSelection={onRestoreQuotedSelection}
         bottomPadding={composerHeight + 24}
         scrollToBottomButtonBottom={composerHeight + 40}
       />
@@ -207,6 +215,9 @@ export function AgentThreadPanel({
         onSelectProvider={onSelectProvider}
         files={files}
         skills={skills}
+        quotedSelection={quotedSelection}
+        onRemoveQuotedSelection={onRemoveQuotedSelection}
+        onRestoreQuotedSelection={onRestoreQuotedSelection}
         onHeightChange={setComposerHeight}
       />
     </section>
@@ -231,6 +242,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onCompact,
   onRequestAcademicCheck,
   onScrollApiReady,
+  onAddQuotedSelection,
   bottomPadding,
   scrollToBottomButtonBottom,
 }: {
@@ -249,6 +261,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
   onCompact: () => void;
   onRequestAcademicCheck: () => void;
   onScrollApiReady: (api: { isFollowingOutput: boolean; scrollToBottom: (behavior: ScrollBehavior) => void }) => void;
+  onAddQuotedSelection?: (quote: AgentQuotedSelection) => void;
   bottomPadding: number;
   scrollToBottomButtonBottom: number;
 }) {
@@ -262,6 +275,7 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
     transitioning: scrollTransitioning,
   });
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const [messageSelectionPrompt, setMessageSelectionPrompt] = useState<MessageSelectionPromptState | null>(null);
   const userMessageNavItems = useMemo(() => {
     let userIndex = 0;
     return timelineGroups.flatMap((group): UserMessageNavItem[] => {
@@ -286,6 +300,100 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
     onScrollApiReady({ isFollowingOutput, scrollToBottom });
   }, [isFollowingOutput, onScrollApiReady, scrollToBottom]);
 
+  const updateMessageSelectionPrompt = useCallback(() => {
+    const container = scrollElement;
+    if (!container || !onAddQuotedSelection) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode || !focusNode || !container.contains(anchorNode) || !container.contains(focusNode)) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    const anchorRoleElement = closestQuoteMessageRoleElement(anchorNode);
+    const focusRoleElement = closestQuoteMessageRoleElement(focusNode);
+    if (!anchorRoleElement || anchorRoleElement !== focusRoleElement) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    if (selectionHasInteractiveTarget(selection, anchorRoleElement)) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    const text = selection.toString().replace(/\u00a0/g, " ").trim();
+    if (!text) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const rangeRect = range.getBoundingClientRect();
+    if (!rangeRect.width && !rangeRect.height) {
+      setMessageSelectionPrompt(null);
+      return;
+    }
+    const role = anchorRoleElement.dataset.quoteMessageRole === "user" ? "user" : "assistant";
+    const selectedText = text.slice(0, MAX_QUOTED_SELECTION_CHARS);
+    const truncated = text.length > MAX_QUOTED_SELECTION_CHARS;
+    const x = Math.min(Math.max(rangeRect.left + rangeRect.width / 2, 84), Math.max(84, window.innerWidth - 84));
+    const y = Math.max(12, rangeRect.top - 44);
+    setMessageSelectionPrompt({
+      text: selectedText,
+      role,
+      truncated,
+      x,
+      y,
+    });
+  }, [onAddQuotedSelection, scrollElement]);
+
+  useEffect(() => {
+    if (!scrollElement || !onAddQuotedSelection) {
+      setMessageSelectionPrompt(null);
+      return undefined;
+    }
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        updateMessageSelectionPrompt();
+      });
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("[data-quote-selection-action]")) return;
+      setMessageSelectionPrompt(null);
+    };
+    scrollElement.addEventListener("mouseup", schedule);
+    scrollElement.addEventListener("keyup", schedule);
+    scrollElement.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("selectionchange", schedule);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      scrollElement.removeEventListener("mouseup", schedule);
+      scrollElement.removeEventListener("keyup", schedule);
+      scrollElement.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("selectionchange", schedule);
+    };
+  }, [onAddQuotedSelection, scrollElement, updateMessageSelectionPrompt]);
+
+  function addMessageSelectionToConversation() {
+    if (!messageSelectionPrompt || !onAddQuotedSelection) return;
+    onAddQuotedSelection(createQuotedMessageSelection({
+      threadId: thread.id,
+      text: messageSelectionPrompt.text,
+      role: messageSelectionPrompt.role,
+    }));
+    setMessageSelectionPrompt(null);
+    window.getSelection()?.removeAllRanges();
+  }
+
   return (
     <>
       <div
@@ -293,6 +401,28 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
         className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 pt-5 [overflow-anchor:none] [scrollbar-gutter:stable] brevyn-scrollbar"
         style={{ paddingBottom: bottomPadding }}
       >
+        {messageSelectionPrompt && (
+          <div
+            className="fixed z-50 -translate-x-1/2"
+            style={{ left: messageSelectionPrompt.x, top: messageSelectionPrompt.y }}
+          >
+            <button
+              type="button"
+              data-quote-selection-action
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card/95 px-3 text-[12px] font-semibold text-foreground shadow-[0_12px_32px_rgba(35,31,24,0.18)] ring-1 ring-background/60 transition hover:-translate-y-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={addMessageSelectionToConversation}
+              title={messageSelectionPrompt.truncated ? `已截断到 ${MAX_QUOTED_SELECTION_CHARS} 字` : "添加选中文本到对话"}
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              <span>添加到对话</span>
+              {messageSelectionPrompt.truncated && <span className="text-[10px] text-muted-foreground">前 {MAX_QUOTED_SELECTION_CHARS} 字</span>}
+            </button>
+          </div>
+        )}
         <div
           ref={contentRef}
           className={`min-h-full min-w-0 max-w-full ${timelineReady && !loading ? "opacity-100 transition-opacity duration-150" : "opacity-0"}`}
@@ -351,6 +481,31 @@ const AgentTimelineScrollArea = memo(function AgentTimelineScrollArea({
     </>
   );
 });
+
+interface MessageSelectionPromptState {
+  text: string;
+  role: "user" | "assistant";
+  truncated: boolean;
+  x: number;
+  y: number;
+}
+
+function closestQuoteMessageRoleElement(node: Node): HTMLElement | null {
+  const element = node instanceof HTMLElement ? node : node.parentElement;
+  return element?.closest<HTMLElement>("[data-quote-message-role]") || null;
+}
+
+function selectionHasInteractiveTarget(selection: Selection, root: HTMLElement): boolean {
+  const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+  if (!range) return false;
+  const interactiveSelector = "button, input, textarea, select, [contenteditable='true'], [role='button'], a";
+  const common = range.commonAncestorContainer instanceof HTMLElement
+    ? range.commonAncestorContainer
+    : range.commonAncestorContainer.parentElement;
+  if (!common || !root.contains(common)) return false;
+  if (common.closest(interactiveSelector)) return true;
+  return Array.from(common.querySelectorAll(interactiveSelector)).some((node) => selection.containsNode(node, true));
+}
 
 function ProcessTimelinePanel({
   summary,
