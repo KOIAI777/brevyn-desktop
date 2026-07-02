@@ -37,6 +37,7 @@ export function MemorySettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [statusLine, setStatusLine] = useState("");
+  const [emptyReason, setEmptyReason] = useState("");
 
   const selectedInfo = loadedFile || (selectedKind === "claude" ? summary?.claudeMd : summary?.autoMemoryIndex);
   const isDirty = loadedFile?.kind === selectedKind && loadedFile.relativePath === selectedRelativePath(selectedKind, selectedAutoPath) && draft !== loadedFile.content;
@@ -67,11 +68,20 @@ export function MemorySettingsPage() {
     setStatusLine("");
     try {
       const nextSummary = await window.brevyn.memory.summary(nextScopeId);
+      setEmptyReason("");
       setSummary(nextSummary);
       setScopeId(nextSummary.scopeId);
       await loadFile(nextSummary.scopeId, kind, kind === "auto" ? selectedAutoPath : undefined, nextSummary);
     } catch (error) {
-      setStatusLine(`加载记忆失败：${errorMessage(error)}`);
+      const message = errorMessage(error);
+      setSummary(null);
+      setLoadedFile(null);
+      setDraft("");
+      if (isMissingSemesterMessage(message)) {
+        setEmptyReason("请先创建或选择一个学期。");
+      } else {
+        setStatusLine(`加载记忆失败：${message}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -170,6 +180,38 @@ export function MemorySettingsPage() {
       return;
     }
     void refresh(nextScopeId, selectedKind);
+  }
+
+  if (emptyReason) {
+    return (
+      <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        <section className="settings-solid-card rounded-[var(--radius-panel)] p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Brain className="h-4 w-4 text-muted-foreground" />
+            <span>工作区记忆</span>
+          </div>
+          <div className="mt-1 max-w-2xl text-[12px] leading-5 text-muted-foreground">
+            Agent 会读取当前学期共享空间里的长期规则和 SDK 自动记忆。
+          </div>
+        </section>
+        <section className="settings-solid-card flex min-h-[360px] items-center justify-center rounded-[var(--radius-panel)] p-6">
+          <div className="max-w-sm text-center">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[var(--radius-card)] bg-muted text-muted-foreground">
+              <GraduationCap className="h-5 w-5" />
+            </div>
+            <div className="mt-3 text-sm font-semibold text-foreground">还没有可用的学期</div>
+            <div className="mt-1 text-[12px] leading-5 text-muted-foreground">{emptyReason}</div>
+            <ActionButton
+              icon={<RefreshCw className={cx("h-3.5 w-3.5", loading && "animate-spin")} />}
+              label="刷新"
+              onClick={() => void refresh(scopeId)}
+              disabled={loading}
+              className="mt-4"
+            />
+          </div>
+        </section>
+      </div>
+    );
   }
 
   return (
@@ -472,4 +514,8 @@ function defaultAutoMemoryFileText(relativePath: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingSemesterMessage(message: string): boolean {
+  return message.includes("请先创建或选择一个学期");
 }

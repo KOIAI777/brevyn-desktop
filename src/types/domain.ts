@@ -1531,7 +1531,7 @@ export interface Sub2RedeemCodeResult {
   sub2: Sub2AccountStatus;
   provider?: ModelProviderConfig;
   providers?: ModelProviderConfig[];
-  providerSyncStatus?: "synced" | "provisioning" | "failed";
+  providerSyncStatus?: "synced" | "provisioning" | "locked" | "failed";
   providerSyncDetail?: string;
 }
 

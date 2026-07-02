@@ -77,7 +77,7 @@ export class ClaudeSdkAdapter {
         env: {
           ...stringProcessEnv(),
           ...input.env,
-          CLAUDE_AGENT_SDK_CLIENT_APP: "brevyn/0.1.0",
+          CLAUDE_AGENT_SDK_CLIENT_APP: "brevyn/0.1.1",
           BREVYN_RUNTIME_REQUIRE_FROM: resolveRuntimeRequireFrom(),
           NODE_PATH: runtimeNodePath(input.env?.NODE_PATH),
         },

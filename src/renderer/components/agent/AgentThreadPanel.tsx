@@ -44,8 +44,8 @@ interface AgentThreadPanelProps {
   onSelectProvider: (providerId: string) => Promise<void>;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
-  quotedSelection?: AgentQuotedSelection | null;
-  onRemoveQuotedSelection?: () => void;
+  quotedSelections?: AgentQuotedSelection[];
+  onRemoveQuotedSelection?: (quoteId?: string) => void;
   onRestoreQuotedSelection?: (quote: AgentQuotedSelection) => void;
   onPreviewFilePath?: (filePath: string) => void | Promise<void>;
 }
@@ -69,7 +69,7 @@ export function AgentThreadPanel({
   onSelectProvider,
   files,
   skills,
-  quotedSelection,
+  quotedSelections,
   onRemoveQuotedSelection,
   onRestoreQuotedSelection,
   onPreviewFilePath,
@@ -218,7 +218,7 @@ export function AgentThreadPanel({
         onSelectProvider={onSelectProvider}
         files={files}
         skills={skills}
-        quotedSelection={quotedSelection}
+        quotedSelections={quotedSelections}
         onRemoveQuotedSelection={onRemoveQuotedSelection}
         onRestoreQuotedSelection={onRestoreQuotedSelection}
         onHeightChange={setComposerHeight}

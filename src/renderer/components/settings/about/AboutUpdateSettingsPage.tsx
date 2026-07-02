@@ -142,7 +142,7 @@ export function AboutUpdateSettingsPage() {
     }
   }
 
-  const currentVersion = status?.currentVersion || diagnostics?.app.version || "0.1.0";
+  const currentVersion = status?.currentVersion || diagnostics?.app.version || "0.1.1";
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">

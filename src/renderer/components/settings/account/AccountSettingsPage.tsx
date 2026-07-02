@@ -65,7 +65,7 @@ export function AccountSettingsPage({
   const isBusy = Boolean(busyAction);
   const authBusy = busyAction === "login" || busyAction === "register";
   const statusMessage = statusLine || (authenticated ? accountStatus?.lastError || "" : "");
-  const statusIsError = /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(statusMessage);
+  const statusIsError = statusMessageIsError(statusMessage);
   const baseUrlEditable = accountStatus?.baseUrlEditable === true;
   const groups = accountStatus?.groups ?? [];
   const officialProviders = providers.filter((provider) => provider.id.startsWith("provider-sub2-official-"));
@@ -287,7 +287,7 @@ export function AccountSettingsPage({
                 <div className="mt-2.5 grid gap-2 md:grid-cols-3">
                   <MiniMetric label="类型" value={redeemTypeLabel(redeemResult.type)} />
                   <MiniMetric label="到账" value={redeemValueLabel(redeemResult)} />
-                  <MiniMetric label="模型同步" value={redeemResult.providerSyncStatus === "failed" ? "待重试" : redeemResult.providerSyncStatus === "provisioning" ? "准备中" : "已同步"} />
+                  <MiniMetric label="模型同步" value={redeemProviderSyncLabel(redeemResult.providerSyncStatus)} />
                 </div>
               ) : null}
               {statusMessage ? <StatusMessage message={statusMessage} error={statusIsError} /> : null}
@@ -519,6 +519,19 @@ function redeemValueLabel(result: Sub2RedeemCodeResult): string {
   if (result.newBalance !== undefined) return formatUsd(result.newBalance);
   if (result.newConcurrency !== undefined) return `${formatInteger(result.newConcurrency)} 并发`;
   return formatUsd(result.value || 0);
+}
+
+function redeemProviderSyncLabel(status?: Sub2RedeemCodeResult["providerSyncStatus"]): string {
+  if (status === "failed") return "待重试";
+  if (status === "provisioning") return "准备中";
+  if (status === "locked") return "余额不足";
+  if (status === "synced") return "已同步";
+  return "未同步";
+}
+
+function statusMessageIsError(message: string): boolean {
+  if (!message || /余额不足|充值后可同步/i.test(message)) return false;
+  return /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(message);
 }
 
 function formatUsd(value: number): string {

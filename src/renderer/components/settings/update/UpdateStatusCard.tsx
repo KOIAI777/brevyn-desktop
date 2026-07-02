@@ -19,7 +19,7 @@ export function UpdateStatusCard({
   onDismissDownloaded: () => void;
   onQuitAndInstall: () => void;
 }) {
-  const currentVersion = status?.currentVersion || "0.1.0";
+  const currentVersion = status?.currentVersion || "0.1.1";
   const isChecking = checking || status?.status === "checking";
   const canCheck = status?.status !== "downloading" && status?.status !== "downloaded";
   const progress = status?.status === "downloading" ? clampProgress(status.progress.percent) : 0;

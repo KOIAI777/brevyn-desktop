@@ -279,14 +279,17 @@ export function normalizeTimetableRangeQuery(value: unknown): TimetableRangeQuer
 
 export function normalizeAgentRunInput(value: unknown): AgentRunInput {
   const input = requireObject(value, "Agent run input");
+  const prompt = stringValue(input.prompt).trim();
+  const attachments = normalizeAgentAttachments(input.attachments);
+  if (!prompt && !attachments?.length) throw new Error("Prompt or attachment is required.");
   return {
     threadId: requireString(input.threadId, "Thread id"),
-    prompt: requireString(input.prompt, "Prompt"),
+    prompt,
     uuid: optionalString(input.uuid),
     permissionMode: normalizeAgentPermissionMode(input.permissionMode),
     providerId: optionalString(input.providerId),
     modelId: optionalString(input.modelId),
-    attachments: normalizeAgentAttachments(input.attachments),
+    attachments,
     mentionedSkills: normalizeStringArray(input.mentionedSkills),
   };
 }
@@ -298,12 +301,15 @@ function normalizeAgentPermissionMode(value: unknown): AgentPermissionMode {
 
 export function normalizeAgentQueueMessageInput(value: unknown): AgentQueueMessageInput {
   const input = requireObject(value, "Agent queue message input");
+  const prompt = stringValue(input.prompt).trim();
+  const attachments = normalizeAgentAttachments(input.attachments);
+  if (!prompt && !attachments?.length) throw new Error("Prompt or attachment is required.");
   return {
     threadId: requireString(input.threadId, "Thread id"),
-    prompt: requireString(input.prompt, "Prompt"),
+    prompt,
     uuid: optionalString(input.uuid),
     interrupt: input.interrupt === undefined ? undefined : Boolean(input.interrupt),
-    attachments: normalizeAgentAttachments(input.attachments),
+    attachments,
     mentionedSkills: normalizeStringArray(input.mentionedSkills),
   };
 }

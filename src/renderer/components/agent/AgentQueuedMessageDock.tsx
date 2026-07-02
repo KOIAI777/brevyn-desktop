@@ -35,7 +35,9 @@ export function QueuedMessageDock({
       <div className="max-h-32 space-y-1 overflow-y-auto pr-1 brevyn-scrollbar">
         {messages.map((message, index) => {
           const sending = sendingMessageIds.includes(message.id);
-          const preview = stripQuotedSelections(message.prompt) || (message.quotedSelection ? "请根据引用内容继续。" : message.prompt);
+          const quotes = message.quotedSelections || (message.quotedSelection ? [message.quotedSelection] : []);
+          const preview = stripQuotedSelections(message.prompt) || (quotes.length > 0 ? "请根据引用内容继续。" : message.prompt);
+          const quoteLabelText = quotes.length === 1 ? `引用 ${quoteLabel(quotes[0])}` : `引用 ${quotes.length} 段`;
           return (
             <div
               key={message.id}
@@ -45,7 +47,7 @@ export function QueuedMessageDock({
                 {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : index + 1}
               </span>
               <span className="min-w-0 flex-1 truncate text-left text-foreground/86" title={preview}>
-                {message.quotedSelection ? `引用 ${quoteLabel(message.quotedSelection)} · ${preview}` : preview}
+                {quotes.length > 0 ? `${quoteLabelText} · ${preview}` : preview}
               </span>
               {sending && <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{sendingLabel}</span>}
               <div className="flex shrink-0 items-center gap-0.5 opacity-75 transition group-hover:opacity-100">

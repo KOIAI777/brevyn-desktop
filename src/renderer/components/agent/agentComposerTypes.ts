@@ -8,5 +8,6 @@ export interface QueuedAgentMessage {
   providerSelection?: { providerId?: string; modelId?: string };
   mentionedSkills?: string[];
   quotedSelection?: AgentQuotedSelection;
+  quotedSelections?: AgentQuotedSelection[];
   createdAt: number;
 }

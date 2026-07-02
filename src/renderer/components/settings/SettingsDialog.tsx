@@ -627,12 +627,14 @@ function accountSyncResultLine(status: "synced" | "provisioning" | "locked", det
 }
 
 function statusLineIsError(message: string): boolean {
+  if (!message || /余额不足|充值后可同步/i.test(message)) return false;
   return /失败|不存在|已被|过期|无法|失效|错误|异常|不足|unavailable|failed|error/i.test(message);
 }
 
 function accountRedeemResultLine(result: Sub2RedeemCodeResult): string {
   const base = result.message || "兑换成功。";
   if (result.providerSyncStatus === "failed") return `${base} 本地官方模型同步失败：${result.providerSyncDetail || "请稍后刷新。"}`;
+  if (result.providerSyncStatus === "locked") return `${base} ${result.providerSyncDetail || "账户余额不足，充值后可同步官方模型。"}`;
   if (result.providerSyncStatus === "provisioning") return `${base} ${result.providerSyncDetail || "官方模型正在准备中。"}`;
   if (result.providerSyncStatus === "synced") return `${base} 官方模型已自动同步。`;
   return base;

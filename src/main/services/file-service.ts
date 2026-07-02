@@ -2045,7 +2045,8 @@ function isRagEligibleWorkspaceFile(file: WorkspaceFileNode): boolean {
 function isAgentWorkspaceControlFile(file: WorkspaceFileNode): boolean {
   const values = [file.name, file.path, file.sourcePath].filter((value): value is string => Boolean(value));
   if (values.some((value) => basename(value).toLowerCase() === AGENT_WORKSPACE_MEMORY_FILE.toLowerCase())) return true;
-  return values.some((value) => {
+  const logicalValues = [file.name, file.path].filter((value): value is string => Boolean(value));
+  return logicalValues.some((value) => {
     const segments = value.replace(/\\/g, "/").split("/").filter(Boolean);
     return segments.some((segment) => segment === ".brevyn" || segment === ".context" || segment === ".claude");
   });
@@ -2107,10 +2108,9 @@ async function previewDocxHtml(sourcePath?: string): Promise<{ summary: string; 
       }),
       mammoth.extractRawText({ path: sourcePath }),
     ]);
-    const warning = [...htmlResult.messages, ...textResult.messages].map((message) => message.message).filter(Boolean).join("; ");
     const html = htmlResult.value.trim();
     return {
-      summary: warning ? `已将 DOCX 渲染为 HTML。${warning}` : "已将 DOCX 渲染为 HTML 文档预览。",
+      summary: "已将 DOCX 渲染为文档预览。",
       content: truncatePreviewText(normalizePreviewText(textResult.value), 24000) || "（未找到可提取文本。）",
       html: html || undefined,
     };

@@ -39,10 +39,10 @@ interface AgentComposerProps {
   activeProviderId: string;
   files: WorkspaceFileNode[];
   skills: SkillItem[];
-  quotedSelection?: AgentQuotedSelection | null;
+  quotedSelections?: AgentQuotedSelection[];
   onHeightChange?: (height: number) => void;
   onSetPermissionMode: (mode: AgentPermissionMode) => void;
-  onRemoveQuotedSelection?: () => void;
+  onRemoveQuotedSelection?: (quoteId?: string) => void;
   onRestoreQuotedSelection?: (quote: AgentQuotedSelection) => void;
   onRun: (prompt: string, permissionMode?: AgentPermissionMode, attachments?: AgentAttachment[], providerSelection?: { providerId?: string; modelId?: string }, mentionedSkills?: string[]) => Promise<void>;
   onQueueMessage: (message: QueuedAgentMessage) => void;
@@ -80,7 +80,7 @@ export const AgentComposer = memo(function AgentComposer({
   activeProviderId,
   files,
   skills,
-  quotedSelection,
+  quotedSelections = [],
   onHeightChange,
   onSetPermissionMode,
   onRemoveQuotedSelection,
@@ -117,7 +117,8 @@ export const AgentComposer = memo(function AgentComposer({
   const mentionableSkills = useMemo(() => flattenMentionableSkills(skills), [skills]);
   const promptText = promptValue.trim();
   const hasMentionedSkills = mentionedSkills.length > 0;
-  const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills || quotedSelection);
+  const hasQuotedSelections = quotedSelections.length > 0;
+  const canSubmit = Boolean(promptText || pendingAttachments.length > 0 || hasMentionedSkills || hasQuotedSelections);
   const canQueueWhileRunning = canSubmit && pendingAttachments.length === 0;
   const pendingImageAttachments = pendingAttachments.filter(isAgentImageAttachment);
   const pendingFileAttachments = pendingAttachments.filter((attachment) => !isAgentImageAttachment(attachment));
@@ -164,9 +165,9 @@ export const AgentComposer = memo(function AgentComposer({
     const effectiveMentionedSkills = skillMentionsFromPrompt(promptText, mentionableSkills);
     const mentionedSkillSlugs = skillSlugsForPrompt(effectiveMentionedSkills);
     const prompt = buildPromptWithMentions(promptText, mentionedFiles, effectiveMentionedSkills);
-    const fallbackPrompt = mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : quotedSelection ? "请根据引用内容继续。" : "请查看附件。";
-    const finalPrompt = promptWithQuotedSelection(prompt || fallbackPrompt, quotedSelection);
-    if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0 && !quotedSelection) return;
+    const fallbackPrompt = mentionedSkillSlugs.length > 0 ? "请使用已选择的 Skill。" : hasQuotedSelections ? "请根据引用内容继续。" : "";
+    const finalPrompt = promptWithQuotedSelection(prompt || fallbackPrompt, quotedSelections);
+    if (!prompt && pendingAttachments.length === 0 && mentionedSkillSlugs.length === 0 && !hasQuotedSelections) return;
 
     if (running) {
       if (pendingAttachments.length > 0) return;
@@ -176,7 +177,8 @@ export const AgentComposer = memo(function AgentComposer({
         permissionMode,
         providerSelection: parseProviderModelValue(activeProviderId),
         mentionedSkills: mentionedSkillSlugs,
-        quotedSelection: quotedSelection || undefined,
+        quotedSelections: quotedSelections.length > 0 ? quotedSelections : undefined,
+        quotedSelection: quotedSelections[0],
         createdAt: Date.now(),
       });
       setPromptValue("");
@@ -190,7 +192,7 @@ export const AgentComposer = memo(function AgentComposer({
     const submittedPromptValue = promptValue;
     const submittedMentionedFiles = mentionedFiles;
     const submittedMentionedSkills = mentionedSkills;
-    const submittedQuotedSelection = quotedSelection || undefined;
+    const submittedQuotedSelections = quotedSelections;
     setPromptValue("");
     setMentionedFiles([]);
     setMentionedSkills([]);
@@ -209,7 +211,7 @@ export const AgentComposer = memo(function AgentComposer({
           setPromptValue(submittedPromptValue);
           setMentionedFiles(submittedMentionedFiles);
           setMentionedSkills(submittedMentionedSkills);
-          if (submittedQuotedSelection) onRestoreQuotedSelection?.(submittedQuotedSelection);
+          submittedQuotedSelections.forEach((quote) => onRestoreQuotedSelection?.(quote));
         }
       } else {
         composerDraftsRef.current = {
@@ -221,7 +223,7 @@ export const AgentComposer = memo(function AgentComposer({
           },
         };
         restoreAttachments(attachments, submittedThreadId);
-        if (submittedQuotedSelection) onRestoreQuotedSelection?.(submittedQuotedSelection);
+        submittedQuotedSelections.forEach((quote) => onRestoreQuotedSelection?.(quote));
       }
       console.error("[AgentComposer] Failed to start agent run:", error);
     }
@@ -253,7 +255,8 @@ export const AgentComposer = memo(function AgentComposer({
               onDeleteQueuedMessage(message.id);
               setPromptValue(promptWithSkillTokens(stripQuotedSelections(message.prompt), message.mentionedSkills));
               setMentionedSkills(skillMentionsFromSlugs(message.mentionedSkills, mentionableSkills));
-              if (message.quotedSelection) onRestoreQuotedSelection?.(message.quotedSelection);
+              const messageQuotes = message.quotedSelections || (message.quotedSelection ? [message.quotedSelection] : []);
+              messageQuotes.forEach((quote) => onRestoreQuotedSelection?.(quote));
             }}
           />
         )}
@@ -270,7 +273,7 @@ export const AgentComposer = memo(function AgentComposer({
           onDragLeave={() => setDraggingFiles(false)}
           onDrop={handleDrop}
         >
-          {(pendingAttachments.length > 0 || quotedSelection) && (
+          {(pendingAttachments.length > 0 || hasQuotedSelections) && (
             <div className="mb-2 space-y-2">
               {pendingImageAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -297,9 +300,11 @@ export const AgentComposer = memo(function AgentComposer({
                   ))}
                 </div>
               )}
-              {quotedSelection && (
+              {hasQuotedSelections && (
                 <div className="flex flex-wrap gap-1.5">
-                  <QuotedSelectionChip quote={quotedSelection} removable onRemove={() => onRemoveQuotedSelection?.()} />
+                  {quotedSelections.map((quote) => (
+                    <QuotedSelectionChip key={quote.id} quote={quote} removable onRemove={() => onRemoveQuotedSelection?.(quote.id)} />
+                  ))}
                 </div>
               )}
               {running && (
@@ -414,7 +419,7 @@ function areAgentComposerPropsEqual(previous: AgentComposerProps, next: AgentCom
     && previous.activeProviderId === next.activeProviderId
     && previous.files === next.files
     && previous.skills === next.skills
-    && previous.quotedSelection === next.quotedSelection
+    && previous.quotedSelections === next.quotedSelections
     && previous.onHeightChange === next.onHeightChange
     && previous.onSetPermissionMode === next.onSetPermissionMode
     && previous.onRemoveQuotedSelection === next.onRemoveQuotedSelection

@@ -1,6 +1,7 @@
 import { ChevronDown, Code2, Eye, ExternalLink, FileSearch, FolderOpen, ImageIcon, Maximize2, Minimize2, Minus, MoveHorizontal, Plus, Presentation, Quote, RotateCcw, Table2, Terminal, Type } from "lucide-react";
 import type { FilePreview, OpenPathOption } from "@/types/domain";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Markdownish } from "@/components/chat/Markdownish";
 import { createQuotedSelection, MAX_QUOTED_SELECTION_CHARS, type AgentQuotedSelection } from "@/components/agent/quotedSelection";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -24,6 +25,7 @@ interface SelectionPromptState {
   truncated: boolean;
   x: number;
   y: number;
+  source: "page" | "preview-frame";
 }
 
 export function FilePreviewPane({
@@ -42,9 +44,36 @@ export function FilePreviewPane({
   onAddQuotedSelection?: (quote: AgentQuotedSelection) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const previewFrameCleanupRef = useRef<(() => void) | null>(null);
   const previewKey = preview ? filePreviewViewKey(preview) : "";
   const [selectionPrompt, setSelectionPrompt] = useState<SelectionPromptState | null>(null);
   const captureQuoteSelection = Boolean(threadId && preview && preview.sourcePath && onAddQuotedSelection);
+
+  const selectionPromptFromSelection = useCallback((selection: Selection | null, root: Node, offset?: DOMRect): SelectionPromptState | null => {
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+    const text = selection.toString().replace(/\u00a0/g, " ").trim();
+    if (!text) return null;
+    const range = selection.getRangeAt(0);
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode || !focusNode || !root.contains(anchorNode) || !root.contains(focusNode)) return null;
+    const rangeRect = range.getBoundingClientRect();
+    if (!rangeRect.width && !rangeRect.height) return null;
+    const selectedText = text.slice(0, MAX_QUOTED_SELECTION_CHARS);
+    const truncated = text.length > MAX_QUOTED_SELECTION_CHARS;
+    const left = (offset?.left || 0) + rangeRect.left;
+    const top = (offset?.top || 0) + rangeRect.top;
+    const x = Math.min(Math.max(left + rangeRect.width / 2, 84), Math.max(84, window.innerWidth - 84));
+    const y = Math.max(12, top - 44);
+    return {
+      text: selectedText,
+      truncated,
+      x,
+      y,
+      source: offset ? "preview-frame" : "page",
+    };
+  }, []);
 
   useEffect(() => {
     if (!previewKey) return undefined;
@@ -61,39 +90,49 @@ export function FilePreviewPane({
       setSelectionPrompt(null);
       return;
     }
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    setSelectionPrompt(selectionPromptFromSelection(window.getSelection(), container));
+  }, [preview, selectionPromptFromSelection, threadId]);
+
+  const updateFrameSelectionPrompt = useCallback(() => {
+    const frame = previewFrameRef.current;
+    const frameWindow = frame?.contentWindow;
+    const frameDocument = frame?.contentDocument;
+    if (!frame || !frameWindow || !frameDocument || !preview || !threadId || !preview.sourcePath) {
       setSelectionPrompt(null);
       return;
     }
-    const text = selection.toString().replace(/\u00a0/g, " ").trim();
-    if (!text) {
+    const page = frameDocument.querySelector(".page");
+    if (!page) {
       setSelectionPrompt(null);
       return;
     }
-    const range = selection.getRangeAt(0);
-    const anchorNode = selection.anchorNode;
-    const focusNode = selection.focusNode;
-    if (!anchorNode || !focusNode || !container.contains(anchorNode) || !container.contains(focusNode)) {
-      setSelectionPrompt(null);
-      return;
-    }
-    const rangeRect = range.getBoundingClientRect();
-    if (!rangeRect.width && !rangeRect.height) {
-      setSelectionPrompt(null);
-      return;
-    }
-    const selectedText = text.slice(0, MAX_QUOTED_SELECTION_CHARS);
-    const truncated = text.length > MAX_QUOTED_SELECTION_CHARS;
-    const x = Math.min(Math.max(rangeRect.left + rangeRect.width / 2, 84), Math.max(84, window.innerWidth - 84));
-    const y = Math.max(12, rangeRect.top - 44);
-    setSelectionPrompt({
-      text: selectedText,
-      truncated,
-      x,
-      y,
-    });
-  }, [preview, threadId]);
+    setSelectionPrompt(selectionPromptFromSelection(frameWindow.getSelection(), page, frame.getBoundingClientRect()));
+  }, [preview, selectionPromptFromSelection, threadId]);
+
+  const handlePreviewFrameLoad = useCallback(() => {
+    previewFrameCleanupRef.current?.();
+    previewFrameCleanupRef.current = null;
+    const frame = previewFrameRef.current;
+    if (!frame || !captureQuoteSelection) return;
+    let frameId = 0;
+    const schedule = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        updateFrameSelectionPrompt();
+      });
+    };
+    const frameDocument = frame.contentDocument;
+    frameDocument?.addEventListener("mouseup", schedule);
+    frameDocument?.addEventListener("keyup", schedule);
+    frameDocument?.addEventListener("selectionchange", schedule);
+    previewFrameCleanupRef.current = () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      frameDocument?.removeEventListener("mouseup", schedule);
+      frameDocument?.removeEventListener("keyup", schedule);
+      frameDocument?.removeEventListener("selectionchange", schedule);
+    };
+  }, [captureQuoteSelection, updateFrameSelectionPrompt]);
 
   useEffect(() => {
     if (!captureQuoteSelection) {
@@ -128,6 +167,14 @@ export function FilePreviewPane({
     };
   }, [captureQuoteSelection, updateSelectionPrompt]);
 
+  useEffect(() => {
+    handlePreviewFrameLoad();
+    return () => {
+      previewFrameCleanupRef.current?.();
+      previewFrameCleanupRef.current = null;
+    };
+  }, [handlePreviewFrameLoad, previewKey]);
+
   function handlePreviewScroll() {
     if (!previewKey || !scrollRef.current) return;
     updatePreviewViewState(previewKey, { scrollTop: scrollRef.current.scrollTop });
@@ -140,6 +187,9 @@ export function FilePreviewPane({
       text: selectionPrompt.text,
       filePath: preview.sourcePath,
     }));
+    if (selectionPrompt.source === "preview-frame") {
+      previewFrameRef.current?.contentWindow?.getSelection()?.removeAllRanges();
+    }
     setSelectionPrompt(null);
     window.getSelection()?.removeAllRanges();
   }
@@ -197,8 +247,34 @@ export function FilePreviewPane({
     );
   }
 
+  const isFullBleedDocxPreview = preview.kind === "docx" && Boolean(preview.html);
+  const shouldShowSummary = Boolean(preview.summary && !isFullBleedDocxPreview);
+  const selectionPromptButton = captureQuoteSelection && selectionPrompt && (
+    <div
+      className="fixed z-[9999] -translate-x-1/2"
+      style={{ left: selectionPrompt.x, top: selectionPrompt.y }}
+    >
+      <button
+        type="button"
+        data-quote-selection-action
+        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card/95 px-3 text-[12px] font-semibold text-foreground shadow-[0_12px_32px_rgba(35,31,24,0.18)] ring-1 ring-background/60 transition hover:-translate-y-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={addSelectionToConversation}
+        title={selectionPrompt.truncated ? `已截断到 ${MAX_QUOTED_SELECTION_CHARS} 字` : "添加选中文本到对话"}
+      >
+        <Quote className="h-3.5 w-3.5" />
+        <span>添加到对话</span>
+        {selectionPrompt.truncated && <span className="text-[10px] text-muted-foreground">前 {MAX_QUOTED_SELECTION_CHARS} 字</span>}
+      </button>
+    </div>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {selectionPromptButton ? createPortal(selectionPromptButton, document.body) : null}
       <div className="flex min-h-[42px] items-center gap-2 border-b px-3 py-2">
         <FileTypeIcon name={preview.title || preview.path} isDirectory={preview.kind === "folder"} size={16} />
         <div className="min-w-0 flex-1">
@@ -222,30 +298,12 @@ export function FilePreviewPane({
         )}
       </div>
 
-      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto p-3 brevyn-scrollbar" onScroll={handlePreviewScroll}>
-        {captureQuoteSelection && selectionPrompt && (
-          <div
-            className="fixed z-50 -translate-x-1/2"
-            style={{ left: selectionPrompt.x, top: selectionPrompt.y }}
-          >
-            <button
-              type="button"
-              data-quote-selection-action
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/70 bg-card/95 px-3 text-[12px] font-semibold text-foreground shadow-[0_12px_32px_rgba(35,31,24,0.18)] ring-1 ring-background/60 transition hover:-translate-y-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={addSelectionToConversation}
-              title={selectionPrompt.truncated ? `已截断到 ${MAX_QUOTED_SELECTION_CHARS} 字` : "添加选中文本到对话"}
-            >
-              <Quote className="h-3.5 w-3.5" />
-              <span>添加到对话</span>
-              {selectionPrompt.truncated && <span className="text-[10px] text-muted-foreground">前 {MAX_QUOTED_SELECTION_CHARS} 字</span>}
-            </button>
-          </div>
-        )}
-        {preview.summary && <div className="mb-3 rounded-lg border bg-background/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">{preview.summary}</div>}
+      <div
+        ref={scrollRef}
+        className={`relative min-h-0 flex-1 overflow-y-auto brevyn-scrollbar ${isFullBleedDocxPreview ? "bg-[#f6f6f4] p-0" : "p-3"}`}
+        onScroll={handlePreviewScroll}
+      >
+        {shouldShowSummary && <div className="mb-3 rounded-lg border bg-background/70 px-3 py-2 text-[12px] leading-5 text-muted-foreground">{preview.summary}</div>}
 
         {preview.kind === "markdown" && preview.content && (
           <div className="rounded-lg border bg-background px-3 py-3 text-[12px] leading-6 text-foreground">
@@ -264,12 +322,14 @@ export function FilePreviewPane({
         {preview.kind === "image" && <ImagePreviewFrame preview={preview} viewKey={previewKey} />}
 
         {preview.kind === "docx" && preview.html && (
-          <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
+          <div className="h-full min-h-[70vh] overflow-hidden bg-[#f6f6f4]">
             <iframe
-              className="h-full w-full bg-background"
-              sandbox=""
-              srcDoc={officePreviewDocument(preview.html)}
+              ref={previewFrameRef}
+              className="h-full w-full bg-[#f6f6f4]"
+              sandbox="allow-same-origin"
+              srcDoc={officePreviewDocument(preview.html, "docx")}
               title={preview.title}
+              onLoad={handlePreviewFrameLoad}
             />
           </div>
         )}
@@ -283,10 +343,12 @@ export function FilePreviewPane({
         {preview.kind === "pptx" && preview.html && (
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
+              ref={previewFrameRef}
               className="h-full w-full bg-background"
-              sandbox=""
-              srcDoc={officePreviewDocument(preview.html)}
+              sandbox="allow-same-origin"
+              srcDoc={officePreviewDocument(preview.html, "presentation")}
               title={preview.title}
+              onLoad={handlePreviewFrameLoad}
             />
           </div>
         )}
@@ -294,10 +356,12 @@ export function FilePreviewPane({
         {preview.kind === "spreadsheet" && preview.html && (
           <div className="h-[70vh] overflow-hidden rounded-lg border bg-background shadow-sm">
             <iframe
+              ref={previewFrameRef}
               className="h-full w-full bg-background"
-              sandbox=""
-              srcDoc={officePreviewDocument(preview.html)}
+              sandbox="allow-same-origin"
+              srcDoc={officePreviewDocument(preview.html, "spreadsheet")}
               title={preview.title}
+              onLoad={handlePreviewFrameLoad}
             />
           </div>
         )}
@@ -664,7 +728,8 @@ function previewKindLabel(kind: FilePreview["kind"]): string {
   return "文件";
 }
 
-function officePreviewDocument(html: string): string {
+function officePreviewDocument(html: string, kind: "docx" | "presentation" | "spreadsheet"): string {
+  const bodyClass = `office-kind-${kind}`;
   return `<!doctype html>
 <html>
   <head>
@@ -685,6 +750,10 @@ function officePreviewDocument(html: string): string {
           #f5f2ec;
         overflow-wrap: anywhere;
       }
+      .office-kind-docx {
+        padding: 0;
+        background: #f6f6f4;
+      }
       .page {
         box-sizing: border-box;
         width: min(100%, 780px);
@@ -695,6 +764,17 @@ function officePreviewDocument(html: string): string {
         border-radius: 12px;
         background: #fffdf8;
         box-shadow: 0 20px 50px rgba(31, 41, 51, 0.10);
+      }
+      .office-kind-docx .page {
+        width: 100%;
+        max-width: none;
+        min-height: 100vh;
+        margin: 0;
+        padding: clamp(20px, 3.2vw, 36px);
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: visible;
       }
       h1, h2, h3 {
         margin: 1.1em 0 0.55em;
@@ -721,10 +801,29 @@ function officePreviewDocument(html: string): string {
         border-collapse: collapse;
         font-size: 12.5px;
       }
+      .office-kind-docx table {
+        width: 100% !important;
+        max-width: 100%;
+        min-width: 0;
+        table-layout: auto;
+      }
       th, td {
         border: 1px solid rgba(31, 41, 51, 0.18);
         padding: 8px 10px;
         vertical-align: top;
+        overflow-wrap: anywhere;
+        word-break: normal;
+      }
+      .office-kind-docx th,
+      .office-kind-docx td {
+        padding: 7px 9px;
+      }
+      .office-kind-docx p,
+      .office-kind-docx li,
+      .office-kind-docx th,
+      .office-kind-docx td {
+        font-size: clamp(11px, 1.8vw, 13.5px);
+        line-height: 1.58;
       }
       th {
         background: rgba(245, 242, 236, 0.85);
@@ -802,7 +901,7 @@ function officePreviewDocument(html: string): string {
       }
     </style>
   </head>
-  <body>
+  <body class="${bodyClass}">
     <main class="page">${html}</main>
   </body>
 </html>`;

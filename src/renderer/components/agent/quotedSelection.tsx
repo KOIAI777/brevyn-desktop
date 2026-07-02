@@ -74,9 +74,13 @@ export function createQuotedMessageSelection(input: {
   };
 }
 
-export function promptWithQuotedSelection(prompt: string, quote?: AgentQuotedSelection | null): string {
-  if (!quote?.text.trim()) return prompt;
-  return `${quotedSelectionBlock(quote)}\n\n${prompt}`.trim();
+export function promptWithQuotedSelection(prompt: string, quote?: AgentQuotedSelection | AgentQuotedSelection[] | null): string {
+  const quotes = Array.isArray(quote) ? quote : quote ? [quote] : [];
+  const blocks = quotes
+    .filter((item) => item.text.trim())
+    .map((item) => quotedSelectionBlock(item));
+  if (blocks.length === 0) return prompt;
+  return `${blocks.join("\n\n")}\n\n${prompt}`.trim();
 }
 
 export function parseQuotedSelections(content: string): { quotes: ParsedAgentQuote[]; text: string } {
@@ -124,27 +128,35 @@ export function QuotedSelectionChip({
   const filename = quoteLabel(quote);
   const path = quotePath(quote);
   const text = "text" in quote ? quote.text : "";
+  const excerpt = text ? quoteTextExcerpt(text) : "";
   const title = text ? `${filename}${path ? `\n${path}` : ""}\n\n${text}` : path || filename;
   return (
     <span
-      className="group/quote relative inline-flex max-w-full items-center gap-2 overflow-hidden rounded-lg border border-border/70 bg-background/68 py-1.5 pl-3 pr-1 text-[11px] font-medium text-foreground shadow-[inset_0_1px_0_hsl(var(--background)/0.65)] ring-1 ring-background/45 transition hover:border-primary/24 hover:bg-accent/42"
+      className="group/quote relative inline-flex max-w-[min(22rem,100%)] items-start gap-2 overflow-hidden rounded-lg border border-border/70 bg-background/68 py-1.5 pl-3 pr-1 text-[11px] font-medium text-foreground shadow-[inset_0_1px_0_hsl(var(--background)/0.65)] ring-1 ring-background/45 transition hover:border-primary/24 hover:bg-accent/42"
       title={title}
     >
       <span className="absolute inset-y-1 left-1 w-0.5 rounded-full bg-primary/45" />
-      <span className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-foreground/[0.055] text-muted-foreground">
+      <span className="ml-1 mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-foreground/[0.055] text-muted-foreground">
         {kind === "message" ? <MessageSquareQuote className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
       </span>
-      <span className="flex min-w-0 items-baseline gap-1.5">
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.04em] text-muted-foreground/75">
-          {kind === "message" ? "对话引用" : "文件引用"}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.04em] text-muted-foreground/75">
+            {kind === "message" ? "对话引用" : "文件引用"}
+          </span>
+          <span className="min-w-0 max-w-44 truncate text-foreground/90">{filename}</span>
         </span>
-        <span className="max-w-44 truncate text-foreground/90">{filename}</span>
+        {excerpt ? (
+          <span className="line-clamp-3 min-w-0 max-w-[18rem] whitespace-normal break-words text-[11px] leading-4 text-muted-foreground">“{excerpt}”</span>
+        ) : (
+          <span className="line-clamp-3 min-w-0 max-w-[18rem] whitespace-normal break-words text-[11px] leading-4 text-muted-foreground">{path}</span>
+        )}
       </span>
-      {"text" in quote && <span className="shrink-0 rounded-md bg-foreground/[0.055] px-1.5 py-0.5 text-[10px] text-muted-foreground">{quote.text.trim().length} 字</span>}
+      {"text" in quote && <span className="mt-0.5 shrink-0 rounded-md bg-foreground/[0.055] px-1.5 py-0.5 text-[10px] text-muted-foreground">{quote.text.trim().length} 字</span>}
       {removable && (
         <button
           type="button"
-          className="ml-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-background hover:text-foreground"
+          className="ml-0.5 mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-background hover:text-foreground"
           onClick={onRemove}
           aria-label={`Remove quoted selection from ${filename}`}
           title="移除引用"
@@ -154,6 +166,12 @@ export function QuotedSelectionChip({
       )}
     </span>
   );
+}
+
+function quoteTextExcerpt(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 180) return normalized;
+  return `${normalized.slice(0, 180)}...`;
 }
 
 export function quoteLabel(quote: AgentQuotedSelection | ParsedAgentQuote): string {

@@ -51,7 +51,7 @@ export function createBrevynMcpServer(options: BrevynMcpServerOptions): McpServe
   const { sdk } = options;
   return sdk.createSdkMcpServer({
     name: "brevyn",
-    version: "0.1.0",
+    version: "0.1.1",
     tools: [
       sdk.tool(
         "course_structure",

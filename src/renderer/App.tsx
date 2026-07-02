@@ -53,13 +53,18 @@ function preferredRendererCodeTheme(): AppCodeThemePreference {
   return "brevyn";
 }
 
+function quoteSelectionIdentity(quote: AgentQuotedSelection): string {
+  const source = quote.kind === "file" ? quote.filePath : `${quote.role}:${quote.label}`;
+  return `${quote.kind}:${source}:${quote.text.trim()}`;
+}
+
 function App() {
   const contentGridRef = useRef<HTMLDivElement | null>(null);
   const fileStateRef = useRef<ReturnType<typeof useWorkspaceFilesState> | null>(null);
   const agentSessionRef = useRef<ReturnType<typeof useAgentSessionController> | null>(null);
   const previewErrorTimeoutRef = useRef<number | null>(null);
   const previewErrorMessageRef = useRef("");
-  const [quotedSelectionsByThread, setQuotedSelectionsByThread] = useState<Record<string, AgentQuotedSelection>>({});
+  const [quotedSelectionsByThread, setQuotedSelectionsByThread] = useState<Record<string, AgentQuotedSelection[]>>({});
   const [profile, setProfile] = useState<UserProfileSettings>({ displayName: "Brevyn User", avatarId: "🧑‍💻" });
   const [themeState, setThemeState] = useState<AppThemeState>({
     preference: "system",
@@ -212,20 +217,32 @@ function App() {
     previewCoordinator.revealSelectedFile("file");
     await fileState.previewWorkspacePath(filePath);
   }, [fileState.previewWorkspacePath, previewCoordinator]);
-  const activeQuotedSelection = workspace.activeThreadId ? quotedSelectionsByThread[workspace.activeThreadId] || null : null;
+  const activeQuotedSelections = workspace.activeThreadId ? quotedSelectionsByThread[workspace.activeThreadId] || [] : [];
   const addQuotedSelection = useCallback((quote: AgentQuotedSelection) => {
-    setQuotedSelectionsByThread((current) => ({
-      ...current,
-      [quote.threadId]: quote,
-    }));
+    setQuotedSelectionsByThread((current) => {
+      const existing = current[quote.threadId] || [];
+      const alreadyAdded = existing.some((item) => quoteSelectionIdentity(item) === quoteSelectionIdentity(quote));
+      if (alreadyAdded) return current;
+      return {
+        ...current,
+        [quote.threadId]: [...existing, quote],
+      };
+    });
   }, []);
-  const removeActiveQuotedSelection = useCallback(() => {
+  const removeActiveQuotedSelection = useCallback((quoteId?: string) => {
     const threadId = workspace.activeThreadId;
     if (!threadId) return;
     setQuotedSelectionsByThread((current) => {
-      if (!current[threadId]) return current;
+      const existing = current[threadId] || [];
+      if (existing.length === 0) return current;
       const next = { ...current };
-      delete next[threadId];
+      if (!quoteId) {
+        delete next[threadId];
+        return next;
+      }
+      const remaining = existing.filter((quote) => quote.id !== quoteId);
+      if (remaining.length > 0) next[threadId] = remaining;
+      else delete next[threadId];
       return next;
     });
   }, [workspace.activeThreadId]);
@@ -356,7 +373,7 @@ function App() {
                     onSelectProvider={selectAgentProvider}
                     files={fileState.fileTree}
                     skills={workspace.skills}
-                    quotedSelection={activeQuotedSelection}
+                    quotedSelections={activeQuotedSelections}
                     onRemoveQuotedSelection={removeActiveQuotedSelection}
                     onRestoreQuotedSelection={addQuotedSelection}
                     onPreviewFilePath={previewInlineFilePath}

@@ -337,7 +337,7 @@ export class Sub2AccountService {
       sub2,
       provider: sync.provider,
       providers: sync.providers,
-      providerSyncStatus: sync.status === "synced" ? "synced" : "provisioning",
+      providerSyncStatus: sync.status,
       providerSyncDetail: sync.detail,
     };
   }
@@ -514,7 +514,9 @@ export class Sub2AccountService {
       : [];
     const activeAgentProvider = activated.find((provider) => provider.purpose === "agent")
       ?? this.providers.list().find((provider) => provider.enabled && provider.purpose === "agent" && isSub2ProviderId(provider.id));
-    const syncErrorDetail = batch.errors.length > 0 ? `部分官方模型同步失败：${batch.errors.join("；")}` : "";
+    const retryErrors = batch.errors.filter((message) => !isInsufficientBalanceError(message));
+    const balanceErrors = batch.errors.filter(isInsufficientBalanceError);
+    const syncErrorDetail = retryErrors.length > 0 ? `部分官方模型同步失败：${retryErrors.join("；")}` : "";
     this.patchData({
       currentGroupId: activeAgentProvider ? providerGroupId(activeAgentProvider.id) : this.currentGroupId(),
       lastSyncedAt: new Date().toISOString(),
@@ -523,9 +525,11 @@ export class Sub2AccountService {
 
     if (batch.providers.length === 0) {
       return {
-        status: "provisioning",
-        detail: batch.errors.length > 0
-          ? `官方模型暂未同步：${batch.errors.join("；")}`
+        status: balanceErrors.length > 0 && retryErrors.length === 0 ? "locked" : "provisioning",
+        detail: retryErrors.length > 0
+          ? `官方模型暂未同步：${retryErrors.join("；")}`
+          : balanceErrors.length > 0
+            ? "账户余额不足，充值后可同步官方模型。"
           : "官方模型正在准备中，暂未返回可用模型。",
         sub2: this.status(),
       };
@@ -1661,7 +1665,10 @@ function officialProviderBatchSyncDetail(batch: OfficialProviderSyncBatch): stri
     .sort((a, b) => officialPurposeSortValue(a) - officialPurposeSortValue(b))
     .map(officialPurposeLabel))];
   const base = `已自动同步 ${batch.syncedGroups.length} 个官方模型分组${purposeNames.length > 0 ? `（${purposeNames.join("、")}）` : ""}。`;
-  if (batch.errors.length > 0) return `${base} ${batch.errors.length} 个分组待重试。`;
+  const retryErrorCount = batch.errors.filter((message) => !isInsufficientBalanceError(message)).length;
+  const balanceErrorCount = batch.errors.filter(isInsufficientBalanceError).length;
+  if (retryErrorCount > 0) return `${base} ${retryErrorCount} 个分组待重试。`;
+  if (balanceErrorCount > 0) return `${base} ${balanceErrorCount} 个分组余额不足。`;
   if (batch.emptyGroups.length > 0) return `${base} ${batch.emptyGroups.length} 个分组暂无模型。`;
   return base;
 }
@@ -1732,6 +1739,10 @@ function stringValue(value: unknown): string {
 function nullableString(value: unknown): string | null {
   const normalized = stringValue(value).trim();
   return normalized || null;
+}
+
+function isInsufficientBalanceError(message: string): boolean {
+  return /insufficient\s+account\s+balance|余额不足/i.test(message);
 }
 
 function errorMessage(error: unknown): string {
