@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Archive, Check, ChevronRight, CircleAlert, Download, Loader2, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, Settings } from "lucide-react";
+import { Archive, Check, ChevronRight, CircleAlert, CloudDownload, Loader2, NotebookTabs, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, Settings } from "lucide-react";
 import type { Course, Thread, BrevynTask, UserProfileSettings } from "@/types/domain";
 import type { UpdaterStatus } from "@/types/domain";
 import { cx } from "@/lib/cn";
@@ -638,6 +638,7 @@ function SidebarUpdateControl({ compact = false }: { compact?: boolean }) {
 
   const progress = status.status === "downloading" ? clampProgress(status.progress.percent) : 0;
   const title = updateControlTitle(status);
+  const available = status.status === "available";
   const downloaded = status.status === "downloaded";
   const disabled = busy || status.status === "downloading" || status.status === "checking";
 
@@ -661,9 +662,12 @@ function SidebarUpdateControl({ compact = false }: { compact?: boolean }) {
     <button
       type="button"
       className={cx(
-        "no-drag shrink-0 rounded-[var(--radius-control)] bg-background/54 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.055)] transition-colors hover:bg-accent/65 hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70",
-        compact ? "mb-1 flex h-9 w-9 items-center justify-center" : downloaded ? "flex h-8 items-center gap-1.5 px-2 text-[11px] font-semibold text-foreground" : "flex h-8 w-8 items-center justify-center",
-        status.status === "error" && "text-[hsl(var(--status-warning))]",
+        "no-drag shrink-0 rounded-[var(--radius-control)] transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-75",
+        compact ? "mb-1 flex h-9 w-9 items-center justify-center" : "flex h-8 items-center justify-center gap-1.5 px-2.5 text-[11px] font-semibold",
+        available && "bg-primary text-primary-foreground shadow-[0_8px_18px_hsl(var(--primary)/0.2)] hover:bg-primary/90",
+        status.status === "downloading" && "bg-primary/12 text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]",
+        downloaded && "bg-foreground text-background shadow-[0_8px_18px_hsl(var(--foreground)/0.13)] hover:opacity-90",
+        status.status === "error" && "bg-[hsl(var(--status-warning)/0.13)] text-[hsl(var(--status-warning))] shadow-[inset_0_0_0_1px_hsl(var(--status-warning)/0.24)] hover:bg-[hsl(var(--status-warning)/0.18)]",
       )}
       title={title}
       aria-label={title}
@@ -671,18 +675,24 @@ function SidebarUpdateControl({ compact = false }: { compact?: boolean }) {
       disabled={disabled}
     >
       {status.status === "downloading" ? (
-        <ProgressRing progress={progress} />
+        <>
+          <ProgressRing progress={progress} />
+          {!compact ? <span>{Math.round(progress)}%</span> : null}
+        </>
       ) : status.status === "downloaded" ? (
         <>
           <RefreshCw className="h-3.5 w-3.5" />
-          {!compact ? <span>重启</span> : null}
+          {!compact ? <span>重启更新</span> : null}
         </>
       ) : status.status === "error" ? (
         <CircleAlert className="h-3.5 w-3.5" />
       ) : busy || status.status === "checking" ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
-        <Download className="h-3.5 w-3.5" />
+        <>
+          <CloudDownload className="h-3.5 w-3.5" />
+          {!compact ? <span>更新</span> : null}
+        </>
       )}
     </button>
   );
